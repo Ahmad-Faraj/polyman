@@ -25,22 +25,33 @@ describe('utils.ts integration', () => {
 
       try {
         process.chdir(tmpDir);
+
+        // A root-level header included by bare name from a subdirectory
+        // source, mirroring how `generators/gen.cpp` includes the
+        // problem-root `testlib.h`. This only resolves because compileCPP
+        // passes the problem root to g++ via `-iquote`.
         fs.writeFileSync(
-          path.join(tmpDir, 'main.cpp'),
+          path.join(tmpDir, 'probe.h'),
+          'inline const char* probe() { return "OK"; }\n'
+        );
+        fs.mkdirSync(path.join(tmpDir, 'solutions'));
+        fs.writeFileSync(
+          path.join(tmpDir, 'solutions', 'main.cpp'),
           [
+            '#include "probe.h"',
             '#include <iostream>',
             'int main() {',
-            '  std::cout << "OK\\n";',
+            '  std::cout << probe() << "\\n";',
             '  return 0;',
             '}',
             '',
           ].join('\n')
         );
 
-        await compileCPP('main.cpp');
+        await compileCPP('solutions/main.cpp');
         const command = getCompiledCommandToRun({
           name: 'main',
-          source: 'main.cpp',
+          source: 'solutions/main.cpp',
           tag: 'MA',
         } satisfies LocalSolution);
         const result = await executor.execute(command, {
@@ -53,6 +64,7 @@ describe('utils.ts integration', () => {
         process.chdir(originalCwd);
         fs.rmSync(tmpDir, { recursive: true, force: true });
       }
-    }
+    },
+    30_000
   );
 });

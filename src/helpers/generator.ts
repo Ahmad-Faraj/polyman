@@ -15,9 +15,9 @@ import {
   throwError,
   ensureDirectoryExists,
   getCompiledCommandToRun,
-  quoteShellArgument,
 } from './utils';
 import { DEFAULT_TIMEOUT, DEFAULT_MEMORY_LIMIT } from './utils';
+import { quoteShellArgument } from './shell';
 import { fmt } from '../formatter';
 import {
   parseGeneratorScript,

@@ -118,34 +118,13 @@ describe('utils.ts', () => {
     });
   });
 
-  describe('quoteShellArgument', () => {
-    it('should quote paths with spaces and parentheses', () => {
-      const quoted = utils.quoteShellArgument('/tmp/polyman path 3)test');
-
-      if (process.platform === 'win32') {
-        expect(quoted).toBe('"/tmp/polyman path 3)test"');
-      } else {
-        expect(quoted).toBe("'/tmp/polyman path 3)test'");
-      }
-    });
-
-    it.skipIf(process.platform === 'win32')(
-      'should quote POSIX paths with apostrophes',
-      () => {
-        expect(utils.quoteShellArgument("/tmp/O'Brien/main.cpp")).toBe(
-          "'/tmp/O'\\''Brien/main.cpp'"
-        );
-      }
-    );
-  });
-
   describe('Compilation', () => {
     describe('compileCPP', () => {
       it('should compile cpp file', async () => {
         await utils.compileCPP('main.cpp');
 
         expect(executeMock()).toHaveBeenCalledWith(
-          expect.stringContaining('g++ -I'),
+          expect.stringContaining('g++ -iquote'),
           expect.anything()
         );
       });
@@ -161,7 +140,7 @@ describe('utils.ts', () => {
             await utils.compileCPP('gen.cpp');
 
             expect(executeMock()).toHaveBeenCalledWith(
-              "g++ -I '/tmp/polyman path 3)test' " +
+              "g++ -iquote '/tmp/polyman path 3)test' " +
                 "-o '/tmp/polyman path 3)test/gen' " +
                 "'/tmp/polyman path 3)test/gen.cpp'",
               expect.anything()

@@ -21,8 +21,6 @@ export const DEFAULT_TIMEOUT = 10000;
 /** Default memory limit in megabytes */
 export const DEFAULT_MEMORY_LIMIT = 1024;
 
-export { quoteShellArgument };
-
 // ENV is win or unix
 export const ENV = process.platform === 'win32' ? 'win' : 'unix';
 
@@ -36,6 +34,8 @@ export const API_KEY_LOCATION =
 /**
  * Compiles a C++ source file using g++.
  * Uses -O2 optimization and C++23 standard.
+ * The problem root (current working directory) is added as a quoted-include
+ * search path so sources in subdirectories can `#include "testlib.h"`.
  *
  * @param {string} sourcePath - Path to the .cpp source file
  * @returns {Promise<string>} Path to the compiled executable
@@ -57,7 +57,7 @@ export async function compileCPP(sourcePath: string): Promise<void> {
 
   const compileCommand = [
     'g++',
-    '-I',
+    '-iquote',
     quoteShellArgument(process.cwd()),
     '-o',
     quoteShellArgument(outputPath),
