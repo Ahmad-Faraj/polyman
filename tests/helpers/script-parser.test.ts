@@ -373,3 +373,58 @@ describe('readScriptText', () => {
     );
   });
 });
+
+describe('toPolygonScript', () => {
+  const generators: LocalGenerator[] = [
+    { name: 'gen-random', source: './generators/gen.cpp' },
+    { name: 'edge', source: './generators/edge.cpp' },
+  ];
+
+  it('rewrites the leading generator token to the source basename', () => {
+    expect(parser.toPolygonScript('gen-random 10 > $', generators)).toBe(
+      'gen 10 > $'
+    );
+  });
+
+  it('leaves names that already match the basename untouched', () => {
+    expect(parser.toPolygonScript('edge 1 > 5', generators)).toBe('edge 1 > 5');
+  });
+
+  it('preserves comments, directives, blank lines and line endings', () => {
+    const script =
+      '<#-- gen-random is used below -->\r\n' +
+      '\r\n' +
+      '<#-- @group main -->\r\n' +
+      '  gen-random 10 > $\r\n' +
+      '<#list 1..3 as i>\r\n' +
+      'gen-random ${i} > $\r\n' +
+      '</#list>\r\n';
+    expect(parser.toPolygonScript(script, generators)).toBe(
+      '<#-- gen-random is used below -->\r\n' +
+        '\r\n' +
+        '<#-- @group main -->\r\n' +
+        '  gen 10 > $\r\n' +
+        '<#list 1..3 as i>\r\n' +
+        'gen ${i} > $\r\n' +
+        '</#list>\r\n'
+    );
+  });
+
+  it('does not rewrite tokens inside a leading inline comment', () => {
+    expect(
+      parser.toPolygonScript('<#-- gen-random --> gen-random 1 > $', generators)
+    ).toBe('<#-- gen-random --> gen 1 > $');
+  });
+
+  it('does not touch arguments that happen to equal a generator name', () => {
+    expect(
+      parser.toPolygonScript('gen-random gen-random > $', generators)
+    ).toBe('gen gen-random > $');
+  });
+
+  it('leaves unknown generator tokens alone', () => {
+    expect(parser.toPolygonScript('other 1 > $', generators)).toBe(
+      'other 1 > $'
+    );
+  });
+});
