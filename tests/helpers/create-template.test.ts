@@ -21,6 +21,19 @@ describe('create-template.ts', () => {
       expect(infoSpy).toHaveBeenCalled();
       expect(logSpy).toHaveBeenCalledTimes(8);
     });
+
+    it('should print the real --all flags in the next-steps hints', () => {
+      vi.spyOn(fmt, 'highlight').mockImplementation((s: string) => s);
+      vi.spyOn(fmt, 'primary').mockImplementation((s: string) => s);
+      const logSpy = vi.spyOn(fmt, 'log');
+      createTemplate.logTemplateCreationSuccess('my-problem');
+      const lines = logSpy.mock.calls.map(call => String(call[0]));
+      expect(lines.some(l => l.includes('polyman generate --all'))).toBe(true);
+      expect(lines.some(l => l.includes('polyman validate --all'))).toBe(true);
+      expect(lines.some(l => /polyman (generate|validate) all\b/.test(l))).toBe(
+        false
+      );
+    });
   });
 
   describe('copyTemplate', () => {
