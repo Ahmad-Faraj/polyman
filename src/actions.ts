@@ -81,7 +81,7 @@ import {
 import { logTemplateCreationSuccess } from './helpers/create-template';
 import { findTestset, listTestsets } from './helpers/testset';
 import { findMatchingSolutions } from './helpers/solution';
-import { readConfigFile, isNumeric } from './helpers/utils';
+import { readConfigFile, isNumeric, isCppSource } from './helpers/utils';
 
 import { fmt } from './formatter';
 
@@ -156,7 +156,7 @@ export const listAvailableCheckersAction = () => {
 
     const files = fs.readdirSync(checkersDir);
     const checkerFiles = files.filter(
-      file => file.endsWith('.cpp') && file !== 'testlib.h'
+      file => isCppSource(file) && file !== 'testlib.h'
     );
 
     if (checkerFiles.length === 0) {

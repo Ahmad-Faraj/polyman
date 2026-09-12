@@ -18,6 +18,7 @@ import type {
 } from '../../types';
 import { fmt } from '../../formatter';
 import { normalizeLineEndingsFromRemoteToSystem } from './utils';
+import { CPP_EXTENSIONS } from '../utils';
 
 /**
  * Downloads all solutions from Polygon and returns metadata.
@@ -266,7 +267,7 @@ export async function downloadGenerators(
         file.sourceType?.includes('checker') ||
         file.sourceType?.includes('validator') ||
         file.sourceType?.startsWith('solution.') ||
-        file.name === validatorName + '.cpp'
+        CPP_EXTENSIONS.some(ext => file.name === validatorName + ext)
       ) {
         continue;
       }

@@ -8,11 +8,38 @@ import path from 'path';
 import { CheckerTest, PolygonSDK, ValidatorTest } from '../../polygon';
 import type ConfigFile from '../../types';
 import { fmt } from '../../formatter';
-import { logError, throwError } from '../utils';
+import { isCppSource, logError, throwError } from '../utils';
 import { normalizeLineEndingsFromSystemToRemote } from './utils';
 import { LocalTestset, TestOptions } from '../../types';
 import { readScriptText } from '../script-parser';
 import { getResolvedTests } from '../testset';
+
+/** Polygon compiler used for C++ files that do not declare a `sourceType`. */
+export const DEFAULT_CPP_SOURCE_TYPE = 'cpp.g++17';
+
+/**
+ * Picks the Polygon `sourceType` for a file: the value declared in
+ * `Config.json` wins; otherwise it is inferred from the extension.
+ *
+ * @param {string} filename - File name (extension decides the fallback)
+ * @param {string} [declared] - `sourceType` from the config entry, if any
+ * @returns {string} Polygon compiler identifier (e.g. `cpp.gcc14-64-msys2-g++23`)
+ *
+ * @example
+ * resolveSourceType('sol.cc');                              // 'cpp.g++17'
+ * resolveSourceType('sol.cpp', 'cpp.gcc14-64-msys2-g++23'); // declared wins
+ * resolveSourceType('Sol.java');                            // 'java11'
+ */
+export function resolveSourceType(filename: string, declared?: string): string {
+  if (declared) return declared;
+  if (isCppSource(filename)) return DEFAULT_CPP_SOURCE_TYPE;
+
+  const ext = path.extname(filename).toLowerCase();
+  if (ext === '.java') return 'java11';
+  if (ext === '.py') return 'python.3';
+  if (ext === '.c') return 'c.gcc11';
+  return DEFAULT_CPP_SOURCE_TYPE;
+}
 
 /**
  * Uploads all solutions to Polygon.
@@ -47,13 +74,7 @@ export async function uploadSolutions(
       );
       const filename = path.basename(solution.source);
 
-      // Detect source type from extension
-      const ext = path.extname(filename).toLowerCase();
-      let sourceType = 'cpp.g++17'; // default
-      if (ext === '.java') sourceType = 'java11';
-      else if (ext === '.py') sourceType = 'python.3';
-      else if (ext === '.cpp') sourceType = 'cpp.g++17';
-      else if (ext === '.c') sourceType = 'c.gcc11';
+      const sourceType = resolveSourceType(filename, solution.sourceType);
 
       await sdk.saveSolution(problemId, filename, code, solution.tag, {
         sourceType,
@@ -108,7 +129,7 @@ export async function uploadChecker(
     const filename = path.basename(checker.source);
 
     await sdk.saveFile(problemId, 'source', filename, code, {
-      sourceType: 'cpp.g++17',
+      sourceType: resolveSourceType(filename, checker.sourceType),
       checkExisting: false,
     });
 
@@ -187,7 +208,7 @@ export async function uploadValidator(
     const filename = path.basename(config.validator.source);
 
     await sdk.saveFile(problemId, 'source', filename, code, {
-      sourceType: 'cpp.g++17',
+      sourceType: resolveSourceType(filename, config.validator.sourceType),
       checkExisting: false,
     });
 
@@ -268,12 +289,7 @@ export async function uploadGenerators(
       );
       const filename = path.basename(generator.source);
 
-      // Detect source type from extension
-      const ext = path.extname(filename).toLowerCase();
-      let sourceType = 'cpp.g++17';
-      if (ext === '.java') sourceType = 'java11';
-      else if (ext === '.py') sourceType = 'python.3';
-      else if (ext === '.cpp') sourceType = 'cpp.g++17';
+      const sourceType = resolveSourceType(filename, generator.sourceType);
 
       await sdk.saveFile(problemId, 'source', filename, code, {
         sourceType,

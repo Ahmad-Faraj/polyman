@@ -116,6 +116,9 @@ type CppSourceType =
   | 'cpp.g++14'
   | 'cpp.g++17'
   | 'cpp.g++20'
+  | 'cpp.msys2-mingw64-9-g++17'
+  | 'cpp.gcc13-64-winlibs-g++20'
+  | 'cpp.gcc14-64-msys2-g++23'
   | 'cpp.ms2017'
   | 'cpp.ms2019'
   | 'cpp.clang++17'
@@ -385,6 +388,7 @@ interface Package {
  * @property {string} inputFile - Input file name
  * @property {string} outputFile - Output file name
  * @property {boolean} interactive - Whether problem is interactive
+ * @property {string} [cppStandard] - C++ standard for local compilation, passed as `-std=` (default `c++23`)
  * @property {string[]} [tags] - Problem tags/categories
  * @property {string} [description] - General problem description
  * @property {string} [tutorial] - General tutorial text
@@ -408,6 +412,9 @@ interface ConfigFile {
   inputFile: string;
   outputFile: string;
   interactive: boolean;
+
+  // Local compilation: value for g++ `-std=` (e.g. 'c++17', 'c++20', 'c++23')
+  cppStandard?: string;
 
   // Tags and descriptions
   tags?: string[];
