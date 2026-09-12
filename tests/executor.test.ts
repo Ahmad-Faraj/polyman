@@ -22,6 +22,7 @@ vi.mock('child_process', () => ({
 vi.mock('../src/formatter', () => ({
   fmt: {
     dim: vi.fn(),
+    log: vi.fn(),
     success: vi.fn(),
     warning: vi.fn(),
     error: vi.fn(),
@@ -613,10 +614,6 @@ describe('CommandExecutor', () => {
         vi.spyOn(process, 'kill').mockImplementation(() => {
           throw killErr;
         });
-        const consoleSpy = vi
-          .spyOn(console, 'log')
-          .mockImplementation(() => {});
-
         const promise = executor.execute('run', {
           timeout: 100,
           onTimeout: () => {},
@@ -624,7 +621,8 @@ describe('CommandExecutor', () => {
         await vi.advanceTimersByTimeAsync(500);
         await promise;
 
-        expect(consoleSpy).toHaveBeenCalledWith(killErr);
+        // eslint-disable-next-line @typescript-eslint/unbound-method
+        expect(fmt.log).toHaveBeenCalledWith('Unexpected Error');
         vi.useRealTimers();
       });
     });

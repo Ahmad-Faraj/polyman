@@ -4,6 +4,7 @@ The full pipeline. **The bar for "done".** A successful compile is not sufficien
 
 ```bash
 polyman verify
+polyman verify --json      # JSON report on stdout, human log on stderr
 ```
 
 ## Pipeline (in order)
@@ -21,6 +22,42 @@ polyman verify
 11. **Assert tag-conformance** for every solution. See [`../solutions.md`](../solutions.md) for the tag table.
 
 Fails on the first step that errors. The error names the failing component and (where applicable) the failing test.
+
+## `--json` (for agents and scripts)
+
+`polyman verify --json > verify.json` writes exactly one JSON document to stdout; all human-readable output goes to stderr. Exit code is unchanged: 0 when every step passed, 1 otherwise. The document is written on every failure path, including compile errors and validator self-test failures.
+
+```json
+{
+  "schemaVersion": 1,
+  "polymanVersion": "2.3.3",
+  "command": "verify",
+  "ok": false,
+  "failedStep": "verify-solutions",
+  "steps": [
+    { "name": "read-config", "ok": true, "errors": [] },
+    { "name": "compile-generators", "ok": true, "errors": [] },
+    { "name": "generate-tests", "ok": true, "errors": [] },
+    { "name": "compile-validator", "ok": true, "errors": [] },
+    { "name": "test-validator", "ok": true, "errors": [] },
+    { "name": "validate-tests", "ok": true, "errors": [] },
+    { "name": "compile-checker", "ok": true, "errors": [] },
+    { "name": "test-checker", "ok": true, "errors": [] },
+    { "name": "compile-solutions", "ok": true, "errors": [] },
+    { "name": "run-solutions", "ok": true, "errors": [] },
+    { "name": "verify-solutions", "ok": false, "errors": ["Solution wa marked as WA but passed all tests correctly", "Some solutions did not behave as expected"] }
+  ],
+  "solutions": [
+    { "name": "acc", "tag": "MA", "matchesTag": true, "reason": "Main solution ran on every test", "tests": [ { "testset": "tests", "index": 1, "verdict": "OK", "timeMs": 3, "message": "" } ] },
+    { "name": "wa", "tag": "WA", "matchesTag": false, "reason": "Solution wa marked as WA but passed all tests correctly", "tests": [ { "testset": "tests", "index": 1, "verdict": "OK", "timeMs": 3, "message": "" } ] }
+  ]
+}
+```
+
+- `failedStep` is the first step that failed (null on success). Steps after it are absent because verify stops there.
+- `steps[].errors` holds the error lines printed during a failed step (compiler output, validator messages, per-test failures). It is empty for steps that passed.
+- `solutions[]` lists solutions that were run. `matchesTag` is the tag-conformance result; `reason` explains it. Verdicts are `OK`, `WA`, `TLE`, `MLE`, `RTE` (`WA` is assigned by the checker during the comparison step).
+- If verification stops before a solution was compared, its `matchesTag` is false with reason `Not evaluated: verification stopped before comparison`.
 
 ## What it catches
 

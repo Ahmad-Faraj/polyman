@@ -8,6 +8,7 @@ import ConfigFile, {
   LocalSolution,
   VerdictTracker,
   LocalTestset,
+  TestVerdict,
 } from '../types';
 import { executor } from '../executor';
 import fs from 'fs';
@@ -22,6 +23,7 @@ import {
   getCompiledCommandToRun,
 } from './utils';
 import { fmt } from '../formatter';
+import { report } from '../report';
 import { ensureCheckerExists, runChecker } from './checker';
 import type { LocalChecker } from '../types';
 import { getTestIndicesForGroup } from './testset';
@@ -110,7 +112,8 @@ async function runSolution(
   timeout: number,
   memoryLimitMB: number,
   inputFile: string,
-  testsetName: string
+  testsetName: string,
+  groupName?: string
 ) {
   const outputFilePath = path.resolve(
     process.cwd(),
@@ -130,6 +133,18 @@ async function runSolution(
   if (fs.existsSync(outputFilePath)) {
     fs.unlinkSync(outputFilePath);
   }
+  const testIndex = parseTestIndex(inputFile);
+  const startedAt = Date.now();
+  const record = (verdict: TestVerdict, message: string) => {
+    report.recordTest(solution, {
+      testset: testsetName,
+      ...(groupName !== undefined ? { group: groupName } : {}),
+      index: testIndex,
+      verdict,
+      timeMs: Date.now() - startedAt,
+      message,
+    });
+  };
   await executor.executeWithRedirect(
     compiledPath,
     {
@@ -137,18 +152,36 @@ async function runSolution(
       memoryLimitMB,
       silent: true,
       onError: result => {
+        record('RTE', `Runtime Error: ${result.stderr}`);
         writeErrorOutputAndThrow(outputFilePath, result.stderr);
       },
       onTimeout: () => {
+        record('TLE', `Time Limit Exceeded after ${timeout}ms`);
         writeTimeoutOutputAndThrow(outputFilePath, timeout);
       },
       onMemoryExceeded: () => {
+        record('MLE', `Memory Limit Exceeded (${memoryLimitMB} MB)`);
         writeMemoryOutputAndThrow(outputFilePath, memoryLimitMB);
       },
     },
     inputFilePath,
     outputFilePath
   );
+  record('OK', '');
+}
+
+/**
+ * Extracts the Polygon test index from a test file name.
+ *
+ * @param {string} testFile - File name such as `test12.txt`
+ * @returns {number} The numeric index, or 0 if the name has no number
+ *
+ * @example
+ * parseTestIndex('test12.txt'); // 12
+ */
+export function parseTestIndex(testFile: string): number {
+  const match = /(\d+)/.exec(testFile);
+  return match ? parseInt(match[1], 10) : 0;
 }
 /**
  * Creates output directory for solution if it doesn't exist.
@@ -415,7 +448,8 @@ export async function runSolutionOnGroup(
           config.timeLimit,
           config.memoryLimit,
           testFile,
-          testset.name
+          testset.name,
+          groupName
         );
       } catch (error) {
         const message =
@@ -724,9 +758,23 @@ export async function startTheComparisonProcess(
             answerFilePath,
             expectedVerdict
           );
+          report.updateTestVerdict(
+            targetSolution,
+            testset.name,
+            parseTestIndex(testFile),
+            'OK',
+            ''
+          );
         } catch (error) {
           const msg = error instanceof Error ? error.message : String(error);
           logError(`${testFile} in testset ${testset.name}: ${msg}`, 4);
+          report.updateTestVerdict(
+            targetSolution,
+            testset.name,
+            parseTestIndex(testFile),
+            'WA',
+            msg
+          );
           verdictTracker.didWA = true;
           break;
         }

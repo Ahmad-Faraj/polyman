@@ -101,6 +101,7 @@ polyman remote commit . "Updated solutions"
 | `polyman run <solution> --all` | Run solution on all tests       |
 | `polyman test <component>`     | Test validator/checker/solution |
 | `polyman verify`               | Complete verification workflow  |
+| `polyman verify --json`        | Same, as a JSON report on stdout |
 
 ### Polygon Commands
 
@@ -114,6 +115,10 @@ polyman remote commit . "Updated solutions"
 | `polyman remote package <id> <type>` | Build package        |
 
 For detailed usage, see [GUIDE.md](GUIDE.md#cli-commands-reference).
+
+### Scripting and AI agents
+
+`run` and `verify` accept `--json`: stdout then carries exactly one JSON document and all human-readable output moves to stderr, so `polyman verify --json > verify.json` is safe to parse. The exit code is unchanged. `remote push` accepts `--yes` and `--name <slug>` so a new problem can be created without a terminal; without a TTY the command fails fast instead of waiting on a prompt. See [GUIDE.md](GUIDE.md#full-verification) for the report shape.
 
 ## Solution Tags
 

@@ -8,6 +8,7 @@ polyman run main --testset tests                    # one testset
 polyman run main --testset tests --group samples    # one group
 polyman run main --testset tests --index 5          # one test
 polyman run all --all                               # every solution against every test
+polyman run main --all --json                       # JSON report on stdout, human log on stderr
 ```
 
 ## Solution name
@@ -24,6 +25,32 @@ Same as `generate` and `validate`:
 | `--testset <name>`, `-t <name>` | One testset. |
 | `--testset <name> --group <name>`, `-g <name>` | One group. |
 | `--testset <name> --index <N>`, `-i <N>` | One test by Polygon index. |
+
+## `--json` (for agents and scripts)
+
+With `--json`, stdout carries exactly one JSON document and every human-readable line goes to stderr, so `polyman run main --all --json > run.json` is safe to parse. Exit code is unchanged (0 unless the command itself failed).
+
+```json
+{
+  "schemaVersion": 1,
+  "polymanVersion": "2.3.3",
+  "command": "run",
+  "ok": true,
+  "solution": "main",
+  "tag": "MA",
+  "tests": [
+    { "testset": "tests", "index": 1, "verdict": "OK", "timeMs": 4, "message": "" },
+    { "testset": "tests", "index": 2, "verdict": "TLE", "timeMs": 1003, "message": "Time Limit Exceeded after 1000ms" }
+  ],
+  "summary": { "total": 2, "byVerdict": { "OK": 1, "TLE": 1 } },
+  "errors": []
+}
+```
+
+- `verdict` is one of `OK` (ran to completion; `run` does not invoke the checker), `TLE`, `MLE`, `RTE`.
+- `tests` lists only tests that were executed. polyman stops a solution at its first failing test in a testset.
+- `group` appears on each test only when you passed `--group`. `tests[].solution` appears only for `polyman run all`.
+- `ok` is about the command, not the verdicts: a `TL` solution that TLEs still yields `ok: true`. `errors` is non-empty only when `ok` is false.
 
 ## Output files
 

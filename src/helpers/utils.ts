@@ -173,6 +173,22 @@ export function readConfigFile(): ConfigFile {
 }
 
 /**
+ * Whether stdin is an interactive terminal, i.e. a prompt could be answered.
+ * Headless agents and CI pipelines get false; commands must not block on a
+ * prompt in that case.
+ *
+ * @returns {boolean} True when stdin is a TTY
+ *
+ * @example
+ * if (!stdinIsInteractive()) {
+ *   throw new Error('pass --yes to skip the confirmation');
+ * }
+ */
+export function stdinIsInteractive(): boolean {
+  return process.stdin.isTTY === true;
+}
+
+/**
  * Checks if a string represents a numeric value.
  *
  * @param {string} value - String to check

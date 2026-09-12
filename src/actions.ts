@@ -84,6 +84,7 @@ import { findMatchingSolutions } from './helpers/solution';
 import { readConfigFile, isNumeric } from './helpers/utils';
 
 import { fmt } from './formatter';
+import { report } from './report';
 
 import path from 'path';
 import fs from 'fs';
@@ -293,22 +294,22 @@ export const downloadTestlibAction = async () => {
  * @throws {Error} If test generation fails
  *
  * @example
- * // From CLI: polyman generate all
+ * // From CLI: polyman generate --all
  * await generateTestsAction('all');
  * // Generates all testsets
  *
  * @example
- * // From CLI: polyman generate tests
+ * // From CLI: polyman generate --testset tests
  * await generateTestsAction('testsets');
  * // Generates testset named 'testsets'
  *
  * @example
- * // From CLI: polyman generate tests samples
+ * // From CLI: polyman generate --testset tests --group samples
  * await generateTestsAction('testsets', 'samples');
  * // Generates group 'samples' in testset 'testsets'
  *
  * @example
- * // From CLI: polyman generate tests 5
+ * // From CLI: polyman generate --testset tests --index 5
  * await generateTestsAction('testsets', '5');
  * // Generates test 5 in testset 'testsets'
  */
@@ -426,22 +427,22 @@ export const generateTestsAction = async (
  * @throws {Error} If validator rejects any test
  *
  * @example
- * // From CLI: polyman validate all
+ * // From CLI: polyman validate --all
  * await validateTestsAction('all');
  * // Validates all testsets
  *
  * @example
- * // From CLI: polyman validate tests
+ * // From CLI: polyman validate --testset tests
  * await validateTestsAction('testsets');
  * // Validates testset named 'testsets'
  *
  * @example
- * // From CLI: polyman validate tests samples
+ * // From CLI: polyman validate --testset tests --group samples
  * await validateTestsAction('testsets', 'samples');
  * // Validates group 'samples' in testset 'testsets'
  *
  * @example
- * // From CLI: polyman validate tests 5
+ * // From CLI: polyman validate --testset tests --index 5
  * await validateTestsAction('testsets', '5');
  * // Validates test 5 in testset 'testsets'
  */
@@ -575,14 +576,19 @@ export const validateTestsAction = async (
 export const runSolutionAction = async (
   solutionName: string,
   target: string,
-  modifier?: string
+  modifier?: string,
+  options: { json?: boolean } = {}
 ) => {
+  if (options.json) {
+    report.startRun(solutionName);
+  }
   try {
     const config = readConfigFile();
     const matchingSolutions = findMatchingSolutions(
       config.solutions,
       solutionName
     );
+    report.setRunSolutions(matchingSolutions);
 
     let stepNum = 1;
 
@@ -591,12 +597,15 @@ export const runSolutionAction = async (
       fmt.section(`🚀 RUNNING ${solutionName.toUpperCase()} ON ALL TESTSETS`);
 
       // step 1: Validate configuration
+      report.beginStep('validate-config');
       stepValidateConfigForSolutions(stepNum++, config, matchingSolutions);
 
       // step 2: Compile solutions
+      report.beginStep('compile-solutions');
       await stepCompileSolutions(stepNum++, matchingSolutions);
 
       // step 3: Run solutions on all testsets
+      report.beginStep('run-solutions');
       await stepRunSolutionsOnAllTestsets(stepNum++, config, matchingSolutions);
 
       // Final success message
@@ -612,12 +621,15 @@ export const runSolutionAction = async (
         );
 
         // step 1: Validate configuration
+        report.beginStep('validate-config');
         stepValidateConfigForSolutions(stepNum++, config, matchingSolutions);
 
         // step 2: Compile solutions
+        report.beginStep('compile-solutions');
         await stepCompileSolutions(stepNum++, matchingSolutions);
 
         // step 3: Run solutions on testset
+        report.beginStep('run-solutions');
         await stepRunSolutionsOnTestset(
           stepNum++,
           config,
@@ -637,12 +649,15 @@ export const runSolutionAction = async (
         );
 
         // step 1: Validate configuration
+        report.beginStep('validate-config');
         stepValidateConfigForSolutions(stepNum++, config, matchingSolutions);
 
         // step 2: Compile solutions
+        report.beginStep('compile-solutions');
         await stepCompileSolutions(stepNum++, matchingSolutions);
 
         // step 3: Run solutions on test
+        report.beginStep('run-solutions');
         await stepRunSolutionsOnTest(
           stepNum++,
           config,
@@ -663,12 +678,15 @@ export const runSolutionAction = async (
         );
 
         // step 1: Validate configuration
+        report.beginStep('validate-config');
         stepValidateConfigForSolutions(stepNum++, config, matchingSolutions);
 
         // step 2: Compile solutions
+        report.beginStep('compile-solutions');
         await stepCompileSolutions(stepNum++, matchingSolutions);
 
         // step 3: Run solutions on group
+        report.beginStep('run-solutions');
         await stepRunSolutionsOnGroup(
           stepNum++,
           config,
@@ -683,11 +701,14 @@ export const runSolutionAction = async (
         );
       }
     }
+    report.finish(true);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     fmt.errorBox('SOLUTION EXECUTION FAILED!');
     fmt.error(`${message}`);
     fmt.newLine();
+    report.fail(message);
+    report.finish(false);
     process.exit(1);
   }
 };
@@ -827,41 +848,57 @@ export const testWhatAction = async (what: string) => {
  * // - Runs all solutions
  * // - Verifies all solutions against main-correct
  */
-export const fullVerificationAction = async () => {
+export const fullVerificationAction = async (
+  options: { json?: boolean } = {}
+) => {
+  if (options.json) {
+    report.startVerify();
+  }
   fmt.section('🏆 POLYGON PROBLEM VERIFICATION');
 
   try {
+    report.beginStep('read-config');
     const config = readConfigFile();
     let stepNum = 1;
 
     // step 1: Compile generators
+    report.beginStep('compile-generators');
     await stepCompileGeneratorsForTestsets(stepNum++, config);
 
     // step 2: Generate tests
+    report.beginStep('generate-tests');
     await stepGenerateTestsForVerification(stepNum++, config);
 
     // step 3: Compile validator
+    report.beginStep('compile-validator');
     await stepCompileValidator(stepNum++, config);
 
     // step 4: Test validator
+    report.beginStep('test-validator');
     await stepTestValidator(stepNum++);
 
     // step 5: Validate generated tests
+    report.beginStep('validate-tests');
     await stepValidateGeneratedTests(stepNum++, config);
 
     // step 6: Compile checker
+    report.beginStep('compile-checker');
     await stepCompileChecker(stepNum++, config);
 
     // step 7: Test checker
+    report.beginStep('test-checker');
     await stepTestChecker(stepNum++);
 
     // step 8: Compile solutions
+    report.beginStep('compile-solutions');
     await stepCompileSolutionsForVerification(stepNum++, config);
 
     // step 9: Run solutions
+    report.beginStep('run-solutions');
     await stepRunSolutionsForVerification(stepNum++, config);
 
     // step 10: Verify solutions against main correct
+    report.beginStep('verify-solutions');
     await stepVerifySolutionsAgainstMainCorrect(stepNum++, config);
 
     // Final success message
@@ -871,11 +908,14 @@ export const fullVerificationAction = async () => {
       `  ${fmt.checkmark()} All components tested and verified successfully`
     );
     fmt.newLine();
+    report.finish(true);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     fmt.errorBox('VERIFICATION FAILED!');
     fmt.error(`${message}`);
     fmt.newLine();
+    report.fail(message);
+    report.finish(false);
     process.exit(1);
   }
 };
@@ -1310,6 +1350,8 @@ export const remotePushProblemAction = async (
     tests?: boolean;
     metadata?: boolean;
     info?: boolean;
+    yes?: boolean;
+    name?: string;
   }
 ): Promise<void> => {
   fmt.section('⬆️  PUSH PROBLEM TO POLYGON');
@@ -1353,8 +1395,10 @@ export const remotePushProblemAction = async (
     let problemId = config.problemId;
 
     if (!problemId) {
-      // Prompt user to create new problem
-      const shouldProceed = await stepPromptCreateProblem(stepNum++);
+      // Prompt user to create new problem (or skip with --yes)
+      const shouldProceed = await stepPromptCreateProblem(stepNum++, {
+        yes: options?.yes,
+      });
 
       if (!shouldProceed) {
         fmt.newLine();
@@ -1363,11 +1407,12 @@ export const remotePushProblemAction = async (
         return;
       }
 
-      // Validate and get problem name
+      // Validate and get problem name (--name wins over Config.json)
       const problemName = await stepGetValidProblemName(
         stepNum++,
         sdk,
-        config.name
+        config.name,
+        { explicitName: options?.name }
       );
 
       // Create the problem on Polygon

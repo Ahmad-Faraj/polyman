@@ -24,6 +24,7 @@ const executor: {
 } = executorModule.executor;
 import * as utils from '../../src/helpers/utils';
 import * as checker from '../../src/helpers/checker';
+import { report } from '../../src/report';
 import * as testsetHelper from '../../src/helpers/testset';
 import fs from 'fs';
 import path from 'path';
@@ -1019,6 +1020,99 @@ describe('solution.ts', () => {
           expect(mockedFsUnlinkSync).toHaveBeenCalled();
         });
       });
+    });
+  });
+  describe('parseTestIndex', () => {
+    it('extracts the numeric index from a test file name', () => {
+      expect(solution.parseTestIndex('test12.txt')).toBe(12);
+      expect(solution.parseTestIndex('test1.txt')).toBe(1);
+    });
+
+    it('returns 0 when there is no number', () => {
+      expect(solution.parseTestIndex('weird.txt')).toBe(0);
+    });
+  });
+
+  describe('JSON report recording', () => {
+    const mockSolution: LocalSolution = {
+      name: 'main',
+      source: 'main.cpp',
+      tag: 'MA',
+    };
+    const mockConfig: ConfigFile = makeConfig();
+
+    it('records OK with the test index after a clean run', async () => {
+      const spy = vi.spyOn(report, 'recordTest');
+      mockedExecuteWithRedirect.mockResolvedValue(okResult);
+      await solution.runSolutionOnSingleTest(
+        mockSolution,
+        mockConfig,
+        'tests',
+        7
+      );
+      expect(spy).toHaveBeenCalledWith(
+        mockSolution,
+        expect.objectContaining({
+          testset: 'tests',
+          index: 7,
+          verdict: 'OK',
+          message: '',
+        })
+      );
+      expect(spy.mock.calls[0][1]).not.toHaveProperty('group');
+      spy.mockRestore();
+    });
+
+    it('records TLE before the timeout error propagates', async () => {
+      const spy = vi.spyOn(report, 'recordTest');
+      mockedExecuteWithRedirect.mockImplementation(
+        (_cmd: string, options: ExecutionOptions) => {
+          options.onTimeout?.({
+            stdout: '',
+            stderr: '',
+            exitCode: 124,
+            success: false,
+            timedOut: true,
+          });
+          return Promise.resolve(okResult);
+        }
+      );
+      mockedFsWriteFileSync.mockImplementation(() => {});
+      await expect(
+        solution.runSolutionOnSingleTest(mockSolution, mockConfig, 'tests', 2)
+      ).rejects.toThrow('Time Limit Exceeded');
+      expect(spy).toHaveBeenCalledWith(
+        mockSolution,
+        expect.objectContaining({
+          index: 2,
+          verdict: 'TLE',
+          message: 'Time Limit Exceeded after 1000ms',
+        })
+      );
+      spy.mockRestore();
+    });
+
+    it('records the group name when running a group', async () => {
+      const spy = vi.spyOn(report, 'recordTest');
+      mockedExecuteWithRedirect.mockResolvedValue(okResult);
+      mockedGetTestIndicesForGroup.mockReturnValue([3]);
+      await solution.runSolutionOnGroup(
+        mockSolution,
+        mockConfig,
+        { name: 'tests' } as unknown as Parameters<
+          typeof solution.runSolutionOnGroup
+        >[2],
+        'samples'
+      );
+      expect(spy).toHaveBeenCalledWith(
+        mockSolution,
+        expect.objectContaining({
+          testset: 'tests',
+          index: 3,
+          group: 'samples',
+        })
+      );
+      spy.mockRestore();
     });
   });
 });
