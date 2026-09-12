@@ -27,6 +27,16 @@ The single source of truth for the whole problem. Every other file is referenced
 }
 ```
 
+## Schema
+
+`Config.schema.json` (next to `Config.json`) is a JSON Schema (draft-07) for this file. `Config.json` points at it via its first key, `"$schema": "./Config.schema.json"`, so editors validate as you type and every enum (solution tags, `sourceType` values, points/feedback policies) and every required key is machine-checkable. polyman itself ignores `$schema`; it is never pushed to Polygon. Keep the key. If you need to validate by hand:
+
+```bash
+npx --yes ajv-cli validate -s Config.schema.json -d Config.json
+```
+
+The schema mirrors the `ConfigFile` type in polyman's `src/types.d.ts`; if the two disagree, the type wins and the schema is the bug.
+
 ## `testsets[]`
 
 Usually one named `"tests"`. Each entry:

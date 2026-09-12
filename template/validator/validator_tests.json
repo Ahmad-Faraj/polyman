@@ -1,11 +1,27 @@
 {
   "tests": [
     {
-      "input": "5 10\n1 2 3 4 5\n",
+      "input": "5\n1 2 3 4 5\n",
       "expectedVerdict": "VALID"
     },
     {
-      "input": "0 0\n\n",
+      "input": "1\n10000\n",
+      "expectedVerdict": "VALID"
+    },
+    {
+      "input": "5 10\n1 2 3 4 5\n",
+      "expectedVerdict": "INVALID"
+    },
+    {
+      "input": "0\n\n",
+      "expectedVerdict": "INVALID"
+    },
+    {
+      "input": "3\n1 2 10001\n",
+      "expectedVerdict": "INVALID"
+    },
+    {
+      "input": "5\n1 2 3 4 5",
       "expectedVerdict": "INVALID"
     }
   ]
