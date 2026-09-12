@@ -22,6 +22,7 @@ import {
   getCompiledCommandToRun,
 } from './utils';
 import { DEFAULT_TIMEOUT, DEFAULT_MEMORY_LIMIT } from './utils';
+import { quoteShellArgument } from './shell';
 import { fmt } from '../formatter';
 
 /**
@@ -55,7 +56,12 @@ export async function runChecker(
 ) {
   let didCatchInvalid = false;
   await executor.execute(
-    `${execCommand} ${inputFilePath} ${outputFilePath} ${answerFilePath}`,
+    [
+      execCommand,
+      quoteShellArgument(inputFilePath),
+      quoteShellArgument(outputFilePath),
+      quoteShellArgument(answerFilePath),
+    ].join(' '),
     {
       timeout: DEFAULT_TIMEOUT,
       memoryLimitMB: DEFAULT_MEMORY_LIMIT,

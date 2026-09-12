@@ -3,10 +3,11 @@
  * Provides cross-language compilation, test filtering, config reading, and directory management.
  */
 
+import fs from 'fs';
 import path from 'path';
 import { executor } from '../executor';
-import fs from 'fs';
 import { fmt } from '../formatter';
+import { quoteShellArgument } from './shell';
 import ConfigFile, {
   LocalChecker,
   LocalGenerator,
@@ -33,6 +34,8 @@ export const API_KEY_LOCATION =
 /**
  * Compiles a C++ source file using g++.
  * Uses -O2 optimization and C++23 standard.
+ * The problem root (current working directory) is added as a quoted-include
+ * search path so sources in subdirectories can `#include "testlib.h"`.
  *
  * @param {string} sourcePath - Path to the .cpp source file
  * @returns {Promise<string>} Path to the compiled executable
@@ -50,8 +53,16 @@ export async function compileCPP(sourcePath: string): Promise<void> {
     throw new Error(`Expected .cpp file, got: ${absolutePath}`);
   }
 
-  const outputPath = absolutePath.replace('.cpp', '');
-  const compileCommand = `g++ -o ${outputPath} ${absolutePath}`;
+  const outputPath = absolutePath.replace(/\.cpp$/, '');
+
+  const compileCommand = [
+    'g++',
+    '-iquote',
+    quoteShellArgument(process.cwd()),
+    '-o',
+    quoteShellArgument(outputPath),
+    quoteShellArgument(absolutePath),
+  ].join(' ');
 
   await executor.execute(compileCommand, {
     timeout: DEFAULT_TIMEOUT,
@@ -74,7 +85,7 @@ export async function compileCPP(sourcePath: string): Promise<void> {
 export async function compileJava(sourcePath: string): Promise<void> {
   const absolutePath = path.resolve(sourcePath);
 
-  await executor.execute(`javac ${absolutePath}`, {
+  await executor.execute(`javac ${quoteShellArgument(absolutePath)}`, {
     timeout: DEFAULT_TIMEOUT,
     silent: true,
   });
@@ -320,13 +331,9 @@ export function getCompiledCommandToRun(
   object: LocalChecker | LocalValidator | LocalSolution | LocalGenerator
 ): string {
   if ('isStandard' in object && object.isStandard) {
-    const checkerName = object.source.replace('.cpp', '');
-    return path.resolve(
-      __dirname,
-      '../..',
-      'assets',
-      'checkers',
-      `${checkerName}`
+    const checkerName = object.source.replace(/\.cpp$/, '');
+    return quoteShellArgument(
+      path.resolve(__dirname, '../..', 'assets', 'checkers', checkerName)
     );
   }
 
@@ -335,17 +342,17 @@ export function getCompiledCommandToRun(
 
   switch (extention) {
     case '.cpp':
-      return source.replace('.cpp', '');
+      return quoteShellArgument(source.replace(/\.cpp$/, ''));
     case '.java': {
       const dir = path.dirname(source);
       const fileName = path.basename(source);
-      const className = fileName.replace('.java', '');
-      return `java -cp ${dir} ${className}`;
+      const className = fileName.replace(/\.java$/, '');
+      return `java -cp ${quoteShellArgument(dir)} ${quoteShellArgument(className)}`;
     }
     case '.py':
-      return `python ${source}`;
+      return `python ${quoteShellArgument(source)}`;
     case '.js':
-      return `node ${source}`;
+      return `node ${quoteShellArgument(source)}`;
     default:
       throw new Error(`Unsupported source file extension: ${extention}`);
   }

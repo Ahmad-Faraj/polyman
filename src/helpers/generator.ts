@@ -17,6 +17,7 @@ import {
   getCompiledCommandToRun,
 } from './utils';
 import { DEFAULT_TIMEOUT, DEFAULT_MEMORY_LIMIT } from './utils';
+import { quoteShellArgument } from './shell';
 import { fmt } from '../formatter';
 import {
   parseGeneratorScript,
@@ -34,9 +35,9 @@ async function runGeneratorToFile(
   args: string[],
   outputFilePath: string
 ) {
-  const argsString = args.join(' ');
+  const argsString = args.map(quoteShellArgument).join(' ');
   await executor.executeWithRedirect(
-    `${execCommand} ${argsString}`,
+    [execCommand, argsString].filter(Boolean).join(' '),
     {
       timeout: DEFAULT_TIMEOUT,
       memoryLimitMB: DEFAULT_MEMORY_LIMIT,
@@ -72,8 +73,8 @@ async function runGeneratorMultiOutput(
   args: string[],
   cwd: string
 ) {
-  const argsString = args.join(' ');
-  await executor.execute(`${execCommand} ${argsString}`, {
+  const argsString = args.map(quoteShellArgument).join(' ');
+  await executor.execute([execCommand, argsString].filter(Boolean).join(' '), {
     timeout: DEFAULT_TIMEOUT,
     memoryLimitMB: DEFAULT_MEMORY_LIMIT,
     silent: true,
