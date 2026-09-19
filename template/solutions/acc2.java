@@ -1,4 +1,3 @@
-package solutions;
 import java.util.*;
 
 public class acc2 {

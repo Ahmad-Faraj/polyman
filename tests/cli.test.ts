@@ -116,18 +116,23 @@ describe('cli.ts', () => {
     expect(actions.runSolutionAction).toHaveBeenCalledWith(
       'main',
       'all',
-      undefined
+      undefined,
+      { json: false }
     );
   });
 
   it('should pass testset and group to run', async () => {
     await loadCli(['run', 'sol', '--testset', 'ts', '--group', 'gp']);
-    expect(actions.runSolutionAction).toHaveBeenCalledWith('sol', 'ts', 'gp');
+    expect(actions.runSolutionAction).toHaveBeenCalledWith('sol', 'ts', 'gp', {
+      json: false,
+    });
   });
 
   it('should pass testset and index to run', async () => {
     await loadCli(['run', 'sol', '--testset', 'ts', '--index', '7']);
-    expect(actions.runSolutionAction).toHaveBeenCalledWith('sol', 'ts', '7');
+    expect(actions.runSolutionAction).toHaveBeenCalledWith('sol', 'ts', '7', {
+      json: false,
+    });
   });
 
   it('should pass only testset to run when no modifier', async () => {
@@ -135,7 +140,8 @@ describe('cli.ts', () => {
     expect(actions.runSolutionAction).toHaveBeenCalledWith(
       'sol',
       'ts',
-      undefined
+      undefined,
+      { json: false }
     );
   });
 
@@ -144,7 +150,18 @@ describe('cli.ts', () => {
     expect(actions.runSolutionAction).toHaveBeenCalledWith(
       'sol',
       'all',
-      undefined
+      undefined,
+      { json: false }
+    );
+  });
+
+  it('should pass --json through to run', async () => {
+    await loadCli(['run', 'sol', '--all', '--json']);
+    expect(actions.runSolutionAction).toHaveBeenCalledWith(
+      'sol',
+      'all',
+      undefined,
+      { json: true }
     );
   });
 
@@ -159,7 +176,16 @@ describe('cli.ts', () => {
 
   it('should register verify command', async () => {
     await loadCli(['verify']);
-    expect(actions.fullVerificationAction).toHaveBeenCalled();
+    expect(actions.fullVerificationAction).toHaveBeenCalledWith({
+      json: false,
+    });
+  });
+
+  it('should pass --json through to verify', async () => {
+    await loadCli(['verify', '--json']);
+    expect(actions.fullVerificationAction).toHaveBeenCalledWith({
+      json: true,
+    });
   });
 
   it('should register remote register command', async () => {
@@ -240,6 +266,22 @@ describe('cli.ts', () => {
     expect(actions.remotePushProblemAction).toHaveBeenCalledWith(
       './p',
       expect.objectContaining({ all: true })
+    );
+  });
+
+  it('should pass --yes and --name through to remote push', async () => {
+    await loadCli(['remote', 'push', './p', '--yes', '--name', 'two-sum']);
+    expect(actions.remotePushProblemAction).toHaveBeenCalledWith(
+      './p',
+      expect.objectContaining({ yes: true, name: 'two-sum' })
+    );
+  });
+
+  it('should accept the short -y and -n push flags', async () => {
+    await loadCli(['remote', 'push', './p', '-y', '-n', 'max-flow']);
+    expect(actions.remotePushProblemAction).toHaveBeenCalledWith(
+      './p',
+      expect.objectContaining({ yes: true, name: 'max-flow' })
     );
   });
 

@@ -1441,6 +1441,7 @@ polyman run main --all                                    # All testsets
 polyman run main --testset tests                          # One testset
 polyman run main --testset tests --group samples          # One group
 polyman run main --testset tests --index 5                # One test
+polyman run main --all --json > run.json                  # JSON report on stdout
 ```
 
 **What Happens:**
@@ -1448,6 +1449,27 @@ polyman run main --testset tests --index 5                # One test
 1. Compiles the solution (C++: g++/clang, Java: javac, Python: none) and the checker
 2. Runs the solution against each selected test, measuring time and detecting TLE/MLE/crashes
 3. Invokes the checker against the main solution's answers and reports per-test verdicts plus a summary
+
+**`--json`:** stdout carries exactly one JSON document and every human-readable line goes to stderr, so the output can be piped straight into a parser. The exit code is unchanged. Shape:
+
+```json
+{
+  "schemaVersion": 1,
+  "polymanVersion": "2.3.3",
+  "command": "run",
+  "ok": true,
+  "solution": "main",
+  "tag": "MA",
+  "tests": [
+    { "testset": "tests", "index": 1, "verdict": "OK", "timeMs": 4, "message": "" },
+    { "testset": "tests", "index": 2, "verdict": "TLE", "timeMs": 1003, "message": "Time Limit Exceeded after 1000ms" }
+  ],
+  "summary": { "total": 2, "byVerdict": { "OK": 1, "TLE": 1 } },
+  "errors": []
+}
+```
+
+`verdict` is `OK` (ran to completion; `run` does not invoke the checker), `TLE`, `MLE`, or `RTE`. `tests` lists only the tests that were executed: polyman stops a solution at its first failing test in a testset. `group` is present only with `--group`; `tests[].solution` is present only for `polyman run all`. `ok` reflects whether the command itself completed, not the verdicts, and `errors` is non-empty only when `ok` is false.
 
 ---
 
@@ -1516,7 +1538,54 @@ Runs complete problem verification workflow.
 
 ```bash
 polyman verify
+polyman verify --json > verify.json     # JSON report on stdout, human log on stderr
 ```
+
+**`--json`:** writes exactly one JSON document to stdout on every code path, including compile failures and validator self-test failures, and moves all human-readable output to stderr. The exit code is unchanged (0 only when every step passed). Shape:
+
+```json
+{
+  "schemaVersion": 1,
+  "polymanVersion": "2.3.3",
+  "command": "verify",
+  "ok": false,
+  "failedStep": "test-validator",
+  "steps": [
+    { "name": "read-config", "ok": true, "errors": [] },
+    { "name": "compile-generators", "ok": true, "errors": [] },
+    { "name": "generate-tests", "ok": true, "errors": [] },
+    { "name": "compile-validator", "ok": true, "errors": [] },
+    {
+      "name": "test-validator",
+      "ok": false,
+      "errors": [
+        "✖ Validator Test 1 failed:\n\tFAIL Expected EOLN (test case 1, stdin, line 1)\n expected to be VALID",
+        "Some validator tests failed"
+      ]
+    }
+  ],
+  "solutions": []
+}
+```
+
+Step names, in pipeline order: `read-config`, `compile-generators`, `generate-tests`, `compile-validator`, `test-validator`, `validate-tests`, `compile-checker`, `test-checker`, `compile-solutions`, `run-solutions`, `verify-solutions`. `failedStep` names the first failing step (null on success) and later steps are absent because verify stops there. `steps[].errors` holds the error lines printed during a failed step and is empty for steps that passed.
+
+On success `solutions[]` has one entry per solution that ran:
+
+```json
+{
+  "name": "wa",
+  "tag": "WA",
+  "matchesTag": true,
+  "reason": "Behaves as expected",
+  "tests": [
+    { "testset": "tests", "index": 1, "verdict": "OK", "timeMs": 3, "message": "" },
+    { "testset": "tests", "index": 2, "verdict": "WA", "timeMs": 3, "message": "wrong answer expected 3 found 4" }
+  ]
+}
+```
+
+`matchesTag` is the tag-conformance verdict and `reason` explains it. Per-test verdicts are `OK`, `WA`, `TLE`, `MLE`, `RTE`; `WA` is assigned by the checker in the comparison step. A solution that ran but was never compared (verification stopped first) is reported with `matchesTag: false` and the reason `Not evaluated: verification stopped before comparison`.
 
 **What Happens:**
 
@@ -1902,6 +1971,19 @@ polyman remote push 123456 ./my-problem --all
 | Tests | `-t, --tests` | Push testsets and manual tests |
 | Metadata | `-m, --metadata` | Push description and tags |
 | Info | `-i, --info` | Update problem info (limits) |
+| Yes | `-y, --yes` | Create a new Polygon problem without the confirmation prompt |
+| Name | `-n, --name <slug>` | Slug for the new Polygon problem instead of prompting |
+
+#### Creating the Polygon problem headlessly
+
+When `Config.json` has no `problemId`, `push` creates the problem on Polygon first. In a terminal it asks for confirmation and, if `Config.json.name` is missing, invalid, or taken, for a slug. Without a terminal on stdin (CI, an AI agent, `< /dev/null`) it never blocks on a prompt: it exits 1 and names the flag to pass.
+
+```bash
+polyman remote push . --yes                     # confirm creation; slug comes from Config.json.name
+polyman remote push . --yes --name two-sum      # confirm and set the slug explicitly
+```
+
+A `--name` that does not match `^[a-z0-9]+(-[a-z0-9]+)*$` or already exists on Polygon fails the push instead of re-prompting.
 
 **⚠️ Important:**
 

@@ -1215,4 +1215,149 @@ describe('steps.ts', () => {
       );
     });
   });
+  describe('stepPromptCreateProblem', () => {
+    it('returns true without prompting when --yes is given', async () => {
+      const result = await steps.stepPromptCreateProblem(1, { yes: true });
+      expect(result).toBe(true);
+      expect(utils.stdinIsInteractive).not.toHaveBeenCalled();
+      expect(formatter.fmt.stepComplete).toHaveBeenCalledWith(
+        'Confirmed via --yes'
+      );
+    });
+
+    it('fails fast instead of prompting when stdin is not a terminal', async () => {
+      vi.mocked(utils.stdinIsInteractive).mockReturnValue(false);
+      await expect(steps.stepPromptCreateProblem(1)).rejects.toThrow(
+        /stdin is not a terminal; pass --yes/
+      );
+    });
+
+    it('prompts on a terminal and accepts yes', async () => {
+      vi.mocked(utils.stdinIsInteractive).mockReturnValue(true);
+      const close = vi.fn();
+      vi.doMock('readline', () => ({
+        createInterface: () => ({
+          question: (_q: string, cb: (a: string) => void) => cb('yes'),
+          close,
+        }),
+      }));
+      const result = await steps.stepPromptCreateProblem(1);
+      expect(result).toBe(true);
+      expect(close).toHaveBeenCalled();
+      vi.doUnmock('readline');
+    });
+
+    it('prompts on a terminal and treats anything but yes/y as cancel', async () => {
+      vi.mocked(utils.stdinIsInteractive).mockReturnValue(true);
+      vi.doMock('readline', () => ({
+        createInterface: () => ({
+          question: (_q: string, cb: (a: string) => void) => cb('no'),
+          close: vi.fn(),
+        }),
+      }));
+      const result = await steps.stepPromptCreateProblem(1);
+      expect(result).toBe(false);
+      expect(formatter.fmt.stepComplete).toHaveBeenCalledWith('User cancelled');
+      vi.doUnmock('readline');
+    });
+  });
+
+  describe('stepGetValidProblemName', () => {
+    type Sdk = Parameters<typeof steps.stepGetValidProblemName>[1];
+    const sdkWith = (names: string[]): Sdk =>
+      ({
+        listProblems: vi.fn().mockResolvedValue(names.map(name => ({ name }))),
+      }) as unknown as Sdk;
+
+    it('accepts a valid --name that is free on Polygon', async () => {
+      vi.mocked(utils.stdinIsInteractive).mockReturnValue(false);
+      const name = await steps.stepGetValidProblemName(
+        1,
+        sdkWith(['other']),
+        'config-name',
+        { explicitName: 'two-sum' }
+      );
+      expect(name).toBe('two-sum');
+    });
+
+    it('rejects an invalid --name with the naming rule instead of prompting', async () => {
+      vi.mocked(utils.stdinIsInteractive).mockReturnValue(true);
+      await expect(
+        steps.stepGetValidProblemName(1, sdkWith([]), undefined, {
+          explicitName: 'Two Sum',
+        })
+      ).rejects.toThrow(
+        'Invalid problem name "Two Sum". Name must be lowercase, no spaces, only dashes allowed.'
+      );
+    });
+
+    it('rejects a --name that already exists on Polygon', async () => {
+      vi.mocked(utils.stdinIsInteractive).mockReturnValue(true);
+      await expect(
+        steps.stepGetValidProblemName(1, sdkWith(['Two-Sum']), undefined, {
+          explicitName: 'two-sum',
+        })
+      ).rejects.toThrow('Problem name "two-sum" already exists on Polygon.');
+    });
+
+    it('uses a valid Config.json name without prompting when headless', async () => {
+      vi.mocked(utils.stdinIsInteractive).mockReturnValue(false);
+      const name = await steps.stepGetValidProblemName(
+        1,
+        sdkWith([]),
+        'max-flow'
+      );
+      expect(name).toBe('max-flow');
+    });
+
+    it('fails fast when headless and no usable name is available', async () => {
+      vi.mocked(utils.stdinIsInteractive).mockReturnValue(false);
+      await expect(
+        steps.stepGetValidProblemName(1, sdkWith([]), undefined)
+      ).rejects.toThrow(/pass --name <name>/);
+    });
+
+    it('fails fast when headless and the Config.json name is invalid', async () => {
+      vi.mocked(utils.stdinIsInteractive).mockReturnValue(false);
+      await expect(
+        steps.stepGetValidProblemName(1, sdkWith([]), 'Bad Name')
+      ).rejects.toThrow('Invalid problem name "Bad Name"');
+    });
+
+    it('assumes the name is free when Polygon cannot be queried', async () => {
+      vi.mocked(utils.stdinIsInteractive).mockReturnValue(false);
+      const sdk = {
+        listProblems: vi.fn().mockRejectedValue(new Error('offline')),
+      } as unknown as Sdk;
+      const name = await steps.stepGetValidProblemName(1, sdk, 'two-sum');
+      expect(name).toBe('two-sum');
+    });
+
+    it('prompts on a terminal until a valid free name is typed', async () => {
+      vi.mocked(utils.stdinIsInteractive).mockReturnValue(true);
+      const answers = ['Bad Name', 'taken', 'fresh-name'];
+      const close = vi.fn();
+      vi.doMock('readline', () => ({
+        createInterface: () => ({
+          question: (_q: string, cb: (a: string) => void) =>
+            cb(answers.shift() ?? ''),
+          close,
+        }),
+      }));
+      const name = await steps.stepGetValidProblemName(
+        1,
+        sdkWith(['taken']),
+        undefined
+      );
+      expect(name).toBe('fresh-name');
+      expect(close).toHaveBeenCalledTimes(1);
+      expect(formatter.fmt.error).toHaveBeenCalledWith(
+        expect.stringContaining('Invalid problem name "Bad Name"')
+      );
+      expect(formatter.fmt.error).toHaveBeenCalledWith(
+        expect.stringContaining('already exists on Polygon')
+      );
+      vi.doUnmock('readline');
+    });
+  });
 });

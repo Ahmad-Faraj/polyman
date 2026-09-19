@@ -19,6 +19,7 @@ A successful compile is **not** the bar. `polyman verify` (tag-conformance acros
 
 ```
 Config.json              Single source of truth.
+Config.schema.json       JSON Schema for Config.json (referenced by its "$schema" key; keep it).
 solutions/               Solution sources (C++/Java/Python).
 generators/              testlib *.cpp generators + gen-script.txt (the generation script).
 validator/val.cpp        +validator_tests.json

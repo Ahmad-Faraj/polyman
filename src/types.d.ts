@@ -724,6 +724,99 @@ interface VerdictTracker {
   didRTE: boolean;
 }
 
+// ==================== JSON Reports ====================
+
+/**
+ * Per-test verdict recorded while a solution runs (and, during comparison,
+ * after the checker has judged its output).
+ * @typedef TestVerdict
+ */
+type TestVerdict = 'OK' | 'WA' | 'TLE' | 'MLE' | 'RTE';
+
+/**
+ * One executed test inside a JSON report.
+ * @interface TestResult
+ * @property {string} testset - Testset the input came from
+ * @property {string} [group] - Group name, only when the run targeted a group
+ * @property {number} index - Polygon test index (the N in test<N>.txt)
+ * @property {TestVerdict} verdict - Verdict for this test
+ * @property {number} timeMs - Wall-clock time polyman observed for the process
+ * @property {string} message - Failure detail (empty for OK)
+ * @property {string} [solution] - Present only when a run covered several solutions
+ */
+interface TestResult {
+  testset: string;
+  group?: string;
+  index: number;
+  verdict: TestVerdict;
+  timeMs: number;
+  message: string;
+  solution?: string;
+}
+
+/**
+ * One pipeline step inside a verify report.
+ * @interface StepResult
+ */
+interface StepResult {
+  name: string;
+  ok: boolean;
+  errors: string[];
+}
+
+/**
+ * One solution's outcome inside a verify report.
+ * @interface SolutionResult
+ * @property {boolean} matchesTag - Whether the observed verdicts satisfy the tag
+ * @property {string} reason - Human explanation of matchesTag
+ */
+interface SolutionResult {
+  name: string;
+  tag: SolutionTag;
+  matchesTag: boolean;
+  reason: string;
+  tests: TestResult[];
+}
+
+/**
+ * Fields shared by every JSON report.
+ * @interface ReportBase
+ */
+interface ReportBase {
+  schemaVersion: 1;
+  polymanVersion: string;
+  ok: boolean;
+}
+
+/**
+ * Report emitted by `polyman run <solution> --json`.
+ * @interface RunReport
+ */
+interface RunReport extends ReportBase {
+  command: 'run';
+  solution: string;
+  tag: SolutionTag | null;
+  tests: TestResult[];
+  summary: {
+    total: number;
+    byVerdict: Partial<Record<TestVerdict, number>>;
+  };
+  errors: string[];
+}
+
+/**
+ * Report emitted by `polyman verify --json`.
+ * @interface VerifyReport
+ */
+interface VerifyReport extends ReportBase {
+  command: 'verify';
+  failedStep: string | null;
+  steps: StepResult[];
+  solutions: SolutionResult[];
+}
+
+type JsonReport = RunReport | VerifyReport;
+
 // ==================== Exports ====================
 
 export {
@@ -777,6 +870,14 @@ export {
   ResolvedTestSource,
   // Utilities
   VerdictTracker,
+  // JSON reports
+  TestVerdict,
+  TestResult,
+  StepResult,
+  SolutionResult,
+  RunReport,
+  VerifyReport,
+  JsonReport,
 };
 
 export default ConfigFile;

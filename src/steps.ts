@@ -5,6 +5,8 @@
  */
 
 import { fmt } from './formatter';
+import { report } from './report';
+import type { Interface as ReadlineInterface } from 'readline';
 import type { PolygonSDK, Problem } from './polygon';
 import { PolygonSDK as PolygonSDKClass } from './polygon';
 import type {
@@ -82,7 +84,7 @@ import {
 } from './helpers/solution';
 import { copyTemplate } from './helpers/create-template';
 import { downloadFile } from './helpers/testlib-download';
-import { logError, readConfigFile } from './helpers/utils';
+import { logError, readConfigFile, stdinIsInteractive } from './helpers/utils';
 import {
   fetchStatements,
   fetchSolutions,
@@ -572,7 +574,17 @@ export async function stepRunSolutionsForVerification(
   fmt.info(
     `  ${fmt.infoIcon()} Main solution: ${fmt.primary(mainSolution.name)} ${fmt.dim(`(${mainSolution.tag})`)}`
   );
-  await runSolutionOnAllTestsets(mainSolution, config, config.testsets!);
+  try {
+    await runSolutionOnAllTestsets(mainSolution, config, config.testsets!);
+    report.setSolutionOutcome(
+      mainSolution,
+      true,
+      'Main solution ran on every test'
+    );
+  } catch (error) {
+    report.setSolutionOutcome(mainSolution, false, error);
+    throw error;
+  }
   let someFailed = false;
   for (const solution of otherSolutions) {
     try {
@@ -612,8 +624,10 @@ export async function stepVerifySolutionsAgainstMainCorrect(
       fmt.success(
         `    ${fmt.dim('→')} ${fmt.checkmark()} ${fmt.highlight(solution.name)} Behaves as expected`
       );
+      report.setSolutionOutcome(solution, true, 'Behaves as expected');
     } catch (error) {
       didFail = true;
+      report.setSolutionOutcome(solution, false, error);
       logError(error, 4);
     }
   }
@@ -1397,10 +1411,22 @@ export async function stepUploadTestsets(
 }
 
 /**
+ * Pattern a Polygon problem name (slug) must match.
+ */
+const PROBLEM_NAME_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+
+const PROBLEM_NAME_RULE =
+  'Name must be lowercase, no spaces, only dashes allowed.';
+
+/**
  * Step: Prompt user to create new problem on Polygon
+ *
+ * With `yes` the confirmation is skipped. Without a terminal on stdin the
+ * step fails immediately instead of blocking on a prompt nobody can answer.
  */
 export async function stepPromptCreateProblem(
-  stepNum: number
+  stepNum: number,
+  options: { yes?: boolean | undefined } = {}
 ): Promise<boolean> {
   fmt.step(stepNum, 'Confirm Problem Creation');
 
@@ -1411,6 +1437,18 @@ export async function stepPromptCreateProblem(
   fmt.info(
     `  ${fmt.infoIcon()} A new problem will be created on Polygon if you continue.`
   );
+
+  if (options.yes) {
+    fmt.info(`  ${fmt.infoIcon()} --yes given, skipping confirmation`);
+    fmt.stepComplete('Confirmed via --yes');
+    return true;
+  }
+
+  if (!stdinIsInteractive()) {
+    throw new Error(
+      'stdin is not a terminal; pass --yes (and --name <name>) to create a new Polygon problem non-interactively'
+    );
+  }
 
   const readline = await import('readline');
   const rl = readline.createInterface({
@@ -1440,71 +1478,91 @@ export async function stepPromptCreateProblem(
 
 /**
  * Step: Validate and get problem name from user
+ *
+ * Resolution order: `options.explicitName` (the --name flag), then
+ * `initialName` (Config.json), then an interactive prompt. An explicit name
+ * that is invalid or already taken fails the step. Without a terminal on
+ * stdin the step fails instead of prompting.
  */
 export async function stepGetValidProblemName(
   stepNum: number,
   sdk: PolygonSDK,
-  initialName?: string
+  initialName?: string,
+  options: { explicitName?: string | undefined } = {}
 ): Promise<string> {
   fmt.step(stepNum, 'Validate Problem Name');
 
-  const readline = await import('readline');
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
+  const interactive = stdinIsInteractive();
+  const strict = options.explicitName !== undefined || !interactive;
+  let problemName: string | undefined = options.explicitName ?? initialName;
+  const prompt: { rl: ReadlineInterface | null } = { rl: null };
 
-  const question = (query: string): Promise<string> => {
-    return new Promise(resolve => rl.question(query, resolve));
+  const question = async (query: string): Promise<string> => {
+    if (!prompt.rl) {
+      const readline = await import('readline');
+      prompt.rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout,
+      });
+    }
+    const active = prompt.rl;
+    return new Promise(resolve => active.question(query, resolve));
   };
 
-  let problemName = initialName;
-  let isValidName = false;
+  try {
+    let isValidName = false;
 
-  while (!isValidName) {
-    // Validate name format: lowercase, no spaces, only dashes
-    if (
-      problemName &&
-      /^[a-z0-9]+(-[a-z0-9]+)*$/.test(problemName) &&
-      problemName === problemName.toLowerCase()
-    ) {
-      // Check if name conflicts with existing problems
-      try {
-        const existingProblems = await sdk.listProblems();
-        const nameConflict = existingProblems.some(
-          p => problemName && p.name.toLowerCase() === problemName.toLowerCase()
-        );
+    while (!isValidName) {
+      if (problemName && PROBLEM_NAME_PATTERN.test(problemName)) {
+        const candidate = problemName;
+        // Check if name conflicts with existing problems
+        let nameConflict = false;
+        try {
+          const existingProblems = await sdk.listProblems();
+          nameConflict = existingProblems.some(
+            p => p.name.toLowerCase() === candidate.toLowerCase()
+          );
+        } catch {
+          // If we can't check, assume it's okay
+          nameConflict = false;
+        }
 
         if (nameConflict) {
-          fmt.error(
-            `  Problem name "${problemName}" already exists on Polygon.`
-          );
+          const message = `Problem name "${candidate}" already exists on Polygon.`;
+          if (strict) {
+            throw new Error(message);
+          }
+          fmt.error(`  ${message}`);
           problemName = '';
         } else {
           isValidName = true;
         }
-      } catch {
-        // If we can't check, assume it's okay
-        isValidName = true;
+      } else {
+        if (problemName) {
+          const message = `Invalid problem name "${problemName}". ${PROBLEM_NAME_RULE}`;
+          if (strict) {
+            throw new Error(message);
+          }
+          fmt.error(`  ${message}`);
+        }
+        problemName = '';
       }
-    } else {
-      if (problemName) {
-        fmt.error(
-          `  Invalid problem name "${problemName}". Name must be lowercase, no spaces, only dashes allowed.`
+
+      if (!isValidName) {
+        if (!interactive) {
+          throw new Error(
+            `stdin is not a terminal; pass --name <name> to create a new Polygon problem non-interactively. ${PROBLEM_NAME_RULE}`
+          );
+        }
+        problemName = await question(
+          '\n  Enter a valid problem name (e.g., two-sum, maximum-flow): '
         );
+        problemName = problemName.trim();
       }
-      problemName = '';
     }
-
-    if (!isValidName) {
-      problemName = await question(
-        '\n  Enter a valid problem name (e.g., two-sum, maximum-flow): '
-      );
-      problemName = problemName.trim();
-    }
+  } finally {
+    prompt.rl?.close();
   }
-
-  rl.close();
 
   if (!problemName) {
     throw new Error('Problem name is required');

@@ -266,6 +266,7 @@ program
  * polyman run main --testset tests
  * polyman run main --testset tests --group samples
  * polyman run main --testset tests --index 5
+ * polyman run main --all --json   # machine-readable report on stdout
  */
 program
   .command('run <solution-name>')
@@ -274,6 +275,10 @@ program
   .option('-t, --testset <name>', 'Run on specific testset')
   .option('-g, --group <name>', 'Run on specific group within testset')
   .option('-i, --index <number>', 'Run on specific test by index')
+  .option(
+    '--json',
+    'Print a JSON report to stdout (human output goes to stderr)'
+  )
   .action(
     async (
       solutionName: string,
@@ -282,6 +287,7 @@ program
         testset?: string;
         group?: string;
         index?: string;
+        json?: boolean;
       }
     ) => {
       let target = 'all';
@@ -298,7 +304,9 @@ program
         }
       }
 
-      await runSolutionAction(solutionName, target, modifier);
+      await runSolutionAction(solutionName, target, modifier, {
+        json: options.json === true,
+      });
     }
   );
 
@@ -335,11 +343,18 @@ program
  *
  * @example
  * polyman verify
+ * polyman verify --json   # machine-readable report on stdout
  */
 program
   .command('verify')
   .description('Run full problem verification (generate, validate, test all)')
-  .action(fullVerificationAction);
+  .option(
+    '--json',
+    'Print a JSON report to stdout (human output goes to stderr)'
+  )
+  .action(async (options: { json?: boolean }) => {
+    await fullVerificationAction({ json: options.json === true });
+  });
 
 // ============================================================================
 // REMOTE COMMANDS
@@ -425,6 +440,7 @@ remote
  * polyman remote push ./my-problem
  * polyman remote push ./my-problem -s -c  # Push only solutions and checker
  * polyman remote push ./my-problem --all  # Push everything (default)
+ * polyman remote push . --yes --name two-sum  # Create the Polygon problem headlessly
  * */
 remote
   .command('push <directory>')
@@ -438,6 +454,8 @@ remote
   .option('-t, --tests', 'Push tests')
   .option('-m, --metadata', 'Push metadata (description and tags)')
   .option('-i, --info', 'Update problem info (time/memory limits)')
+  .option('-y, --yes', 'Create a new Polygon problem without confirmation')
+  .option('-n, --name <name>', 'Name (slug) for a new Polygon problem')
   .action(
     async (
       directory: string,
@@ -451,6 +469,8 @@ remote
         tests?: boolean;
         metadata?: boolean;
         info?: boolean;
+        yes?: boolean;
+        name?: string;
       }
     ) => {
       await remotePushProblemAction(directory, options);

@@ -42,6 +42,12 @@ module.exports = defineConfig([
     },
   },
   {
-    ignores: ['dist/**', 'node_modules/**', 'coverage/**', '*.config.js'],
+    ignores: [
+      'dist/**',
+      'node_modules/**',
+      'coverage/**',
+      '.claude/**',
+      '*.config.js',
+    ],
   },
 ]);

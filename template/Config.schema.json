@@ -1,0 +1,367 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/HamzaHassanain/polyman/template/Config.schema.json",
+  "title": "polyman Config.json",
+  "description": "Schema for a polyman problem's Config.json. Mirrors the ConfigFile type in src/types.d.ts. Paths are relative to the problem directory.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "name",
+    "timeLimit",
+    "memoryLimit",
+    "inputFile",
+    "outputFile",
+    "interactive",
+    "statements",
+    "solutions",
+    "checker",
+    "validator"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Path or URL of this schema. Ignored by polyman; used by editors for validation."
+    },
+    "problemId": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Polygon problem ID. Set automatically by `polyman remote push` / `remote pull`. Absent for a problem that has never been pushed."
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+      "description": "Polygon problem name: lowercase letters, digits and single dashes only. Immutable after the first push."
+    },
+    "owner": {
+      "type": "string",
+      "description": "Polygon username of the problem owner."
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Polygon revision number recorded by `remote pull`."
+    },
+    "timeLimit": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Time limit in milliseconds, applied to every solution."
+    },
+    "memoryLimit": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Memory limit in megabytes."
+    },
+    "inputFile": {
+      "type": "string",
+      "description": "Input source. Keep \"stdin\" unless the problem explicitly reads from a file."
+    },
+    "outputFile": {
+      "type": "string",
+      "description": "Output target. Keep \"stdout\" unless the problem explicitly writes to a file."
+    },
+    "interactive": {
+      "type": "boolean",
+      "description": "Whether the problem is interactive. Rare; requires an interactor on Polygon."
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Polygon tags, e.g. \"implementation\", \"math\"."
+    },
+    "description": {
+      "type": "string",
+      "description": "Short problem description shown in Polygon's problem list."
+    },
+    "tutorial": {
+      "type": "string",
+      "description": "Problem-level tutorial text pushed to Polygon."
+    },
+    "statements": {
+      "type": "object",
+      "description": "One entry per statement language, keyed by Polygon language name (\"english\", \"russian\", ...).",
+      "additionalProperties": { "$ref": "#/definitions/StatementConfig" }
+    },
+    "solutions": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/definitions/LocalSolution" },
+      "description": "All solutions. Exactly one must carry tag \"MA\"."
+    },
+    "generators": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/LocalGenerator" },
+      "description": "testlib generators referenced by name from generator scripts."
+    },
+    "checker": { "$ref": "#/definitions/LocalChecker" },
+    "validator": { "$ref": "#/definitions/LocalValidator" },
+    "testsets": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/LocalTestset" },
+      "description": "Testsets. Usually a single one named \"tests\"."
+    }
+  },
+  "definitions": {
+    "SolutionTag": {
+      "type": "string",
+      "enum": ["MA", "OK", "RJ", "TL", "TO", "WA", "PE", "ML", "RE"],
+      "description": "Expected verdict. MA = main correct (exactly one), OK = correct, WA = wrong answer, TL = time limit, TO = TLE-or-OK, ML = memory limit, RE = runtime error, PE = presentation error, RJ = rejected for any reason."
+    },
+    "CppSourceType": {
+      "type": "string",
+      "enum": [
+        "cpp.g++11",
+        "cpp.g++14",
+        "cpp.g++17",
+        "cpp.g++20",
+        "cpp.ms2017",
+        "cpp.ms2019",
+        "cpp.clang++17",
+        "cpp.clang++20"
+      ]
+    },
+    "SolutionSourceType": {
+      "type": "string",
+      "enum": [
+        "cpp.g++11",
+        "cpp.g++14",
+        "cpp.g++17",
+        "cpp.g++20",
+        "cpp.ms2017",
+        "cpp.ms2019",
+        "cpp.clang++17",
+        "cpp.clang++20",
+        "java.8",
+        "java.11",
+        "java.17",
+        "java.21",
+        "python.2",
+        "python.3",
+        "python.pypy2",
+        "python.pypy3"
+      ],
+      "description": "Polygon compiler/interpreter identifier. Solutions may be C++, Java or Python."
+    },
+    "PointsPolicy": {
+      "type": "string",
+      "enum": ["COMPLETE_GROUP", "EACH_TEST"]
+    },
+    "FeedbackPolicy": {
+      "type": "string",
+      "enum": ["NONE", "POINTS", "ICPC", "COMPLETE"]
+    },
+    "StatementConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["encoding", "name"],
+      "properties": {
+        "encoding": {
+          "type": "string",
+          "description": "Statement encoding, normally \"UTF-8\"."
+        },
+        "name": {
+          "type": "string",
+          "description": "Problem title in this language."
+        },
+        "legend": {
+          "type": "string",
+          "description": "Path to the LaTeX legend fragment."
+        },
+        "input": {
+          "type": "string",
+          "description": "Path to the LaTeX input-format fragment."
+        },
+        "output": {
+          "type": "string",
+          "description": "Path to the LaTeX output-format fragment."
+        },
+        "scoring": {
+          "type": "string",
+          "description": "Path to the LaTeX scoring fragment."
+        },
+        "interaction": {
+          "type": "string",
+          "description": "Path to the LaTeX interaction-protocol fragment (interactive problems)."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Path to the LaTeX notes fragment."
+        },
+        "tutorial": {
+          "type": "string",
+          "description": "Path to the LaTeX tutorial fragment."
+        }
+      }
+    },
+    "LocalSolution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "source", "tag"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Identifier used by `polyman run <name>` and `polyman test <name>`."
+        },
+        "source": {
+          "type": "string",
+          "description": "Path to the solution source file."
+        },
+        "tag": { "$ref": "#/definitions/SolutionTag" },
+        "sourceType": { "$ref": "#/definitions/SolutionSourceType" }
+      }
+    },
+    "LocalGenerator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "source"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Generator name as used in the generator script (no extension)."
+        },
+        "source": {
+          "type": "string",
+          "description": "Path to the generator C++ source (must use testlib.h)."
+        },
+        "sourceType": { "$ref": "#/definitions/CppSourceType" }
+      }
+    },
+    "LocalChecker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "source"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Checker name."
+        },
+        "source": {
+          "type": "string",
+          "description": "Custom checker: path to the C++ source. Standard checker (isStandard=true): the file name shipped with polyman, e.g. \"wcmp.cpp\" (see `polyman list checkers`)."
+        },
+        "isStandard": {
+          "type": "boolean",
+          "description": "True to use one of polyman's bundled testlib checkers instead of a custom source."
+        },
+        "testsFilePath": {
+          "type": "string",
+          "description": "Path to the checker self-test JSON (ignored for standard checkers)."
+        },
+        "sourceType": { "$ref": "#/definitions/CppSourceType" }
+      }
+    },
+    "LocalValidator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "source"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Validator name."
+        },
+        "source": {
+          "type": "string",
+          "description": "Path to the validator C++ source (must use testlib.h)."
+        },
+        "sourceType": { "$ref": "#/definitions/CppSourceType" },
+        "testsFilePath": {
+          "type": "string",
+          "description": "Path to the validator self-test JSON."
+        }
+      }
+    },
+    "GeneratorScript": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Polygon-format generator script, inline or in a file. Provide exactly one of `script` / `scriptFile`.",
+      "properties": {
+        "script": {
+          "type": "string",
+          "description": "Inline script text, e.g. \"<#-- @group main -->\\ngen 1 > $\\n\"."
+        },
+        "scriptFile": {
+          "type": "string",
+          "description": "Path to a file containing the script."
+        }
+      }
+    },
+    "LocalManualTest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input", "index"],
+      "properties": {
+        "input": {
+          "type": "string",
+          "description": "Path to the hand-written input file (convention: ./manual/<testset>/m-<NN>[-label].in)."
+        },
+        "output": {
+          "type": "string",
+          "description": "Optional path to a reference output file."
+        },
+        "index": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "1-based Polygon test index. Must be unique within the testset, including indices used by the script."
+        },
+        "group": {
+          "type": "string",
+          "description": "Test group name (must be declared in the testset's `groups`)."
+        },
+        "points": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Points for this test when `pointsEnabled` is true."
+        },
+        "useInStatements": {
+          "type": "boolean",
+          "description": "Whether the test is shown as a sample in the statement."
+        }
+      }
+    },
+    "LocalTestGroup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Group name referenced by manual tests and `<#-- @group name -->` script headers."
+        },
+        "pointsPolicy": { "$ref": "#/definitions/PointsPolicy" },
+        "feedbackPolicy": { "$ref": "#/definitions/FeedbackPolicy" },
+        "dependencies": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Names of groups that must pass before this one is judged."
+        }
+      }
+    },
+    "LocalTestset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Testset name, usually \"tests\". Tests are written to ./testsets/<name>/."
+        },
+        "generatorScript": { "$ref": "#/definitions/GeneratorScript" },
+        "manualTests": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/LocalManualTest" }
+        },
+        "groupsEnabled": {
+          "type": "boolean",
+          "description": "Enable test groups. Requires `groups`."
+        },
+        "pointsEnabled": {
+          "type": "boolean",
+          "description": "Enable per-test points."
+        },
+        "groups": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/LocalTestGroup" }
+        }
+      }
+    }
+  }
+}

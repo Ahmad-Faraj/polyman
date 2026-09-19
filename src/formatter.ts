@@ -7,6 +7,18 @@
 import chalk from 'chalk';
 
 /**
+ * Stream that human-readable output is written to.
+ * @typedef OutputTarget
+ */
+export type OutputTarget = 'stdout' | 'stderr';
+
+/**
+ * Listener that receives every message passed to `fmt.error`.
+ * @typedef ErrorSink
+ */
+export type ErrorSink = (message: string) => void;
+
+/**
  * Formatter class for creating styled terminal output with Codeforces theme.
  * Uses chalk library for coloring with custom hex colors (#1E88E5 blue, #FF6B6B red).
  *
@@ -20,6 +32,43 @@ import chalk from 'chalk';
  * fmt.stepComplete('Done');
  */
 export class Formatter {
+  private target: OutputTarget = 'stdout';
+  private errorSink: ErrorSink | null = null;
+
+  /**
+   * Routes all printed output to stdout (default) or stderr.
+   * `--json` commands switch to stderr so stdout carries only the JSON report.
+   * @param {OutputTarget} target - Stream to print to
+   */
+  setOutput(target: OutputTarget): void {
+    this.target = target;
+  }
+
+  /**
+   * Returns the stream human output currently goes to.
+   * @returns {OutputTarget} 'stdout' or 'stderr'
+   */
+  getOutput(): OutputTarget {
+    return this.target;
+  }
+
+  /**
+   * Registers a listener that receives every `error()` message, or null to
+   * remove it. Used by the JSON report collector to capture failure text.
+   * @param {ErrorSink | null} sink - Listener for error messages
+   */
+  setErrorSink(sink: ErrorSink | null): void {
+    this.errorSink = sink;
+  }
+
+  private print(...parts: string[]): void {
+    if (this.target === 'stderr') {
+      console.error(...parts);
+    } else {
+      console.log(...parts);
+    }
+  }
+
   /**
    * Prints a success message in green.
    * @param {string} message - The message to display
@@ -27,7 +76,7 @@ export class Formatter {
    * fmt.success('Template created successfully!');
    */
   success(message: string) {
-    console.log(chalk.green(message));
+    this.print(chalk.green(message));
   }
 
   /**
@@ -37,7 +86,8 @@ export class Formatter {
    * fmt.error('Failed to compile validator');
    */
   error(message: string) {
-    console.log(chalk.red(message));
+    this.print(chalk.red(message));
+    this.errorSink?.(message);
   }
 
   /**
@@ -47,7 +97,7 @@ export class Formatter {
    * fmt.warning('testlib.h already exists');
    */
   warning(message: string) {
-    console.log(chalk.yellow(message));
+    this.print(chalk.yellow(message));
   }
 
   /**
@@ -57,7 +107,7 @@ export class Formatter {
    * fmt.info(`Target: ${generatorName}`);
    */
   info(message: string) {
-    console.log(chalk.white(message));
+    this.print(chalk.white(message));
   }
 
   /**
@@ -68,7 +118,7 @@ export class Formatter {
    * fmt.log('Additional details...');
    */
   log(message: string) {
-    console.log(chalk.gray(message));
+    this.print(chalk.gray(message));
   }
 
   /**
@@ -123,11 +173,11 @@ export class Formatter {
    * fmt.section('📁 CREATE NEW PROBLEM TEMPLATE');
    */
   section(title: string) {
-    console.log();
-    console.log(chalk.bold.blue(`${'═'.repeat(50)}`));
-    console.log(chalk.bold.blue(`  ${title}`));
-    console.log(chalk.bold.blue(`${'═'.repeat(50)}`));
-    console.log();
+    this.print();
+    this.print(chalk.bold.blue(`${'═'.repeat(50)}`));
+    this.print(chalk.bold.blue(`  ${title}`));
+    this.print(chalk.bold.blue(`${'═'.repeat(50)}`));
+    this.print();
   }
 
   /**
@@ -138,8 +188,8 @@ export class Formatter {
    * fmt.step(1, 'Creating Directory Structure');
    */
   step(stepNumber: number, title: string) {
-    console.log();
-    console.log(
+    this.print();
+    this.print(
       chalk.bold.blue(`┌─ Step ${stepNumber}: `) + chalk.bold.white(title)
     );
   }
@@ -149,7 +199,7 @@ export class Formatter {
    * fmt.newLine();
    */
   newLine() {
-    console.log();
+    this.print();
   }
 
   /**
@@ -160,9 +210,9 @@ export class Formatter {
    */
   stepComplete(message?: string) {
     if (message) {
-      console.log(chalk.green(`└─ ✓ ${message}`));
+      this.print(chalk.green(`└─ ✓ ${message}`));
     } else {
-      console.log(chalk.green(`└─ ✓ Complete`));
+      this.print(chalk.green(`└─ ✓ Complete`));
     }
   }
 
@@ -193,7 +243,7 @@ export class Formatter {
    * @param {string} text - Text to make bold
    * @returns {string} Styled text
    * @example
-   * console.log(fmt.bold('Important:'));
+   * this.print(fmt.bold('Important:'));
    */
   bold(text: string): string {
     return chalk.bold(text);
@@ -229,15 +279,15 @@ export class Formatter {
    * fmt.successBox('TEMPLATE CREATED SUCCESSFULLY!');
    */
   successBox(message: string) {
-    console.log();
-    console.log(
+    this.print();
+    this.print(
       chalk.bold.green('  ╔═══════════════════════════════════════════════╗')
     );
-    console.log(chalk.bold.green(`    🎉  ${message.padEnd(41)}  `));
-    console.log(
+    this.print(chalk.bold.green(`    🎉  ${message.padEnd(41)}  `));
+    this.print(
       chalk.bold.green('  ╚═══════════════════════════════════════════════╝')
     );
-    console.log();
+    this.print();
   }
 
   /**
@@ -248,15 +298,15 @@ export class Formatter {
    * fmt.errorBox('VALIDATION FAILED!');
    */
   errorBox(message: string) {
-    console.log();
-    console.log(
+    this.print();
+    this.print(
       chalk.bold.red('  ╔═══════════════════════════════════════════╗')
     );
-    console.log(chalk.bold.red(`   ❌  ${message.padEnd(35)}  `));
-    console.log(
+    this.print(chalk.bold.red(`   ❌  ${message.padEnd(35)}  `));
+    this.print(
       chalk.bold.red('  ╚═══════════════════════════════════════════╝')
     );
-    console.log();
+    this.print();
   }
 }
 
