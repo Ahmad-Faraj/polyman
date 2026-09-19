@@ -385,6 +385,31 @@ describe('pulling.ts', () => {
       expect(result.data[0].source).toBe('./generators/gen.cpp');
     });
 
+    it('should skip the validator when it uses a .cc or .cxx extension', async () => {
+      mockSdk.getFiles.mockResolvedValue({
+        sourceFiles: [
+          { name: 'gen.cc', modificationTimeSeconds: 0, length: 0 },
+          { name: 'validator.cc', modificationTimeSeconds: 0, length: 0 },
+          { name: 'validator.cxx', modificationTimeSeconds: 0, length: 0 },
+        ],
+        resourceFiles: [],
+        auxFiles: [],
+      });
+      mockSdk.viewFile.mockResolvedValue('code');
+
+      const result = await pulling.downloadGenerators(
+        asSdk(mockSdk),
+        1,
+        'dir',
+        'validator'
+      );
+
+      expect(result.count).toBe(1);
+      expect(result.data).toEqual([
+        { name: 'gen', source: './generators/gen.cc' },
+      ]);
+    });
+
     it('should warn but continue when individual viewFile fails', async () => {
       mockSdk.getFiles.mockResolvedValue({
         sourceFiles: [

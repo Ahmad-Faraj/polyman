@@ -211,6 +211,16 @@ describe('solution.ts', () => {
       expect(mockedCompileCPP).toHaveBeenCalledWith('sol.cpp');
     });
 
+    it.each(['.cc', '.cxx'])(
+      'should compile %s solution with compileCPP',
+      async ext => {
+        vi.spyOn(path, 'extname').mockReturnValue(ext);
+        await solution.compileSolution(`sol${ext}`);
+        expect(mockedCompileCPP).toHaveBeenCalledWith(`sol${ext}`);
+        expect(mockedCompileJava).not.toHaveBeenCalled();
+      }
+    );
+
     it('should compile java solution', async () => {
       vi.spyOn(path, 'extname').mockReturnValue('.java');
       await solution.compileSolution('sol.java');

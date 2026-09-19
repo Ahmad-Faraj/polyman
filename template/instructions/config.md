@@ -17,6 +17,7 @@ The single source of truth for the whole problem. Every other file is referenced
   "inputFile": "stdin",                  // keep "stdin" unless asked
   "outputFile": "stdout",                // keep "stdout" unless asked
   "interactive": false,                  // see instructions/checker.md (custom checker) — true is rare
+  "cppStandard": "c++23",                // optional; local g++ -std= value (default c++23; use c++17/c++20 on older compilers)
 
   "statements":  { …see statements.md… },
   "solutions":   [ …see solutions.md…  ],

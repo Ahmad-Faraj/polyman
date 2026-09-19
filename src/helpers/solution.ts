@@ -17,6 +17,7 @@ import { logError, throwError } from './utils';
 import {
   compileCPP,
   compileJava,
+  isCppSource,
   readConfigFile,
   readFirstLine,
   getTestFiles,
@@ -238,12 +239,14 @@ function ensureOutputDirectory(
  * // No compilation needed (interpreted)
  */
 export async function compileSolution(sourcePath: string): Promise<void> {
+  if (isCppSource(sourcePath)) {
+    await compileCPP(sourcePath);
+    return;
+  }
+
   const ext = path.extname(sourcePath);
 
   switch (ext) {
-    case '.cpp':
-      await compileCPP(sourcePath);
-      break;
     case '.py':
       // No compilation needed for Python
       break;

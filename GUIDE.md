@@ -126,7 +126,7 @@ Polyman is a command-line tool designed for competitive programming problem sett
 ### Prerequisites
 
 - **Node.js** v14 or higher
-- **C++ Compiler** (g++, clang, or MSVC)
+- **C++ Compiler** (g++ with C++23 support by default; set `cppStandard` in `Config.json` to target an older standard)
 - **Java JDK** (optional, for Java solutions)
 - **Python** (optional, for Python solutions)
 - **testlib.h** (automatically downloadable via Polyman)
@@ -226,9 +226,16 @@ my-problem/
 {
   "description": "A brief description of the problem",
   "tags": ["implementation", "math", "greedy"],
-  "tutorial": "Solution explanation and approach"
+  "tutorial": "Solution explanation and approach",
+  "cppStandard": "c++23"
 }
 ```
+
+| Field         | Type   | Description                                                           | Default |
+| ------------- | ------ | --------------------------------------------------------------------- | ------- |
+| `cppStandard` | string | Standard passed to the local `g++` as `-std=` (e.g. `c++17`, `c++20`) | `c++23` |
+
+`cppStandard` only affects local compilation (`generate`, `validate`, `run`, `verify`). The compiler used on Polygon is chosen per file through `sourceType` (see [Source Types](#source-types)).
 
 ### Statements
 
@@ -315,8 +322,13 @@ Define all solutions with their expected behavior:
 **C++ Compilers:**
 
 - `cpp.g++11`, `cpp.g++14`, `cpp.g++17`, `cpp.g++20`
+- `cpp.msys2-mingw64-9-g++17`, `cpp.gcc13-64-winlibs-g++20`, `cpp.gcc14-64-msys2-g++23` (64-bit; the last one is Polygon's C++23 compiler)
 - `cpp.ms2017`, `cpp.ms2019`
 - `cpp.clang++17`, `cpp.clang++20`
+
+`sourceType` is honored on `polyman remote push` for solutions, generators, the checker and the validator. C++ files without one are uploaded as `cpp.g++17`. Polygon retires compilers over time, so check the problem's compiler list in the Polygon UI if an upload is rejected.
+
+C++ sources may use the `.cpp`, `.cc` or `.cxx` extension.
 
 **Java Versions:**
 
@@ -331,7 +343,7 @@ Define all solutions with their expected behavior:
 - Always include exactly **one** solution with tag `MA`
 - Include solutions with different expected behaviors (WA, TL, etc.)
 - Use appropriate sourceType for each solution
-- You May Leave The Source Types Empty to Use Default Compilers
+- You May Leave The Source Types Empty to Use Default Compilers (`cpp.g++17` for C++)
 
 **Don'ts:**
 

@@ -119,6 +119,29 @@ describe('pushing.ts', () => {
     vi.clearAllMocks();
   });
 
+  describe('resolveSourceType', () => {
+    it('should prefer the declared sourceType over the extension', () => {
+      expect(
+        pushing.resolveSourceType('sol.cpp', 'cpp.gcc14-64-msys2-g++23')
+      ).toBe('cpp.gcc14-64-msys2-g++23');
+      expect(pushing.resolveSourceType('Sol.java', 'java.21')).toBe('java.21');
+    });
+
+    it('should infer from the extension when nothing is declared', () => {
+      expect(pushing.resolveSourceType('sol.cpp')).toBe('cpp.g++17');
+      expect(pushing.resolveSourceType('sol.cc')).toBe('cpp.g++17');
+      expect(pushing.resolveSourceType('sol.CXX')).toBe('cpp.g++17');
+      expect(pushing.resolveSourceType('Sol.java')).toBe('java11');
+      expect(pushing.resolveSourceType('sol.py')).toBe('python.3');
+      expect(pushing.resolveSourceType('sol.c')).toBe('c.gcc11');
+      expect(pushing.resolveSourceType('sol.unknown')).toBe('cpp.g++17');
+    });
+
+    it('should treat an empty declared sourceType as absent', () => {
+      expect(pushing.resolveSourceType('sol.py', '')).toBe('python.3');
+    });
+  });
+
   describe('uploadSolutions', () => {
     it('should upload solutions successfully', async () => {
       const { sdk, mocks } = buildSdk();
@@ -128,7 +151,59 @@ describe('pushing.ts', () => {
       const result = await pushing.uploadSolutions(sdk, 1, 'dir', mockConfig);
 
       expect(mocks.saveSolution).toHaveBeenCalled();
+      expect(mocks.saveSolution).toHaveBeenCalledWith(
+        1,
+        'sol.cpp',
+        'code',
+        'MA',
+        { sourceType: 'cpp.g++17', checkExisting: false }
+      );
       expect(result).toBe(1);
+    });
+
+    it('should honor the sourceType declared in Config.json', async () => {
+      const { sdk, mocks } = buildSdk();
+      mockedReadFileSync.mockReturnValue('code');
+      mockedExistsSync.mockReturnValue(true);
+      const cfg = asConfig({
+        solutions: [
+          {
+            name: 'sol',
+            source: 'sol.cpp',
+            tag: 'MA',
+            sourceType: 'cpp.gcc14-64-msys2-g++23',
+          },
+        ],
+      });
+
+      await pushing.uploadSolutions(sdk, 1, 'dir', cfg);
+
+      expect(mocks.saveSolution).toHaveBeenCalledWith(
+        1,
+        'sol.cpp',
+        'code',
+        'MA',
+        { sourceType: 'cpp.gcc14-64-msys2-g++23', checkExisting: false }
+      );
+    });
+
+    it('should upload .cc solutions as C++', async () => {
+      const { sdk, mocks } = buildSdk();
+      mockedReadFileSync.mockReturnValue('code');
+      mockedExistsSync.mockReturnValue(true);
+      const cfg = asConfig({
+        solutions: [{ name: 'sol', source: 'sol.cc', tag: 'MA' }],
+      });
+
+      await pushing.uploadSolutions(sdk, 1, 'dir', cfg);
+
+      expect(mocks.saveSolution).toHaveBeenCalledWith(
+        1,
+        'sol.cc',
+        'code',
+        'MA',
+        { sourceType: 'cpp.g++17', checkExisting: false }
+      );
     });
 
     it('should return 0 when solutions list is empty', async () => {
@@ -240,9 +315,39 @@ describe('pushing.ts', () => {
 
       const result = await pushing.uploadChecker(sdk, 1, 'dir', mockConfig);
 
-      expect(mocks.saveFile).toHaveBeenCalled();
+      expect(mocks.saveFile).toHaveBeenCalledWith(
+        1,
+        'source',
+        'check.cpp',
+        'code',
+        { sourceType: 'cpp.g++17', checkExisting: false }
+      );
       expect(mocks.setChecker).toHaveBeenCalledWith(1, 'check.cpp');
       expect(result).toBe(1);
+    });
+
+    it('should honor the checker sourceType from Config.json', async () => {
+      const { sdk, mocks } = buildSdk();
+      mockedReadFileSync.mockReturnValue('code');
+      mockedExistsSync.mockReturnValue(true);
+      const cfg = asConfig({
+        checker: {
+          name: 'check',
+          source: 'check.cc',
+          sourceType: 'cpp.gcc14-64-msys2-g++23',
+        },
+      });
+
+      await pushing.uploadChecker(sdk, 1, 'dir', cfg);
+
+      expect(mocks.saveFile).toHaveBeenCalledWith(
+        1,
+        'source',
+        'check.cc',
+        'code',
+        { sourceType: 'cpp.gcc14-64-msys2-g++23', checkExisting: false }
+      );
+      expect(mocks.setChecker).toHaveBeenCalledWith(1, 'check.cc');
     });
 
     it('should set standard checker without uploading file', async () => {
@@ -388,9 +493,38 @@ describe('pushing.ts', () => {
 
       const result = await pushing.uploadValidator(sdk, 1, 'dir', mockConfig);
 
-      expect(mocks.saveFile).toHaveBeenCalled();
+      expect(mocks.saveFile).toHaveBeenCalledWith(
+        1,
+        'source',
+        'val.cpp',
+        'code',
+        { sourceType: 'cpp.g++17', checkExisting: false }
+      );
       expect(mocks.setValidator).toHaveBeenCalledWith(1, 'val.cpp');
       expect(result).toBe(1);
+    });
+
+    it('should honor the validator sourceType from Config.json', async () => {
+      const { sdk, mocks } = buildSdk();
+      mockedReadFileSync.mockReturnValue('code');
+      mockedExistsSync.mockReturnValue(true);
+      const cfg = asConfig({
+        validator: {
+          name: 'val',
+          source: 'val.cpp',
+          sourceType: 'cpp.gcc13-64-winlibs-g++20',
+        },
+      });
+
+      await pushing.uploadValidator(sdk, 1, 'dir', cfg);
+
+      expect(mocks.saveFile).toHaveBeenCalledWith(
+        1,
+        'source',
+        'val.cpp',
+        'code',
+        { sourceType: 'cpp.gcc13-64-winlibs-g++20', checkExisting: false }
+      );
     });
 
     it('should return 0 when no validator configured', async () => {
@@ -487,6 +621,45 @@ describe('pushing.ts', () => {
       const result = await pushing.uploadGenerators(sdk, 1, 'dir', cfg);
       expect(result).toBe(2);
       expect(mocks.saveFile).toHaveBeenCalledTimes(2);
+      expect(mocks.saveFile).toHaveBeenCalledWith(
+        1,
+        'source',
+        'g1.cpp',
+        'code',
+        { sourceType: 'cpp.g++17', checkExisting: false }
+      );
+      expect(mocks.saveFile).toHaveBeenCalledWith(
+        1,
+        'source',
+        'g2.py',
+        'code',
+        { sourceType: 'python.3', checkExisting: false }
+      );
+    });
+
+    it('should honor the generator sourceType from Config.json', async () => {
+      const { sdk, mocks } = buildSdk();
+      mockedReadFileSync.mockReturnValue('code');
+      mockedExistsSync.mockReturnValue(true);
+      const cfg = asConfig({
+        generators: [
+          {
+            name: 'g1',
+            source: 'g1.cxx',
+            sourceType: 'cpp.gcc14-64-msys2-g++23',
+          },
+        ],
+      });
+
+      await pushing.uploadGenerators(sdk, 1, 'dir', cfg);
+
+      expect(mocks.saveFile).toHaveBeenCalledWith(
+        1,
+        'source',
+        'g1.cxx',
+        'code',
+        { sourceType: 'cpp.gcc14-64-msys2-g++23', checkExisting: false }
+      );
     });
 
     it('should return 0 when generators undefined', async () => {

@@ -55,6 +55,9 @@ describe('actions.ts', () => {
     vi.mocked(utils.isNumeric).mockImplementation((s: string) =>
       /^[0-9]+$/.test(s)
     );
+    vi.mocked(utils.isCppSource).mockImplementation((f: string) =>
+      /\.(cpp|cc|cxx)$/.test(f)
+    );
     vi.mocked(testset.findTestset).mockImplementation(
       (_sets: any, name: string) => ({ name }) as any
     );

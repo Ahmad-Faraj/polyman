@@ -31,32 +31,129 @@ export const SECRET_KEY_LOCATION =
 export const API_KEY_LOCATION =
   ENV === 'win' ? '%USERPROFILE%\\.polyman\\api_key' : '~/.polyman/api_key';
 
+/** File extensions recognised as C++ sources. */
+export const CPP_EXTENSIONS = ['.cpp', '.cc', '.cxx'] as const;
+
+/**
+ * C++ language standard passed to the compiler when `Config.json` does not
+ * set `cppStandard`.
+ */
+export const DEFAULT_CPP_STANDARD = 'c++23';
+
+/**
+ * Accepted shapes for `cppStandard`: `c++NN` / `gnu++NN` plus the historical
+ * draft aliases (`c++0x`, `c++1z`, `c++2b`, ...). Strict on purpose: the
+ * value ends up inside a shell command line.
+ */
+const CPP_STANDARD_PATTERN = /^(c|gnu)\+\+(\d{2}|0x|1y|1z|2a|2b|2c)$/;
+
+/**
+ * Whether a path points at a C++ source (`.cpp`, `.cc` or `.cxx`).
+ *
+ * @param {string} filePath - Path or file name to inspect
+ * @returns {boolean} True when the extension is a C++ one
+ *
+ * @example
+ * isCppSource('solutions/main.cc'); // true
+ * isCppSource('solutions/main.py'); // false
+ */
+export function isCppSource(filePath: string): boolean {
+  const ext = path.extname(filePath).toLowerCase();
+  return (CPP_EXTENSIONS as readonly string[]).includes(ext);
+}
+
+/**
+ * Strips a C++ extension from a path, yielding the executable path polyman
+ * compiles to. Paths without a C++ extension are returned unchanged.
+ *
+ * @param {string} filePath - Path to a C++ source
+ * @returns {string} Path without its `.cpp` / `.cc` / `.cxx` suffix
+ *
+ * @example
+ * stripCppExtension('/p/solutions/main.cc'); // '/p/solutions/main'
+ */
+export function stripCppExtension(filePath: string): string {
+  return isCppSource(filePath)
+    ? filePath.slice(0, -path.extname(filePath).length)
+    : filePath;
+}
+
+/**
+ * Resolves the C++ standard to compile with. Reads `cppStandard` from the
+ * `Config.json` in the current directory when one exists and falls back to
+ * {@link DEFAULT_CPP_STANDARD} when the file is missing, unreadable, or does
+ * not set the field.
+ *
+ * @returns {string} A value usable as `-std=<value>`
+ *
+ * @throws {Error} If `cppStandard` is set but is not a recognised standard
+ *
+ * @example
+ * // Config.json: { "cppStandard": "c++20", ... }
+ * resolveCppStandard(); // 'c++20'
+ */
+export function resolveCppStandard(): string {
+  let configured: unknown;
+  try {
+    configured = readConfigFile().cppStandard;
+  } catch {
+    return DEFAULT_CPP_STANDARD;
+  }
+
+  if (configured === undefined) {
+    return DEFAULT_CPP_STANDARD;
+  }
+  if (
+    typeof configured !== 'string' ||
+    !CPP_STANDARD_PATTERN.test(configured)
+  ) {
+    throw new Error(
+      `Invalid cppStandard in Config.json: ${JSON.stringify(configured)} ` +
+        `(expected something like "c++17", "c++20" or "c++23")`
+    );
+  }
+  return configured;
+}
+
 /**
  * Compiles a C++ source file using g++.
- * Uses -O2 optimization and C++23 standard.
+ * Uses -O2 optimization and the C++ standard from `Config.json`
+ * (`cppStandard`, default C++23).
  * The problem root (current working directory) is added as a quoted-include
  * search path so sources in subdirectories can `#include "testlib.h"`.
  *
- * @param {string} sourcePath - Path to the .cpp source file
- * @returns {Promise<string>} Path to the compiled executable
+ * @param {string} sourcePath - Path to the .cpp / .cc / .cxx source file
+ * @param {Object} [options] - Compilation overrides
+ * @param {string} [options.cppStandard] - Standard to pass as `-std=`; when
+ *   omitted it is resolved from `Config.json`
+ * @returns {Promise<void>} Resolves once the executable is written next to
+ *   the source (same path, extension stripped)
  *
- * @throws {Error} If file is not .cpp or compilation fails
+ * @throws {Error} If file is not a C++ source or compilation fails
  *
  * @example
- * const executablePath = await compileCPP('solutions/main.cpp');
- * // Returns: '/path/to/solutions/main'
+ * await compileCPP('solutions/main.cpp');
+ * // Produces: '/path/to/solutions/main'
  */
-export async function compileCPP(sourcePath: string): Promise<void> {
+export async function compileCPP(
+  sourcePath: string,
+  options: { cppStandard?: string } = {}
+): Promise<void> {
   const absolutePath = path.resolve(process.cwd(), sourcePath);
 
-  if (path.extname(absolutePath) !== '.cpp') {
-    throw new Error(`Expected .cpp file, got: ${absolutePath}`);
+  if (!isCppSource(absolutePath)) {
+    throw new Error(
+      `Expected ${CPP_EXTENSIONS.join('/')} file, got: ${absolutePath}`
+    );
   }
 
-  const outputPath = absolutePath.replace(/\.cpp$/, '');
+  const outputPath = stripCppExtension(absolutePath);
+  const cppStandard = options.cppStandard ?? resolveCppStandard();
 
   const compileCommand = [
     'g++',
+    '-O2',
+    `-std=${cppStandard}`,
     '-iquote',
     quoteShellArgument(process.cwd()),
     '-o',
@@ -347,7 +444,7 @@ export function getCompiledCommandToRun(
   object: LocalChecker | LocalValidator | LocalSolution | LocalGenerator
 ): string {
   if ('isStandard' in object && object.isStandard) {
-    const checkerName = object.source.replace(/\.cpp$/, '');
+    const checkerName = stripCppExtension(object.source);
     return quoteShellArgument(
       path.resolve(__dirname, '../..', 'assets', 'checkers', checkerName)
     );
@@ -356,9 +453,11 @@ export function getCompiledCommandToRun(
   const source = path.resolve(process.cwd(), object.source);
   const extention = path.extname(source);
 
+  if (isCppSource(source)) {
+    return quoteShellArgument(stripCppExtension(source));
+  }
+
   switch (extention) {
-    case '.cpp':
-      return quoteShellArgument(source.replace(/\.cpp$/, ''));
     case '.java': {
       const dir = path.dirname(source);
       const fileName = path.basename(source);
