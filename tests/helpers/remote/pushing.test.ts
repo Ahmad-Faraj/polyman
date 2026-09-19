@@ -4,6 +4,7 @@ import fs from 'fs';
 import type { PathLike, PathOrFileDescriptor } from 'fs';
 import type { PolygonSDK } from '../../../src/polygon';
 import type ConfigFile from '../../../src/types';
+import { fmt } from '../../../src/formatter';
 
 vi.mock('fs');
 vi.mock('../../../src/formatter', () => ({
@@ -52,6 +53,7 @@ type MockedSdk = {
   saveTags: Mock;
   saveScript: Mock;
   saveTest: Mock;
+  setTestGroup: Mock;
   enableGroups: Mock;
   updateProblemInfo: Mock;
 };
@@ -74,6 +76,7 @@ function buildSdk(): { sdk: PolygonSDK; mocks: MockedSdk } {
     saveTags: vi.fn().mockResolvedValue(undefined),
     saveScript: vi.fn().mockResolvedValue(undefined),
     saveTest: vi.fn().mockResolvedValue(undefined),
+    setTestGroup: vi.fn().mockResolvedValue(undefined),
     enableGroups: vi.fn().mockResolvedValue(undefined),
     updateProblemInfo: vi.fn().mockResolvedValue(undefined),
   };
@@ -304,6 +307,22 @@ describe('pushing.ts', () => {
       });
       const result = await pushing.uploadSolutions(sdk, 1, 'dir', cfg);
       expect(result).toBe(1);
+    });
+  });
+
+  describe('uploadSolutions error reporting', () => {
+    it('should include the sdk error message in the warning', async () => {
+      const { sdk, mocks } = buildSdk();
+      mockedReadFileSync.mockReturnValue('code');
+      mockedExistsSync.mockReturnValue(true);
+      mocks.saveSolution.mockRejectedValue(new Error('quota exceeded'));
+
+      const result = await pushing.uploadSolutions(sdk, 1, 'dir', mockConfig);
+      expect(result).toBe(0);
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(fmt.warning).toHaveBeenCalledWith(
+        expect.stringContaining('sol: quota exceeded')
+      );
     });
   });
 
@@ -710,6 +729,25 @@ describe('pushing.ts', () => {
       const result = await pushing.uploadGenerators(sdk, 1, 'dir', cfg);
       expect(result).toBe(0);
       expect(mocks.saveFile).not.toHaveBeenCalled();
+    });
+
+    it('should surface the underlying error message on generator failure', async () => {
+      const { sdk, mocks } = buildSdk();
+      mockedReadFileSync.mockReturnValue('code');
+      mockedExistsSync.mockReturnValue(true);
+      mocks.saveFile.mockRejectedValue(
+        new Error('Polygon API Error: sourceType: unknown')
+      );
+      const cfg = asConfig({
+        generators: [{ name: 'gen', source: './generators/gen.cpp' }],
+      });
+
+      const result = await pushing.uploadGenerators(sdk, 1, 'dir', cfg);
+      expect(result).toBe(0);
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(fmt.warning).toHaveBeenCalledWith(
+        expect.stringContaining('gen: Polygon API Error: sourceType: unknown')
+      );
     });
 
     it('should keep counting on partial sdk failure', async () => {
@@ -1120,9 +1158,55 @@ describe('pushing.ts', () => {
       expect(result.testsCount).toBe(1);
     });
 
-    it('should swallow saveTest failure for grouped generator tests', async () => {
+    it('should assign groups to generated tests via setTestGroup, not saveTest', async () => {
       const { sdk, mocks } = buildSdk();
-      mocks.saveTest.mockRejectedValue(new Error('save test fail'));
+      const cfg = asConfig({
+        generators: [{ name: 'gen', source: './gen.cpp' }],
+        testsets: [
+          {
+            name: 'tests',
+            groupsEnabled: true,
+            generatorScript: {
+              script:
+                '<#-- @group g1 -->\ngen 1 > $\ngen 2 > $\n<#-- @group g2 -->\ngen 3 > $',
+            },
+          },
+        ],
+      });
+      const result = await pushing.uploadTestsets(sdk, 1, 'dir', cfg);
+      expect(result.testsCount).toBe(3);
+      expect(mocks.setTestGroup).toHaveBeenCalledTimes(2);
+      expect(mocks.setTestGroup).toHaveBeenCalledWith(1, 'tests', 'g1', [1, 2]);
+      expect(mocks.setTestGroup).toHaveBeenCalledWith(1, 'tests', 'g2', [3]);
+      expect(mocks.saveTest).not.toHaveBeenCalled();
+    });
+
+    it('should rewrite generator names to source basenames in the pushed script', async () => {
+      const { sdk, mocks } = buildSdk();
+      const cfg = asConfig({
+        generators: [{ name: 'gen-random', source: './generators/gen.cpp' }],
+        testsets: [
+          {
+            name: 'tests',
+            generatorScript: {
+              script:
+                '<#-- Header -->\n<#-- @group main -->\ngen-random 10 > $\ngen-random 100 > $',
+            },
+          },
+        ],
+      });
+      const result = await pushing.uploadTestsets(sdk, 1, 'dir', cfg);
+      expect(result.testsCount).toBe(2);
+      // Second saveScript call: the first one clears the testset.
+      const pushed = mocks.saveScript.mock.calls[1][2] as string;
+      expect(pushed).toBe(
+        '<#-- Header -->\n<#-- @group main -->\ngen 10 > $\ngen 100 > $'
+      );
+    });
+
+    it('should swallow setTestGroup failure for grouped generator tests', async () => {
+      const { sdk, mocks } = buildSdk();
+      mocks.setTestGroup.mockRejectedValue(new Error('group fail'));
       const cfg = asConfig({
         generators: [{ name: 'gen', source: './gen.cpp' }],
         testsets: [
