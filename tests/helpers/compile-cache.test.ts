@@ -173,6 +173,22 @@ describe('compile-cache.ts', () => {
       expect(compile).toHaveBeenCalledTimes(2);
     });
 
+    it('recompiles on a different architecture with the same compiler version', async () => {
+      const compile = fakeCompiler();
+      await cache.cachedCompile(request(), compile);
+
+      const arch = process.arch;
+      const otherArch = arch === 'arm64' ? 'x64' : 'arm64';
+      Object.defineProperty(process, 'arch', { value: otherArch });
+      try {
+        await cache.cachedCompile(request(), compile);
+      } finally {
+        Object.defineProperty(process, 'arch', { value: arch });
+      }
+
+      expect(compile).toHaveBeenCalledTimes(2);
+    });
+
     it('reuses a binary across sources with identical contents', async () => {
       const source = fs.readFileSync(request().sourcePath, 'utf-8');
       write('solutions/copy.cpp', source);
@@ -230,13 +246,14 @@ describe('compile-cache.ts', () => {
       expect(cache.listCacheEntries()).toHaveLength(1);
     });
 
-    it('propagates compile errors and stores nothing', async () => {
+    it('propagates compile errors, stores nothing, and counts a miss', async () => {
       const compile = vi.fn(() => Promise.reject(new Error('syntax error')));
 
       await expect(cache.cachedCompile(request(), compile)).rejects.toThrow(
         'syntax error'
       );
       expect(cachedFiles()).toEqual([]);
+      expect(cache.getCacheStats()).toMatchObject({ hits: 0, misses: 1 });
     });
 
     it('falls back to compiling when the compiler version is unavailable', async () => {
@@ -274,6 +291,25 @@ describe('compile-cache.ts', () => {
       });
       expect(Object.keys(entry.dependencies)).toEqual(['testlib.h']);
       expect(entry.binarySize).toBe(fs.statSync(request().binaryPath).size);
+    });
+
+    it('labels a source outside the problem directory by its last two segments', async () => {
+      const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'polyman-assets-'));
+      try {
+        const sourcePath = path.join(outside, 'checkers', 'wcmp.cpp');
+        fs.mkdirSync(path.dirname(sourcePath));
+        fs.writeFileSync(sourcePath, '#include "testlib.h"\nint main() {}\n');
+        const req = request({
+          sourcePath,
+          binaryPath: path.join(outside, 'checkers', 'wcmp'),
+        });
+
+        await cache.cachedCompile(req, fakeCompiler(req));
+
+        expect(cache.listCacheEntries()[0]?.source).toBe('…/checkers/wcmp.cpp');
+      } finally {
+        fs.rmSync(outside, { recursive: true, force: true });
+      }
     });
   });
 

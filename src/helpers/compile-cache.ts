@@ -67,7 +67,10 @@ export interface CompileRequest {
 export interface CacheEntryMeta {
   formatVersion: number;
   key: string;
-  /** Source path relative to the problem directory, for display. */
+  /**
+   * Source path relative to the problem directory, or `…/<dir>/<file>` when
+   * it lies outside it. For display only.
+   */
   source: string;
   compiler: string;
   flags: string[];
@@ -171,6 +174,19 @@ function hashFile(filePath: string): string {
 
 function toCacheRelative(filePath: string): string {
   return path.relative(process.cwd(), filePath).split(path.sep).join('/');
+}
+
+/**
+ * Label for a source in `cache status`: its path relative to the problem
+ * directory, or `…/<dir>/<file>` for a source outside it (standard checkers
+ * compile from the package's `assets/`).
+ */
+function toDisplayPath(filePath: string): string {
+  const relative = toCacheRelative(filePath);
+  if (!relative.startsWith('../') && !path.isAbsolute(relative)) {
+    return relative;
+  }
+  return `…/${relative.split('/').slice(-2).join('/')}`;
 }
 
 function resolveQuotedInclude(
@@ -278,6 +294,9 @@ async function computeKey(request: CompileRequest): Promise<CacheKey> {
       formatVersion: CACHE_FORMAT_VERSION,
       compiler: request.compiler,
       compilerIdentity,
+      // `--version` output can be identical across architectures.
+      platform: process.platform,
+      arch: process.arch,
       flags: request.flags,
       sourceHash,
       dependencies,
@@ -372,7 +391,7 @@ function storeInCache(
   const meta: CacheEntryMeta = {
     formatVersion: CACHE_FORMAT_VERSION,
     key: cacheKey.key,
-    source: toCacheRelative(request.sourcePath),
+    source: toDisplayPath(request.sourcePath),
     compiler: request.compiler,
     flags: request.flags,
     sourceHash: cacheKey.sourceHash,
@@ -435,10 +454,11 @@ export async function cachedCompile(
     cacheKey = null;
   }
 
+  // Counted before compiling so a compile that fails still shows as a miss.
+  stats.misses++;
   const startedAt = Date.now();
   await compile();
   const compileMs = Date.now() - startedAt;
-  stats.misses++;
 
   if (cacheKey === null) return;
   try {
