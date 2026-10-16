@@ -1,0 +1,89 @@
+# Shared jobs for the supervised flow. Include it from a project's .gitlab-ci.yml:
+#
+#   include:
+#     - local: engine/ci/autonomy.gitlab-ci.yml
+#
+# These are the merge request jobs: risk score, guard, flow lint and the
+# engine's own tests. The release jobs are in autonomy-release.gitlab-ci.yml.
+#
+# The project needs to define:
+#   - stages: test, assess
+#   - merge request pipelines (workflow rules)
+#   - a required approval on merge requests (project setting)
+#
+# The jobs use CI_JOB_TOKEN only. They never write to merge requests: the Duo
+# agents do that under their own service accounts, and people approve.
+#   - a .autonomy.yml risk policy
+
+.autonomy:node:
+  image: node:22
+  variables:
+    NPM_CONFIG_CACHE: $CI_PROJECT_DIR/.npm
+  cache:
+    key:
+      files: [engine/package-lock.json]
+      prefix: autonomy-engine
+    paths: [.npm/]
+  before_script:
+    - npm ci --prefix engine --no-audit --no-fund --loglevel=error
+
+# merge requests
+
+autonomy:assess:
+  extends: .autonomy:node
+  stage: assess
+  variables:
+    GIT_DEPTH: 0 # needs history to diff against the MR base
+  needs:
+    - { job: gitlab-advanced-sast, artifacts: true, optional: true }
+    - { job: semgrep-sast, artifacts: true, optional: true }
+    - { job: secret_detection, artifacts: true, optional: true }
+    - { job: gemnasium-dependency_scanning, artifacts: true, optional: true }
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  script:
+    - node engine/src/cli/assess.ts
+  artifacts:
+    when: always
+    expire_in: 30 days
+    paths: [risk-report.json]
+    reports:
+      dotenv: autonomy.env
+      metrics: metrics.txt
+
+# Agents are told not to touch the pipeline, the policy or the engine. This
+# makes it a rule: an agent commit that changes them fails the pipeline.
+autonomy:guard:
+  extends: .autonomy:node
+  stage: assess
+  needs: []
+  variables:
+    GIT_DEPTH: 0
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  script:
+    - node engine/src/cli/guard.ts
+
+# Checks the Duo flow files the way GitLab will when they're saved: its JSON
+# schema, its prompt safety rules, and that every prompt variable is an input.
+autonomy:flows:
+  extends: .autonomy:node
+  stage: test
+  needs: []
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes: [.gitlab/duo/flows/**/*]
+  script:
+    - node engine/src/cli/lint-flows.ts
+
+# The engine's own type check and tests, when it changes.
+autonomy:engine:
+  extends: .autonomy:node
+  stage: test
+  needs: []
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes: [engine/**/*]
+  script:
+    - npm run typecheck --prefix engine
+    - npm test --prefix engine

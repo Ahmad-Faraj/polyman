@@ -2,12 +2,29 @@
 stages:
   - check
   - test
+  - assess
   - build
   - deploy
+
+# Merge request pipelines while an MR is open, branch pipelines otherwise, so a
+# push doesn't run everything twice.
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS
+      when: never
+    - if: $CI_COMMIT_BRANCH
+    - if: $CI_COMMIT_TAG
+
+variables:
+  # run the scanners in merge request pipelines too; the risk score reads them
+  AST_ENABLE_MR_PIPELINES: "true"
 
 include:
   - template: Jobs/SAST.gitlab-ci.yml
   - template: Jobs/Secret-Detection.gitlab-ci.yml
+  # risk score, guard and flow checks on merge requests (engine/README.md)
+  - local: engine/ci/autonomy.gitlab-ci.yml
 
 # Shared Node setup, kept out of `default:` so it doesn't leak into the scanner jobs.
 .node:
