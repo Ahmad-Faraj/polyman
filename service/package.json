@@ -1,0 +1,30 @@
+{
+  "name": "polyman-verify-service",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Web service that verifies a polyman problem (or a contest of them) uploaded as a zip.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning src/server.ts",
+    "dev": "node --disable-warning=ExperimentalWarning --watch src/server.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@fastify/multipart": "10.1.2",
+    "fastify": "5.12.5",
+    "yauzl": "3.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.18.0",
+    "@types/yauzl": "3.4.0",
+    "@types/yazl": "3.3.1",
+    "typescript": "5.9.3",
+    "vitest": "5.0.4",
+    "yazl": "3.3.1"
+  }
+}

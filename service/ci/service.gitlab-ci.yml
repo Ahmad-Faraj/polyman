@@ -1,0 +1,159 @@
+# CI for the verify service (#19). Included from the root .gitlab-ci.yml.
+#
+# On merge requests and on the default branch: test the service, build its
+# image, and run the sample problems against that image (the golden check).
+# With Google Cloud set up (GCP_PROJECT_ID and friends, see service/README.md)
+# the default branch also releases it: a candidate revision with no traffic,
+# the samples against the candidate, the switch, the samples against
+# production, and the switch back if production gets them wrong.
+
+variables:
+  SERVICE_IMAGE: $CI_REGISTRY_IMAGE/verify:$CI_COMMIT_SHORT_SHA
+
+# what the service image is built from: the service itself and polyman
+.service:changes:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes: &service_files
+        - service/**/*
+        - src/**/*
+        - assets/**/*
+        - template/**/*
+        - package.json
+        - package-lock.json
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: *service_files
+
+service:test:
+  extends: .service:changes
+  stage: test
+  image: node:22
+  needs: []
+  script:
+    - cd service
+    - npm ci --no-audit --no-fund --loglevel=error
+    - npm run typecheck
+    - npm test
+
+service:image:
+  extends: .service:changes
+  stage: build
+  image: docker:27.5.1
+  services: [docker:27.5.1-dind]
+  variables:
+    DOCKER_TLS_CERTDIR: /certs
+  needs: []
+  script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+    - docker build -f service/Dockerfile --build-arg APP_COMMIT=$CI_COMMIT_SHORT_SHA -t "$SERVICE_IMAGE" .
+    - docker push "$SERVICE_IMAGE"
+
+# The image runs as a job service and gets the sample problems, which must give
+# their expected results. The same check runs against Cloud Run below.
+service:golden:
+  extends: .service:changes
+  stage: deploy
+  image: node:22
+  needs: [service:image]
+  services:
+    - name: $SERVICE_IMAGE
+      alias: verify
+  script:
+    - for i in $(seq 1 30); do curl -sf http://verify:8080/health && break; sleep 2; done
+    - curl -sf http://verify:8080/health || { echo "the service never became healthy"; exit 1; }
+    - node --disable-warning=ExperimentalWarning service/scripts/golden.ts http://verify:8080 --json golden.json
+  artifacts:
+    when: always
+    paths: [golden.json]
+    expire_in: 30 days
+
+.service:gcp:
+  image: google/cloud-sdk:587.0.0-slim
+  id_tokens:
+    GCP_ID_TOKEN:
+      aud: https://gitlab.com
+  resource_group: verify-production
+
+.service:release:
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $GCP_PROJECT_ID
+      changes: *service_files
+
+service:deploy:candidate:
+  extends: [.service:gcp, .service:release]
+  stage: deploy
+  needs: [service:golden]
+  script:
+    - sh service/deploy/cloudrun.sh candidate
+  artifacts:
+    reports:
+      dotenv: deploy.env
+
+# the new revision on its own URL, before it gets traffic (except on the very
+# first deploy, which creates the service and so serves at once)
+service:check:candidate:
+  extends: .service:release
+  stage: deploy
+  image: node:22
+  needs: [service:deploy:candidate]
+  script:
+    - node --disable-warning=ExperimentalWarning service/scripts/golden.ts "$CANDIDATE_URL" --json golden.json
+  artifacts:
+    when: always
+    paths: [golden.json]
+
+# the candidate got the samples wrong: it keeps no public URL
+service:discard:candidate:
+  extends: .service:gcp
+  stage: deploy
+  needs:
+    - { job: service:deploy:candidate }
+    - { job: service:check:candidate, artifacts: false }
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $GCP_PROJECT_ID
+      changes: *service_files
+      when: on_failure
+  script:
+    - sh service/deploy/cloudrun.sh discard
+
+service:promote:production:
+  extends: [.service:gcp, .service:release]
+  stage: deploy
+  needs: [service:deploy:candidate, service:check:candidate]
+  environment:
+    name: verify/production
+    url: $SERVICE_URL
+  script:
+    - sh service/deploy/cloudrun.sh promote
+  artifacts:
+    # also when the job fails after the switch: rollback needs PREVIOUS_REVISION
+    when: always
+    reports:
+      dotenv: deploy.env
+
+service:check:production:
+  extends: .service:release
+  stage: deploy
+  image: node:22
+  needs: [service:promote:production]
+  script:
+    - node --disable-warning=ExperimentalWarning service/scripts/golden.ts "$SERVICE_URL" --json golden.json
+  artifacts:
+    when: always
+    paths: [golden.json]
+
+# Production got the samples wrong after the switch: send traffic back to the
+# revision that served before. Does nothing if the switch never happened.
+service:rollback:production:
+  extends: .service:gcp
+  stage: deploy
+  needs:
+    - { job: service:deploy:candidate }
+    - { job: service:promote:production }
+    - { job: service:check:production, artifacts: false }
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $GCP_PROJECT_ID
+      changes: *service_files
+      when: on_failure
+  script:
+    - sh service/deploy/cloudrun.sh rollback

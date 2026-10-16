@@ -1,4 +1,5 @@
-# GitLab CI for polyman. Mirrors .github/workflows/ci.yml + deploy-docs.yaml.
+# GitLab CI for polyman: the jobs from .github/workflows/ci.yml and deploy-docs.yaml,
+# plus the verify service (service/ci), which has no GitHub counterpart.
 stages:
   - check
   - test
@@ -25,6 +26,8 @@ include:
   - template: Jobs/Secret-Detection.gitlab-ci.yml
   # risk score, guard and flow checks on merge requests (engine/README.md)
   - local: engine/ci/autonomy.gitlab-ci.yml
+  # the verify web service (#19): its tests, image, sample check and Cloud Run deploy
+  - local: service/ci/service.gitlab-ci.yml
 
 # Shared Node setup, kept out of `default:` so it doesn't leak into the scanner jobs.
 .node:

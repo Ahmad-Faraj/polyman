@@ -23,6 +23,24 @@ import ConfigFile, {
 /** Default compilation timeout in milliseconds */
 export const DEFAULT_TIMEOUT = 10000;
 
+/**
+ * Reads a compile time limit from the environment: a positive whole number of
+ * milliseconds, or the default for anything else.
+ */
+export function compileTimeoutFrom(raw: string | undefined): number {
+  const ms = Number(raw);
+  return Number.isInteger(ms) && ms > 0 ? ms : DEFAULT_TIMEOUT;
+}
+
+/**
+ * Time limit for compiling a C++ or Java source. POLYMAN_COMPILE_TIMEOUT_MS
+ * raises it where compiling is slow, such as a busy or sandboxed machine (the
+ * verify web service sets it); otherwise it is {@link DEFAULT_TIMEOUT}.
+ */
+export const COMPILE_TIMEOUT = compileTimeoutFrom(
+  process.env['POLYMAN_COMPILE_TIMEOUT_MS']
+);
+
 /** Default memory limit in megabytes */
 export const DEFAULT_MEMORY_LIMIT = 1024;
 
@@ -175,7 +193,7 @@ export async function compileCPP(
     ].join(' ');
   const run = (compileCommand: string) =>
     executor.execute(compileCommand, {
-      timeout: DEFAULT_TIMEOUT,
+      timeout: COMPILE_TIMEOUT,
       silent: true,
     });
 
@@ -228,7 +246,7 @@ export async function compileJava(sourcePath: string): Promise<void> {
   const absolutePath = path.resolve(sourcePath);
 
   await executor.execute(`javac ${quoteShellArgument(absolutePath)}`, {
-    timeout: DEFAULT_TIMEOUT,
+    timeout: COMPILE_TIMEOUT,
     silent: true,
   });
 }

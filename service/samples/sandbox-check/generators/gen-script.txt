@@ -1,0 +1,15 @@
+<#-- Polygon-format generator script. -->
+<#-- Each line: generator-name [args...] > target -->
+
+<#-- @group main -->
+gen-random 1    > $
+gen-random 2    > $
+gen-random 3    > $
+gen-random 10   > $
+gen-random 20   > $
+gen-random 50   > $
+gen-random 100  > $
+gen-random 200  > $
+gen-random 500  > $
+gen-random 999  > $
+gen-random 1000 > $

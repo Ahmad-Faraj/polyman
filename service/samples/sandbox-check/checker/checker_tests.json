@@ -1,0 +1,10 @@
+{
+  "tests": [
+    {
+      "input": "MY BE INGNORED",
+      "output": "YeS",
+      "answer": "YES",
+      "expectedVerdict": "OK"
+    }
+  ]
+}
