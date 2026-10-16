@@ -8,6 +8,8 @@ stages:
 include:
   - template: Jobs/SAST.gitlab-ci.yml
   - template: Jobs/Secret-Detection.gitlab-ci.yml
+  # the verify web service (#19): its tests, image, sample check and Cloud Run deploy
+  - local: service/ci/service.gitlab-ci.yml
 
 # Shared Node setup, kept out of `default:` so it doesn't leak into the scanner jobs.
 .node:
