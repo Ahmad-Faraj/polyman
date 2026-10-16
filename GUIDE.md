@@ -2838,7 +2838,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v2
         with:
-          node-version: '16'
+          node-version: '22'
 
       - name: Install Polyman
         run: npm install -g polyman-cli
