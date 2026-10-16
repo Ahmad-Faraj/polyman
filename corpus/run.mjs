@@ -140,21 +140,25 @@ function compare(expected, actual) {
       );
       continue;
     }
-    let timingOnly = true;
+    // A slower runner can turn OK into TLE and so flip matchesTag; that's the
+    // only difference that excuses a matchesTag change.
+    let timing = false;
+    let other = false;
     want.verdicts.forEach((wantTest, i) => {
       const gotTest = got.verdicts[i];
       if (gotTest === wantTest) return;
       const slower = wantTest.endsWith(':OK') && gotTest.endsWith(':TLE');
-      if (slower)
+      if (slower) {
+        timing = true;
         warn(
           `solution ${name}: ${wantTest} came back ${gotTest} (timing, not judged)`
         );
-      else {
-        timingOnly = false;
+      } else {
+        other = true;
         fail(`solution ${name}: expected ${wantTest}, got ${gotTest}`);
       }
     });
-    if (got.matchesTag !== want.matchesTag && !timingOnly) {
+    if (got.matchesTag !== want.matchesTag && !(timing && !other)) {
       fail(
         `solution ${name}: expected matchesTag=${want.matchesTag}, got ${got.matchesTag}`
       );
