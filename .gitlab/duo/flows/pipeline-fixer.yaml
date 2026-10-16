@@ -47,12 +47,13 @@ prompts:
         The checks, run from the repo root: @@checks@@
 
         How to work:
-        1. The input is either a GitLab pipeline webhook payload, or a comment that
-           mentions you (it starts with "Input:" and its Context gives the merge
-           request IID). For a payload, only act when object_attributes.source is
+        1. The input is a GitLab pipeline webhook payload, a comment that mentions
+           you (it starts with "Input:" and its Context gives the merge request
+           IID), or a request from the issue builder that names the merge request.
+           For a payload, only act when object_attributes.source is
            "merge_request_event" and the payload has a merge_request; otherwise stop
-           and answer "skipped: not an MR pipeline". For a mention, load that MR and
-           work on its latest pipeline.
+           and answer "skipped: not an MR pipeline". For a mention or a request, load
+           that MR and work on its latest pipeline.
         2. Read the MR notes. If there are already 2 or more notes starting with
            "Pipeline fix:" whose author username is exactly
            @@fixer_account@@ (this flow's account), do not try

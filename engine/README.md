@@ -49,9 +49,10 @@ AI Catalog when it publishes them.
 
 Needs a role that can manage AI Catalog items (our Developer+ role can).
 
-1. In AI > Flows, create **mr-reviewer** and **issue-builder** first, pasting
-   `node engine/src/cli/sync-flows.ts --print NAME`. Then **pipeline-fixer** and
-   **incident-responder**, which hand work to the first two.
+1. In AI > Flows, create them in this order, pasting
+   `node engine/src/cli/sync-flows.ts --print NAME`: **mr-reviewer**, then
+   **pipeline-fixer**, then **issue-builder** (it hands its MR to those two), then
+   **incident-responder** (it hands fixes to issue-builder).
 2. Enable each in the project with its trigger: mr-reviewer on Pipeline
    passed, pipeline-fixer and incident-responder on Pipeline failed,
    issue-builder on Assign and Mention. Remove the default conditions.

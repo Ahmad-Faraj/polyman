@@ -40,8 +40,10 @@ describe("the project's Duo flows", () => {
     for (const file of files) expect(read(file)).not.toMatch(/Fastify|orders and payments|refund/i);
   });
 
-  it('only the lead reviewer, the pipeline fixer and the incident responder may start flows', () => {
+  it('only the lead reviewer, the pipeline fixer, the issue builder and the incident responder may start flows', () => {
     expect(toolset('pipeline-fixer.yaml', 'fixer')).toContain('start_flow');
+    // the issue builder's own push starts no flow, so it hands its MR on itself
+    expect(toolset('issue-builder.yaml', 'builder')).toContain('start_flow');
     expect(toolset('mr-reviewer.yaml', 'lead_reviewer')).toContain('start_flow');
     expect(toolset('incident-responder.yaml', 'responder')).toContain('start_flow');
     for (const c of ['security_reviewer', 'code_reviewer', 'test_reviewer']) {

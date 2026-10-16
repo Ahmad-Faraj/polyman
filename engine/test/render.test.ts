@@ -19,10 +19,11 @@ describe('flow values', () => {
   });
 
   it('only offers the IDs of the flows others hand over to', () => {
-    const v = flowValues(config, { 'mr-reviewer': '11', 'issue-builder': '22', 'pipeline-fixer': '33' });
+    const v = flowValues(config, { 'mr-reviewer': '11', 'issue-builder': '22', 'pipeline-fixer': '33', 'incident-responder': '44' });
     expect(v.mr_reviewer_flow_id).toBe('11');
     expect(v.issue_builder_flow_id).toBe('22');
-    expect(Object.values(v)).not.toContain('33');
+    expect(v.pipeline_fixer_flow_id).toBe('33');
+    expect(Object.values(v)).not.toContain('44');
   });
 
   it('leaves out account names that are not set, so a flow that needs one fails to render', () => {

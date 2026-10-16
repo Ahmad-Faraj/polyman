@@ -10,7 +10,7 @@ import type { AutonomyConfig } from './config.ts';
 export type FlowValues = Record<string, string>;
 
 /** Flow names whose catalog consumer ID other flows hand over to. */
-export const HANDOFF_FLOWS = ['mr-reviewer', 'issue-builder'] as const;
+export const HANDOFF_FLOWS = ['mr-reviewer', 'pipeline-fixer', 'issue-builder'] as const;
 
 export function flowValues(config: AutonomyConfig, consumerIds: Record<string, string>): FlowValues {
   const values: FlowValues = {
