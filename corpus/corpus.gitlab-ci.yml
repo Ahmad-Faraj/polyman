@@ -106,3 +106,33 @@ corpus:mutation:
     paths: [corpus/out/mutation/index.html]
     reports:
       metrics: corpus/out/mutation-metrics.txt
+
+# Production check: the polyman that users install from npm, judged by the same
+# corpus and Polygon round trip. Runs from a pipeline schedule (nightly), so a
+# release that judges wrongly, or a change on Polygon's side, turns a scheduled
+# pipeline red and the incident responder picks it up.
+corpus:production:
+  extends: .node
+  stage: test
+  resource_group: polygon
+  variables:
+    POLYMAN_VERSION: latest
+    POLYGON_PROBLEM_ID: "605330"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+  script:
+    - apt-get update -qq && apt-get install -y -qq default-jdk-headless python-is-python3 >/dev/null
+    - npm i --prefix /tmp/published --no-audit --no-fund polyman-cli@"$POLYMAN_VERSION"
+    - PUBLISHED=/tmp/published/node_modules/polyman-cli/dist/cli.js
+    - node "$PUBLISHED" --version
+    - status=0
+    - node corpus/run.mjs --polyman "$PUBLISHED" --junit corpus/out/junit-production.xml || status=1
+    - if [ -n "$POLYGON_API_KEY" ]; then node corpus/polygon-roundtrip.mjs --polyman "$PUBLISHED" --junit corpus/out/junit-production-polygon.xml || status=1; fi
+    - exit $status
+  artifacts:
+    when: always
+    expire_in: 90 days
+    expose_as: 'Production verdicts'
+    paths: [corpus/out/report.html]
+    reports:
+      junit: corpus/out/junit-production*.xml
