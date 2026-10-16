@@ -1012,5 +1012,110 @@ describe('pulling.ts', () => {
       expect(written()).toEqual([]);
       expect(vi.mocked(fs.mkdirSync)).not.toHaveBeenCalled();
     });
+
+    it('falls back to the default checker and says why when the name is unsafe', async () => {
+      mockSdk.getChecker.mockResolvedValue('../../evil.cpp');
+
+      const result = await pulling.downloadChecker(asSdk(mockSdk), 1, 'dir');
+
+      expect(result.data).toEqual({
+        name: 'ncmp',
+        source: 'ncmp.cpp',
+        isStandard: true,
+      });
+      expect(result.count).toBe(0);
+      expect(mockSdk.viewFile).not.toHaveBeenCalled();
+      const errors = vi.mocked(fmt).error.mock.calls.map(c => c[0]);
+      expect(errors.some(e => e.includes('Refusing unsafe name'))).toBe(true);
+    });
+
+    it('refuses a standard checker name that climbs out after std:: is removed', async () => {
+      mockSdk.getChecker.mockResolvedValue('std::../evil.cpp');
+
+      const result = await pulling.downloadChecker(asSdk(mockSdk), 1, 'dir');
+
+      expect(result.data.source).toBe('ncmp.cpp');
+      expect(written()).toEqual([]);
+    });
+
+    it('falls back to the default validator and says why when the name is unsafe', async () => {
+      mockSdk.getValidator.mockResolvedValue('..\\evil.cpp');
+
+      const result = await pulling.downloadValidator(asSdk(mockSdk), 1, 'dir');
+
+      expect(result.data).toEqual({ name: 'validator', source: 'val.cpp' });
+      expect(result.count).toBe(0);
+      expect(mockSdk.viewFile).not.toHaveBeenCalled();
+      const errors = vi.mocked(fmt).error.mock.calls.map(c => c[0]);
+      expect(errors.some(e => e.includes('Refusing unsafe name'))).toBe(true);
+    });
+
+    it('still downloads the safe generators around an unsafe one and warns', async () => {
+      mockSdk.getFiles.mockResolvedValue({
+        sourceFiles: [
+          { name: 'gen1.cpp', sourceType: 'cpp.g++17' },
+          { name: '../../evil.cpp', sourceType: 'cpp.g++17' },
+          { name: 'gen2.cpp', sourceType: 'cpp.g++17' },
+        ],
+        resourceFiles: [],
+        auxFiles: [],
+      } as never);
+      mockSdk.viewFile.mockResolvedValue('code');
+
+      const result = await pulling.downloadGenerators(
+        asSdk(mockSdk),
+        1,
+        'dir',
+        []
+      );
+
+      expect(result.data.map(g => g.name)).toEqual(['gen1', 'gen2']);
+      expect(result.count).toBe(2);
+      expect(written().some(p => p.includes('evil'))).toBe(false);
+      const warnings = vi.mocked(fmt).warning.mock.calls.map(c => c[0]);
+      expect(warnings.some(w => w.includes('Refusing unsafe name'))).toBe(true);
+    });
+
+    it('falls back to the default solution when every solution name is unsafe', async () => {
+      mockSdk.getSolutions.mockResolvedValue([
+        { name: '../evil.cpp', tag: 'MA' },
+        { name: 'sub/evil.cpp', tag: 'OK' },
+      ] as never);
+
+      const result = await pulling.downloadSolutions(asSdk(mockSdk), 1, 'dir');
+
+      expect(result.count).toBe(0);
+      expect(result.data[0]?.source).toBe('acc.cpp');
+      expect(mockSdk.viewSolution).not.toHaveBeenCalled();
+      expect(written()).toEqual([]);
+    });
+
+    it('refuses a name that is not a string', () => {
+      expect(() => pulling.assertPlainName(undefined as never)).toThrow(
+        /unsafe name/
+      );
+      expect(() => pulling.assertPlainName(42 as never)).toThrow(/unsafe name/);
+    });
+
+    it.each(['..', '.', '', 'a/b', 'a\\b', '../..'])(
+      'skips statement language %j and warns, keeping the other languages',
+      async lang => {
+        mockSdk.getStatements.mockResolvedValue({
+          [lang]: { name: 'x', legend: 'bad' },
+          english: { name: 'Problem', legend: 'good' },
+        } as never);
+
+        const result = await pulling.downloadStatements(
+          asSdk(mockSdk),
+          1,
+          'dir'
+        );
+
+        expect(Object.keys(result.config)).toEqual(['english']);
+        const warnings = vi.mocked(fmt).warning.mock.calls.map(c => c[0]);
+        expect(warnings.some(w => w.includes('Skipping statement'))).toBe(true);
+        expect(written().every(p => p.includes('english'))).toBe(true);
+      }
+    );
   });
 });
