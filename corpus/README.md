@@ -2,8 +2,8 @@
 
 Real problems and deliberately wrong solutions whose **true** verdicts are pinned in
 `expected/`. `run.mjs` runs `polyman verify --json` on a fresh copy of every problem and
-fails if polyman judges any solution differently. The unit tests mock processes; this
-runs real compilers, real checkers and real solutions.
+fails if polyman judges any solution differently. The unit tests mostly mock processes and
+never run `verify` on a real problem; this runs real compilers, real checkers and real solutions.
 
 ```bash
 npm run build
