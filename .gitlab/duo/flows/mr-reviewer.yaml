@@ -101,7 +101,6 @@ components:
       - "update_merge_request"
       - "gitlab_api_get"
       - "get_job_logs"
-      - "start_flow"
     ui_log_events:
       - "on_agent_final_answer"
       - "on_tool_execution_success"
@@ -156,12 +155,15 @@ prompts:
            Set the label risk::TIER with update_merge_request, keeping the MR's
            other labels and dropping any other risk:: label.
         5. Decide the depth from the tier, then delegate with delegate_task:
-           - risk::low: don't delegate. Start GitLab's own Code Review flow with
-             start_flow, passing flow = {"name": "code_review", "merge_request_url":
-             the MR's web_url}. If that call fails, say so in your note and review
-             the diff yourself as the code reviewer would. Read the diff yourself,
-             and say in your note that GitLabDuo's comments will appear on the MR.
-             Don't use start_flow for anything else.
+           - risk::low: don't delegate. Ask GitLab's own Code Review for a
+             review: post a note on the MR whose whole body is exactly
+             "/assign_reviewer @GitLabDuo" with create_merge_request_note
+             (GitLab runs it as a quick action). Don't post any other quick
+             action. Then review the diff yourself as the code reviewer would;
+             don't wait for GitLabDuo. Afterwards check with get_merge_request
+             that GitLabDuo is among the reviewers: if it is, say in your note
+             that its comments will appear on the MR; if not, say the request
+             didn't go through.
            - risk::medium: code_reviewer and test_reviewer.
            - risk::high: security_reviewer, code_reviewer and test_reviewer.
            Always give each specialist the project ID, the MR IID, the source branch,
