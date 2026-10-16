@@ -6,6 +6,7 @@
  * This is the main entry point when running polyman from the terminal.
  */
 
+import './node-version-check';
 import { Command } from 'commander';
 import { readFileSync } from 'fs';
 import { join } from 'path';

@@ -9,6 +9,9 @@
     "type": "git",
     "url": "git+https://github.com/HamzaHassanain/polyman.git"
   },
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
   "main": "cli.js",
   "bin": {
     "polyman": "dist/cli.js"
