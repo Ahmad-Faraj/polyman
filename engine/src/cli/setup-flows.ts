@@ -133,7 +133,7 @@ export function finishAccounts(o: {
   const unknown = [reviewer ? '' : 'mr-reviewer', fixer ? '' : 'pipeline-fixer'].filter(Boolean);
   if (o.dryRun) return { messages: [`dry run: nothing changed${o.write ? `; a real run writes the accounts into ${file}` : ''}`], errors: [] };
   if (unknown.length) {
-    return { messages: [], errors: [`no service account found for ${unknown.join(' and ')}; ${file} not changed. Check the flow's trigger in AI > Flows and run this again.`] };
+    return { messages: [], errors: [`no service account found for ${unknown.join(' and ')}${o.write ? `; ${file} not changed` : ''}. Check the flow's trigger in AI > Flows and run this again.`] };
   }
   if (!o.write) return { messages: [`${file} not written: this checkout is ${o.own ?? 'not a GitLab project'}, not ${o.projectPath}. Put these names in that project's ${file}.`], errors: [] };
   const after = withAccounts(o.text!, { reviewer, fixer });

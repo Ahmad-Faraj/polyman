@@ -90,6 +90,13 @@ describe('triggerMatches', () => {
     expect(triggerMatches({ eventTypes: [3, 0], filter: JSON.stringify(filter) }, [3, 0], filter)).toBe(true);
   });
 
+  it('sees the same number of events or rules with different values', () => {
+    expect(triggerMatches({ eventTypes: [0, 1], filter }, [3, 0], filter)).toBe(false);
+    expect(triggerMatches({ eventTypes: [3, 0], filter: pipelineFilter(spec('pipeline-fixer'), 'main') }, [3, 0], filter)).toBe(false);
+    const incident = pipelineFilter(spec('incident-responder'), 'main');
+    expect(triggerMatches({ eventTypes: [3], filter: pipelineFilter(spec('incident-responder'), 'next') }, [3], incident)).toBe(false);
+  });
+
   it('sees a missing rule or a different event', () => {
     expect(triggerMatches({ eventTypes: [3, 0], filter: {} }, [3, 0], filter)).toBe(false);
     expect(triggerMatches({ eventTypes: [3], filter }, [3, 0], filter)).toBe(false);
@@ -113,6 +120,8 @@ function fakeGitLab(o: FakeOptions = {}) {
   const consumers: { id: string; item: { id: string; name: string; project: { fullPath: string } | null } }[] = [...(o.consumers ?? [])];
   const triggers: { id: string; eventTypes: number[]; filter: unknown; user: { username: string }; aiCatalogItemConsumer: { id: string } }[] = [];
   const mutations: string[] = [];
+  /** the definition each flow was created with, by name */
+  const definitions = new Map<string, string>();
   let failures = o.enableFailures ?? 0;
   const page = <T>(nodes: T[], after: unknown) => {
     const at = after ? Number(after) : 0;
@@ -120,12 +129,14 @@ function fakeGitLab(o: FakeOptions = {}) {
   };
   const gql = (async (query: string, v: Record<string, any> = {}) => {
     if (query.includes('repository { rootRef }')) return { project: { id: 'gid://gitlab/Project/1', repository: { rootRef: 'main' } } };
-    if (query.includes('aiCatalogConfiguredItems')) return { aiCatalogConfiguredItems: page(consumers, v.after) };
+    // newest first, as GitLab lists them
+    if (query.includes('aiCatalogConfiguredItems')) return { aiCatalogConfiguredItems: page([...consumers].reverse(), v.after) };
     if (query.includes('aiFlowTriggers')) return { project: { aiFlowTriggers: page(triggers, v.after) } };
     if (query.includes('aiCatalogItems(')) return { aiCatalogItems: page(items, v.after) };
     mutations.push(query.match(/\{ (\w+)\(/)![1]);
     if (query.includes('aiCatalogFlowCreate')) {
       const item = { id: `gid://gitlab/Ai::Catalog::Item/${items.length + 100}`, name: v.i.name, project: { fullPath: 'Group/Polyman' } };
+      definitions.set(v.i.name, v.i.definition);
       items.push(item);
       return { aiCatalogFlowCreate: { errors: [], item: { id: item.id } } };
     }
@@ -151,7 +162,7 @@ function fakeGitLab(o: FakeOptions = {}) {
     if (path.startsWith('/groups/')) return { only_allow_merge_if_pipeline_succeeds: o.mustSucceed?.group ?? false };
     return null;
   }) as Rest;
-  return { gql, rest, items, consumers, triggers, mutations };
+  return { gql, rest, items, consumers, triggers, mutations, definitions };
 }
 
 describe('setupFlows against a fake GitLab', () => {
@@ -179,6 +190,10 @@ describe('setupFlows against a fake GitLab', () => {
       const trigger = gitlab.triggers.find((t) => t.aiCatalogItemConsumer.id === consumer.id)!;
       expect(triggerMatches(trigger, spec.events, pipelineFilter(spec, 'main'))).toBe(true);
     }
+    // each flow names the consumer IDs of the flows it hands work to
+    const idOf = (name: string) => gitlab.consumers.find((c) => c.item.name === name)!.id.split('/').pop()!;
+    expect(gitlab.definitions.get('pipeline-fixer')).toContain(`"ai_catalog_item_consumer_id": ${idOf('mr-reviewer')},`);
+    expect(gitlab.definitions.get('incident-responder')).toContain(`"ai_catalog_item_consumer_id": ${idOf('issue-builder')},`);
     gitlab.mutations.length = 0;
     const again = await run(gitlab);
     expect(gitlab.mutations).toEqual([]);
@@ -201,6 +216,8 @@ describe('setupFlows against a fake GitLab', () => {
     const { accounts } = await run(gitlab);
     expect(gitlab.mutations.filter((m) => m === 'aiCatalogFlowCreate')).toHaveLength(4);
     expect(accounts['mr-reviewer']).toBe('ai-mr-reviewer-group');
+    // and the flows that hand work to the reviewer don't point at the look-alike
+    expect(gitlab.definitions.get('pipeline-fixer')).not.toContain('"ai_catalog_item_consumer_id": 900,');
   });
 
   it('refuses while Developers can push to the default branch, before changing anything', async () => {
@@ -262,6 +279,7 @@ describe('writing the accounts at the end of a run', () => {
   it('refuses before anything is created when the file has no lines to fill', () => {
     expect(() => mayWriteAccounts('group/polyman', 'group/polyman', 'agents: {}\n')).toThrow('no agents.reviewer_account line');
     expect(() => mayWriteAccounts('group/polyman', 'group/polyman', undefined)).toThrow('no .autonomy.yml');
+    expect(() => mayWriteAccounts('group/polyman', 'group/polyman', 'agents:\n  reviewer_account: ""\n')).toThrow('no agents.fixer_account line');
   });
 
   it('writes both names', () => {
@@ -279,6 +297,15 @@ describe('writing the accounts at the end of a run', () => {
     const result = end({ accounts: { 'mr-reviewer': 'ai-mr-reviewer-x' } });
     expect(result.write).toBeUndefined();
     expect(result.errors[0]).toContain('no service account found for pipeline-fixer');
+  });
+
+  it('names each missing account, and only mentions the file when it would be written', () => {
+    expect(end({ accounts: { 'pipeline-fixer': 'ai-pipeline-fixer-x' } }).errors[0]).toMatch(/^no service account found for mr-reviewer; \.autonomy\.yml not changed\./);
+    expect(end({ accounts: {}, write: false, own: 'someone/else' }).errors[0]).toMatch(/^no service account found for mr-reviewer and pipeline-fixer\. Check/);
+  });
+
+  it('a dry run on a fresh project, with no accounts yet, is not an error', () => {
+    expect(end({ dryRun: true, accounts: {} }).errors).toEqual([]);
   });
 
   it('a dry run writes nothing and says so', () => {
