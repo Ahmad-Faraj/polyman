@@ -5,12 +5,21 @@
  * ERR_REQUIRE_ESM on Node < 20.19 and on 22.0 to 22.11 before any other code runs.
  */
 
-const [major = 0, minor = 0] = process.versions.node.split('.').map(Number);
+/**
+ * Whether a Node.js version supports `require()` of ESM (needed for chalk@5).
+ * Supported: ^20.19.0 || >=22.12.0.
+ *
+ * @param version - Node.js version string, e.g. `process.versions.node`
+ * @returns true if the version is supported
+ */
+export function isSupportedNodeVersion(version: string): boolean {
+  const [major = 0, minor = 0] = version.split('.').map(Number);
+  return (
+    (major === 20 && minor >= 19) || (major === 22 && minor >= 12) || major > 22
+  );
+}
 
-const supported =
-  (major === 20 && minor >= 19) || (major === 22 && minor >= 12) || major > 22;
-
-if (!supported) {
+if (!isSupportedNodeVersion(process.versions.node)) {
   console.error(
     `polyman requires Node.js ^20.19.0 || >=22.12.0 (found ${process.versions.node}).\n` +
       'Please upgrade Node.js: https://nodejs.org/'
