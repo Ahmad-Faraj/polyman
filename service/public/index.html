@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>polyman verify</title>
+<meta name="description" content="Check a Codeforces Polygon problem or a whole contest: every solution against its tag, the validator, the checker, and the contest guidelines.">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="/">polyman <span>verify</span></a>
+    <span class="version" id="version"></span>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="intro">
+    <h1>Is your problem ready for the round?</h1>
+    <p>Upload a polyman problem folder as a zip, or a contest with one folder per problem. We compile everything, generate and validate the tests, run every solution and check that each one gets the verdict its tag promises. Then we go through the contest guidelines.</p>
+  </section>
+
+  <section class="start">
+    <form id="upload" class="drop" aria-label="Upload a problem">
+      <input id="file" type="file" name="problem" accept=".zip,application/zip" hidden>
+      <p class="drop-title">Drop a .zip here</p>
+      <p class="drop-sub">or <button type="button" id="pick" class="linkish">choose a file</button>. Up to 20 MB, up to 26 problems.</p>
+      <p class="drop-hint">Make one with <code>polyman remote pull ID ./problem</code>, then zip the folder.</p>
+    </form>
+    <div class="samples">
+      <p class="samples-title">No problem at hand? Try one of ours</p>
+      <div id="sample-list" class="sample-list"></div>
+    </div>
+  </section>
+
+  <section id="run" class="run" hidden>
+    <div class="run-head">
+      <h2 id="run-title">Verifying</h2>
+      <span id="run-status" class="pill">working</span>
+    </div>
+    <div id="problems" class="problems"></div>
+    <div class="run-actions" id="run-actions" hidden>
+      <button type="button" id="download" class="button">Download the report (JSON)</button>
+      <button type="button" id="again" class="button quiet">Verify another</button>
+    </div>
+  </section>
+
+  <section class="how">
+    <h2>What gets checked</h2>
+    <div class="how-grid">
+      <div><h3>It runs</h3><p>Generators, validator and its tests, checker and its tests, every solution on every test, with the time and memory limits from <code>Config.json</code>.</p></div>
+      <div><h3>It compares</h3><p>Each solution's verdicts against its tag: <code>MA</code> and <code>OK</code> must pass everything, <code>WA</code> must fail somewhere, <code>TL</code> must time out, and so on.</p></div>
+      <div><h3>It reviews</h3><p>Statement sections, at least ten tests, checker and validator present, correct solutions in C++ and Java plus a wrong one, tags, tutorial.</p></div>
+    </div>
+    <p class="fine">Your files are deleted when the check ends. The checker runs your code with no network access, so it can't send anything anywhere.</p>
+  </section>
+</main>
+
+<footer class="wrap foot">
+  Built on <a href="https://www.npmjs.com/package/polyman-cli">polyman</a>, the CLI for Codeforces problem setters.
+</footer>
+
+<template id="problem-tpl">
+  <article class="problem">
+    <header class="problem-head">
+      <h3 class="problem-name"></h3>
+      <span class="pill problem-state">waiting</span>
+    </header>
+    <ol class="steps"></ol>
+    <div class="result" hidden>
+      <p class="problem-error" hidden></p>
+      <h4>Solutions</h4>
+      <div class="table-wrap"><table class="solutions">
+        <thead><tr><th>Solution</th><th>Tag</th><th>Got</th><th>Slowest</th><th>Matches tag</th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+      <h4>Contest guidelines</h4>
+      <ul class="checks"></ul>
+    </div>
+  </article>
+</template>
+
+<script src="/app.js"></script>
+</body>
+</html>
