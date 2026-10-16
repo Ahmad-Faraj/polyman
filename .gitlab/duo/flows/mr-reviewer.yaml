@@ -216,7 +216,7 @@ prompts:
            marketing language.
         8. Your checks in step 6 already reviewed the commits pushed in this session,
            so don't start another review for them. Say the pipeline for the final
-           head is running; GitLab won't let anyone merge until it passes.
+           head is running and the MR should not be merged until it passes.
       user: |
         Project ID: {{project_id}}
 

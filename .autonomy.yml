@@ -33,6 +33,7 @@ paths:
 
 governance:        # the automation itself (defaults are always included)
   - engine/**
+  - corpus/**        # the problems and true verdicts polyman is judged by
 
 source:
   - src/**
