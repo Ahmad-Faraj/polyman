@@ -17,6 +17,7 @@ export function flowValues(config: AutonomyConfig, consumerIds: Record<string, s
     about: config.agents.about,
     checks: config.agents.checks,
     test_guide: config.agents.testGuide,
+    security_focus: config.agents.securityFocus,
     reviewer_account: config.agents.reviewerAccount,
     fixer_account: config.agents.fixerAccount,
     protected_paths: config.governance.map((p) => p.replace(/\/\*\*$/, '/')).join(', '),

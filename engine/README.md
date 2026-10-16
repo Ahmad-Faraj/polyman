@@ -3,7 +3,7 @@
 The scripts behind polyman's supervised delivery: CI and the Duo agents do the
 work on every merge request, and a person approves the result once.
 
-This MR adds the first part, which runs no agents:
+## CI jobs (no agents)
 
 - `autonomy:assess` scores each MR for risk (0-100) using `.autonomy.yml`:
   which paths changed, changes to the pipeline or policy, dependencies, size,
@@ -20,9 +20,49 @@ This MR adds the first part, which runs no agents:
 
 The jobs use `CI_JOB_TOKEN` only and never write to merge requests.
 
-Later parts: the Duo flows (reviewer, pipeline fixer, issue builder, incident
-responder), and the release jobs in `ci/autonomy-release.gitlab-ci.yml`
-(release evidence, production checks, rollback, carbon per change).
+## Duo flows
+
+The four flows are in `.gitlab/duo/flows/`, and the environment they run in is
+`.gitlab/duo/agent-config.yml`. Each runs under its own service account.
+
+- **mr-reviewer** (pipeline passed): reads the risk tier from the pipeline name.
+  Low risk goes to GitLab's Code Review flow; medium and high get the code,
+  test and (high) security reviewers, who rate findings P1/P2/P3 with
+  evidence, fix P1 and P2 with tests and re-check until a full round finds
+  none. It ends with one note for the approver ("For the approver", what was
+  fixed, what to watch after release).
+- **pipeline-fixer** (pipeline failed): finds the cause, fixes it, waits for its
+  pipeline and hands the MR to the reviewer with `start_flow` (GitLab doesn't
+  start flows from commits agents push).
+- **issue-builder** (assigned or mentioned on an issue): plans, implements with
+  tests and opens the MR.
+- **incident-responder** (production check failed): opens an incident, prepares
+  a rollback MR, records the lesson in `.autonomy/incidents.json` and asks
+  issue-builder for a fix when the cause is in the code.
+
+What differs per project (how to run the checks, what the project is, what
+security should focus on, account names, flow IDs) is not in the flow files:
+they hold `@@markers@@` that `sync-flows` fills from `.autonomy.yml` and the
+AI Catalog when it publishes them.
+
+### Turning them on
+
+Needs a role that can manage the AI Catalog (Maintainer).
+
+1. In AI > Flows, create **mr-reviewer** and **issue-builder** first, pasting
+   `node engine/src/cli/sync-flows.ts --print NAME`. Then **pipeline-fixer** and
+   **incident-responder**, which hand work to the first two.
+2. Enable each in the project with its trigger: mr-reviewer on Pipeline
+   passed, pipeline-fixer and incident-responder on Pipeline failed,
+   issue-builder on Assign and Mention. Remove the default conditions.
+3. Put the service account names GitLab created into `agents` in
+   `.autonomy.yml` (MR), then run `node engine/src/cli/sync-flows.ts` to
+   publish the filled-in flows.
+4. `node engine/src/cli/doctor.ts` until it says ready.
+
+The release jobs (`ci/autonomy-release.gitlab-ci.yml`: release evidence,
+production checks, rollback, carbon per change) come with the release work
+(#15, #19).
 
 ## Running it locally
 

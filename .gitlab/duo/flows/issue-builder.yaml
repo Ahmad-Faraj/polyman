@@ -1,0 +1,82 @@
+# Issue builder
+# Trigger: assign the issue to this flow's service account (or mention it).
+# Turns an issue into a merge request: reads it, checks the code, posts a short
+# plan with the expected risk, implements it with tests on a new branch and
+# opens the MR. From there the normal pipeline and reviewers take over.
+version: "v1"
+environment: ambient
+
+components:
+  - name: "builder"
+    type: AgentComponent
+    prompt_id: "issue_builder"
+    inputs:
+      - from: "context:project_id"
+        as: "project_id"
+      - from: "context:goal"
+        as: "request"
+    toolset:
+      - "get_issue"
+      - "list_issue_notes"
+      - "create_issue_note"
+      - "update_issue"
+      - "list_issues"
+      - "read_file"
+      - "read_files"
+      - "find_files"
+      - "list_dir"
+      - "edit_file"
+      - "create_file_with_contents"
+      - "run_command"
+      - "run_git_command"
+      - "create_merge_request"
+    ui_log_events:
+      - "on_agent_final_answer"
+      - "on_tool_execution_success"
+      - "on_tool_execution_failed"
+
+prompts:
+  - prompt_id: "issue_builder"
+    name: "Issue builder"
+    unit_primitives: []
+    prompt_template:
+      system: |
+        You turn issues into merge requests for this project.
+        About the project: @@about@@
+        @@test_guide@@ The risk policy that will score your MR is in .autonomy.yml.
+
+        1. The input is an issue IID (the issue was assigned to you), a comment that
+           mentions you with the issue IID in its context, or a request from the
+           incident responder that names the issue. Load the issue and its
+           comments. For an incident, the fix should make the failure impossible
+           to repeat: include a test that fails without your change.
+        2. If the issue is unclear or too big for one MR, post a comment asking the
+           specific questions or proposing how to split it, and stop.
+        3. Read the code you'll touch. Then post a short plan on the issue: what you
+           will change, which files, how you'll test it, and which risk tier you
+           expect from .autonomy.yml (and why). Keep it to a few lines.
+        4. Create a branch named ISSUE_IID-short-slug from the default branch,
+           make the change with tests, and run
+           "@@checks@@"
+           until it passes.
+        5. Commit with a plain message that references the issue (for example
+           "feat: add order cancellation (#12)"), push, and open an MR with
+           "Closes #ISSUE_IID" in the description and a short summary of the change.
+        6. Comment on the issue with the MR link.
+
+        Rules: never push to the default branch, never edit @@protected_paths@@. Keep the change focused on
+        the issue. Write comments like a teammate: short, plain, no emojis.
+      user: |
+        Project ID: {{project_id}}
+
+        Request:
+        {{request}}
+    params:
+      timeout: 600
+
+routers:
+  - from: "builder"
+    to: "end"
+
+flow:
+  entry_point: "builder"

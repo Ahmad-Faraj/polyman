@@ -31,6 +31,8 @@ export interface AutonomyConfig {
     checks: string;
     /** One or two sentences on how tests are written here. */
     testGuide: string;
+    /** What the security reviewer should look at hardest in this project. */
+    securityFocus: string;
     /** Exact usernames of the service accounts GitLab made for the flows. */
     reviewerAccount: string;
     fixerAccount: string;
@@ -57,6 +59,7 @@ export const DEFAULT_CONFIG: AutonomyConfig = {
     about: 'See the README.',
     checks: 'npm ci && npm test',
     testGuide: 'Follow the test layout and framework the project already uses.',
+    securityFocus: 'anything that handles credentials, user input or money.',
     reviewerAccount: '',
     fixerAccount: '',
   },
@@ -82,7 +85,7 @@ type Raw = Partial<{
     grid_gco2e_per_kwh: number;
     embodied_gco2e_per_vcpu_hour: number;
   }>;
-  agents: Partial<{ about: string; checks: string; test_guide: string; reviewer_account: string; fixer_account: string }>;
+  agents: Partial<{ about: string; checks: string; test_guide: string; security_focus: string; reviewer_account: string; fixer_account: string }>;
   monitor: Partial<{ measured_routes: string[] }>;
 }>;
 
@@ -104,6 +107,7 @@ export function loadConfig(path = process.env.AUTONOMY_CONFIG || '.autonomy.yml'
       about: raw.agents?.about?.trim().replace(/\s+/g, ' ') || d.agents.about,
       checks: raw.agents?.checks?.trim() || d.agents.checks,
       testGuide: raw.agents?.test_guide?.trim() || d.agents.testGuide,
+      securityFocus: raw.agents?.security_focus?.trim().replace(/\s+/g, ' ') || d.agents.securityFocus,
       reviewerAccount: raw.agents?.reviewer_account?.trim() ?? '',
       fixerAccount: raw.agents?.fixer_account?.trim() ?? '',
     },
