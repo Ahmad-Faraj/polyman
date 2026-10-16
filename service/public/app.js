@@ -19,6 +19,7 @@ const els = {
 
 let events = [];
 let running = false;
+let label = '';
 
 fetch('/api/version')
   .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
@@ -78,7 +79,10 @@ els.download.addEventListener('click', () => {
 });
 
 function upload(file) {
-  if (!/\.zip$/i.test(file.name)) return showError('That is not a .zip file.');
+  if (!/\.zip$/i.test(file.name)) {
+    label = file.name;
+    return showError('That is not a .zip file.');
+  }
   const body = new FormData();
   body.append('problem', file);
   start('/api/verify', body, file.name);
@@ -89,7 +93,7 @@ function setBusy(on) {
   for (const b of document.querySelectorAll('.sample, #pick')) b.disabled = on;
 }
 
-async function start(url, body, label) {
+async function start(url, body, name) {
   if (running) return;
   setBusy(true);
   events = [];
@@ -98,7 +102,8 @@ async function start(url, body, label) {
   els.problems.replaceChildren();
   els.actions.hidden = true;
   els.run.hidden = false;
-  els.title.textContent = `Verifying ${label}`;
+  label = name;
+  els.title.textContent = `Checking ${label}`;
   setStatus('working', '');
   els.run.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
@@ -180,7 +185,7 @@ function handle(ev) {
   } else if (ev.type === 'done') {
     finished = true;
     setStatus(ev.ok ? 'all good' : 'needs work', ev.ok ? 'ok' : 'bad');
-    els.title.textContent += ` · ${ev.seconds.toFixed(1)} s`;
+    els.title.textContent = `Checked ${label} in ${ev.seconds.toFixed(1)} s`;
     els.actions.hidden = false;
   } else if (ev.type === 'error') {
     finished = true;
@@ -250,6 +255,7 @@ function failMidway(message) {
 
 function showError(message, issues) {
   els.run.hidden = false;
+  if (label) els.title.textContent = label;
   setStatus('refused', 'bad');
   const box = document.createElement('div');
   box.className = 'error-box';
