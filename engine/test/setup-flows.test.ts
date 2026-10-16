@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { FLOWS, pipelineFilter, withAccounts } from '../src/cli/setup-flows.ts';
+import { readFileSync } from 'node:fs';
+import { loadConfig } from '../src/config.ts';
+import { FLOWS, definitionFor, pipelineFilter, triggerMatches, withAccounts } from '../src/cli/setup-flows.ts';
 
 const spec = (name: string) => FLOWS.find(([n]) => n === name)![2];
 
@@ -55,5 +57,41 @@ describe('withAccounts', () => {
 
   it('says so when the file has no line to fill', () => {
     expect(() => withAccounts('agents: {}\n', { reviewer: 'ai-r' })).toThrow('no agents.reviewer_account line');
+  });
+});
+
+describe('a dry run on a project with no flows yet', () => {
+  it('can plan all four: each later flow gets a stand-in ID for the ones before it', () => {
+    const config = loadConfig('../.autonomy.yml');
+    const planned: Record<string, string> = {};
+    for (const [name] of FLOWS) {
+      const source = readFileSync(`../.gitlab/duo/flows/${name}.yaml`, 'utf8');
+      expect(() => definitionFor(source, config, planned)).not.toThrow();
+      planned[name] = 'DRY_RUN_ID';
+    }
+  });
+
+  it('without the stand-ins the second flow could not be planned (the bug the reviewer found)', () => {
+    const config = loadConfig('../.autonomy.yml');
+    const source = readFileSync('../.gitlab/duo/flows/pipeline-fixer.yaml', 'utf8');
+    expect(() => definitionFor(source, config, {})).toThrow('@@mr_reviewer_flow_id@@');
+  });
+});
+
+describe('triggerMatches', () => {
+  const filter = pipelineFilter(spec('mr-reviewer'), 'main');
+
+  it('ignores the order of keys and of events', () => {
+    const reordered = { pipeline_hooks: { rules: [{ operator: 'in', value: ['success'], field: 'object_attributes.status' }, { operator: 'in', value: ['merge_request_event'], field: 'object_attributes.source' }] } };
+    expect(triggerMatches({ eventTypes: [0, 3], filter: reordered }, [3, 0], filter)).toBe(true);
+  });
+
+  it('reads a filter that comes back as a JSON string', () => {
+    expect(triggerMatches({ eventTypes: [3, 0], filter: JSON.stringify(filter) }, [3, 0], filter)).toBe(true);
+  });
+
+  it('sees a missing rule or a different event', () => {
+    expect(triggerMatches({ eventTypes: [3, 0], filter: {} }, [3, 0], filter)).toBe(false);
+    expect(triggerMatches({ eventTypes: [3], filter }, [3, 0], filter)).toBe(false);
   });
 });

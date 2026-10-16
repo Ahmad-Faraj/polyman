@@ -19,6 +19,8 @@
  */
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
+import { type AutonomyConfig } from '../config.ts';
 import { loadConfig } from '../config.ts';
 import { checkFlow } from '../flows.ts';
 import { projectPathFrom } from '../project.ts';
@@ -58,6 +60,32 @@ export function pipelineFilter(spec: TriggerSpec, defaultBranch: string): Record
   if (spec.mergeRequests) rules.push({ field: 'object_attributes.source', value: ['merge_request_event'], operator: 'in' });
   if (spec.defaultBranch) rules.push({ field: 'object_attributes.ref', value: [defaultBranch], operator: 'in' });
   return { pipeline_hooks: { rules } };
+}
+
+/**
+ * A flow's definition as it is created: this project's values, the IDs of the
+ * flows it hands work to, and placeholders for the account names, which only
+ * exist once the flows do (sync-flows fills them in afterwards).
+ */
+export function definitionFor(source: string, config: AutonomyConfig, ids: Record<string, string>): string {
+  const values = flowValues(
+    {
+      ...config,
+      agents: {
+        ...config.agents,
+        reviewerAccount: config.agents.reviewerAccount || 'REVIEWER_ACCOUNT_NOT_SET',
+        fixerAccount: config.agents.fixerAccount || 'FIXER_ACCOUNT_NOT_SET',
+      },
+    },
+    ids,
+  );
+  return renderFlow(source, values);
+}
+
+/** Whether a trigger already has these events and this filter (key order and event order don't matter). */
+export function triggerMatches(trigger: { eventTypes: number[]; filter: unknown }, events: number[], filter: Record<string, unknown>): boolean {
+  const current = typeof trigger.filter === 'string' ? JSON.parse(trigger.filter) : (trigger.filter ?? {});
+  return isDeepStrictEqual([...trigger.eventTypes].sort(), [...events].sort()) && isDeepStrictEqual(current, filter);
 }
 
 /** .autonomy.yml with the agent account names set, comments and layout kept. */
@@ -149,16 +177,45 @@ if (import.meta.main) {
     user: { username: string } | null;
     aiCatalogItemConsumer: { id: string } | null;
   }
-  const triggers = async () =>
+  const triggers = async () => {
+    const out: Trigger[] = [];
+    for (let after: string | null = null; ; ) {
+      const data: { project: { aiFlowTriggers: { nodes: Trigger[]; pageInfo: { hasNextPage: boolean; endCursor: string | null } } } } = await gql(
+        `query($p: ID!, $after: String) { project(fullPath: $p) {
+          aiFlowTriggers(first: 100, after: $after) { nodes { id eventTypes filter user { username } aiCatalogItemConsumer { id } } pageInfo { hasNextPage endCursor } }
+        } }`,
+        { p: projectPath, after },
+      );
+      out.push(...data.project.aiFlowTriggers.nodes);
+      if (!data.project.aiFlowTriggers.pageInfo.hasNextPage) return out;
+      after = data.project.aiFlowTriggers.pageInfo.endCursor;
+    }
+  };
+  // flows this project owns, enabled or not (one created but never enabled must be found, not made twice)
+  const ownItem = async (name: string) =>
     (
-      await gql<{ project: { aiFlowTriggers: { nodes: Trigger[] } } }>(
-        'query($p: ID!) { project(fullPath: $p) { aiFlowTriggers { nodes { id eventTypes filter user { username } aiCatalogItemConsumer { id } } } } }',
-        { p: projectPath },
+      await gql<{ aiCatalogItems: { nodes: { id: string; name: string; project: { fullPath: string } | null }[] } }>(
+        'query($s: String!) { aiCatalogItems(search: $s, first: 50) { nodes { id name project { fullPath } } } }',
+        { s: name },
       )
-    ).project.aiFlowTriggers.nodes;
+    ).aiCatalogItems.nodes.find((i) => i.name === name && i.project?.fullPath === projectPath);
+
+  // Only this checkout's own project gets its .autonomy.yml written; decide that (and
+  // check the file can take the names) before anything is created.
+  let own: string | undefined;
+  try {
+    own = projectPathFrom(undefined, { remoteOnly: true });
+  } catch {
+    // no remote to tell which project this checkout is
+  }
+  const writeAccounts = own?.toLowerCase() === projectPath.toLowerCase();
+  const autonomy = '.autonomy.yml';
+  if (writeAccounts) withAccounts(readFileSync(autonomy, 'utf8'), { reviewer: 'check', fixer: 'check' });
 
   const config = loadConfig();
   const dir = '.gitlab/duo/flows';
+  // in a dry run the flows aren't created, so later flows get a stand-in for their IDs
+  const planned: Record<string, string> = {};
   const files = new Map(readdirSync(dir).map((f) => [f.replace(/\.ya?ml$/, ''), join(dir, f)]));
   const accounts: Record<string, string> = {};
 
@@ -168,30 +225,35 @@ if (import.meta.main) {
     let consumer = (await consumers()).find((c) => c.item.name === name);
 
     if (!consumer) {
-      // the account names aren't known until the flows exist; sync-flows fills them in afterwards
-      const ids = Object.fromEntries((await consumers()).map((c) => [c.item.name, c.id.split('/').pop()!]));
-      const values = flowValues(
-        { ...config, agents: { ...config.agents, reviewerAccount: config.agents.reviewerAccount || 'REVIEWER_ACCOUNT_NOT_SET', fixerAccount: config.agents.fixerAccount || 'FIXER_ACCOUNT_NOT_SET' } },
-        ids,
-      );
-      const definition = renderFlow(readFileSync(file, 'utf8'), values);
+      const ids = { ...Object.fromEntries((await consumers()).map((c) => [c.item.name, c.id.split('/').pop()!])), ...planned };
+      const definition = definitionFor(readFileSync(file, 'utf8'), config, ids);
       const problems = checkFlow(definition);
       if (problems.length) throw new Error(`${name}: ${problems.join('; ')}`);
+      let itemId = (await ownItem(name))?.id;
       if (dryRun) {
-        console.log(`${name}: would create, enable and set its trigger`);
+        console.log(`${name}: would ${itemId ? 'enable the existing flow' : 'create and enable it'}, and set its trigger`);
+        planned[name] = 'DRY_RUN_ID';
         continue;
       }
-      const created = await gql<{ aiCatalogFlowCreate: { errors: string[]; item: { id: string } | null } }>(
-        'mutation($i: AiCatalogFlowCreateInput!) { aiCatalogFlowCreate(input: $i) { errors item { id } } }',
-        { i: { name, description, projectId: project.id, definition, public: false, release: true } },
-      );
-      check(`${name}: create`, created.aiCatalogFlowCreate.errors);
+      if (!itemId) {
+        const created = await gql<{ aiCatalogFlowCreate: { errors: string[]; item: { id: string } | null } }>(
+          'mutation($i: AiCatalogFlowCreateInput!) { aiCatalogFlowCreate(input: $i) { errors item { id } } }',
+          { i: { name, description, projectId: project.id, definition, public: false, release: true } },
+        );
+        check(`${name}: create`, created.aiCatalogFlowCreate.errors);
+        if (!created.aiCatalogFlowCreate.item) throw new Error(`${name}: GitLab created no flow and gave no reason`);
+        itemId = created.aiCatalogFlowCreate.item.id;
+      } else console.log(`${name}: found the flow (${itemId}), not enabled yet`);
       const enabled = await gql<{ aiCatalogItemConsumerCreate: { errors: string[]; itemConsumer: { id: string } | null } }>(
         'mutation($i: AiCatalogItemConsumerCreateInput!) { aiCatalogItemConsumerCreate(input: $i) { errors itemConsumer { id } } }',
-        { i: { itemId: created.aiCatalogFlowCreate.item!.id, target: { projectId: project.id }, triggerTypes: ['mention'] } },
-      );
-      check(`${name}: enable`, enabled.aiCatalogItemConsumerCreate.errors);
-      consumer = { id: enabled.aiCatalogItemConsumerCreate.itemConsumer!.id, item: { id: created.aiCatalogFlowCreate.item!.id, name } };
+        { i: { itemId, target: { projectId: project.id }, triggerTypes: ['mention'] } },
+      ).catch((err: Error) => ({ aiCatalogItemConsumerCreate: { errors: [err.message], itemConsumer: null } }));
+      if (enabled.aiCatalogItemConsumerCreate.errors.length || !enabled.aiCatalogItemConsumerCreate.itemConsumer) {
+        throw new Error(
+          `${name}: the flow exists (${itemId}) but could not be enabled: ${enabled.aiCatalogItemConsumerCreate.errors.join('; ') || 'no reason given'}. Run this again to retry; it finds the flow.`,
+        );
+      }
+      consumer = { id: enabled.aiCatalogItemConsumerCreate.itemConsumer.id, item: { id: itemId, name } };
       console.log(`${name}: created and enabled`);
     }
 
@@ -207,7 +269,7 @@ if (import.meta.main) {
         check(`${name}: trigger`, made.aiFlowTriggerCreate.errors);
         console.log(`${name}: trigger created`);
       }
-    } else if (JSON.stringify([...trigger.eventTypes].sort()) !== JSON.stringify([...spec.events].sort()) || JSON.stringify(trigger.filter ?? {}) !== JSON.stringify(filter)) {
+    } else if (!triggerMatches(trigger, spec.events, filter)) {
       if (dryRun) console.log(`${name}: would set its trigger to events ${spec.events.join(',')} with ${JSON.stringify(filter)}`);
       else {
         const updated = await gql<{ aiFlowTriggerUpdate: { errors: string[] } }>(
@@ -223,21 +285,14 @@ if (import.meta.main) {
     if (username) accounts[name] = username;
   }
 
-  const autonomy = '.autonomy.yml';
-  let own: string | undefined;
-  try {
-    own = projectPathFrom(undefined);
-  } catch {
-    // no remote to tell which project this checkout is
+  if (!writeAccounts) {
+    console.log(`\naccounts (${autonomy} not written: this checkout is ${own ?? 'not a GitLab project'}, not ${projectPath}):`, accounts);
+  } else {
+    const before = readFileSync(autonomy, 'utf8');
+    const after = withAccounts(before, { reviewer: accounts['mr-reviewer'], fixer: accounts['pipeline-fixer'] });
+    if (after !== before && !dryRun) {
+      writeFileSync(autonomy, after);
+      console.log(`\n${autonomy}: agent accounts set (${accounts['mr-reviewer']}, ${accounts['pipeline-fixer']}); commit it in an MR, then run sync-flows`);
+    } else console.log('\naccounts:', accounts);
   }
-  if (own !== projectPath) {
-    console.log(`\naccounts (not written: this checkout is ${own ?? 'not a GitLab project'}, not ${projectPath}):`, accounts);
-    process.exit(0);
-  }
-  const before = readFileSync(autonomy, 'utf8');
-  const after = withAccounts(before, { reviewer: accounts['mr-reviewer'], fixer: accounts['pipeline-fixer'] });
-  if (after !== before && !dryRun) {
-    writeFileSync(autonomy, after);
-    console.log(`\n${autonomy}: agent accounts set (${accounts['mr-reviewer']}, ${accounts['pipeline-fixer']}); commit it in an MR, then run sync-flows`);
-  } else console.log('\naccounts:', accounts);
 }
