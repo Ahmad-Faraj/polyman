@@ -49,6 +49,10 @@ AI Catalog when it publishes them.
 
 Needs a role that can manage AI Catalog items (our Developer+ role can).
 
+Do this only after `main` is protected (no one can push to it directly) and
+"Pipelines must succeed" is on (#14). The flows have `run_git_command`, and
+until then only a prompt line stops an agent from pushing straight to `main`.
+
 1. In AI > Flows, create them in this order, pasting
    `node engine/src/cli/sync-flows.ts --print NAME`: **mr-reviewer**, then
    **pipeline-fixer**, then **issue-builder** (it hands its MR to those two), then

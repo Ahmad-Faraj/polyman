@@ -64,9 +64,10 @@ autonomy:guard:
   script:
     - node engine/src/cli/guard.ts
 
-# The same rule on the default branch. Pipelines don't have to pass before a
-# merge here, and agents' accounts can push to main, so this catches an agent
-# change that reached main anyway. Release jobs should need this job.
+# The same rule on the default branch. This only reports after the fact: until
+# main is protected (no direct pushes) and "Pipelines must succeed" is on (#14),
+# an agent account can push to main, so do not enable the flows before that.
+# Release jobs should need this job.
 autonomy:guard:main:
   extends: .autonomy:node
   stage: assess
