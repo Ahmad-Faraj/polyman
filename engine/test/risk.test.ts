@@ -69,6 +69,16 @@ describe('assessRisk', () => {
     expect(r.tier).toBe('high');
   });
 
+  it('ignores findings in files the change does not touch (the scanners report the whole repo)', () => {
+    const elsewhere: Finding = { scanner: 'sast', severity: 'High', name: 'SSRF', file: 'src/other.ts' };
+    const noFile: Finding = { scanner: 'dependency_scanning', severity: 'High', name: 'CVE' };
+    const changed = [file('src/routes/orders.ts'), file('tests/api.test.ts')];
+    const clean = assessRisk(changed, [], config);
+    expect(assessRisk(changed, [elsewhere], config).score).toBe(clean.score);
+    expect(assessRisk(changed, [elsewhere], config).stats.findings.High).toBe(0);
+    expect(assessRisk(changed, [noFile], config).score).toBeGreaterThan(clean.score);
+  });
+
   it('high severity findings raise the score', () => {
     const vuln: Finding = { scanner: 'sast', severity: 'High', name: 'SQL injection', file: 'src/routes/orders.ts' };
     const clean = assessRisk([file('src/routes/orders.ts'), file('tests/api.test.ts')], [], config);

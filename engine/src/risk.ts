@@ -106,7 +106,11 @@ export function assessRisk(
   const touchesTests = files.some((f) => matchesAny(f.path, config.tests));
   add('tests.missing', touchesSource && !touchesTests ? 10 : 0, 'source changed without any test changes');
 
-  // findings from the scanners in this pipeline
+  // Findings from the scanners in this pipeline. The scanners report the whole
+  // repository, so only findings in files this change touches count; ones
+  // without a file (some dependency findings) count too, to be safe.
+  const touched = new Set(files.map((f) => f.path));
+  findings = findings.filter((f) => !f.file || touched.has(f.file));
   const counts: Record<Severity, number> = { Critical: 0, High: 0, Medium: 0, Low: 0, Info: 0, Unknown: 0 };
   for (const f of findings) counts[f.severity]++;
   const secretHits = findings.filter((f) => f.scanner === 'secret_detection');
