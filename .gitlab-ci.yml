@@ -1,13 +1,33 @@
-# GitLab CI for polyman. Mirrors .github/workflows/ci.yml + deploy-docs.yaml.
+# GitLab CI for polyman: the jobs from .github/workflows/ci.yml and deploy-docs.yaml,
+# plus the verify service (service/ci), which has no GitHub counterpart.
 stages:
   - check
   - test
+  - assess
   - build
   - deploy
+
+# Merge request pipelines while an MR is open, branch pipelines otherwise, so a
+# push doesn't run everything twice.
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS
+      when: never
+    - if: $CI_COMMIT_BRANCH
+    - if: $CI_COMMIT_TAG
+
+variables:
+  # run the scanners in merge request pipelines too; the risk score reads them
+  AST_ENABLE_MR_PIPELINES: "true"
 
 include:
   - template: Jobs/SAST.gitlab-ci.yml
   - template: Jobs/Secret-Detection.gitlab-ci.yml
+  # risk score, guard and flow checks on merge requests (engine/README.md)
+  - local: engine/ci/autonomy.gitlab-ci.yml
+  # the verify web service (#19): its tests, image, sample check and Cloud Run deploy
+  - local: service/ci/service.gitlab-ci.yml
   # golden + mutant corpus: real compilers judging real solutions (corpus/README.md)
   - local: corpus/corpus.gitlab-ci.yml
 
