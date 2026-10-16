@@ -20,6 +20,10 @@ import { fmt } from '../../formatter';
 import { normalizeLineEndingsFromRemoteToSystem } from './utils';
 import { CPP_EXTENSIONS } from '../utils';
 
+const UNPRINTABLE =
+  // eslint-disable-next-line no-control-regex
+  /[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/;
+
 /**
  * Rejects names Polygon returns that are not a plain file name, so a hostile
  * or corrupted name such as `../../x` cannot make us write outside the
@@ -27,7 +31,8 @@ import { CPP_EXTENSIONS } from '../utils';
  *
  * @param {string} name - A file or language name received from Polygon
  * @returns {string} The same name
- * @throws {Error} When the name contains a path separator or is `.`/`..`/empty
+ * @throws {Error} When the name contains a path separator or a control
+ *   character, or is `.`/`..`/empty
  */
 export function assertPlainName(name: string): string {
   if (
@@ -38,6 +43,7 @@ export function assertPlainName(name: string): string {
     name.includes('/') ||
     name.includes('\\') ||
     name.includes('\0') ||
+    UNPRINTABLE.test(name) ||
     path.basename(name) !== name
   ) {
     throw new Error(
@@ -54,8 +60,7 @@ export function assertPlainName(name: string): string {
  */
 export function printable(text: string): string {
   return String(text).replace(
-    // eslint-disable-next-line no-control-regex
-    /[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g,
+    new RegExp(UNPRINTABLE.source, 'g'),
     c => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0')
   );
 }

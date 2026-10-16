@@ -919,6 +919,26 @@ describe('pulling.ts', () => {
       }
     });
 
+    it('refuses names with newline, ESC, C1 or bidi characters, so they never reach Config.json', async () => {
+      for (const name of ['a\nb.cpp', 'a\x1b[2Jb', 'a\u009bb', 'a\u202eb']) {
+        expect(() => pulling.assertPlainName(name)).toThrow(/unsafe name/);
+      }
+      mockSdk.getSolutions.mockResolvedValue([
+        { name: 'a\n  forged.cpp', tag: 'OK' },
+        { name: 'ünï 😀.cpp', tag: 'OK' },
+      ] as never);
+      mockSdk.viewSolution.mockResolvedValue('code');
+      const result = await pulling.downloadSolutions(asSdk(mockSdk), 1, 'dir');
+      expect(result.data.map(s => s.name)).toEqual(['ünï 😀']);
+    });
+
+    it('printable escapes control characters but keeps non-ASCII text', () => {
+      expect(pulling.printable('ünï 😀 日本.cpp')).toBe('ünï 😀 日本.cpp');
+      expect(pulling.printable('a\nb\u2028c\u2067d')).toBe(
+        'a\\u000ab\\u2028c\\u2067d'
+      );
+    });
+
     it('refuses empty, dot, NUL and separator names', () => {
       for (const name of ['', '.', '..', 'a\0b', 'a/b', 'a\\b', '../x']) {
         expect(() => pulling.assertPlainName(name)).toThrow(/unsafe name/);
