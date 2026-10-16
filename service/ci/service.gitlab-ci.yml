@@ -2,10 +2,10 @@
 #
 # On merge requests and on the default branch: test the service, build its
 # image, and run the sample problems against that image (the golden check).
-# With Google Cloud set up (GCP_PROJECT_ID and friends, see service/README.md),
-# merge requests also get a review revision on Cloud Run, and the default
-# branch deploys to production, checks it with the same samples and moves
-# traffic back if they don't give the expected results.
+# With Google Cloud set up (GCP_PROJECT_ID and friends, see service/README.md)
+# the default branch also releases it: a candidate revision with no traffic,
+# the samples against the candidate, the switch, the samples against
+# production, and the switch back if production gets them wrong.
 
 variables:
   SERVICE_IMAGE: $CI_REGISTRY_IMAGE/verify:$CI_COMMIT_SHORT_SHA
@@ -71,73 +71,71 @@ service:golden:
   id_tokens:
     GCP_ID_TOKEN:
       aud: https://gitlab.com
+  resource_group: verify-production
+
+.service:release:
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $GCP_PROJECT_ID
+      changes: *service_files
+
+service:deploy:candidate:
+  extends: [.service:gcp, .service:release]
+  stage: deploy
+  needs: [service:golden]
+  script:
+    - sh service/deploy/cloudrun.sh candidate
   artifacts:
     reports:
       dotenv: deploy.env
 
-service:deploy:review:
-  extends: .service:gcp
-  stage: deploy
-  needs: [service:golden]
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $GCP_PROJECT_ID
-      changes: *service_files
-  environment:
-    name: verify/review/mr-$CI_MERGE_REQUEST_IID
-    url: $SERVICE_URL
-  script:
-    - sh service/deploy/cloudrun.sh review
-
-service:check:review:
+# the new revision on its own URL, before any user reaches it
+service:check:candidate:
+  extends: .service:release
   stage: deploy
   image: node:22
-  needs: [service:deploy:review]
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $GCP_PROJECT_ID
-      changes: *service_files
+  needs: [service:deploy:candidate]
   script:
-    - node --disable-warning=ExperimentalWarning service/scripts/golden.ts "$SERVICE_URL" --json golden.json
+    - node --disable-warning=ExperimentalWarning service/scripts/golden.ts "$CANDIDATE_URL" --json golden.json
   artifacts:
     when: always
     paths: [golden.json]
 
-service:deploy:production:
-  extends: .service:gcp
+service:promote:production:
+  extends: [.service:gcp, .service:release]
   stage: deploy
-  needs: [service:golden]
-  rules:
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $GCP_PROJECT_ID
-      changes: *service_files
-  resource_group: verify-production
+  needs: [service:deploy:candidate, service:check:candidate]
   environment:
     name: verify/production
     url: $SERVICE_URL
   script:
-    - sh service/deploy/cloudrun.sh production
+    - sh service/deploy/cloudrun.sh promote
+  artifacts:
+    reports:
+      dotenv: deploy.env
 
 service:check:production:
+  extends: .service:release
   stage: deploy
   image: node:22
-  needs: [service:deploy:production]
-  rules:
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $GCP_PROJECT_ID
-      changes: *service_files
+  needs: [service:promote:production]
   script:
     - node --disable-warning=ExperimentalWarning service/scripts/golden.ts "$SERVICE_URL" --json golden.json
   artifacts:
     when: always
     paths: [golden.json]
 
-# The samples gave the wrong verdicts in production: send traffic back.
+# Production got the samples wrong after the switch: send traffic back to the
+# revision that served before. Does nothing if the switch never happened.
 service:rollback:production:
   extends: .service:gcp
   stage: deploy
-  needs: [service:deploy:production, service:check:production]
+  needs:
+    - { job: service:deploy:candidate }
+    - { job: service:promote:production }
+    - { job: service:check:production, artifacts: false }
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $GCP_PROJECT_ID
       changes: *service_files
       when: on_failure
-  resource_group: verify-production
   script:
     - sh service/deploy/cloudrun.sh rollback
-  artifacts: {}

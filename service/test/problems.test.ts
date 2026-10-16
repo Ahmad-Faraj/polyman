@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { configProblems, findProblems } from '../src/problems.ts';
+import { configProblems, findProblems, problemLabel } from '../src/problems.ts';
 
 const dirs: string[] = [];
 const fresh = () => {
@@ -99,5 +99,23 @@ describe('configProblems', () => {
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, 'Config.json'), '{ nope');
     expect(configProblems(dir)[0]).toContain('not valid JSON');
+  });
+});
+
+describe('problemLabel', () => {
+  it('keeps problems with the same folder name apart by their path', () => {
+    const root = fresh();
+    problemAt(join(root, 'day1', 'A'));
+    problemAt(join(root, 'day2', 'A'));
+    expect(findProblems(root).map((p) => problemLabel(p, root))).toEqual(['day1/A', 'day2/A']);
+  });
+
+  it("names a problem at the root after its Config.json, never the temp folder", () => {
+    const named = fresh();
+    problemAt(named, { name: 'even-sum' });
+    expect(problemLabel(findProblems(named)[0], named)).toBe('even-sum');
+    const odd = fresh();
+    problemAt(odd, { name: '<script>' });
+    expect(problemLabel(findProblems(odd)[0], odd)).toBe('problem');
   });
 });

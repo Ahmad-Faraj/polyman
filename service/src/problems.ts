@@ -5,7 +5,7 @@
  * the problem's folder, and a standard checker has to be a plain name.
  */
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { join, relative } from 'node:path';
 import { UnsafeZipError, inside } from './unzip.ts';
 
 /** Config keys whose string values are paths, wherever they appear. */
@@ -94,4 +94,19 @@ export function configProblems(dir: string): string[] {
   return problems;
 }
 
-export const problemLabel = (p: Problem) => (p.name === '.' ? basename(p.dir) : p.name);
+/**
+ * How a problem is called in the results: its path inside the zip (so day1/A
+ * and day2/A stay apart), or for a single problem at the root, the name in
+ * its Config.json.
+ */
+export function problemLabel(p: Problem, root: string): string {
+  const rel = relative(root, p.dir);
+  if (rel) return rel.split('\\').join('/');
+  try {
+    const name = (JSON.parse(readFileSync(join(p.dir, 'Config.json'), 'utf8')) as { name?: unknown }).name;
+    if (typeof name === 'string' && /^[\w .-]{1,80}$/.test(name)) return name;
+  } catch {
+    // fall through
+  }
+  return 'problem';
+}

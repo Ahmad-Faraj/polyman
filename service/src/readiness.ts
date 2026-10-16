@@ -27,6 +27,31 @@ interface Config {
 }
 
 export const MIN_TESTS = 10;
+
+const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+const str = (v: unknown) => (typeof v === 'string' ? v : undefined);
+
+/** The config as the checks expect it; anything of the wrong shape counts as missing. */
+function normalise(raw: unknown): Config {
+  const c = isObject(raw) ? raw : {};
+  const statements: Config['statements'] = {};
+  if (isObject(c.statements)) {
+    for (const [lang, s] of Object.entries(c.statements)) {
+      if (isObject(s)) statements[lang] = Object.fromEntries(Object.entries(s).map(([k, v]) => [k, str(v)]));
+    }
+  }
+  const part = (v: unknown) => (isObject(v) ? { source: str(v.source), isStandard: v.isStandard === true } : undefined);
+  return {
+    tags: Array.isArray(c.tags) ? c.tags.filter((t): t is string => typeof t === 'string') : [],
+    tutorial: str(c.tutorial),
+    statements,
+    checker: part(c.checker),
+    validator: part(c.validator),
+    solutions: Array.isArray(c.solutions)
+      ? c.solutions.filter(isObject).map((s) => ({ name: str(s.name), source: str(s.source), tag: str(s.tag), sourceType: str(s.sourceType) }))
+      : [],
+  };
+}
 const CORRECT = new Set(['MA', 'OK']);
 
 const nonEmpty = (dir: string, path: string | undefined) => {
@@ -48,7 +73,7 @@ const language = (s: { source?: string; sourceType?: string }) => {
 };
 
 export function readiness(dir: string, report: VerifyReport | null): Check[] {
-  const config = JSON.parse(readFileSync(inside(dir, 'Config.json'), 'utf8')) as Config;
+  const config = normalise(JSON.parse(readFileSync(inside(dir, 'Config.json'), 'utf8')));
   const checks: Check[] = [];
   const add = (id: string, title: string, severity: Severity, ok: boolean, detail: string) =>
     checks.push({ id, title, severity, ok, detail });

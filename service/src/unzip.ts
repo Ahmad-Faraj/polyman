@@ -2,7 +2,8 @@
  * Unpacks an uploaded zip into a fresh folder, refusing anything that could
  * reach outside it: absolute paths, `..`, backslashes, symlinks. Sizes are
  * counted as the data is written, not taken from the zip's own headers, so a
- * zip bomb stops at the limit.
+ * zip bomb stops at the limit. A `.polyman` folder (polyman's compile cache)
+ * is left out, so what runs is always compiled from the sources.
  */
 import { createWriteStream, mkdirSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
@@ -53,11 +54,9 @@ export async function unzip(zip: Buffer, dest: string, limits: UnzipLimits = DEF
       if (mode === S_IFLNK) throw new UnsafeZipError(`"${entry.fileName}" is a symlink`);
 
       const rel = safeEntryPath(entry.fileName);
-      if (!rel) continue;
-      const target = resolve(root, rel);
-      if (relative(root, target).startsWith('..') || isAbsolute(relative(root, target))) {
-        throw new UnsafeZipError(`"${entry.fileName}" goes outside the folder`);
-      }
+      // polyman's compile cache: binaries polyman would trust instead of compiling the sources
+      if (!rel || rel.split('/').includes('.polyman')) continue;
+      const target = inside(root, rel);
       if (entry.fileName.endsWith('/')) {
         mkdirSync(target, { recursive: true });
         continue;

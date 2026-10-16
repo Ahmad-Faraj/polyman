@@ -48,6 +48,7 @@ module.exports = defineConfig([
       'coverage/**',
       '.claude/**',
       '*.config.js',
+      'service/**', // has its own type check and tests (service/package.json)
     ],
   },
 ]);

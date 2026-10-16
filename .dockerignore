@@ -3,5 +3,5 @@ dist
 coverage
 docs
 .git
-.polyman
+**/.polyman
 **/*.log

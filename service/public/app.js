@@ -41,7 +41,12 @@ fetch('/api/samples')
   });
 
 els.pick.addEventListener('click', () => els.file.click());
-els.file.addEventListener('change', () => els.file.files[0] && upload(els.file.files[0]));
+els.file.addEventListener('change', () => {
+  const f = els.file.files[0];
+  // clear it, so choosing the same file again (after fixing it) still starts a run
+  els.file.value = '';
+  if (f) upload(f);
+});
 for (const ev of ['dragenter', 'dragover']) {
   els.form.addEventListener(ev, (e) => {
     e.preventDefault();

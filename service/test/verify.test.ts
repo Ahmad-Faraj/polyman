@@ -53,3 +53,37 @@ describe('runVerify', () => {
     expect(r.error).toContain('boom: Config.json missing');
   });
 });
+
+describe('runVerify: stopping', () => {
+  it('stops and kills the run when the visitor leaves', async () => {
+    const dir = fresh();
+    const left = new AbortController();
+    const run = runVerify(dir, { cli: cli(dir, `setInterval(() => {}, 1000)`), timeoutMs: 60_000, signal: left.signal });
+    setTimeout(() => left.abort(), 300);
+    const r = await run;
+    expect(r.error).toBe('cancelled');
+    expect(r.seconds).toBeLessThan(5);
+  });
+
+  it('finishes even when a process it left behind keeps the output pipe open', async () => {
+    const dir = fresh();
+    // the child starts a daemon in a new session that inherits stdout, prints its report and exits
+    const code = `
+      const { spawn } = require('child_process');
+      const d = spawn('sleep', ['30'], { stdio: ['ignore', 'inherit', 'inherit'], detached: true }); // detached: a new session
+      require('fs').writeFileSync('daemon.pid', String(d.pid));
+      d.unref();
+      process.stdout.write('{"ok":true,"steps":[],"solutions":[]}');
+    `;
+    const started = Date.now();
+    const r = await runVerify(dir, { cli: cli(dir, code), timeoutMs: 60_000 });
+    expect(r.report?.ok).toBe(true);
+    expect(Date.now() - started).toBeLessThan(10_000);
+    // outside the image there is no runner user to sweep, so clean the daemon up here
+    try {
+      process.kill(Number(readFileSync(join(dir, 'daemon.pid'), 'utf8')), 'SIGKILL');
+    } catch {
+      // already gone
+    }
+  });
+});

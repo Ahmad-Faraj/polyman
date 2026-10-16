@@ -92,6 +92,13 @@ describe('unzip', () => {
     await expect(unzip(zip, fresh(), { maxEntries: 2, maxTotalBytes: 1e6, maxFileBytes: 1e6 })).rejects.toThrow('more than 2 files');
   });
 
+  it("leaves out polyman's compile cache, so nothing the uploader compiled gets run", async () => {
+    const dest = fresh();
+    const files = await unzip(await zipOf([{ name: 'p/Config.json' }, { name: 'p/.polyman/cache/compiled/x.bin' }]), dest);
+    expect(files).toEqual(['p/Config.json']);
+    expect(existsSync(join(dest, 'p/.polyman'))).toBe(false);
+  });
+
   it('refuses something that is not a zip', async () => {
     await expect(unzip(Buffer.from('not a zip at all'), fresh())).rejects.toThrow();
   });

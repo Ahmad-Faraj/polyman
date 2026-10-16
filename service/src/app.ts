@@ -12,9 +12,13 @@
  * step, problem, done), so the page can show progress. Nothing is kept after a
  * request: the upload lives in a temporary folder that is removed at the end.
  * One verification runs at a time; Cloud Run is set to one request per
- * instance as well, this is the same rule enforced here.
+ * instance as well, this is the same rule enforced here. If the visitor
+ * leaves, the run is cancelled.
+ *
+ * In the image the service runs as root only to hand each upload to the
+ * `runner` user and run polyman as that user (runAs); see verify.ts.
  */
-import { copyFileSync, cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { chmodSync, chownSync, copyFileSync, cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import multipart from '@fastify/multipart';
@@ -35,6 +39,8 @@ export interface AppOptions {
   maxProblems?: number;
   problemTimeoutMs?: number;
   commit?: string;
+  /** run uploaded code as this user (the service must be root to do so) */
+  runAs?: { uid: number; gid: number };
 }
 
 const STATIC: Record<string, string> = {
@@ -56,7 +62,8 @@ export function buildApp(opts: AppOptions) {
     }
   })();
 
-  const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? 'info' }, bodyLimit: 1024 * 1024 });
+  // requestTimeout: the whole upload must arrive within two minutes (it doesn't cover the streamed answer)
+  const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? 'info' }, bodyLimit: 1024 * 1024, requestTimeout: 120_000 });
   app.register(multipart, { limits: { files: 1, fileSize: maxUploadBytes, fields: 0, parts: 1 } });
 
   let busy = false;
@@ -93,23 +100,41 @@ export function buildApp(opts: AppOptions) {
   /** Runs every problem in `root` and streams the events; removes `root` at the end. */
   async function verifyAll(root: string, problems: Problem[], reply: FastifyReply) {
     const started = Date.now();
+    const visitorLeft = new AbortController();
+    reply.raw.on('close', () => {
+      if (!reply.raw.writableFinished) visitorLeft.abort();
+    });
+    if (opts.runAs) handTo(root, opts.runAs);
     reply.raw.writeHead(200, { 'content-type': 'application/x-ndjson; charset=utf-8', 'cache-control': 'no-store', 'x-accel-buffering': 'no' });
     const send = (event: object) => reply.raw.write(`${JSON.stringify(event)}\n`);
     let allOk = true;
     try {
-      send({ type: 'start', problems: problems.map(problemLabel), polyman: polymanVersion });
+      send({ type: 'start', problems: problems.map((p) => problemLabel(p, root)), polyman: polymanVersion });
       for (const p of problems) {
-        const name = problemLabel(p);
-        if (!existsSync(join(p.dir, 'testlib.h'))) copyFileSync(opts.testlib, join(p.dir, 'testlib.h'));
-        const result = await runVerify(p.dir, {
-          cli: opts.polymanCli,
-          timeoutMs: problemTimeoutMs,
-          onStep: (step, title) => send({ type: 'step', problem: name, step, title }),
-        });
-        const checks = readiness(p.dir, result.report);
-        const ok = !!result.report?.ok;
-        allOk &&= ok;
-        send({ type: 'problem', problem: name, ok, seconds: result.seconds, error: result.error, report: result.report, readiness: checks });
+        if (visitorLeft.signal.aborted) break;
+        const name = problemLabel(p, root);
+        try {
+          if (!existsSync(join(p.dir, 'testlib.h'))) {
+            copyFileSync(opts.testlib, join(p.dir, 'testlib.h'));
+            if (opts.runAs) handTo(join(p.dir, 'testlib.h'), opts.runAs);
+          }
+          const result = await runVerify(p.dir, {
+            cli: opts.polymanCli,
+            timeoutMs: problemTimeoutMs,
+            onStep: (step, title) => send({ type: 'step', problem: name, step, title }),
+            runAs: opts.runAs,
+            signal: visitorLeft.signal,
+          });
+          const checks = readiness(p.dir, result.report);
+          const ok = !!result.report?.ok;
+          allOk &&= ok;
+          send({ type: 'problem', problem: name, ok, seconds: result.seconds, error: result.error, report: result.report, readiness: checks });
+        } catch (err) {
+          // one broken problem must not stop the rest of a contest
+          app.log.warn({ err, problem: name }, 'problem failed');
+          allOk = false;
+          send({ type: 'problem', problem: name, ok: false, seconds: 0, error: 'this problem could not be checked', report: null, readiness: [] });
+        }
       }
       send({ type: 'done', ok: allOk, seconds: (Date.now() - started) / 1000 });
     } catch (err) {
@@ -132,7 +157,7 @@ export function buildApp(opts: AppOptions) {
       reply.code(400).send({ error: `at most ${maxProblems} problems per upload` });
       return null;
     }
-    const issues = problems.flatMap((p) => configProblems(p.dir).map((i) => `${problemLabel(p)}: ${i}`));
+    const issues = problems.flatMap((p) => configProblems(p.dir).map((i) => `${problemLabel(p, root)}: ${i}`));
     if (issues.length) {
       reply.code(400).send({ error: 'the upload was refused', issues });
       return null;
@@ -140,19 +165,25 @@ export function buildApp(opts: AppOptions) {
     return problems;
   }
 
-  async function exclusive(reply: FastifyReply, work: () => Promise<void>) {
-    if (busy) return reply.code(429).header('retry-after', '30').send({ error: 'busy with another verification, try again shortly' });
-    busy = true;
-    try {
-      await work();
-    } finally {
-      busy = false;
+  /** Takes the one-at-a-time lock, or answers 429. Call it once the upload has arrived. */
+  function claim(reply: FastifyReply): boolean {
+    if (busy) {
+      reply.code(429).header('retry-after', '30').send({ error: 'busy with another verification, try again shortly' });
+      return false;
     }
-    return reply;
+    busy = true;
+    return true;
   }
+  const release = () => {
+    busy = false;
+  };
 
-  app.post('/api/verify', async (req, reply) =>
-    exclusive(reply, async () => {
+  app.post('/api/verify', async (req, reply) => {
+    {
+      if (busy) {
+        // a cheap early answer; the lock itself is taken once the upload is in
+        return reply.code(429).header('retry-after', '30').send({ error: 'busy with another verification, try again shortly' });
+      }
       let data;
       try {
         data = await req.file();
@@ -171,6 +202,8 @@ export function buildApp(opts: AppOptions) {
         reply.code(413).send({ error: `the zip is larger than ${maxUploadBytes / 1024 / 1024} MB` });
         return;
       }
+      if (!claim(reply)) return;
+      try {
       const root = mkdtempSync(join(tmpdir(), 'verify-'));
       try {
         await unzip(zip, root, DEFAULT_LIMITS);
@@ -185,26 +218,49 @@ export function buildApp(opts: AppOptions) {
         return;
       }
       await verifyAll(root, problems, reply);
-    }),
-  );
-
-  app.post<{ Params: { name: string } }>('/api/samples/:name/verify', async (req, reply) =>
-    exclusive(reply, async () => {
-      const { name } = req.params;
-      if (!sampleNames().includes(name)) {
-        reply.code(404).send({ error: `no sample called ${name}` });
-        return;
+      } finally {
+        release();
       }
+    }
+    return reply;
+  });
+
+  app.post<{ Params: { name: string } }>('/api/samples/:name/verify', async (req, reply) => {
+    const { name } = req.params;
+    if (!sampleNames().includes(name)) return reply.code(404).send({ error: `no sample called ${name}` });
+    if (!claim(reply)) return reply;
+    try {
       const root = mkdtempSync(join(tmpdir(), 'verify-'));
       cpSync(join(opts.samplesDir, name), join(root, name), { recursive: true });
       const problems = prepare(root, reply);
       if (!problems) {
         rmSync(root, { recursive: true, force: true });
-        return;
+        return reply;
       }
       await verifyAll(root, problems, reply);
-    }),
-  );
+    } finally {
+      release();
+    }
+    return reply;
+  });
 
   return app;
+}
+
+/** Gives a folder (or file) and everything in it to the runner user, readable by nobody else. */
+function handTo(path: string, { uid, gid }: { uid: number; gid: number }) {
+  const walk = (p: string) => {
+    chownSync(p, uid, gid);
+    const entries = (() => {
+      try {
+        return readdirSync(p, { withFileTypes: true });
+      } catch {
+        return null; // a file
+      }
+    })();
+    if (!entries) return;
+    chmodSync(p, 0o700);
+    for (const e of entries) walk(join(p, e.name));
+  };
+  walk(path);
 }

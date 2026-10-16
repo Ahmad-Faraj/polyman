@@ -153,10 +153,12 @@ describe('POST /api/verify', () => {
   });
 
   it('leaves nothing behind in the temp folder', async () => {
-    const before = readdirSync(tmpdir()).filter((n) => n.startsWith('verify-')).length;
+    const ours = () => new Set(readdirSync(tmpdir()).filter((n) => n.startsWith('verify-')));
+    const before = ours();
     await app.inject({ method: 'POST', url: '/api/verify', ...multipartBody(await zipOf({ 'Config.json': config() })) });
     await app.inject({ method: 'POST', url: '/api/verify', ...multipartBody(await zipOf({ 'readme.txt': 'x' })) });
-    expect(readdirSync(tmpdir()).filter((n) => n.startsWith('verify-')).length).toBe(before);
+    // no folder appeared that is still there (others may come and go in parallel tests)
+    expect([...ours()].filter((n) => !before.has(n))).toEqual([]);
   });
 });
 

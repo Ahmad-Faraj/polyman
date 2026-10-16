@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
-import { descendants, killTree } from '../src/kill-tree.ts';
+import { descendants, killTree, killUser } from '../src/kill-tree.ts';
 
 const alive = (pid: number) => {
   try {
@@ -13,20 +13,20 @@ const alive = (pid: number) => {
 
 describe('descendants', () => {
   it('walks the whole tree, not just direct children', () => {
-    const table = new Map<number, [number, number]>([
-      [10, [1, 10]],
-      [11, [10, 11]],
-      [12, [11, 12]],
-      [13, [10, 10]],
-      [20, [1, 20]],
+    const table = new Map<number, { ppid: number }>([
+      [10, { ppid: 1 }],
+      [11, { ppid: 10 }],
+      [12, { ppid: 11 }],
+      [13, { ppid: 10 }],
+      [20, { ppid: 1 }],
     ]);
     expect(descendants(10, table).sort()).toEqual([11, 12, 13]);
   });
 
   it('stops on a loop in the table instead of running forever', () => {
-    const table = new Map<number, [number, number]>([
-      [10, [11, 10]],
-      [11, [10, 11]],
+    const table = new Map<number, { ppid: number }>([
+      [10, { ppid: 11 }],
+      [11, { ppid: 10 }],
     ]);
     expect(descendants(10, table)).toEqual([11]);
   });
@@ -43,5 +43,15 @@ describe('killTree', () => {
     await new Promise((r) => setTimeout(r, 200));
     expect(alive(parent.pid!)).toBe(false);
     expect(alive(grandchild)).toBe(false);
+  });
+});
+
+describe('killUser', () => {
+  it('refuses to kill our own user', () => {
+    expect(() => killUser(process.getuid!())).toThrow("own user");
+  });
+
+  it('finds nobody for a user with no processes', () => {
+    expect(killUser(4242424)).toBe(0);
   });
 });

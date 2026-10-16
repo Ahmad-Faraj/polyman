@@ -10,6 +10,7 @@
  * Exits 1 if any sample differs, or if the service can't be reached.
  */
 import { writeFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 
 export interface Expected {
   ok: boolean;
@@ -49,13 +50,26 @@ export function compare(expected: Expected, got: ProblemEvent | undefined): stri
   return diffs;
 }
 
-export async function runGolden(base: string): Promise<SampleResult[]> {
+/**
+ * POSTs, waiting out a 429: on a live service real visitors may hold every
+ * instance, and a busy service is not a broken one.
+ */
+async function postWhenFree(url: string, waitMs = 15_000, tries = 20): Promise<Response> {
+  for (let i = 1; ; i++) {
+    const res = await fetch(url, { method: 'POST' });
+    if (res.status !== 429 || i >= tries) return res;
+    await res.body?.cancel();
+    await new Promise((r) => setTimeout(r, waitMs));
+  }
+}
+
+export async function runGolden(base: string, waitMs?: number): Promise<SampleResult[]> {
   const samples = (await (await fetch(`${base}/api/samples`)).json()) as { name: string; expected: Expected | null }[];
   const results: SampleResult[] = [];
   for (const s of samples) {
     if (!s.expected) continue;
     const started = Date.now();
-    const res = await fetch(`${base}/api/samples/${encodeURIComponent(s.name)}/verify`, { method: 'POST' });
+    const res = await postWhenFree(`${base}/api/samples/${encodeURIComponent(s.name)}/verify`, waitMs);
     const text = await res.text();
     const events = res.ok ? text.trim().split('\n').map((l) => JSON.parse(l) as { type: string }) : [];
     const problem = events.find((e): e is ProblemEvent => e.type === 'problem');
@@ -65,7 +79,7 @@ export async function runGolden(base: string): Promise<SampleResult[]> {
   return results;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const base = (process.argv[2] ?? '').replace(/\/$/, '');
   if (!/^https?:\/\//.test(base)) {
     console.error('usage: golden.ts BASE_URL [--json FILE]');

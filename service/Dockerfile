@@ -17,7 +17,7 @@ FROM node:22-bookworm
 # runs Python solutions as `python`, which Debian only provides through
 # python-is-python3.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends openjdk-17-jdk-headless python-is-python3 \
+ && apt-get install -y --no-install-recommends openjdk-17-jdk-headless python-is-python3 tini \
  && rm -rf /var/lib/apt/lists/*
 # testlib.h pinned to a commit, so a change upstream can't change our verdicts
 ADD https://raw.githubusercontent.com/MikeMirzayanov/testlib/2d20123984e9479b8a56ebe0d6a51e23ad7c35b3/testlib.h /opt/testlib/testlib.h
@@ -36,14 +36,22 @@ COPY service/src ./service/src
 COPY service/public ./service/public
 COPY service/samples ./service/samples
 
+# Uploaded code runs as `runner`, a user that owns nothing but the upload it is
+# given. The service stays root only to hand each upload to that user, start
+# polyman as that user and kill every runner process when a run ends; the
+# uploaded code can't signal, inspect or read the service.
+RUN useradd --system --uid 10001 --user-group --no-create-home --shell /usr/sbin/nologin runner
+
 ARG APP_COMMIT=dev
 ENV NODE_ENV=production \
     PORT=8080 \
     POLYMAN_CLI=/app/dist/cli.js \
     TESTLIB_H=/opt/testlib/testlib.h \
+    RUNNER_UID=10001 \
+    RUNNER_GID=10001 \
     APP_COMMIT=$APP_COMMIT
 
-# not root: user code runs as the same user as the service
-USER node
 EXPOSE 8080
-CMD ["node", "--disable-warning=ExperimentalWarning", "service/src/server.ts"]
+# tini as PID 1 reaps whatever a killed run leaves behind
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["node", "--disable-sigusr1", "--disable-warning=ExperimentalWarning", "service/src/server.ts"]
