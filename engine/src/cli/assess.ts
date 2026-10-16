@@ -43,7 +43,9 @@ console.log([SUMMARY_START, renderRiskSummary(report, reports), SUMMARY_END].joi
 // the reviewer can read it from the pipeline API. The job token may set this.
 if (env.CI_PIPELINE_ID && env.CI_JOB_TOKEN) {
   const top = [...report.factors].sort((a, b) => b.points - a.points)[0];
-  const name = `risk ${report.tier} ${report.score}/100${top ? ` - ${top.detail}` : ''}`.slice(0, 250);
+  // when a rule forced the tier (pipeline or policy changed, a secret), that is the reason to show
+  const reason = report.forcedBy ?? top?.detail;
+  const name = `risk ${report.tier} ${report.score}/100${reason ? ` - ${reason}` : ''}`.slice(0, 250);
   await new GitLab()
     .put(`/:project/pipelines/${env.CI_PIPELINE_ID}/metadata`, { name })
     .then(() => console.log(`pipeline name: ${name}`))

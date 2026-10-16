@@ -4,11 +4,11 @@ import { SUMMARY_END, SUMMARY_START } from '../src/report.ts';
 // assess.ts is a top-level script. Git and the file system are faked, the risk
 // scoring is real, and fetch plays GitLab.
 
-const state = vi.hoisted(() => ({ files: [] as unknown[], written: {} as Record<string, string> }));
+const state = vi.hoisted(() => ({ files: [] as unknown[], findings: [] as unknown[], written: {} as Record<string, string> }));
 
 vi.mock('../src/inputs.ts', () => ({
   changedFiles: () => state.files,
-  securityFindings: () => ({ findings: [], reports: [] }),
+  securityFindings: () => ({ findings: state.findings, reports: [] }),
   loadIncidents: () => [],
 }));
 
@@ -55,6 +55,7 @@ async function runAssess() {
 
 beforeEach(() => {
   state.files = [];
+  state.findings = [];
   state.written = {};
   logs = [];
   warns = [];
@@ -83,8 +84,15 @@ describe('assess: naming the pipeline', () => {
     expect(calls[0].method).toBe('PUT');
     expect(calls[0].url).toBe(`${BASE}/projects/42/pipelines/99/metadata`);
     expect(calls[0].headers['JOB-TOKEN']).toBe('job-secret');
-    expect(calls[0].body.name).toBe('risk high 60/100 - pipeline/policy files changed: .gitlab-ci.yml');
+    expect(calls[0].body.name).toBe('risk high 60/100 - it changes the pipeline or its policy (.gitlab-ci.yml)');
     expect(logs).toContain(`pipeline name: ${calls[0].body.name}`);
+  });
+
+  it('names the rule that forced the tier, even when another factor scored more', async () => {
+    state.files = [file('.gitlab-ci.yml'), file('src/a.ts', 500)]; // policy +40, size +20, missing tests +10
+    state.findings = [{ scanner: 'sast', severity: 'Critical', name: 'x', file: 'src/a.ts' }]; // +45
+    await runAssess();
+    expect(calls[0].body.name).toMatch(/ - it changes the pipeline or its policy \(\.gitlab-ci\.yml\)$/);
   });
 
   it('uses the highest-scoring factor, whatever its position', async () => {
