@@ -10,13 +10,14 @@ import type { AutonomyConfig } from './config.ts';
 export type FlowValues = Record<string, string>;
 
 /** Flow names whose catalog consumer ID other flows hand over to. */
-export const HANDOFF_FLOWS = ['mr-reviewer', 'issue-builder'] as const;
+export const HANDOFF_FLOWS = ['mr-reviewer', 'pipeline-fixer', 'issue-builder'] as const;
 
 export function flowValues(config: AutonomyConfig, consumerIds: Record<string, string>): FlowValues {
   const values: FlowValues = {
     about: config.agents.about,
     checks: config.agents.checks,
     test_guide: config.agents.testGuide,
+    security_focus: config.agents.securityFocus,
     reviewer_account: config.agents.reviewerAccount,
     fixer_account: config.agents.fixerAccount,
     protected_paths: config.governance.map((p) => p.replace(/\/\*\*$/, '/')).join(', '),

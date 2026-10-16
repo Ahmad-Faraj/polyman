@@ -33,6 +33,7 @@ paths:
 
 governance:        # the automation itself (defaults are always included)
   - engine/**
+  - corpus/**        # the problems and true verdicts polyman is judged by
 
 source:
   - src/**
@@ -51,6 +52,12 @@ agents:
     Read CLAUDE.md before changing anything: it explains the layout (actions,
     steps, helpers, executor), the solution-tag verdicts and the conventions.
   checks: npm ci && npm run lint && npm run format:check && npx vitest run && npm run build
+  security_focus: >
+    files written from names Polygon returns (path traversal, see #2); the
+    Polygon API key and secret (never logged, printed or sent anywhere but
+    Polygon); running user code (time and memory limits, no shell injection
+    through file names or arguments); and verdicts, since a checker or
+    validator change must never let a wrong solution pass.
   test_guide: Tests use vitest and live in tests/, mirroring src/. Tests that compile C++ need g++.
   # service accounts GitLab creates when the flows are enabled here; fill in
   # once they exist (node engine/src/cli/doctor.ts checks them)

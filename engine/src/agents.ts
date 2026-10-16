@@ -21,11 +21,23 @@ export interface Violation {
   files: string[];
 }
 
-/** Agent commits that touch files only people may change. */
-export function protectedPathViolations(commits: CommitFiles[], governance: string[]): Violation[] {
+/** The incident responder records lessons in the incidents file; no other agent may. */
+const INCIDENT_RESPONDER = /incident-responder/i;
+
+/**
+ * Agent commits that touch files only people may change. The one exception is
+ * the incidents file, which the incident responder's rollback MR adds to.
+ */
+export function protectedPathViolations(commits: CommitFiles[], governance: string[], incidentsFile?: string): Violation[] {
   return commits
     .filter((c) => isAgentEmail(c.authorEmail))
-    .map((c) => ({ sha: c.sha, agent: c.authorName, files: c.files.filter((f) => matchesAny(f, governance)) }))
+    .map((c) => ({
+      sha: c.sha,
+      agent: c.authorName,
+      files: c.files.filter(
+        (f) => matchesAny(f, governance) && !(f === incidentsFile && INCIDENT_RESPONDER.test(c.authorName)),
+      ),
+    }))
     .filter((v) => v.files.length > 0);
 }
 

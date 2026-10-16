@@ -32,6 +32,27 @@ describe('protectedPathViolations', () => {
     expect(v).toEqual([{ sha: 'ccc333', agent: 'mr-reviewer', files: ['engine/src/risk.ts'] }]);
   });
 
+  it('lets only the incident responder add to the incidents file', () => {
+    const responder = parseGitLog(`\x00ddd	incident-responder	${agentEmail}
+
+.autonomy/incidents.json
+src/app.ts
+`);
+    expect(protectedPathViolations(responder, governance, '.autonomy/incidents.json')).toEqual([]);
+    const fixer = parseGitLog(`\x00eee	pipeline-fixer	${agentEmail}
+
+.autonomy/incidents.json
+`);
+    expect(protectedPathViolations(fixer, governance, '.autonomy/incidents.json')).toEqual([
+      { sha: 'eee', agent: 'pipeline-fixer', files: ['.autonomy/incidents.json'] },
+    ]);
+    const policy = parseGitLog(`\x00fff	incident-responder	${agentEmail}
+
+.autonomy.yml
+`);
+    expect(protectedPathViolations(policy, governance, '.autonomy/incidents.json')).toHaveLength(1);
+  });
+
   it('lets people change protected files', () => {
     const v = protectedPathViolations(parseGitLog(`\0aaa\tMazen\tm@x.com\n\n.gitlab-ci.yml\n`), governance);
     expect(v).toEqual([]);

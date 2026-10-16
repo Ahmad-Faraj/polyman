@@ -64,6 +64,21 @@ autonomy:guard:
   script:
     - node engine/src/cli/guard.ts
 
+# The same rule on the default branch. This only reports after the fact: until
+# main is protected (no direct pushes) and "Pipelines must succeed" is on (#14),
+# an agent account can push to main, so do not enable the flows before that.
+# Release jobs should need this job.
+autonomy:guard:main:
+  extends: .autonomy:node
+  stage: assess
+  needs: []
+  variables:
+    GIT_DEPTH: 0
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"
+  script:
+    - node engine/src/cli/guard.ts "$CI_COMMIT_BEFORE_SHA"
+
 # Checks the Duo flow files the way GitLab will when they're saved: its JSON
 # schema, its prompt safety rules, and that every prompt variable is an input.
 autonomy:flows:
