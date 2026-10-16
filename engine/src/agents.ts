@@ -21,22 +21,45 @@ export interface Violation {
   files: string[];
 }
 
-/** The incident responder records lessons in the incidents file; no other agent may. */
-const INCIDENT_RESPONDER = /incident-responder/i;
+/**
+ * The incident responder's service account. Matched against the pipeline's user
+ * (GITLAB_USER_LOGIN, set by GitLab from who pushed), never the commit author,
+ * which any agent can set with `git -c user.name=...`.
+ */
+export const isIncidentResponderLogin = (login: string | undefined) => isAgentLogin(login, /^ai-incident-responder/);
 
 /**
- * Agent commits that touch files only people may change. The one exception is
- * the incidents file, which the incident responder's rollback MR adds to.
+ * Whether the incidents file only grew: every entry that was there before is
+ * still there, unchanged and in order. The responder may add a lesson, never
+ * rewrite or drop one.
  */
-export function protectedPathViolations(commits: CommitFiles[], governance: string[], incidentsFile?: string): Violation[] {
+export function onlyAppends(before: string | undefined, after: string | undefined): boolean {
+  try {
+    const old = before === undefined ? [] : JSON.parse(before);
+    const now = after === undefined ? undefined : JSON.parse(after);
+    if (!Array.isArray(old) || !Array.isArray(now) || now.length < old.length) return false;
+    return old.every((entry, i) => JSON.stringify(entry) === JSON.stringify(now[i]));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Agent commits that touch files only people may change. `exempt` names a
+ * protected file a commit may change anyway (the incidents file, when the
+ * incident responder only adds to it).
+ */
+export function protectedPathViolations(
+  commits: CommitFiles[],
+  governance: string[],
+  exempt: (file: string, commit: CommitFiles) => boolean = () => false,
+): Violation[] {
   return commits
     .filter((c) => isAgentEmail(c.authorEmail))
     .map((c) => ({
       sha: c.sha,
       agent: c.authorName,
-      files: c.files.filter(
-        (f) => matchesAny(f, governance) && !(f === incidentsFile && INCIDENT_RESPONDER.test(c.authorName)),
-      ),
+      files: c.files.filter((f) => matchesAny(f, governance) && !exempt(f, c)),
     }))
     .filter((v) => v.files.length > 0);
 }

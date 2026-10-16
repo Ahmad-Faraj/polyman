@@ -4,7 +4,7 @@
  * makes sure of it.
  */
 import { execFileSync } from 'node:child_process';
-import { protectedPathViolations, parseGitLog } from '../agents.ts';
+import { isIncidentResponderLogin, onlyAppends, protectedPathViolations, parseGitLog } from '../agents.ts';
 import { loadConfig } from '../config.ts';
 
 const env = process.env;
@@ -19,7 +19,17 @@ const log = execFileSync('git', ['log', '--format=%x00%H%x09%an%x09%ae', '--name
   encoding: 'utf8',
 });
 const commits = parseGitLog(log);
-const violations = protectedPathViolations(commits, config.governance, config.incidentsFile);
+// The incident responder's rollback MR may add a lesson to the incidents file:
+// only when GitLab says the responder's account pushed, and only by appending.
+const show = (rev: string) => {
+  try {
+    return execFileSync('git', ['show', `${rev}:${config.incidentsFile}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  } catch {
+    return undefined;
+  }
+};
+const incidentAppend = isIncidentResponderLogin(env.GITLAB_USER_LOGIN) && onlyAppends(show(base), show('HEAD'));
+const violations = protectedPathViolations(commits, config.governance, (file) => incidentAppend && file === config.incidentsFile);
 
 if (!violations.length) {
   const agentCommits = commits.filter((c) => c.authorEmail.includes('service_account_')).length;
