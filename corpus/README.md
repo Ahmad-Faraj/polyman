@@ -47,7 +47,9 @@ back through the Polygon API and compares it with the folder: solutions (tag, so
 checker and validator tests, generator script lines, manual tests and statements. It also fails
 when polyman reported a successful push although Polygon differs.
 
-It also expands every script in `scripts/` twice, with polyman's own parser and with Polygon
+It generates the tests locally with polyman and compares every input with the one Polygon generated,
+byte for byte apart from line endings (testlib's random generator is seeded from the arguments, so
+the two match across platforms; on 3.0.0 all four tests of `sum-parity` do). It also expands every script in `scripts/` twice, with polyman's own parser and with Polygon
 (saved as the testset's script, read back test by test), and puts the problem's script back after.
 polyman generates tests locally from its expansion and Polygon from its own, so a difference means
 the setter verified other tests than the ones Polygon publishes.

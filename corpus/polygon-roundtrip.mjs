@@ -6,7 +6,8 @@
  * Pushes a corpus problem to a Polygon problem with polyman, reads it back
  * through the Polygon API and compares it with the local folder: solutions
  * (tag and source type), checker and validator tests, generator script lines,
- * manual tests and statements. It also expands the scripts in corpus/scripts
+ * manual tests and statements; every generated test input, byte for byte
+ * against Polygon's. It also expands the scripts in corpus/scripts
  * with polyman's parser and with Polygon, test by test. Exits 1 on any
  * difference, and also reports when polyman said the push succeeded although
  * something is missing.
@@ -288,6 +289,53 @@ async function compare(creds, problemId, dir, config) {
  * its own, so any difference means the setter verified other tests than the
  * ones Polygon publishes. The problem's script is put back afterwards.
  */
+/**
+ * Generated inputs: polyman generates the tests locally, Polygon generates its
+ * own from the same script; every test input must be the same bytes (line
+ * endings aside). testlib's random generator is seeded from the generator's
+ * arguments, so this holds across platforms when the script expands the same.
+ */
+function inputParity(creds, problemId, dir, polyman, testset) {
+  const generated = spawnSync(
+    process.execPath,
+    [polyman, 'generate', '--testset', testset],
+    { cwd: dir, encoding: 'utf8', timeout: 10 * 60 * 1000 }
+  );
+  const folder = path.join(dir, 'testsets', testset);
+  if (generated.status !== 0 || !fs.existsSync(folder)) {
+    return Promise.resolve([
+      {
+        name: `inputs ${testset}`,
+        ok: false,
+        detail: `polyman generate failed: ${(generated.stderr || generated.stdout || '').slice(-300)}`,
+      },
+    ]);
+  }
+  const files = fs
+    .readdirSync(folder)
+    .filter(f => /^test\d+\.txt$/.test(f))
+    .sort((a, b) => parseInt(a.slice(4)) - parseInt(b.slice(4)));
+  return Promise.all(
+    files.map(async f => {
+      const index = parseInt(f.slice(4));
+      const local = text(fs.readFileSync(path.join(folder, f), 'utf8'));
+      const remote = text(
+        await polygon(
+          creds,
+          'problem.testInput',
+          { problemId, testset, testIndex: index },
+          true
+        )
+      );
+      return {
+        name: `input ${testset} #${index}`,
+        ok: local === remote,
+        detail: `polyman ${local.length} bytes, Polygon ${remote.length} bytes`,
+      };
+    })
+  );
+}
+
 async function scriptParity(creds, problemId, polyman, testset) {
   const parserFile = path.join(
     path.dirname(polyman),
@@ -403,6 +451,15 @@ async function main() {
   }
   const testset = config.testsets?.[0]?.name;
   if (testset) {
+    checks.push(
+      ...(await inputParity(
+        creds,
+        config.problemId,
+        dir,
+        args.polyman,
+        testset
+      ))
+    );
     checks.push(
       ...(await scriptParity(creds, config.problemId, args.polyman, testset))
     );
