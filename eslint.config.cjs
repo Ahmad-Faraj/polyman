@@ -42,6 +42,19 @@ module.exports = defineConfig([
     },
   },
   {
+    files: ['corpus/**/*.mjs'],
+    ...tseslint.configs.disableTypeChecked,
+    languageOptions: {
+      parserOptions: {
+        project: null,
+      },
+    },
+    rules: {
+      ...tseslint.configs.disableTypeChecked.rules,
+      'no-undef': 'off',
+    },
+  },
+  {
     ignores: [
       'dist/**',
       'node_modules/**',

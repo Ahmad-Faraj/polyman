@@ -8,6 +8,8 @@ stages:
 include:
   - template: Jobs/SAST.gitlab-ci.yml
   - template: Jobs/Secret-Detection.gitlab-ci.yml
+  # golden + mutant corpus: real compilers judging real solutions (corpus/README.md)
+  - local: corpus/corpus.gitlab-ci.yml
 
 # Shared Node setup, kept out of `default:` so it doesn't leak into the scanner jobs.
 .node:

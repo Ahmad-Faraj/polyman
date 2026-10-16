@@ -1,0 +1,55 @@
+# The corpus: real problems with deliberately wrong solutions, judged by real
+# compilers and checkers, compared with pinned true verdicts (corpus/README.md).
+# Included from .gitlab-ci.yml. Runs when polyman's code, the corpus or the
+# dependencies change, and on every default-branch pipeline.
+
+.corpus:
+  extends: .node
+  stage: test
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - changes: [src/**/*, corpus/**/*, template/**/*, assets/**/*, package.json, package-lock.json]
+  artifacts:
+    when: always
+    expire_in: 30 days
+    paths: [corpus/out/]
+
+# g++, Java and Python reachable as `python`: the toolchain polyman supports.
+corpus:
+  extends: .corpus
+  script:
+    - apt-get update -qq && apt-get install -y -qq default-jdk-headless python-is-python3 >/dev/null
+    - npm run build
+    - node corpus/run.mjs
+  artifacts:
+    reports:
+      junit: corpus/out/junit.xml
+  # Red on polyman 3.0.0: `verify --json` reports tests the checker never judged
+  # as OK. Becomes blocking in the MR that fixes it.
+  allow_failure: true
+
+# Environments polyman's users have. Each lane pins one fact about them.
+corpus:toolchain:
+  extends: .corpus
+  parallel:
+    matrix:
+      # chalk@5 is ESM-only, which `require` can load only from Node 20.19 on;
+      # the README promises older Node versions work.
+      - LANE: node-20.18
+        NODE_IMAGE: node:20.18
+        PYTHON_ALIAS: 'yes'
+      # Stock Debian/Ubuntu: python3 only, no `python` command.
+      - LANE: no-python-alias
+        NODE_IMAGE: node:22
+        PYTHON_ALIAS: 'no'
+  image: ${NODE_IMAGE}
+  script:
+    - apt-get update -qq && apt-get install -y -qq default-jdk-headless >/dev/null
+    - if [ "$PYTHON_ALIAS" = "yes" ]; then apt-get install -y -qq python-is-python3 >/dev/null; fi
+    - npm run build
+    - node dist/cli.js --version
+    - node corpus/run.mjs --junit corpus/out/junit-${LANE}.xml
+  artifacts:
+    reports:
+      junit: corpus/out/junit-${LANE}.xml
+  allow_failure: true
