@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { MockedFunction } from 'vitest';
 import * as pulling from '../../../src/helpers/remote/pulling';
 import fs from 'fs';
+import { fmt } from '../../../src/formatter';
 import type { PolygonSDK } from '../../../src/polygon';
 import type { StatementConfig } from '../../../src/types';
 
@@ -911,6 +912,45 @@ describe('pulling.ts', () => {
   describe('names from Polygon are plain file names', () => {
     const written = () =>
       vi.mocked(fs.writeFileSync).mock.calls.map(c => String(c[0]));
+
+    it('accepts legitimate names with spaces, dots and extensions', () => {
+      for (const name of ['my sol.v2.cpp', 'a b.py', 'Main.java', '.hidden']) {
+        expect(pulling.assertPlainName(name)).toBe(name);
+      }
+    });
+
+    it('refuses empty, dot, NUL and separator names', () => {
+      for (const name of ['', '.', '..', 'a\0b', 'a/b', 'a\\b', '../x']) {
+        expect(() => pulling.assertPlainName(name)).toThrow(/unsafe name/);
+      }
+    });
+
+    it('tells the user why a solution was refused and keeps going', async () => {
+      mockSdk.getSolutions.mockResolvedValue([
+        { name: '../../evil.cpp', tag: 'MA' },
+        { name: 'ok.cpp', tag: 'OK' },
+      ] as never);
+      mockSdk.viewSolution.mockResolvedValue('code');
+
+      const result = await pulling.downloadSolutions(asSdk(mockSdk), 1, 'dir');
+
+      expect(result.data.map(s => s.name)).toEqual(['ok']);
+      const warnings = vi.mocked(fmt).warning.mock.calls.map(c => c[0]);
+      expect(warnings.some(w => w.includes('Refusing unsafe name'))).toBe(true);
+    });
+
+    it('skips only the unsafe statement language, not the others', async () => {
+      mockSdk.getStatements.mockResolvedValue({
+        '../../evil': { name: 'x', legend: 'bad' },
+        english: { name: 'Problem', legend: 'good' },
+      } as never);
+
+      const result = await pulling.downloadStatements(asSdk(mockSdk), 1, 'dir');
+
+      expect(Object.keys(result.config)).toEqual(['english']);
+      expect(written().some(p => p.includes('evil'))).toBe(false);
+      expect(written().some(p => p.includes('legend.tex'))).toBe(true);
+    });
 
     it('does not write a solution whose name climbs out of the directory', async () => {
       mockSdk.getSolutions.mockResolvedValue([

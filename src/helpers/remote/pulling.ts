@@ -48,6 +48,14 @@ export function assertPlainName(name: string): string {
 }
 
 /**
+ * Short reason for a failed download, so a refused name is not reported as a
+ * generic failure.
+ */
+function reason(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
  * Downloads all solutions from Polygon and returns metadata.
  *
  * @param {PolygonSDK} sdk - Polygon SDK instance
@@ -84,8 +92,10 @@ export async function downloadSolutions(
           source: './solutions/' + solution.name,
           tag: solution.tag,
         });
-      } catch {
-        fmt.warning(`  ⚠️  Failed to download solution: ${solution.name}`);
+      } catch (error) {
+        fmt.warning(
+          `  ⚠️  Failed to download solution: ${solution.name} (${reason(error)})`
+        );
       }
     }
   } catch {
@@ -178,9 +188,9 @@ export async function downloadChecker(
       },
       count,
     };
-  } catch {
+  } catch (error) {
     fmt.error(
-      `  ${fmt.cross()} Could not download Checker, adding ncmp.cpp as default`
+      `  ${fmt.cross()} Could not download Checker (${reason(error)}), adding ncmp.cpp as default`
     );
     return {
       data: { name: 'ncmp', source: 'ncmp.cpp', isStandard: true },
@@ -255,9 +265,9 @@ export async function downloadValidator(
       },
       count,
     };
-  } catch {
+  } catch (error) {
     fmt.error(
-      `  ${fmt.cross()} Could not download validator, adding val.cpp to be implemented`
+      `  ${fmt.cross()} Could not download validator (${reason(error)}), adding val.cpp to be implemented`
     );
     return {
       data: { name: 'validator', source: 'val.cpp' },
@@ -317,8 +327,10 @@ export async function downloadGenerators(
           name: file.name.replace(/\.[^.]+$/, ''),
           source: './generators/' + file.name,
         });
-      } catch {
-        fmt.warning(`  ⚠️  Failed to download: ${file.name}`);
+      } catch (error) {
+        fmt.warning(
+          `  ⚠️  Failed to download: ${file.name} (${reason(error)})`
+        );
       }
     }
   } catch {
@@ -353,7 +365,14 @@ export async function downloadStatements(
     const statementsData = await sdk.getStatements(problemId);
 
     for (const [lang, statement] of Object.entries(statementsData)) {
-      assertPlainName(lang);
+      try {
+        assertPlainName(lang);
+      } catch (error) {
+        fmt.warning(
+          `  ⚠️  Skipping statement language ${JSON.stringify(lang)} (${reason(error)})`
+        );
+        continue;
+      }
       const langDir = path.join(problemDir, 'statements', lang);
       if (!fs.existsSync(langDir)) {
         fs.mkdirSync(langDir, { recursive: true });
