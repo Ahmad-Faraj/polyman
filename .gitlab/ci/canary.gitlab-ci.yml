@@ -1,0 +1,45 @@
+# Canary channel: every push to the default branch publishes
+# <version>-canary.<pipeline iid> to this project's own npm registry (never to
+# npmjs.com) and judges that package, installed the way users install it, with
+# the corpus. The canary environment records each one.
+
+.canary:
+  extends: .node
+  stage: deploy
+  variables:
+    CANARY_PACKAGE: '@gitlab-ai-hackathon/polyman-cli'
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"
+
+canary:publish:
+  extends: .canary
+  environment:
+    name: canary
+    deployment_tier: testing
+    url: $CI_PROJECT_URL/-/packages
+  script:
+    - VERSION="$(node -p "require('./package.json').version")-canary.$CI_PIPELINE_IID"
+    - npm pkg set name="$CANARY_PACKAGE" version="$VERSION"
+    - npm config set "@gitlab-ai-hackathon:registry" "$CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/npm/"
+    - npm config set -- "//$CI_SERVER_HOST/api/v4/projects/$CI_PROJECT_ID/packages/npm/:_authToken" "$CI_JOB_TOKEN"
+    - npm publish
+    - echo "CANARY_VERSION=$VERSION" > canary.env
+  artifacts:
+    reports:
+      dotenv: canary.env
+
+# Informational while known judging bugs are open (#21).
+canary:judge:
+  extends: .canary
+  needs: [canary:publish]
+  script:
+    - apt-get update -qq && apt-get install -y -qq default-jdk-headless python-is-python3 >/dev/null
+    - npm config set "@gitlab-ai-hackathon:registry" "$CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/npm/"
+    - npm i --prefix /tmp/canary --no-audit --no-fund "$CANARY_PACKAGE@$CANARY_VERSION"
+    - node corpus/run.mjs --polyman "/tmp/canary/node_modules/$CANARY_PACKAGE/dist/cli.js" --junit corpus/out/junit-canary.xml
+  artifacts:
+    when: always
+    paths: [corpus/out/report.html]
+    reports:
+      junit: corpus/out/junit-canary.xml
+  allow_failure: true

@@ -10,6 +10,8 @@ include:
   - template: Jobs/Secret-Detection.gitlab-ci.yml
   # golden + mutant corpus: real compilers judging real solutions (corpus/README.md)
   - local: corpus/corpus.gitlab-ci.yml
+  # canary channel: every merge published to this project's npm registry and judged
+  - local: .gitlab/ci/canary.gitlab-ci.yml
 
 # Shared Node setup, kept out of `default:` so it doesn't leak into the scanner jobs.
 .node:
