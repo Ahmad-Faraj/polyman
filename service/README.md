@@ -68,7 +68,11 @@ It runs code anyone can upload, so:
   code's, and the service only deletes it. The code can't signal, inspect or
   read the service (checked in the image: `kill` and reading
   `/proc/<service>/environ` get EPERM). polyman gets only `PATH`, with `HOME`
-  and `TMPDIR` set to the problem folder, and 120 s per problem. When a run
+  and `TMPDIR` set to the problem folder, `LANG`, and a 60 s compile limit
+  (`POLYMAN_COMPILE_TIMEOUT_MS`; polyman's default of 10 s is too tight in
+  the sandbox), and 120 s per problem. Before it listens, the service verifies
+  one sample to warm the compilers, so the first visitor isn't the one who
+  pays for a cold start. When a run
   ends, however it ends, every `runner` process is killed (from inside the
   user, so a fork loop can't outrun it) and what it left in `/tmp`,
   `/var/tmp` and `/dev/shm` is removed. One verification at a time per

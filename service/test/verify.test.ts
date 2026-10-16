@@ -143,6 +143,20 @@ describe.runIf(root)('as root, with a runner user', () => {
     expect(existsSync(dir)).toBe(true);
   });
 
+  it('removes the System V shared memory and lock files the runner leaves', async () => {
+    const { spawnSync } = await import('node:child_process');
+    const { existsSync } = await import('node:fs');
+    const { removeFilesOf, removeIpcOf } = await import('../src/kill-tree.ts');
+    expect(spawnSync('ipcmk', ['-M', '65536'], { ...RUNNER }).status).toBe(0);
+    spawnSync('sh', ['-c', 'touch /run/lock/left-by-runner'], { ...RUNNER });
+    const owned = () => readFileSync('/proc/sysvipc/shm', 'utf8').split('\n').filter((l) => l.trim().split(/\s+/)[7] === String(RUNNER.uid));
+    expect(owned().length).toBeGreaterThan(0);
+    removeIpcOf(RUNNER.uid);
+    removeFilesOf(RUNNER.uid, ['/run/lock']);
+    expect(owned()).toEqual([]);
+    expect(existsSync('/run/lock/left-by-runner')).toBe(false);
+  });
+
   it('kills a fork loop of the runner user', async () => {
     const { spawn } = await import('node:child_process');
     const { killUser } = await import('../src/kill-tree.ts');

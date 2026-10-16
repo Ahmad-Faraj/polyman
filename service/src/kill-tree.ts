@@ -11,8 +11,9 @@
  * user of its own, so after each run this also catches anything that escaped
  * the tree (a double fork, a daemon in a new session, a fork loop).
  *
- * removeFilesOf: what that user left in the shared temp folders, so nothing
- * carries over to the next visitor.
+ * removeFilesOf: what that user left in the shared writable folders, and
+ * removeIpcOf: the System V shared memory, queues and semaphores it left, so
+ * nothing carries over to the next visitor.
  */
 import { spawnSync } from 'node:child_process';
 import { lstatSync, readFileSync, readdirSync, rmSync } from 'node:fs';
@@ -35,9 +36,12 @@ function processTable(): Map<number, Proc> {
       const stat = readFileSync(`/proc/${name}/stat`, 'utf8');
       const [state, ppid, pgrp] = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
       const uid = /^Uid:\s+(\d+)/m.exec(readFileSync(`/proc/${name}/status`, 'utf8'))?.[1];
-      table.set(Number(name), { ppid: Number(ppid), pgrp: Number(pgrp), uid: Number(uid ?? -1), zombie: state === 'Z' });
-    } catch {
-      // the process ended while we were looking
+      // Z: dead, waiting to be collected; X: dead. Neither can do anything any more.
+      table.set(Number(name), { ppid: Number(ppid), pgrp: Number(pgrp), uid: Number(uid ?? -1), zombie: state === 'Z' || state === 'X' });
+    } catch (err) {
+      // ENOENT/ESRCH: the process ended while we were looking
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code !== 'ENOENT' && code !== 'ESRCH') throw err;
     }
   }
   return table;
@@ -93,36 +97,72 @@ const pidsOf = (uid: number) =>
  * processes at once, so a fork loop can't slip past it; then from outside
  * until none are left. Returns how many the outside passes still found.
  */
+const pause = (ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+
 export function killUser(uid: number, gid = uid): number {
   if (uid === process.getuid?.()) throw new Error("refusing to kill the service's own user");
   spawnSync('kill', ['-9', '--', '-1'], { uid, gid, stdio: 'ignore', timeout: 5000 });
+  // SIGKILL is not instant: a process may still show for a moment while it dies
   let found = 0;
-  for (let pass = 0; pass < 5; pass++) {
+  for (let pass = 0; pass < 20; pass++) {
     const pids = pidsOf(uid);
     if (!pids.length) return found;
-    found += pids.length;
+    if (pass > 0) found = Math.max(found, pids.length);
     for (const p of pids) kill(p);
+    pause(100);
   }
-  if (pidsOf(uid).length) throw new Error(`processes of uid ${uid} survived five kill passes`);
+  const left = pidsOf(uid);
+  if (left.length) throw new Error(`processes of uid ${uid} still alive after 2 s of kill passes: ${left.join(', ')}`);
   return found;
 }
 
-/** Removes everything owned by `uid` directly inside these folders. */
+const gone = (err: unknown) => (err as NodeJS.ErrnoException).code === 'ENOENT';
+
+/** Removes everything owned by `uid` directly inside these folders; throws if something stays. */
 export function removeFilesOf(uid: number, dirs: string[]): void {
   for (const dir of dirs) {
     let names: string[];
     try {
       names = readdirSync(dir);
-    } catch {
-      continue; // the folder doesn't exist here
+    } catch (err) {
+      if (gone(err)) continue; // the folder doesn't exist here
+      throw err;
     }
     for (const name of names) {
       const path = join(dir, name);
       try {
         if (lstatSync(path).uid === uid) rmSync(path, { recursive: true, force: true });
-      } catch {
-        // gone already
+      } catch (err) {
+        if (!gone(err)) throw err;
       }
+    }
+  }
+}
+
+/** System V IPC objects (shared memory, message queues, semaphores) owned by `uid`, removed; throws if one stays. */
+export function removeIpcOf(uid: number, gid = uid): void {
+  const kinds: [string, string][] = [
+    ['shm', '-m'],
+    ['msg', '-q'],
+    ['sem', '-s'],
+  ];
+  for (const [kind, flag] of kinds) {
+    let text: string;
+    try {
+      text = readFileSync(`/proc/sysvipc/${kind}`, 'utf8');
+    } catch (err) {
+      if (gone(err)) continue; // not Linux, or no System V IPC here
+      throw err;
+    }
+    const [header, ...rows] = text.trim().split('\n');
+    const cols = header.trim().split(/\s+/);
+    const at = { id: cols.indexOf(kind === 'shm' ? 'shmid' : kind === 'msg' ? 'msqid' : 'semid'), uid: cols.indexOf('uid') };
+    for (const row of rows) {
+      const f = row.trim().split(/\s+/);
+      if (Number(f[at.uid]) !== uid) continue;
+      // as the owner: root may lack CAP_IPC_OWNER (Docker drops it), an owner can always remove its own
+      const res = spawnSync('ipcrm', [flag, f[at.id]], { uid, gid, stdio: 'pipe', timeout: 5000 });
+      if (res.status !== 0) throw new Error(`could not remove ${kind} ${f[at.id]} of uid ${uid}: ${String(res.stderr).trim()}`);
     }
   }
 }

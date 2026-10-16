@@ -1,14 +1,16 @@
 /**
  * Runs `polyman verify --json` on one problem folder.
  *
- * - The child gets only PATH, with HOME and TMPDIR set to the problem folder
- *   and LANG; none of the service's other variables.
+ * - The child gets only PATH, with HOME and TMPDIR set to the problem folder,
+ *   LANG, and a 60 s compile limit for polyman; none of the service's other
+ *   variables.
  * - In the image it runs as a user of its own (`runAs`), with a cap on how
  *   many processes that user may have, so the code it runs can't signal,
  *   inspect or read the service, and can't fork without end. When the run
  *   ends, however it ends, every process of that user is killed (from inside
- *   the user, which a fork loop can't outrun) and the files it left in the
- *   shared temp folders are removed.
+ *   the user, which a fork loop can't outrun), and the files and System V IPC
+ *   objects it left in shared places are removed. If that cleanup fails, the
+ *   result says so (`unclean`) and the instance stops taking visitors.
  * - A time limit for the whole run, cancellation when the visitor leaves, and
  *   a cap on how much output is read.
  * - The upload's own compile cache (.polyman) never gets this far: unzip
@@ -19,7 +21,7 @@
  * Progress comes from the "Step N: ..." lines polyman prints to stderr.
  */
 import { spawn } from 'node:child_process';
-import { killTree, killUser, removeFilesOf } from './kill-tree.ts';
+import { killTree, killUser, removeFilesOf, removeIpcOf } from './kill-tree.ts';
 
 export interface VerifyReport {
   schemaVersion: number;
@@ -41,6 +43,11 @@ export interface RunResult {
   /** why there is no report: timeout, cancelled, crash, unreadable output */
   error?: string;
   seconds: number;
+  /**
+   * Cleaning up after the run failed, so something of this upload may still
+   * be running or stored. The instance must not take another visitor.
+   */
+  unclean?: string;
 }
 
 export interface RunOptions {
@@ -51,8 +58,10 @@ export interface RunOptions {
   /** run as this user and group (needs the service to run as root) */
   runAs?: { uid: number; gid: number };
   signal?: AbortSignal;
-  /** called when cleaning up after the run went wrong, for the log */
+  /** called when cleaning up after the run found something to clean, for the log */
   onCleanupProblem?: (message: string) => void;
+  /** most progress events passed to onStep (stderr is the uploaded code's to write to) */
+  maxSteps?: number;
 }
 
 const STEP = /Step (\d+): (.+?)\s*$/;
@@ -61,8 +70,14 @@ const STEP = /Step (\d+): (.+?)\s*$/;
 const DRAIN_MS = 2000;
 // a report is a few hundred KB at most; anything near this is someone filling the pipe
 const MAX_STDOUT = 16 * 1024 * 1024;
+// compile limit given to polyman, well inside the per-problem limit
+const COMPILE_TIMEOUT_MS = 60_000;
 // processes the runner user may have at once: polyman, compilers, a solution and its threads
 const MAX_PROCESSES = 256;
+// polyman prints a dozen steps; the uploaded code can write to the same stderr
+const MAX_STEPS = 50;
+// shared writable places the runner can leave things in, besides its upload
+const SHARED_DIRS = ['/tmp', '/var/tmp', '/dev/shm', '/run/lock', '/var/lock', '/dev/mqueue'];
 
 /** A report has to have this shape before anything reads it. */
 export function isReport(value: unknown): value is VerifyReport {
@@ -88,7 +103,14 @@ export function runVerify(dir: string, opts: RunOptions): Promise<RunResult> {
   try {
     child = spawn(command, args, {
       cwd: dir,
-      env: { PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin', HOME: dir, TMPDIR: dir, LANG: 'C.UTF-8' },
+      env: {
+        PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin',
+        HOME: dir,
+        TMPDIR: dir,
+        LANG: 'C.UTF-8',
+        // compiling in the sandbox, on a fresh or busy instance, can take longer than polyman's 10 s default
+        POLYMAN_COMPILE_TIMEOUT_MS: String(COMPILE_TIMEOUT_MS),
+      },
       detached: true,
       stdio: ['ignore', 'pipe', 'pipe'],
       ...(runAs ?? {}),
@@ -102,6 +124,7 @@ export function runVerify(dir: string, opts: RunOptions): Promise<RunResult> {
   let stdoutBytes = 0;
   let stderrTail = '';
   let partial = '';
+  let steps = 0;
 
   let stopped: string | undefined;
   const stop = (why: string) => {
@@ -122,7 +145,7 @@ export function runVerify(dir: string, opts: RunOptions): Promise<RunResult> {
     partial = (lines.pop() ?? '').slice(-4000);
     for (const line of lines) {
       const m = STEP.exec(line.replace(/\x1b\[[0-9;]*m/g, ''));
-      if (m) onStep?.(Number(m[1]), m[2]);
+      if (m && steps++ < (opts.maxSteps ?? MAX_STEPS)) onStep?.(Number(m[1]), m[2].slice(0, 120));
     }
   });
 
@@ -138,32 +161,36 @@ export function runVerify(dir: string, opts: RunOptions): Promise<RunResult> {
       finished = true;
       clearTimeout(timer);
       signal?.removeEventListener('abort', onAbort);
+      let unclean: string | undefined;
       try {
-        // whatever is left: the tree, and in the image every process and temp file of the runner user
+        // whatever is left: the tree, and in the image every process, file and IPC object of the runner user
         if (child.pid) killTree(child.pid);
         if (runAs) {
           const left = killUser(runAs.uid, runAs.gid);
           if (left) opts.onCleanupProblem?.(`${left} runner process(es) were still alive after the run and were killed`);
-          removeFilesOf(runAs.uid, ['/tmp', '/var/tmp', '/dev/shm']);
+          removeFilesOf(runAs.uid, SHARED_DIRS);
+          removeIpcOf(runAs.uid, runAs.gid);
         }
       } catch (err) {
-        opts.onCleanupProblem?.(`cleanup after the run failed: ${(err as Error).message}`);
+        // fail closed: the caller must stop taking visitors on this instance
+        unclean = `cleanup after the run failed: ${(err as Error).message}`;
       }
       child.stdout?.destroy();
       child.stderr?.destroy();
 
       const seconds = (Date.now() - started) / 1000;
-      if (stopped) return done({ report: null, error: stopped, seconds });
+      const end = (r: Omit<RunResult, 'seconds' | 'unclean'>) => done({ ...r, seconds, ...(unclean ? { unclean } : {}) });
+      if (stopped) return end({ report: null, error: stopped });
       let parsed: unknown;
       try {
         parsed = JSON.parse(stdout);
       } catch {
         const last = stderrTail.replace(/\x1b\[[0-9;]*m/g, '').trim().split('\n').slice(-5).join('\n');
         const how = sig ? `was killed by ${sig}${sig === 'SIGKILL' ? ' (out of memory?)' : ''}` : `exited with ${code}`;
-        return done({ report: null, error: `polyman ${how} and no report${last ? `:\n${last}` : ''}`, seconds });
+        return end({ report: null, error: `polyman ${how} and no report${last ? `:\n${last}` : ''}` });
       }
-      if (!isReport(parsed)) return done({ report: null, error: 'polyman printed a report in a format this service does not know', seconds });
-      done({ report: parsed, seconds });
+      if (!isReport(parsed)) return end({ report: null, error: 'polyman printed a report in a format this service does not know' });
+      end({ report: parsed });
     };
     child.on('exit', (code, sig) => {
       // usually 'close' follows at once; if something holds the pipes, stop waiting

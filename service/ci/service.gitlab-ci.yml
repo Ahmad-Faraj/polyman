@@ -102,6 +102,20 @@ service:check:candidate:
     when: always
     paths: [golden.json]
 
+# the candidate got the samples wrong: it keeps no public URL
+service:discard:candidate:
+  extends: .service:gcp
+  stage: deploy
+  needs:
+    - { job: service:deploy:candidate }
+    - { job: service:check:candidate, artifacts: false }
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $GCP_PROJECT_ID
+      changes: *service_files
+      when: on_failure
+  script:
+    - sh service/deploy/cloudrun.sh discard
+
 service:promote:production:
   extends: [.service:gcp, .service:release]
   stage: deploy

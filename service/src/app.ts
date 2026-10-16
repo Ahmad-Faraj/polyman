@@ -71,6 +71,13 @@ export function buildApp(opts: AppOptions) {
   })();
 
   let busy = false;
+  /**
+   * Set when cleaning up after a run failed: something of that upload may still
+   * be running or stored, so this instance takes no more visitors. /health then
+   * fails, and the process exits once the answer is sent, so Cloud Run
+   * replaces the instance.
+   */
+  let unclean: string | undefined;
 
   for (const [route, file] of Object.entries(STATIC)) {
     app.get(route, async (_req, reply) => {
@@ -79,7 +86,7 @@ export function buildApp(opts: AppOptions) {
     });
   }
 
-  app.get('/health', async () => ({ ok: true }));
+  app.get('/health', async (_req, reply) => (unclean ? reply.code(503).send({ ok: false, reason: unclean }) : { ok: true }));
 
   app.get('/api/version', async () => ({ polyman: polymanVersion, service: '0.1.0', commit: opts.commit ?? 'dev' }));
 
@@ -138,21 +145,29 @@ export function buildApp(opts: AppOptions) {
 
     reply.raw.writeHead(200, { 'content-type': 'application/x-ndjson; charset=utf-8', 'cache-control': 'no-store', 'x-accel-buffering': 'no' });
     const send = (event: object) => reply.raw.write(`${JSON.stringify(event)}\n`);
+    // progress is optional: drop it while the visitor's connection is slow to drain
+    const sendStep = (event: object) => {
+      if (reply.raw.writableLength < 1024 * 1024) send(event);
+    };
     let allOk = true;
     let completed = 0;
     try {
       send({ type: 'start', problems: problems.map((p) => problemLabel(p, root)), polyman: polymanVersion });
       for (const p of problems) {
-        if (visitorLeft.signal.aborted) break;
+        if (visitorLeft.signal.aborted || unclean) break;
         const name = problemLabel(p, root);
         const result = await runVerify(p.dir, {
           cli: opts.polymanCli,
           timeoutMs: problemTimeoutMs,
-          onStep: (step, title) => send({ type: 'step', problem: name, step, title }),
+          onStep: (step, title) => sendStep({ type: 'step', problem: name, step, title }),
           runAs: opts.runAs,
           signal: visitorLeft.signal,
           onCleanupProblem: (message) => app.log.error({ problem: name }, message),
         });
+        if (result.unclean) {
+          unclean = result.unclean;
+          app.log.fatal({ problem: name }, `${unclean}; this instance takes no more visitors`);
+        }
         const known = facts.get(p);
         const checks: Check[] = known
           ? readiness(known, result.report)
@@ -200,14 +215,16 @@ export function buildApp(opts: AppOptions) {
    * lock released whatever happens.
    */
   async function run(reply: FastifyReply, fill: (root: string) => Promise<boolean>) {
+    if (unclean) return reply.code(503).send({ error: 'this instance is being replaced, try again in a moment' });
     if (busy) return busyReply(reply);
     busy = true;
-    // The folder in /tmp stays root's; the upload lives one level down and is
-    // what the runner user gets. After each run, what the runner owns directly
-    // in /tmp is removed, and that must never be the upload itself.
-    const outer = mkdtempSync(join(tmpdir(), 'verify-'));
-    const root = join(outer, 'upload');
+    let outer: string | undefined;
     try {
+      // The folder in /tmp stays root's; the upload lives one level down and is
+      // what the runner user gets. After each run, what the runner owns directly
+      // in /tmp is removed, and that must never be the upload itself.
+      outer = mkdtempSync(join(tmpdir(), 'verify-'));
+      const root = join(outer, 'upload');
       chmodSync(outer, 0o711); // the runner may pass through it to its upload, not list it
       mkdirSync(root);
       if (!(await fill(root))) return reply;
@@ -217,8 +234,16 @@ export function buildApp(opts: AppOptions) {
       app.log.error({ err }, 'could not prepare the upload');
       if (!reply.sent && !reply.raw.headersSent) reply.code(500).send({ error: 'the service could not prepare your upload; this is our fault, try again' });
     } finally {
-      rmSync(outer, { recursive: true, force: true });
-      busy = false;
+      try {
+        if (outer) rmSync(outer, { recursive: true, force: true });
+      } catch (err) {
+        unclean ??= `could not remove an upload: ${(err as Error).message}`;
+        app.log.fatal({ err }, 'could not remove an upload; this instance takes no more visitors');
+      } finally {
+        busy = false;
+      }
+      // replaced, not reused: exit once this answer is out
+      if (unclean) reply.raw.once('finish', () => setTimeout(() => process.exit(1), 100).unref());
     }
     return reply;
   }
@@ -245,7 +270,15 @@ export function buildApp(opts: AppOptions) {
       } catch (err) {
         const e = err as NodeJS.ErrnoException;
         if (e.code === 'EEXIST') return !reply.code(400).send({ error: 'the zip was refused: it has the same file twice' });
-        // an errno code means our side failed (disk, permissions); anything else is the zip itself
+        // these come from what the zip contains (a file and a folder of the same name, a name too long)
+        const fromTheZip: Record<string, string> = {
+          ENOTDIR: 'a file and a folder have the same name',
+          EISDIR: 'a file and a folder have the same name',
+          ENAMETOOLONG: 'a file or folder name is too long',
+          ELOOP: 'it has a path that loops',
+        };
+        if (e.code && fromTheZip[e.code]) return !reply.code(400).send({ error: `the zip was refused: ${fromTheZip[e.code]}` });
+        // any other errno code means our side failed (disk, permissions); anything else is the zip itself
         if (e.code && /^E[A-Z]+$/.test(e.code)) throw err;
         return !reply.code(400).send({ error: `the zip was refused: ${e.message}` });
       }

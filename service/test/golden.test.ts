@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { compare, expectedSamples, readStream, runGolden } from '../scripts/golden.ts';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { compare, expectedSamples, readStream, runGolden, zipFolder } from '../scripts/golden.ts';
+import { unzip } from '../src/unzip.ts';
 
 const expected = { ok: false, solutions: { main: true, first_only: false }, readinessFailures: [] };
 const event = (ok: boolean, solutions: [string, boolean][], failed: string[] = []) => ({
@@ -65,7 +69,7 @@ describe('runGolden against a stand-in service', () => {
   it('waits out 429s and then checks the sample', async () => {
     let posts = 0;
     const s = await serve((url) => (url === '/api/samples' ? [200, '[{"name":"a"}]'] : ++posts < 3 ? [429, 'busy'] : [200, answer]));
-    const results = await runGolden(s.base, want, 0);
+    const results = await runGolden(s.base, want, 0, null);
     s.close();
     expect(posts).toBe(3);
     expect(results).toMatchObject([{ sample: 'a', ok: true }]);
@@ -73,14 +77,28 @@ describe('runGolden against a stand-in service', () => {
 
   it('fails a sample the service does not offer', async () => {
     const s = await serve(() => [200, '[]']);
-    const results = await runGolden(s.base, want, 0);
+    const results = await runGolden(s.base, want, 0, null);
     s.close();
     expect(results[0].differences).toEqual(['the service does not offer this sample']);
   });
 
   it('fails when the sample list itself fails', async () => {
     const s = await serve(() => [500, 'oops']);
-    await expect(runGolden(s.base, want, 0)).rejects.toThrow('HTTP 500');
+    await expect(runGolden(s.base, want, 0, null)).rejects.toThrow('HTTP 500');
     s.close();
+  });
+});
+
+describe('zipFolder', () => {
+  it('makes a zip the service unpacks to the same files', async () => {
+    const samples = new URL('../samples/even-sum', import.meta.url).pathname;
+    const dest = mkdtempSync(join(tmpdir(), 'zipfolder-test-'));
+    try {
+      const files = await unzip(zipFolder(samples, 'even-sum'), dest);
+      expect(files).toContain('even-sum/Config.json');
+      expect(readFileSync(join(dest, 'even-sum/solutions/acc.cpp'), 'utf8')).toBe(readFileSync(join(samples, 'solutions/acc.cpp'), 'utf8'));
+    } finally {
+      rmSync(dest, { recursive: true, force: true });
+    }
   });
 });

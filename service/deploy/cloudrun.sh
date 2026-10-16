@@ -5,6 +5,7 @@
 #   service/deploy/cloudrun.sh candidate   new revision, no traffic, tagged c-<sha>
 #   service/deploy/cloudrun.sh promote     all traffic to that revision
 #   service/deploy/cloudrun.sh rollback    all traffic back to $PREVIOUS_REVISION
+#   service/deploy/cloudrun.sh discard     remove a failed candidate's tag (and URL)
 #
 # A release is checked twice: the candidate on its own URL (public, but not
 # where visitors go) before it gets traffic, and production after the switch.
@@ -72,11 +73,19 @@ deploy() {
     "$@"
 }
 
-# The commit at the head of the default branch, or empty if it can't be read.
+# The commit at the head of the default branch (the job can read its own repository)
 main_head() {
-  curl -sSf --header "JOB-TOKEN: $CI_JOB_TOKEN" \
-    "$CI_API_V4_URL/projects/$CI_PROJECT_ID/repository/branches/$CI_DEFAULT_BRANCH" 2>/dev/null |
-    python3 -c 'import json,sys; print(json.load(sys.stdin)["commit"]["id"])' 2>/dev/null || true
+  git ls-remote "$CI_REPOSITORY_URL" "refs/heads/$CI_DEFAULT_BRANCH" | cut -f1
+}
+
+# Removes revision tags (their URLs): all c-* tags except the one given
+drop_tags() {
+  keep="${1:-}"
+  tags=$(describe json | python3 -c 'import json,sys
+for t in json.load(sys.stdin).get("status", {}).get("traffic", []):
+    if t.get("tag", "").startswith("c-"):
+        print(t["tag"])' | grep -vx "$keep" | paste -sd, -)
+  [ -z "$tags" ] || gcloud run services update-traffic "$SERVICE" --region "$REGION" --remove-tags "$tags" --quiet
 }
 
 case "$MODE" in
@@ -99,11 +108,11 @@ case "$MODE" in
   promote)
     # two pipelines close together: only the newest commit may take production
     HEAD=$(main_head)
-    if [ -n "$HEAD" ] && [ "$HEAD" != "$CI_COMMIT_SHA" ]; then
+    [ -n "$HEAD" ] || { echo "could not read the head of $CI_DEFAULT_BRANCH; not promoting without knowing this is the newest release" >&2; exit 1; }
+    if [ "$HEAD" != "$CI_COMMIT_SHA" ]; then
       echo "not promoting: $CI_DEFAULT_BRANCH has moved on to $HEAD, whose pipeline releases it" >&2
       exit 1
     fi
-    [ -n "$HEAD" ] || echo "warning: could not read the head of $CI_DEFAULT_BRANCH, promoting anyway" >&2
     PREVIOUS=$(serving)
     if [ -z "$PREVIOUS" ] && [ "${FIRST_RELEASE:-false}" != true ]; then
       echo "no revision serves all traffic (a split?); refusing to switch without a revision to roll back to" >&2
@@ -112,18 +121,27 @@ case "$MODE" in
     # written before the switch, so rollback knows where to go even if this job fails after it
     printf 'SERVICE_URL=%s\nPREVIOUS_REVISION=%s\n' "$(describe 'value(status.url)')" "$PREVIOUS" > deploy.env
     gcloud run services update-traffic "$SERVICE" --region "$REGION" --to-revisions "${CANDIDATE_REVISION:?}=100" --quiet
+    # earlier candidates' URLs go; this one stays until the next release
+    drop_tags "$TAG"
     ;;
   rollback)
-    NOW=$(serving || true)
-    if [ -n "${PREVIOUS_REVISION:-}" ] && [ "$PREVIOUS_REVISION" != "${CANDIDATE_REVISION:-}" ]; then
+    NOW=$(serving)
+    CANDIDATE="${CANDIDATE_REVISION:-}"
+    if [ -z "$CANDIDATE" ] || [ "$NOW" != "$CANDIDATE" ]; then
+      # a newer release took over since (or this one never got traffic): leave it alone
+      echo "nothing to roll back: production serves ${NOW:-no single revision}, not this pipeline's ${CANDIDATE:-candidate}"
+    elif [ -n "${PREVIOUS_REVISION:-}" ] && [ "$PREVIOUS_REVISION" != "$CANDIDATE" ]; then
       gcloud run services update-traffic "$SERVICE" --region "$REGION" --to-revisions "$PREVIOUS_REVISION=100" --quiet
+      drop_tags ""
       echo "traffic is back on $PREVIOUS_REVISION"
-    elif [ -n "$NOW" ] && [ "$NOW" = "${CANDIDATE_REVISION:-}" ]; then
+    else
       echo "production is serving $NOW, which failed its check, and there is no earlier revision to go back to; a person has to act" >&2
       exit 1
-    else
-      echo "nothing to roll back: the failed revision ($CANDIDATE_REVISION) never got traffic"
     fi
+    ;;
+  discard)
+    # a candidate that failed its check keeps no public URL
+    drop_tags ""
     ;;
   *) echo "unknown mode $MODE" >&2; exit 2 ;;
 esac
