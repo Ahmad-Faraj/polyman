@@ -47,7 +47,7 @@ AI Catalog when it publishes them.
 
 ### Turning them on
 
-Needs a role that can manage the AI Catalog (Maintainer).
+Needs a role that can manage AI Catalog items (our Developer+ role can).
 
 1. In AI > Flows, create **mr-reviewer** and **issue-builder** first, pasting
    `node engine/src/cli/sync-flows.ts --print NAME`. Then **pipeline-fixer** and
