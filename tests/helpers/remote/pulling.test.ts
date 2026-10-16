@@ -907,4 +907,70 @@ describe('pulling.ts', () => {
       expect(manualWrite![1]).toBe('line1\nline2\n');
     });
   });
+
+  describe('names from Polygon are plain file names', () => {
+    const written = () =>
+      vi.mocked(fs.writeFileSync).mock.calls.map(c => String(c[0]));
+
+    it('does not write a solution whose name climbs out of the directory', async () => {
+      mockSdk.getSolutions.mockResolvedValue([
+        { name: '../../evil.cpp', tag: 'MA' },
+        { name: 'ok.cpp', tag: 'OK' },
+      ] as never);
+      mockSdk.viewSolution.mockResolvedValue('code');
+
+      const result = await pulling.downloadSolutions(asSdk(mockSdk), 1, 'dir');
+
+      expect(written().some(p => p.includes('evil'))).toBe(false);
+      expect(mockSdk.viewSolution).not.toHaveBeenCalledWith(
+        1,
+        '../../evil.cpp'
+      );
+      expect(result.count).toBe(1);
+    });
+
+    it('does not write a generator whose name has a path separator', async () => {
+      mockSdk.getFiles.mockResolvedValue({
+        sourceFiles: [
+          { name: '..\\..\\evil.cpp', sourceType: 'cpp.g++17' },
+          { name: 'sub/evil.cpp', sourceType: 'cpp.g++17' },
+        ],
+        resourceFiles: [],
+        auxFiles: [],
+      } as never);
+      mockSdk.viewFile.mockResolvedValue('code');
+
+      const result = await pulling.downloadGenerators(
+        asSdk(mockSdk),
+        1,
+        'dir',
+        []
+      );
+
+      expect(written()).toEqual([]);
+      expect(result.count).toBe(0);
+    });
+
+    it('does not write a checker or validator with a traversal name', async () => {
+      mockSdk.getChecker.mockResolvedValue('../../evil.cpp');
+      mockSdk.getValidator.mockResolvedValue('../evil.cpp');
+      mockSdk.viewFile.mockResolvedValue('code');
+
+      await pulling.downloadChecker(asSdk(mockSdk), 1, 'dir');
+      await pulling.downloadValidator(asSdk(mockSdk), 1, 'dir');
+
+      expect(written()).toEqual([]);
+    });
+
+    it('does not create statement folders from a traversal language name', async () => {
+      mockSdk.getStatements.mockResolvedValue({
+        '../../evil': { name: 'x', legend: 'text' },
+      } as never);
+
+      await pulling.downloadStatements(asSdk(mockSdk), 1, 'dir');
+
+      expect(written()).toEqual([]);
+      expect(vi.mocked(fs.mkdirSync)).not.toHaveBeenCalled();
+    });
+  });
 });
