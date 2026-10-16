@@ -51,3 +51,16 @@ POLYGON_API_KEY=... POLYGON_API_SECRET=... node corpus/polygon-roundtrip.mjs --p
 
 In CI it runs as `corpus:polygon` on the default branch only, where `POLYGON_API_KEY` and
 `POLYGON_API_SECRET` are masked, protected variables of a test Polygon account.
+
+## Mutation testing
+
+`corpus:mutation` runs [Stryker](https://stryker-mutator.io/) on `src/helpers/solution.ts`, where
+verdicts are decided: it makes hundreds of small changes ("mutants") to the code and counts how many
+the unit tests catch. On 3.0.0: 463 mutants, 115 survive and 34 are never executed by any test, a
+score of 67.8%. One survivor: `isWATag` returning `true` for every tag passes all 967 tests. With
+that bug, a solution tagged OK that gives wrong answers would no longer fail `verify`.
+
+```bash
+npm i --no-save --legacy-peer-deps @stryker-mutator/core@9 @stryker-mutator/vitest-runner@9
+TZ=Asia/Kolkata ./node_modules/.bin/stryker run corpus/stryker.config.json   # report: corpus/out/mutation/index.html
+```

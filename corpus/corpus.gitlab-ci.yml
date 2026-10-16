@@ -80,3 +80,29 @@ corpus:polygon:
       junit: corpus/out/junit-polygon.xml
   # Red on polyman 3.0.0 (#24, #25, #26). Becomes blocking once they're fixed.
   allow_failure: true
+
+# Mutation testing of the code that decides verdicts: Stryker plants small bugs
+# in src/helpers/solution.ts and counts how many the unit tests catch. The score
+# shows in the merge request's metrics widget; the report says which ones live.
+corpus:mutation:
+  extends: .node
+  stage: test
+  variables:
+    # tests/actions.test.ts sets TZ at runtime, which Stryker's workers don't see
+    TZ: Asia/Kolkata
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - changes: [src/helpers/solution.ts, src/types.d.ts, tests/**/*, corpus/stryker.config.json, corpus/mutation-metrics.mjs]
+  script:
+    # --no-save keeps package.json as it is; --legacy-peer-deps avoids an npm
+    # crash (edgesOut) when adding packages without saving them
+    - npm i --no-save --legacy-peer-deps --no-audit --no-fund @stryker-mutator/core@9 @stryker-mutator/vitest-runner@9
+    - ./node_modules/.bin/stryker run corpus/stryker.config.json
+    - node corpus/mutation-metrics.mjs corpus/out/mutation/mutation.json corpus/out/mutation-metrics.txt
+  artifacts:
+    when: always
+    expire_in: 30 days
+    expose_as: 'Mutation report'
+    paths: [corpus/out/mutation/index.html]
+    reports:
+      metrics: corpus/out/mutation-metrics.txt
