@@ -54,15 +54,21 @@ It runs code anyone can upload, so:
 - **The config:** every path in `Config.json` must stay in the problem folder,
   and a standard checker must be a plain name (otherwise it could name any
   program on the machine). Refused uploads get a 400 that says what was wrong.
-- **The run:** polyman gets none of the service's environment variables, 120 s
-  per problem, and on timeout every process it started is killed, solutions
-  included. One verification at a time per instance.
+- **The run:** uploaded code runs as `runner`, a user of its own; the service
+  runs as root only to hand it the upload and start polyman as that user. So
+  the code can't signal, inspect or read the service (tested: `kill` and
+  reading `/proc/<service>/environ` get EPERM). polyman gets none of the
+  service's environment variables and 120 s per problem; when a run ends,
+  however it ends, every `runner` process is killed. One verification at a
+  time per instance, cancelled if the visitor leaves.
 - **On Cloud Run:** a service account with no roles, all egress into a VPC with
   no route out (no NAT, egress denied), one request per instance, gVisor (gen1),
   2 vCPU and 2 GiB. Nothing is stored: the upload is deleted when the response
   ends.
-- **Known limit:** user code runs as the same user as the service. A hostile
-  upload can at most break the instance it runs on, which holds nothing.
+- **Known limits:** DNS lookups go through Cloud Run's metadata server, which
+  the VPC firewall doesn't cover, so a solution could leak what it can read
+  (only its own upload) through DNS queries. Files a run leaves in `/tmp`
+  stay until the instance is replaced.
 
 ## Running it
 
@@ -70,7 +76,7 @@ It runs code anyone can upload, so:
 npm ci && npm run build                 # polyman, at the repository root
 cd service && npm ci
 POLYMAN_CLI=../dist/cli.js TESTLIB_H=/path/to/testlib.h npm run dev   # http://localhost:8080
-npm test                                # 42 tests, with a stand-in for polyman
+npm test                                # 57 tests, with a stand-in for polyman
 ```
 
 Or the way it runs in production, with no network at all:
@@ -93,15 +99,15 @@ service or polyman changes:
 2. `service:image`: builds the image and pushes it to this project's registry.
 3. `service:golden`: runs that image in the job and checks the samples.
 
-With Google Cloud set up (below), also:
+With Google Cloud set up (below), the default branch also releases it:
 
-4. merge requests: `service:deploy:review` deploys a revision tagged
-   `mr-IID` with no traffic (its URL is the MR's environment link), and
-   `service:check:review` runs the samples against it.
-5. default branch: `service:deploy:production`, then `service:check:production`
-   runs the samples against production. If they don't give the expected
-   results, `service:rollback:production` moves traffic back to the previous
-   revision.
+4. `service:deploy:candidate` deploys a revision with no traffic, tagged
+   `c-SHA`, and `service:check:candidate` runs the samples on its own URL,
+   before any visitor reaches it.
+5. `service:promote:production` moves all traffic to it, and
+   `service:check:production` runs the samples again on the public URL.
+6. If production gets them wrong, `service:rollback:production` moves traffic
+   back to the revision that served before.
 
 CI signs in to Google Cloud with the job's OIDC token through Workload
 Identity Federation, so no Google key is stored in GitLab.
@@ -142,13 +148,14 @@ done
 gcloud iam service-accounts add-iam-policy-binding verify-runtime@$PROJECT_ID.iam.gserviceaccount.com \
   --member=serviceAccount:$SA --role=roles/iam.serviceAccountUser
 
-# trust GitLab's OIDC tokens, only from this project
+# trust GitLab's OIDC tokens only from this project, and only on protected
+# branches: a pipeline on any other branch can't get these credentials
 gcloud iam workload-identity-pools create gitlab --location=global
 gcloud iam workload-identity-pools providers create-oidc gitlab-com \
   --location=global --workload-identity-pool=gitlab \
   --issuer-uri=https://gitlab.com --allowed-audiences=https://gitlab.com \
   --attribute-mapping="google.subject=assertion.sub,attribute.project_path=assertion.project_path" \
-  --attribute-condition="assertion.project_path=='$GITLAB_PROJECT'"
+  --attribute-condition="assertion.project_path=='$GITLAB_PROJECT' && assertion.ref_protected=='true'"
 PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format='value(projectNumber)')
 POOL=projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/gitlab
 gcloud iam service-accounts add-iam-policy-binding $SA --role=roles/iam.workloadIdentityUser \
