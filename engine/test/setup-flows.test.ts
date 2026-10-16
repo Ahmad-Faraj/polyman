@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { loadConfig } from '../src/config.ts';
-import { FLOWS, definitionFor, pipelineFilter, triggerMatches, withAccounts } from '../src/cli/setup-flows.ts';
+import { FLOWS, type Gql, type Rest, type SetupOptions, definitionFor, gitlabUrl, pipelineFilter, pushBlocked, setupFlows, triggerMatches, withAccounts } from '../src/cli/setup-flows.ts';
 
 const spec = (name: string) => FLOWS.find(([n]) => n === name)![2];
 
@@ -61,17 +61,7 @@ describe('withAccounts', () => {
 });
 
 describe('a dry run on a project with no flows yet', () => {
-  it('can plan all four: each later flow gets a stand-in ID for the ones before it', () => {
-    const config = loadConfig('../.autonomy.yml');
-    const planned: Record<string, string> = {};
-    for (const [name] of FLOWS) {
-      const source = readFileSync(`../.gitlab/duo/flows/${name}.yaml`, 'utf8');
-      expect(() => definitionFor(source, config, planned)).not.toThrow();
-      planned[name] = 'DRY_RUN_ID';
-    }
-  });
-
-  it('without the stand-ins the second flow could not be planned (the bug the reviewer found)', () => {
+  it('without the stand-in IDs the second flow could not be planned (the bug the reviewer found)', () => {
     const config = loadConfig('../.autonomy.yml');
     const source = readFileSync('../.gitlab/duo/flows/pipeline-fixer.yaml', 'utf8');
     expect(() => definitionFor(source, config, {})).toThrow('@@mr_reviewer_flow_id@@');
@@ -93,5 +83,145 @@ describe('triggerMatches', () => {
   it('sees a missing rule or a different event', () => {
     expect(triggerMatches({ eventTypes: [3, 0], filter: {} }, [3, 0], filter)).toBe(false);
     expect(triggerMatches({ eventTypes: [3], filter }, [3, 0], filter)).toBe(false);
+  });
+});
+
+interface FakeOptions {
+  /** catalog items that exist already (other projects' flows, or one of ours never enabled) */
+  items?: { id: string; name: string; project: { fullPath: string } | null }[];
+  /** enabling fails this many times */
+  enableFailures?: number;
+  pushLevels?: { access_level: number; user_id?: number }[] | null;
+  mustSucceed?: { project?: boolean; group?: boolean };
+}
+
+/** Just enough of GitLab for setupFlows, with pages of one so paging is exercised. */
+function fakeGitLab(o: FakeOptions = {}) {
+  const items = [...(o.items ?? [])];
+  const consumers: { id: string; item: { id: string; name: string } }[] = [];
+  const triggers: { id: string; eventTypes: number[]; filter: unknown; user: { username: string }; aiCatalogItemConsumer: { id: string } }[] = [];
+  const mutations: string[] = [];
+  let failures = o.enableFailures ?? 0;
+  const page = <T>(nodes: T[], after: unknown) => {
+    const at = after ? Number(after) : 0;
+    return { nodes: nodes.slice(at, at + 1), pageInfo: { hasNextPage: at + 1 < nodes.length, endCursor: String(at + 1) } };
+  };
+  const gql = (async (query: string, v: Record<string, any> = {}) => {
+    if (query.includes('repository { rootRef }')) return { project: { id: 'gid://gitlab/Project/1', repository: { rootRef: 'main' } } };
+    if (query.includes('aiCatalogConfiguredItems')) return { aiCatalogConfiguredItems: page(consumers, v.after) };
+    if (query.includes('aiFlowTriggers')) return { project: { aiFlowTriggers: page(triggers, v.after) } };
+    if (query.includes('aiCatalogItems(')) return { aiCatalogItems: page(items, v.after) };
+    mutations.push(query.match(/\{ (\w+)\(/)![1]);
+    if (query.includes('aiCatalogFlowCreate')) {
+      const item = { id: `gid://gitlab/Ai::Catalog::Item/${items.length + 100}`, name: v.i.name, project: { fullPath: 'Group/Polyman' } };
+      items.push(item);
+      return { aiCatalogFlowCreate: { errors: [], item: { id: item.id } } };
+    }
+    if (query.includes('aiCatalogItemConsumerCreate')) {
+      if (failures-- > 0) throw new Error('Internal server error');
+      const item = items.find((i) => i.id === v.i.itemId)!;
+      const consumer = { id: `gid://gitlab/Ai::Catalog::ItemConsumer/${consumers.length + 1}`, item: { id: item.id, name: item.name } };
+      consumers.push(consumer);
+      // GitLab makes the service account and a mention trigger when a flow is enabled
+      triggers.push({ id: `t${triggers.length}`, eventTypes: [0], filter: {}, user: { username: `ai-${item.name}-group` }, aiCatalogItemConsumer: { id: consumer.id } });
+      return { aiCatalogItemConsumerCreate: { errors: [], itemConsumer: { id: consumer.id } } };
+    }
+    if (query.includes('aiFlowTriggerCreate')) return { aiFlowTriggerCreate: { errors: [] } };
+    if (query.includes('aiFlowTriggerUpdate')) {
+      Object.assign(triggers.find((t) => t.id === v.i.id)!, { eventTypes: v.i.eventTypes, filter: v.i.filter });
+      return { aiFlowTriggerUpdate: { errors: [] } };
+    }
+    throw new Error(`fake GitLab doesn't know ${query}`);
+  }) as Gql;
+  const rest = (async (path: string) => {
+    if (path.includes('/protected_branches/')) return o.pushLevels === null ? null : { push_access_levels: o.pushLevels ?? [{ access_level: 40 }] };
+    if (path.startsWith('/projects/')) return { only_allow_merge_if_pipeline_succeeds: o.mustSucceed?.project ?? true };
+    if (path.startsWith('/groups/')) return { only_allow_merge_if_pipeline_succeeds: o.mustSucceed?.group ?? false };
+    return null;
+  }) as Rest;
+  return { gql, rest, items, consumers, triggers, mutations };
+}
+
+describe('setupFlows against a fake GitLab', () => {
+  const config = loadConfig('../.autonomy.yml');
+  const sources = new Map(FLOWS.map(([name]) => [name, readFileSync(`../.gitlab/duo/flows/${name}.yaml`, 'utf8')]));
+  const run = (gitlab: ReturnType<typeof fakeGitLab>, extra: Partial<SetupOptions> = {}) => {
+    const lines: string[] = [];
+    return setupFlows({ gql: gitlab.gql, rest: gitlab.rest, projectPath: 'group/polyman', sources, config, log: (l) => lines.push(l), ...extra }).then((r) => ({ ...r, lines }));
+  };
+
+  it('a dry run on a fresh project plans all four flows and changes nothing', async () => {
+    const gitlab = fakeGitLab();
+    const { lines } = await run(gitlab, { dryRun: true });
+    expect(gitlab.mutations).toEqual([]);
+    expect(lines).toEqual(FLOWS.map(([name]) => `${name}: would create and enable it, and create its trigger`));
+  });
+
+  it('creates and enables each flow, filters its trigger and returns the accounts; a second run changes nothing', async () => {
+    const gitlab = fakeGitLab();
+    const { accounts } = await run(gitlab);
+    expect(gitlab.mutations.filter((m) => m === 'aiCatalogFlowCreate')).toHaveLength(4);
+    expect(accounts).toEqual(Object.fromEntries(FLOWS.map(([name]) => [name, `ai-${name}-group`])));
+    for (const [name, , spec] of FLOWS) {
+      const consumer = gitlab.consumers.find((c) => c.item.name === name)!;
+      const trigger = gitlab.triggers.find((t) => t.aiCatalogItemConsumer.id === consumer.id)!;
+      expect(triggerMatches(trigger, spec.events, pipelineFilter(spec, 'main'))).toBe(true);
+    }
+    gitlab.mutations.length = 0;
+    const again = await run(gitlab);
+    expect(gitlab.mutations).toEqual([]);
+    expect(again.lines.every((l) => l.endsWith('trigger already right'))).toBe(true);
+  });
+
+  it('a flow created but not enabled is found on the next run, not created twice', async () => {
+    // another project's flow of the same name comes first in the search, ours (other case) on a later page
+    const gitlab = fakeGitLab({ enableFailures: 1, items: [{ id: 'gid://gitlab/Ai::Catalog::Item/1', name: 'mr-reviewer', project: { fullPath: 'someone/else' } }] });
+    await expect(run(gitlab)).rejects.toThrow(/mr-reviewer: the flow exists .* could not be enabled: Internal server error\. Run this again/);
+    const { lines } = await run(gitlab);
+    expect(gitlab.mutations.filter((m) => m === 'aiCatalogFlowCreate')).toHaveLength(4);
+    expect(lines).toContain('mr-reviewer: found the flow (gid://gitlab/Ai::Catalog::Item/101), not enabled yet');
+    expect(gitlab.consumers.find((c) => c.item.name === 'mr-reviewer')!.item.id).toBe('gid://gitlab/Ai::Catalog::Item/101');
+  });
+
+  it('refuses while Developers can push to the default branch, before changing anything', async () => {
+    const gitlab = fakeGitLab({ pushLevels: [{ access_level: 30 }] });
+    await expect(run(gitlab)).rejects.toThrow(/can push to main \(#14\)/);
+    expect(gitlab.mutations).toEqual([]);
+  });
+
+  it('refuses while "Pipelines must succeed" is off, and accepts it set on a group above', async () => {
+    await expect(run(fakeGitLab({ mustSucceed: { project: false } }))).rejects.toThrow('"Pipelines must succeed" is off');
+    await expect(run(fakeGitLab({ mustSucceed: { project: false, group: true } }), { dryRun: true })).resolves.toBeDefined();
+  });
+
+  it('refuses an unprotected branch unless told it is a test project', async () => {
+    await expect(run(fakeGitLab({ pushLevels: null }), { dryRun: true })).rejects.toThrow('pass --unprotected');
+    await expect(run(fakeGitLab({ pushLevels: null }), { dryRun: true, unprotected: true })).resolves.toBeDefined();
+  });
+});
+
+describe('pushBlocked', () => {
+  it('counts only Maintainer or no-one role rules', () => {
+    expect(pushBlocked([{ access_level: 40 }])).toBe(true);
+    expect(pushBlocked([{ access_level: 0 }])).toBe(true);
+    expect(pushBlocked([{ access_level: 40 }, { access_level: 30 }])).toBe(false);
+  });
+
+  it('does not trust a rule for one user, a group or a deploy key (they report 40 too)', () => {
+    expect(pushBlocked([{ access_level: 40 }, { access_level: 40, user_id: 7 }])).toBe(false);
+    expect(pushBlocked([{ access_level: 40, group_id: 3 }])).toBe(false);
+    expect(pushBlocked([{ access_level: 40, deploy_key_id: 2 }])).toBe(false);
+  });
+
+  it('does not trust an empty list', () => {
+    expect(pushBlocked([])).toBe(false);
+  });
+});
+
+describe('gitlabUrl', () => {
+  it('sends the token over https only', () => {
+    expect(gitlabUrl()).toBe('https://gitlab.com');
+    expect(gitlabUrl('https://gitlab.example.com')).toBe('https://gitlab.example.com');
+    expect(() => gitlabUrl('http://gitlab.example.com')).toThrow('refusing to send your token');
   });
 });
