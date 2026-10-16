@@ -82,7 +82,15 @@ It runs code anyone can upload, so:
   2 vCPU and 2 GiB. The upload is deleted when the response ends.
 - **Known limit:** DNS lookups go through Cloud Run's metadata server, which the
   VPC firewall doesn't cover, so a solution could leak what it can read (its
-  own upload and the image's public files) through DNS queries.
+  own upload and the image's public files) through DNS queries. The same
+  metadata server also gives a solution an access token for the runtime service
+  account. That account has no roles, so the token can do nothing, but check
+  after every deploy that it still has none
+  (`gcloud projects get-iam-policy $PROJECT_ID --flatten=bindings --filter=bindings.members:verify-runtime@$PROJECT_ID.iam.gserviceaccount.com`
+  must print nothing).
+- **Cost:** there is no rate limit per visitor, and one upload can keep an
+  instance busy for a long time. Set a budget alert on the Google Cloud project
+  before the URL is public.
 
 ## Running it
 
@@ -174,14 +182,14 @@ done
 gcloud iam service-accounts add-iam-policy-binding verify-runtime@$PROJECT_ID.iam.gserviceaccount.com \
   --member=serviceAccount:$SA --role=roles/iam.serviceAccountUser
 
-# trust GitLab's OIDC tokens only from this project, and only on protected
-# branches and tags: a pipeline on any other branch can't get these credentials
+# trust GitLab's OIDC tokens only from this project's protected main branch:
+# a pipeline on any other branch or tag can't get these credentials
 gcloud iam workload-identity-pools create gitlab --location=global
 gcloud iam workload-identity-pools providers create-oidc gitlab-com \
   --location=global --workload-identity-pool=gitlab \
   --issuer-uri=https://gitlab.com --allowed-audiences=https://gitlab.com \
   --attribute-mapping="google.subject=assertion.sub,attribute.project_path=assertion.project_path" \
-  --attribute-condition="assertion.project_path=='$GITLAB_PROJECT' && assertion.ref_protected=='true'"
+  --attribute-condition="assertion.project_path=='$GITLAB_PROJECT' && assertion.ref_protected=='true' && assertion.ref=='main' && assertion.ref_type=='branch'"
 PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format='value(projectNumber)')
 POOL=projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/gitlab
 gcloud iam service-accounts add-iam-policy-binding $SA --role=roles/iam.workloadIdentityUser \

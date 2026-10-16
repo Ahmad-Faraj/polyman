@@ -20,7 +20,7 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends openjdk-17-jdk-headless python-is-python3 tini \
  && rm -rf /var/lib/apt/lists/*
 # testlib.h pinned to a commit, so a change upstream can't change our verdicts
-ADD https://raw.githubusercontent.com/MikeMirzayanov/testlib/2d20123984e9479b8a56ebe0d6a51e23ad7c35b3/testlib.h /opt/testlib/testlib.h
+ADD --checksum=sha256:bb323e3c89285214966076e0d23d5a295c5f6126da7ff198c1276ddb95ecb1a0 https://raw.githubusercontent.com/MikeMirzayanov/testlib/2d20123984e9479b8a56ebe0d6a51e23ad7c35b3/testlib.h /opt/testlib/testlib.h
 RUN chmod 755 /opt/testlib && chmod 644 /opt/testlib/testlib.h
 
 WORKDIR /app

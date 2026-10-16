@@ -74,6 +74,8 @@ const MAX_STDOUT = 16 * 1024 * 1024;
 const COMPILE_TIMEOUT_MS = 60_000;
 // processes the runner user may have at once: polyman, compilers, a solution and its threads
 const MAX_PROCESSES = 256;
+// /tmp lives in memory on Cloud Run, so one huge file from a generator or solution could take the instance down
+const MAX_FILE_BYTES = 256 * 1024 * 1024;
 // polyman prints a dozen steps; the uploaded code can write to the same stderr
 const MAX_STEPS = 50;
 // shared writable places the runner can leave things in, besides its upload
@@ -98,7 +100,7 @@ export function runVerify(dir: string, opts: RunOptions): Promise<RunResult> {
   const started = Date.now();
   const polyman = [process.execPath, '--disable-sigusr1', cli, 'verify', '--json'];
   // as the runner user, go through prlimit so the process cap covers everything it starts
-  const [command, ...args] = runAs ? ['prlimit', `--nproc=${MAX_PROCESSES}:${MAX_PROCESSES}`, '--', ...polyman] : polyman;
+  const [command, ...args] = runAs ? ['prlimit', `--nproc=${MAX_PROCESSES}:${MAX_PROCESSES}`, `--fsize=${MAX_FILE_BYTES}:${MAX_FILE_BYTES}`, '--', ...polyman] : polyman;
   let child: ReturnType<typeof spawn>;
   try {
     child = spawn(command, args, {
