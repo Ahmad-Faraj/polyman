@@ -1,0 +1,72 @@
+# Risk policy for polyman.
+# Every MR needs one approval. The score from these rules decides how much
+# review the agents do before that approval is asked for.
+
+thresholds:
+  # below medium: GitLab's Code Review flow, and a summary from the lead reviewer
+  medium: 25   # code and test reviewers
+  high: 60     # security, code and test reviewers
+
+paths:
+  critical:        # Polygon credentials and network, files written from remote data, verdicts
+    - src/polygon.ts
+    - src/helpers/remote/**
+    - src/helpers/checker.ts
+    - src/helpers/validator.ts
+    - assets/checkers/**
+  high:            # running user code, limits, caching of binaries, the verify pipeline
+    - src/executor.ts
+    - src/helpers/shell.ts
+    - src/helpers/solution.ts
+    - src/helpers/compile-cache.ts
+    - src/helpers/prebuilt-testlib.ts
+    - src/helpers/generator.ts
+    - src/helpers/testset.ts
+    - src/steps.ts
+    - src/actions.ts
+  medium:
+    - src/**
+    - template/**
+  low:
+    - "**/*.md"
+    - docs/**
+
+governance:        # the automation itself (defaults are always included)
+  - engine/**
+
+source:
+  - src/**
+tests:
+  - tests/**
+  - "**/*.test.ts"
+
+incidents_file: .autonomy/incidents.json
+
+# What the Duo flows need to know about this project. `node engine/src/cli/sync-flows.ts`
+# fills these into the flows when it publishes them.
+agents:
+  about: >
+    polyman, a TypeScript (Node 20+) CLI for Codeforces problem setters: it
+    creates, verifies and syncs competitive programming problems with Polygon.
+    Read CLAUDE.md before changing anything: it explains the layout (actions,
+    steps, helpers, executor), the solution-tag verdicts and the conventions.
+  checks: npm ci && npm run lint && npm run format:check && npx vitest run && npm run build
+  test_guide: Tests use vitest and live in tests/, mirroring src/. Tests that compile C++ need g++.
+  # service accounts GitLab creates when the flows are enabled here; fill in
+  # once they exist (node engine/src/cli/doctor.ts checks them)
+  reviewer_account: ""
+  fixer_account: ""
+
+monitor:
+  # filled in with the verify service (#19)
+  measured_routes: []
+
+# Used to estimate the carbon cost of each change (SCI). Defaults match a
+# GitLab.com small Linux runner (2 vCPU, 8 GB) in GCP us-east1, with Cloud
+# Carbon Footprint coefficients. Change them if your runners differ.
+sustainability:
+  vcpus: 2
+  memory_gb: 8
+  utilization: 0.5
+  pue: 1.1
+  grid_gco2e_per_kwh: 560
