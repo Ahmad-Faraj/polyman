@@ -136,3 +136,15 @@ corpus:production:
     paths: [corpus/out/report.html]
     reports:
       junit: corpus/out/junit-production*.xml
+
+# Upstream drift: Polygon's API docs and testlib.h change outside our control.
+# Fails, listing the new upstream commits, when either moved since the commit
+# pinned in corpus/upstream.json.
+corpus:upstream:
+  extends: .node
+  stage: test
+  before_script: []
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+  script:
+    - node corpus/upstream.mjs

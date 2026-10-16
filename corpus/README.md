@@ -37,7 +37,8 @@ runner), but a solution that never terminates must keep getting `TLE`.
 | Problem | What it pins |
 |---|---|
 | `sum-parity` | polyman's own template plus WA/RE/PE/TL mutants in C++ and Python |
-| `mistagged` | a wrong solution tagged OK: `verify` must fail. Catches bugs in the tag rules (for example `isWATag` returning `true`) that every unit test and `sum-parity` miss |
+
+The verify service's sample problems (`service/samples/`, !8) are the other half: its golden set checks each solution against its tag through the service, including `wrong-tag` (a wrong solution tagged OK, which `verify` must reject). The corpus judges the CLI, test by test.
 
 ## Polygon round trip
 
@@ -45,6 +46,11 @@ runner), but a solution that never terminates must keep getting `TLE`.
 back through the Polygon API and compares it with the folder: solutions (tag, source type),
 checker and validator tests, generator script lines, manual tests and statements. It also fails
 when polyman reported a successful push although Polygon differs.
+
+It also expands every script in `scripts/` twice, with polyman's own parser and with Polygon
+(saved as the testset's script, read back test by test), and puts the problem's script back after.
+polyman generates tests locally from its expansion and Polygon from its own, so a difference means
+the setter verified other tests than the ones Polygon publishes.
 
 ```bash
 POLYGON_API_KEY=... POLYGON_API_SECRET=... node corpus/polygon-roundtrip.mjs --problem-id 605330
@@ -65,3 +71,10 @@ that bug, a solution tagged OK that gives wrong answers would no longer fail `ve
 npm i --no-save --legacy-peer-deps @stryker-mutator/core@9 @stryker-mutator/vitest-runner@9
 TZ=Asia/Kolkata ./node_modules/.bin/stryker run corpus/stryker.config.json   # report: corpus/out/mutation/index.html
 ```
+
+## Upstream drift
+
+polyman depends on two things it doesn't control: Polygon's API (documented in
+`codeforces/polygon-misc`) and `testlib.h`. `upstream.mjs` compares their latest commits with the
+ones pinned in `upstream.json` and fails, listing what changed, when either moved (`corpus:upstream`,
+nightly). After checking polyman against the change, `node corpus/upstream.mjs --update` moves the pins.
