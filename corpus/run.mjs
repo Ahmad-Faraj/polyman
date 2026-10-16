@@ -198,6 +198,76 @@ function writeJUnit(file, results) {
   );
 }
 
+const html = text =>
+  String(text).replace(
+    /[<>&"]/g,
+    c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' })[c]
+  );
+
+/** One verdict cell: what polyman said, and what it should have said if different. */
+function cell(want, got) {
+  const verdict = s => (s ? s.split(':').pop() : '—');
+  if (want === got) return `<td class="ok">${html(verdict(got))}</td>`;
+  const timing = want?.endsWith(':OK') && got?.endsWith(':TLE');
+  return `<td class="${timing ? 'warn' : 'bad'}" title="expected ${html(verdict(want))}">${html(verdict(got))}<small>want ${html(verdict(want))}</small></td>`;
+}
+
+/**
+ * A page anyone can read without the logs: per problem, every solution's
+ * verdict on every test, with mismatches against the true verdicts in red.
+ */
+function writeReport(file, results, tools, polyman) {
+  const sections = results.map(r => {
+    const failures = r.diffs.filter(d => d.kind === 'failure');
+    const head = `<h2>${html(r.name)} <span class="${failures.length ? 'bad' : 'ok'}">${failures.length ? `${failures.length} difference(s)` : 'matches'}</span></h2>`;
+    if (!r.expected || !r.actual)
+      return `${head}<pre>${html(failures.map(d => d.message).join('\n'))}</pre>`;
+    const names = Object.keys(r.expected.solutions);
+    const width = Math.max(
+      ...names.map(n => r.expected.solutions[n].verdicts.length)
+    );
+    const header = Array.from(
+      { length: width },
+      (_, i) => `<th>${i + 1}</th>`
+    ).join('');
+    const rows = names.map(name => {
+      const want = r.expected.solutions[name];
+      const got = r.actual.solutions[name] ?? {
+        verdicts: [],
+        matchesTag: null,
+      };
+      const cells = Array.from({ length: width }, (_, i) =>
+        cell(want.verdicts[i], got.verdicts[i])
+      ).join('');
+      const tagOk = got.matchesTag === want.matchesTag;
+      return `<tr><th class="name">${html(name)}</th><td class="tag">${html(want.tag)}</td>${cells}<td class="${tagOk ? 'ok' : 'bad'}">${got.matchesTag ? 'yes' : 'no'}</td></tr>`;
+    });
+    const steps = Object.entries(r.expected.steps)
+      .map(
+        ([step, ok]) =>
+          `<li class="${r.actual.steps[step] === ok ? 'ok' : 'bad'}">${html(step)}: ${r.actual.steps[step] ? 'passed' : 'failed'}${r.actual.steps[step] === ok ? '' : ` (should have ${ok ? 'passed' : 'failed'})`}</li>`
+      )
+      .join('');
+    return `${head}<ul class="steps">${steps}</ul><div class="scroll"><table><thead><tr><th>solution</th><th>tag</th>${header}<th>matches tag</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>`;
+  });
+  const env = process.env;
+  const where = env.CI_PIPELINE_URL
+    ? `<a href="${html(env.CI_PIPELINE_URL)}">pipeline ${html(env.CI_PIPELINE_ID)}</a>, commit ${html(env.CI_COMMIT_SHORT_SHA)}`
+    : 'local run';
+  const page = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>polyman corpus verdicts</title><style>
+:root{--bg:#fff;--fg:#1f2328;--muted:#59636e;--ok:#1a7f37;--okbg:#dafbe1;--bad:#cf222e;--badbg:#ffebe9;--warn:#9a6700;--warnbg:#fff8c5;--line:#d1d9e0}
+@media (prefers-color-scheme:dark){:root{--bg:#0d1117;--fg:#e6edf3;--muted:#9198a1;--ok:#3fb950;--okbg:#12261e;--bad:#f85149;--badbg:#2d1214;--warn:#d29922;--warnbg:#2b2111;--line:#30363d}}
+body{background:var(--bg);color:var(--fg);font:14px/1.5 system-ui,sans-serif;margin:0;padding:16px;max-width:1100px}
+h1{font-size:20px;margin:0 0 4px}h2{font-size:16px;margin:24px 0 8px}p.meta{color:var(--muted);margin:0 0 16px}
+.scroll{overflow-x:auto}table{border-collapse:collapse}th,td{border:1px solid var(--line);padding:4px 8px;text-align:center;white-space:nowrap}
+th.name{text-align:left;font-weight:600}td.ok{color:var(--ok);background:var(--okbg)}td.bad{color:var(--bad);background:var(--badbg);font-weight:600}
+td.warn{color:var(--warn);background:var(--warnbg)}td small{display:block;font-weight:400;font-size:11px}span.ok{color:var(--ok)}span.bad{color:var(--bad)}
+ul.steps{list-style:none;padding:0;display:flex;flex-wrap:wrap;gap:4px 16px}li.bad{color:var(--bad);font-weight:600}li.ok{color:var(--muted)}pre{white-space:pre-wrap}
+</style></head><body><h1>polyman corpus verdicts</h1><p class="meta">Real compilers judging real solutions, compared with pinned true verdicts. ${where}. polyman: ${html(polyman)}. Node ${html(tools.node)}, ${html(tools['g++'] ?? 'no g++')}.</p>${sections.join('')}</body></html>`;
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, page);
+}
+
 function main() {
   const args = parseArgs(process.argv.slice(2));
   const tools = toolchain();
@@ -253,10 +323,18 @@ function main() {
       name,
       seconds: run.seconds,
       diffs: compare(expected, actual),
+      expected,
+      actual,
     });
   }
 
   writeJUnit(args.junit, results);
+  writeReport(
+    path.join(path.dirname(args.junit), 'report.html'),
+    results,
+    tools,
+    path.relative(ROOT, args.polyman)
+  );
   const summary = {
     polyman: path.relative(ROOT, args.polyman),
     toolchain: tools,
