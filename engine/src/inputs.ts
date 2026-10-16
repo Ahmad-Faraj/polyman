@@ -7,12 +7,12 @@ export function changedFiles(baseRef: string): ChangedFile[] {
   const git = (...args: string[]) => execFileSync('git', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
   const range = `${baseRef}...HEAD`;
   const statuses = new Map<string, ChangedFile['status']>();
-  for (const line of git('diff', '--name-status', '-M', range).split('\n').filter(Boolean)) {
+  for (const line of git('diff', '--name-status', '--no-renames', range).split('\n').filter(Boolean)) {
     const [code, ...paths] = line.split('\t');
     statuses.set(paths[paths.length - 1], code[0] as ChangedFile['status']);
   }
   const files: ChangedFile[] = [];
-  for (const line of git('diff', '--numstat', '-M', range).split('\n').filter(Boolean)) {
+  for (const line of git('diff', '--numstat', '--no-renames', range).split('\n').filter(Boolean)) {
     const [added, deleted, ...rest] = line.split('\t');
     // Renames print as "old => new" or "dir/{old => new}/file".
     const path = rest.join('\t').replace(/\{[^}]* => ([^}]*)\}/, '$1').replace(/^.* => /, '').replace('//', '/');
