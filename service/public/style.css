@@ -91,7 +91,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .steps li { font-size: 0.8rem; padding: 2px 8px; border-radius: 6px; background: var(--info-bg); color: var(--muted); }
 .steps li.done { background: var(--ok-bg); color: var(--ok); }
 .steps li.now { background: color-mix(in srgb, var(--accent) 15%, var(--surface)); color: var(--accent); }
-.problem-error { color: var(--bad); white-space: pre-wrap; margin: 12px 0 0; }
+.problem-error { color: var(--bad); white-space: pre-wrap; margin: 12px 0 0; max-height: 14em; overflow: auto; font-size: 0.9rem; }
 .table-wrap { overflow-x: auto; }
 table { border-collapse: collapse; width: 100%; font-size: 0.92rem; }
 th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
