@@ -6,8 +6,10 @@
  * Pushes a corpus problem to a Polygon problem with polyman, reads it back
  * through the Polygon API and compares it with the local folder: solutions
  * (tag and source type), checker and validator tests, generator script lines,
- * manual tests and statements. Exits 1 on any difference, and also reports
- * when polyman said the push succeeded although something is missing.
+ * manual tests and statements. It also expands the scripts in corpus/scripts
+ * with polyman's parser and with Polygon, test by test. Exits 1 on any
+ * difference, and also reports when polyman said the push succeeded although
+ * something is missing.
  *
  * Needs a Polygon account that can write to the problem:
  *   POLYGON_API_KEY, POLYGON_API_SECRET   (or ~/.polyman/api_key, secret_key)
@@ -22,6 +24,7 @@
 import { spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -62,8 +65,11 @@ function credentials() {
   }
 }
 
-/** One signed Polygon API call (https://codeforces.github.io/polygon-misc/API). */
-async function polygon(creds, method, params) {
+/**
+ * One signed Polygon API call (https://codeforces.github.io/polygon-misc/API);
+ * `raw` for methods that return file content.
+ */
+async function polygon(creds, method, params, raw = false) {
   const all = {
     ...params,
     apiKey: creds.key,
@@ -84,7 +90,9 @@ async function polygon(creds, method, params) {
     method: 'POST',
     body: new URLSearchParams([...pairs, ['apiSig', rand + hash]]),
   });
-  const data = await response.json();
+  const body = await response.text();
+  if (raw && !body.startsWith('{"status"')) return body;
+  const data = JSON.parse(body);
   if (data.status !== 'OK') throw new Error(`${method}: ${data.comment}`);
   return data.result;
 }
@@ -273,6 +281,61 @@ async function compare(creds, problemId, dir, config) {
   return checks;
 }
 
+/**
+ * Script expansion: each script in corpus/scripts is expanded by polyman's own
+ * parser and by Polygon (saved as the testset's script, then read back test by
+ * test). polyman generates tests locally from its expansion and Polygon from
+ * its own, so any difference means the setter verified other tests than the
+ * ones Polygon publishes. The problem's script is put back afterwards.
+ */
+async function scriptParity(creds, problemId, polyman, testset) {
+  const parserFile = path.join(
+    path.dirname(polyman),
+    'helpers',
+    'script-parser.js'
+  );
+  if (!fs.existsSync(parserFile)) return [];
+  const { parseGeneratorScript } = createRequire(import.meta.url)(parserFile);
+  const id = { problemId, testset };
+  const original = await polygon(creds, 'problem.script', id, true);
+  const checks = [];
+  const dir = path.join(CORPUS, 'scripts');
+  try {
+    for (const file of fs.readdirSync(dir).sort()) {
+      const script = fs.readFileSync(path.join(dir, file), 'utf8');
+      let local;
+      try {
+        local = parseGeneratorScript(script).map(l =>
+          [l.generator, ...l.args].join(' ')
+        );
+      } catch (error) {
+        local = `polyman rejects it: ${error.message.split('\n')[0]}`;
+      }
+      let remote;
+      try {
+        await polygon(creds, 'problem.saveScript', { ...id, source: script });
+        remote = (
+          await polygon(creds, 'problem.tests', { ...id, noInputs: true })
+        )
+          .filter(t => !t.manual)
+          .sort((a, b) => a.index - b.index)
+          .map(t => t.scriptLine.trim().split(/\s+/).join(' '));
+      } catch (error) {
+        remote = `Polygon rejects it: ${error.message}`;
+      }
+      const same = JSON.stringify(local) === JSON.stringify(remote);
+      checks.push({
+        name: `script ${file}`,
+        ok: same,
+        detail: `polyman ${JSON.stringify(local)}, Polygon ${JSON.stringify(remote)}`,
+      });
+    }
+  } finally {
+    await polygon(creds, 'problem.saveScript', { ...id, source: original });
+  }
+  return checks;
+}
+
 function junit(file, checks, pushStatus) {
   const esc = s =>
     String(s).replace(
@@ -337,6 +400,12 @@ async function main() {
       detail:
         'polyman remote push exited 0, but Polygon differs from the folder',
     });
+  }
+  const testset = config.testsets?.[0]?.name;
+  if (testset) {
+    checks.push(
+      ...(await scriptParity(creds, config.problemId, args.polyman, testset))
+    );
   }
 
   for (const c of checks)
