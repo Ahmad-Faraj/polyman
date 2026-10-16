@@ -65,3 +65,10 @@ that bug, a solution tagged OK that gives wrong answers would no longer fail `ve
 npm i --no-save --legacy-peer-deps @stryker-mutator/core@9 @stryker-mutator/vitest-runner@9
 TZ=Asia/Kolkata ./node_modules/.bin/stryker run corpus/stryker.config.json   # report: corpus/out/mutation/index.html
 ```
+
+## Upstream drift
+
+polyman depends on two things it doesn't control: Polygon's API (documented in
+`codeforces/polygon-misc`) and `testlib.h`. `upstream.mjs` compares their latest commits with the
+ones pinned in `upstream.json` and fails, listing what changed, when either moved (`corpus:upstream`,
+nightly). After checking polyman against the change, `node corpus/upstream.mjs --update` moves the pins.
