@@ -67,6 +67,13 @@ agents:
 monitor:
   # filled in with the verify service (#19)
   measured_routes: []
+  # failing one of these means production is affected (the incident responder
+  # opens an incident); the verify service releases through these jobs
+  production_jobs:
+    - service:deploy:candidate
+    - service:promote:production
+    - service:check:production
+  rollback_job: service:rollback:production
 
 # Used to estimate the carbon cost of each change (SCI). Defaults match a
 # GitLab.com small Linux runner (2 vCPU, 8 GB) in GCP us-east1, with Cloud

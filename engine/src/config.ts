@@ -40,6 +40,10 @@ export interface AutonomyConfig {
   monitor: {
     /** Routes the production traffic run exercises; anything else is "not measured". */
     measuredRoutes: string[];
+    /** jobs whose failure means production is affected (deploy, the production check) */
+    productionJobs: string[];
+    /** the job that moves production back when that happens */
+    rollbackJob: string;
   };
 }
 
@@ -63,7 +67,7 @@ export const DEFAULT_CONFIG: AutonomyConfig = {
     reviewerAccount: '',
     fixerAccount: '',
   },
-  monitor: { measuredRoutes: [] },
+  monitor: { measuredRoutes: [], productionJobs: ['deploy:production', 'monitor:production'], rollbackJob: 'rollback:production' },
 };
 
 type Raw = Partial<{
@@ -86,7 +90,7 @@ type Raw = Partial<{
     embodied_gco2e_per_vcpu_hour: number;
   }>;
   agents: Partial<{ about: string; checks: string; test_guide: string; security_focus: string; reviewer_account: string; fixer_account: string }>;
-  monitor: Partial<{ measured_routes: string[] }>;
+  monitor: Partial<{ measured_routes: string[]; production_jobs: string[]; rollback_job: string }>;
 }>;
 
 export function loadConfig(path = process.env.AUTONOMY_CONFIG || '.autonomy.yml'): AutonomyConfig {
@@ -111,7 +115,11 @@ export function loadConfig(path = process.env.AUTONOMY_CONFIG || '.autonomy.yml'
       reviewerAccount: raw.agents?.reviewer_account?.trim() ?? '',
       fixerAccount: raw.agents?.fixer_account?.trim() ?? '',
     },
-    monitor: { measuredRoutes: raw.monitor?.measured_routes ?? [] },
+    monitor: {
+      measuredRoutes: raw.monitor?.measured_routes ?? [],
+      productionJobs: raw.monitor?.production_jobs?.length ? raw.monitor.production_jobs : d.monitor.productionJobs,
+      rollbackJob: raw.monitor?.rollback_job?.trim() || d.monitor.rollbackJob,
+    },
   };
   const { medium, high } = config.thresholds;
   if (!(medium > 0 && high > medium && high <= 100)) {

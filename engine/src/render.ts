@@ -22,6 +22,8 @@ export function flowValues(config: AutonomyConfig, consumerIds: Record<string, s
     fixer_account: config.agents.fixerAccount,
     protected_paths: config.governance.map((p) => p.replace(/\/\*\*$/, '/')).join(', '),
     measured_routes: config.monitor.measuredRoutes.join(', ') || 'none (the monitor only runs its default checks)',
+    production_jobs: config.monitor.productionJobs.join(', '),
+    rollback_job: config.monitor.rollbackJob,
   };
   for (const name of HANDOFF_FLOWS) {
     const id = consumerIds[name];
