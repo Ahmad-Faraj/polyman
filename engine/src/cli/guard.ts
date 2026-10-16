@@ -8,14 +8,18 @@ import { protectedPathViolations, parseGitLog } from '../agents.ts';
 import { loadConfig } from '../config.ts';
 
 const env = process.env;
-const base = process.argv[2] ?? (env.CI_MERGE_REQUEST_DIFF_BASE_SHA || `origin/${env.CI_DEFAULT_BRANCH ?? 'main'}`);
+// On the default branch the base is the commit before the push; GitLab sends
+// all zeros when there is none, so fall back to the previous commit.
+const arg = process.argv[2];
+const base =
+  arg && !/^0+$/.test(arg) ? arg : arg ? 'HEAD~1' : env.CI_MERGE_REQUEST_DIFF_BASE_SHA || `origin/${env.CI_DEFAULT_BRANCH ?? 'main'}`;
 const config = loadConfig(env.AUTONOMY_CONFIG ?? '.autonomy.yml');
 
 const log = execFileSync('git', ['log', '--format=%x00%H%x09%an%x09%ae', '--name-only', `${base}..HEAD`], {
   encoding: 'utf8',
 });
 const commits = parseGitLog(log);
-const violations = protectedPathViolations(commits, config.governance);
+const violations = protectedPathViolations(commits, config.governance, config.incidentsFile);
 
 if (!violations.length) {
   const agentCommits = commits.filter((c) => c.authorEmail.includes('service_account_')).length;

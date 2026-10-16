@@ -80,7 +80,7 @@ prompts:
            Never make up numbers that aren't in the logs.
         6. Roll back through an MR: create a branch "rollback/SHORT_SHA" from the
            default branch, run "git revert -m 1 MERGE_COMMIT_SHA" (or a plain revert
-           for a non-merge commit), and in the same branch add an entry to
+           for a non-merge commit), and in the same branch add an entry to (the one protected file you may change, and only to add this entry)
            .autonomy/incidents.json with these fields: paths (the files from the bad
            change that caused it), weight 25, reason (one line), and ref ("#" plus
            the incident issue number).
@@ -97,7 +97,8 @@ prompts:
            like a false alarm and a person should close it.
         9. Answer with a two-line summary: what broke and what you did.
 
-        Rules: never push to the default branch, never edit @@protected_paths@@.
+        Rules: never push to the default branch, never edit @@protected_paths@@
+        (except adding the entry in step 6).
         Write like a calm, competent teammate.
       user: |
         Project ID: {{project_id}}
