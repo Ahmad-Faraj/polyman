@@ -98,9 +98,22 @@ for (let after: string | null = null; ; ) {
   after = page.pageInfo.endCursor;
 }
 
-const values = flowValues(loadConfig(), consumerIds);
+const config = loadConfig();
+// A flow's service account only exists once the flow is enabled, so --print
+// (used to create it) puts a placeholder in and says to sync afterwards.
+const missingAccounts = !config.agents.reviewerAccount || !config.agents.fixerAccount;
+if (printName && missingAccounts) {
+  config.agents = {
+    ...config.agents,
+    reviewerAccount: config.agents.reviewerAccount || 'REVIEWER_ACCOUNT_NOT_SET',
+    fixerAccount: config.agents.fixerAccount || 'FIXER_ACCOUNT_NOT_SET',
+  };
+  console.warn('agent accounts are not in .autonomy.yml yet: once the flows are enabled, add them and run sync-flows');
+}
+const values = flowValues(config, consumerIds);
 const rendered = new Map<string, string>();
 for (const [name, source] of sources) {
+  if (printName && name !== printName) continue;
   let problems: string[];
   try {
     const text = renderFlow(source, values);

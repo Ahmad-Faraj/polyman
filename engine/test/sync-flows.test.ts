@@ -383,6 +383,28 @@ describe('sync-flows: per-project values', () => {
     expect(updates()).toEqual([]);
   });
 
+  it('--print works before the accounts exist, with a placeholder and a warning', async () => {
+    process.env.AUTONOMY_CONFIG = 'does-not-exist.yml'; // defaults: no accounts yet
+    const out: string[] = [];
+    vi.spyOn(process.stdout, 'write').mockImplementation((t) => void out.push(String(t)) as never);
+    vi.spyOn(process, 'exit').mockImplementation((() => {
+      throw new Error('exit');
+    }) as never);
+    fsState.flows['alpha.yaml'] = withMarker('notes by @@reviewer_account@@');
+    fsState.flows['beta.yml'] = withMarker('hand over to @@mr_reviewer_flow_id@@'); // not asked for, not checked
+    await expect(runSync(PROJECT, '--print', 'alpha')).rejects.toThrow('exit');
+    expect(out.join('')).toContain('notes by REVIEWER_ACCOUNT_NOT_SET');
+    expect(warns.join('\n')).toContain('run sync-flows');
+  });
+
+  it('a real sync still refuses to publish without the accounts', async () => {
+    process.env.AUTONOMY_CONFIG = 'does-not-exist.yml';
+    fsState.flows['alpha.yaml'] = withMarker('notes by @@reviewer_account@@');
+    await expect(runSync(PROJECT)).rejects.toThrow('nothing was synced');
+    expect(errs[0]).toContain('@@reviewer_account@@');
+    expect(updates()).toEqual([]);
+  });
+
   it('refuses to publish uncommitted flow files unless told to', async () => {
     fsState.dirty = ' M .gitlab/duo/flows/alpha.yaml';
     await expect(runSync(PROJECT)).rejects.toThrow('uncommitted changes');
