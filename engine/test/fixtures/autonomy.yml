@@ -34,7 +34,7 @@ tests:
 
 incidents_file: .autonomy/incidents.json
 
-# What the Duo flows need to know about this project. `npm run flows:sync`
+# What the Duo flows need to know about this project. `node engine/src/cli/sync-flows.ts`
 # fills these into the flows when it publishes them.
 agents:
   about: >

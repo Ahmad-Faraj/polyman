@@ -103,7 +103,7 @@ const consumerIds = Object.fromEntries(nodes.map((n) => [n.item.name, /\/(\d+)$/
 for (const name of FLOWS) {
   const node = byName.get(name);
   if (!node) {
-    report('fail', `flow ${name}`, 'not in this project\'s AI Catalog; create it (npm run flows:sync -- --print NAME)');
+    report('fail', `flow ${name}`, 'not in this project\'s AI Catalog; create it (node engine/src/cli/sync-flows.ts --print NAME)');
     continue;
   }
   if (!node.enabled) report('fail', `flow ${name}`, 'in the catalog but not enabled');
@@ -120,7 +120,7 @@ for (const name of FLOWS) {
   if (problems.length) report('fail', `flow ${name}`, problems.join('; '));
   else if (!node.item.latestVersion?.definition) report('warn', `flow ${name}`, "couldn't read the published version");
   else if (!isDeepStrictEqual(parse(node.item.latestVersion.definition), parse(rendered))) {
-    report('fail', `flow ${name}`, `published ${node.item.latestVersion.versionName} differs from the repo; run npm run flows:sync`);
+    report('fail', `flow ${name}`, `published ${node.item.latestVersion.versionName} differs from the repo; run node engine/src/cli/sync-flows.ts`);
   } else report('ok', `flow ${name}`, `published ${node.item.latestVersion.versionName} matches the repo`);
 }
 

@@ -43,7 +43,7 @@ tests:
 
 incidents_file: .autonomy/incidents.json
 
-# What the Duo flows need to know about this project. `npm run flows:sync`
+# What the Duo flows need to know about this project. `node engine/src/cli/sync-flows.ts`
 # fills these into the flows when it publishes them.
 agents:
   about: >
@@ -60,7 +60,7 @@ agents:
     validator change must never let a wrong solution pass.
   test_guide: Tests use vitest and live in tests/, mirroring src/. Tests that compile C++ need g++.
   # service accounts GitLab creates when the flows are enabled here; fill in
-  # once they exist (npm run doctor checks them)
+  # once they exist (node engine/src/cli/doctor.ts checks them)
   reviewer_account: ""
   fixer_account: ""
 

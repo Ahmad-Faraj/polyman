@@ -15,7 +15,7 @@ const base =
   arg && !/^0+$/.test(arg) ? arg : arg ? 'HEAD~1' : env.CI_MERGE_REQUEST_DIFF_BASE_SHA || `origin/${env.CI_DEFAULT_BRANCH ?? 'main'}`;
 const config = loadConfig(env.AUTONOMY_CONFIG ?? '.autonomy.yml');
 
-const log = execFileSync('git', ['log', '--format=%x00%H%x09%an%x09%ae', '--name-only', `${base}..HEAD`], {
+const log = execFileSync('git', ['log', '--format=%x00%H%x09%an%x09%ae', '--name-only', '--no-renames', `${base}..HEAD`], {
   encoding: 'utf8',
 });
 const commits = parseGitLog(log);
