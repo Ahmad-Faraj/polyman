@@ -18,13 +18,13 @@
  * In the image the service runs as root only to hand each upload to the
  * `runner` user and run polyman as that user (runAs); see verify.ts.
  */
-import { chmodSync, chownSync, copyFileSync, cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { chmodSync, copyFileSync, lchownSync, lstatSync, cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import multipart from '@fastify/multipart';
 import Fastify, { type FastifyReply } from 'fastify';
 import { configProblems, findProblems, problemLabel, type Problem } from './problems.ts';
-import { readiness } from './readiness.ts';
+import { readFacts, readiness, type Facts } from './readiness.ts';
 import { DEFAULT_LIMITS, unzip } from './unzip.ts';
 import { runVerify } from './verify.ts';
 
@@ -104,6 +104,18 @@ export function buildApp(opts: AppOptions) {
     reply.raw.on('close', () => {
       if (!reply.raw.writableFinished) visitorLeft.abort();
     });
+    // Everything the service itself does to the upload happens here, before any
+    // of its code runs: from the first run on, the folders belong to that code,
+    // which could swap a file for a link to somewhere the service can write.
+    const facts = new Map<Problem, Facts | null>();
+    for (const p of problems) {
+      if (!existsSync(join(p.dir, 'testlib.h'))) copyFileSync(opts.testlib, join(p.dir, 'testlib.h'));
+      try {
+        facts.set(p, readFacts(p.dir));
+      } catch {
+        facts.set(p, null);
+      }
+    }
     if (opts.runAs) handTo(root, opts.runAs);
     reply.raw.writeHead(200, { 'content-type': 'application/x-ndjson; charset=utf-8', 'cache-control': 'no-store', 'x-accel-buffering': 'no' });
     const send = (event: object) => reply.raw.write(`${JSON.stringify(event)}\n`);
@@ -114,10 +126,6 @@ export function buildApp(opts: AppOptions) {
         if (visitorLeft.signal.aborted) break;
         const name = problemLabel(p, root);
         try {
-          if (!existsSync(join(p.dir, 'testlib.h'))) {
-            copyFileSync(opts.testlib, join(p.dir, 'testlib.h'));
-            if (opts.runAs) handTo(join(p.dir, 'testlib.h'), opts.runAs);
-          }
           const result = await runVerify(p.dir, {
             cli: opts.polymanCli,
             timeoutMs: problemTimeoutMs,
@@ -125,7 +133,8 @@ export function buildApp(opts: AppOptions) {
             runAs: opts.runAs,
             signal: visitorLeft.signal,
           });
-          const checks = readiness(p.dir, result.report);
+          const known = facts.get(p);
+          const checks = known ? readiness(known, result.report) : [];
           const ok = !!result.report?.ok;
           allOk &&= ok;
           send({ type: 'problem', problem: name, ok, seconds: result.seconds, error: result.error, report: result.report, readiness: checks });
@@ -250,7 +259,9 @@ export function buildApp(opts: AppOptions) {
 /** Gives a folder (or file) and everything in it to the runner user, readable by nobody else. */
 function handTo(path: string, { uid, gid }: { uid: number; gid: number }) {
   const walk = (p: string) => {
-    chownSync(p, uid, gid);
+    // lchown: never follow a link (unzip refuses them, this is a second guard)
+    lchownSync(p, uid, gid);
+    if (lstatSync(p).isSymbolicLink()) return;
     const entries = (() => {
       try {
         return readdirSync(p, { withFileTypes: true });

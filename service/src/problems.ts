@@ -2,7 +2,8 @@
  * Finds the polyman problems in an unpacked upload and checks their
  * Config.json before polyman reads it. On someone's own machine the config is
  * trusted; here it comes from a stranger, so every path in it has to stay in
- * the problem's folder, and a standard checker has to be a plain name.
+ * the problem's folder, and names polyman turns into folders (solutions,
+ * testsets, generators, groups) and a standard checker have to be plain names.
  */
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
@@ -91,6 +92,26 @@ export function configProblems(dir: string): string[] {
     }
   };
   walk(config, '', 'Config.json');
+
+  // polyman makes folders from these names (solutions-outputs/NAME,
+  // testsets/NAME), so they must be plain names, not paths
+  const plain = (v: unknown) => typeof v === 'string' && /^[\w.-]{1,64}$/.test(v) && v !== '.' && v !== '..';
+  const c = (config ?? {}) as Record<string, unknown>;
+  for (const list of ['solutions', 'generators', 'testsets'] as const) {
+    if (!Array.isArray(c[list])) continue;
+    (c[list] as unknown[]).forEach((item, i) => {
+      if (!item || typeof item !== 'object') return;
+      const o = item as Record<string, unknown>;
+      if ('name' in o && !plain(o.name)) problems.push(`Config.json.${list}[${i}].name: must be a plain name (letters, digits, . _ -)`);
+      if (list === 'testsets' && Array.isArray(o.groups)) {
+        (o.groups as unknown[]).forEach((g, j) => {
+          if (g && typeof g === 'object' && 'name' in g && !plain((g as { name: unknown }).name)) {
+            problems.push(`Config.json.testsets[${i}].groups[${j}].name: must be a plain name (letters, digits, . _ -)`);
+          }
+        });
+      }
+    });
+  }
   return problems;
 }
 

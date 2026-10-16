@@ -94,6 +94,26 @@ describe('configProblems', () => {
     }
   });
 
+  it.each([
+    ['a solution', { solutions: [{ name: '../../../../tmp/pwn', source: './a.cpp', tag: 'MA' }] }, 'solutions[0].name'],
+    ['a testset', { testsets: [{ name: '../../tmp/plant' }] }, 'testsets[0].name'],
+    ['a generator', { generators: [{ name: 'a/b', source: './g.cpp' }] }, 'generators[0].name'],
+    ['a group', { testsets: [{ name: 'tests', groups: [{ name: '..' }] }] }, 'testsets[0].groups[0].name'],
+  ])('refuses %s name that is a path, since polyman makes a folder from it', (_what, config, where) => {
+    const dir = fresh();
+    problemAt(dir, config);
+    const problems = configProblems(dir);
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain(where);
+    expect(problems[0]).toContain('plain name');
+  });
+
+  it('accepts the names of a normal problem', () => {
+    const dir = fresh();
+    problemAt(dir, { solutions: [{ name: 'main', source: './a.cpp' }, { name: 'tle_solution-2.v1', source: './b.py' }], testsets: [{ name: 'tests', groups: [{ name: 'samples' }] }] });
+    expect(configProblems(dir)).toEqual([]);
+  });
+
   it('reports a broken Config.json instead of throwing', () => {
     const dir = fresh();
     mkdirSync(dir, { recursive: true });

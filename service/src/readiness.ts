@@ -72,26 +72,49 @@ const language = (s: { source?: string; sourceType?: string }) => {
   return 'other';
 };
 
-export function readiness(dir: string, report: VerifyReport | null): Check[] {
+/**
+ * What the checks need from the problem's files, read before any of its code
+ * runs: afterwards the folder belongs to the uploaded code, which could swap a
+ * file for a link to somewhere else.
+ */
+export interface Facts {
+  config: Config;
+  /** language -> which of legend, input, output are missing or empty */
+  incompleteStatements: [string, string[]][];
+  statementCount: number;
+  hasTutorial: boolean;
+}
+
+export function readFacts(dir: string): Facts {
   const config = normalise(JSON.parse(readFileSync(inside(dir, 'Config.json'), 'utf8')));
+  const statements = Object.entries(config.statements ?? {});
+  return {
+    config,
+    statementCount: statements.length,
+    incompleteStatements: statements
+      .map(([lang, s]) => [lang, ['legend', 'input', 'output'].filter((k) => !nonEmpty(dir, s[k]))] as [string, string[]])
+      .filter(([, missing]) => missing.length),
+    hasTutorial: nonEmpty(dir, config.tutorial) || statements.some(([, s]) => nonEmpty(dir, s.tutorial)),
+  };
+}
+
+export function readiness(problem: string | Facts, report: VerifyReport | null): Check[] {
+  const { config, incompleteStatements: incomplete, statementCount, hasTutorial: tutorial } =
+    typeof problem === 'string' ? readFacts(problem) : problem;
   const checks: Check[] = [];
   const add = (id: string, title: string, severity: Severity, ok: boolean, detail: string) =>
     checks.push({ id, title, severity, ok, detail });
 
-  const statements = Object.entries(config.statements ?? {});
-  const incomplete = statements
-    .map(([lang, s]) => [lang, ['legend', 'input', 'output'].filter((k) => !nonEmpty(dir, s[k]))] as const)
-    .filter(([, missing]) => missing.length);
   add(
     'statement_completeness',
     'Statement has legend, input and output',
     'critical',
-    statements.length > 0 && incomplete.length === 0,
-    statements.length === 0
+    statementCount > 0 && incomplete.length === 0,
+    statementCount === 0
       ? 'no statement in Config.json'
       : incomplete.length
         ? incomplete.map(([lang, missing]) => `${lang}: missing or empty ${missing.join(', ')}`).join('; ')
-        : `${statements.length} language(s) complete`,
+        : `${statementCount} language(s) complete`,
   );
 
   const main = report?.solutions.find((s) => s.tag === 'MA');
@@ -132,7 +155,6 @@ export function readiness(dir: string, report: VerifyReport | null): Check[] {
 
   add('tags_presence', 'Has tags', 'info', (config.tags ?? []).length > 0, (config.tags ?? []).join(', ') || 'none');
 
-  const tutorial = nonEmpty(dir, config.tutorial) || statements.some(([, s]) => nonEmpty(dir, s.tutorial));
   add('tutorial_presence', 'Has a tutorial', 'warning', tutorial, tutorial ? 'found' : 'no tutorial file in Config.json or the statements');
 
   return checks;
