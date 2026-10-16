@@ -22,7 +22,8 @@ canary:publish:
     - npm pkg set name="$CANARY_PACKAGE" version="$VERSION"
     - npm config set "@gitlab-ai-hackathon:registry" "$CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/npm/"
     - npm config set -- "//$CI_SERVER_HOST/api/v4/projects/$CI_PROJECT_ID/packages/npm/:_authToken" "$CI_JOB_TOKEN"
-    - npm publish
+    # its own dist-tag, so the registry's `latest` never points at a canary
+    - npm publish --tag canary
     - echo "CANARY_VERSION=$VERSION" > canary.env
   artifacts:
     reports:
