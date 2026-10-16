@@ -37,6 +37,7 @@ runner), but a solution that never terminates must keep getting `TLE`.
 | Problem | What it pins |
 |---|---|
 | `sum-parity` | polyman's own template plus WA/RE/PE/TL mutants in C++ and Python |
+| `mistagged` | a wrong solution tagged OK: `verify` must fail. Catches bugs in the tag rules (for example `isWATag` returning `true`) that every unit test and `sum-parity` miss |
 
 ## Polygon round trip
 

@@ -1,0 +1,39 @@
+{
+  "ok": false,
+  "failedStep": "verify-solutions",
+  "steps": {
+    "read-config": true,
+    "compile-generators": true,
+    "generate-tests": true,
+    "compile-validator": true,
+    "test-validator": true,
+    "validate-tests": true,
+    "compile-checker": true,
+    "test-checker": true,
+    "compile-solutions": true,
+    "run-solutions": true,
+    "verify-solutions": false
+  },
+  "solutions": {
+    "main": {
+      "tag": "MA",
+      "matchesTag": true,
+      "verdicts": [
+        "tests#1:OK",
+        "tests#2:OK",
+        "tests#3:OK",
+        "tests#4:OK"
+      ]
+    },
+    "wrong_tagged_ok": {
+      "tag": "OK",
+      "matchesTag": false,
+      "verdicts": [
+        "tests#1:WA",
+        "tests#2:OK",
+        "tests#3:OK",
+        "tests#4:OK"
+      ]
+    }
+  }
+}
