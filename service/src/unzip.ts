@@ -41,7 +41,8 @@ export function safeEntryPath(name: string): string {
 export async function unzip(zip: Buffer, dest: string, limits: UnzipLimits = DEFAULT_LIMITS): Promise<string[]> {
   const root = resolve(dest);
   mkdirSync(root, { recursive: true });
-  // strictFileNames off: our own check below gives a clearer message for the same cases
+  // strictFileNames left off (the default): yauzl turns backslashes into slashes,
+  // and still refuses absolute paths and .., which our own check refuses again
   const zipfile = await yauzl.fromBufferPromise(zip, { lazyEntries: true, validateEntrySizes: true });
   const written: string[] = [];
   let entries = 0;

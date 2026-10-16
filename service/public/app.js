@@ -21,12 +21,12 @@ let events = [];
 let running = false;
 
 fetch('/api/version')
-  .then((r) => r.json())
-  .then((v) => ($('#version').textContent = `polyman ${v.polyman} · ${v.commit.slice(0, 7)}`))
-  .catch(() => {});
+  .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+  .then((v) => ($('#version').textContent = `polyman ${v.polyman} · ${String(v.commit).slice(0, 7)}`))
+  .catch((err) => console.warn('version unavailable', err));
 
 fetch('/api/samples')
-  .then((r) => r.json())
+  .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
   .then((samples) => {
     for (const s of samples) {
       const b = document.createElement('button');
@@ -38,6 +38,10 @@ fetch('/api/samples')
       b.addEventListener('click', () => start(`/api/samples/${encodeURIComponent(s.name)}/verify`, null, s.name));
       els.samples.append(b);
     }
+  })
+  .catch((err) => {
+    console.error(err);
+    els.samples.textContent = 'The sample problems could not be loaded.';
   });
 
 els.pick.addEventListener('click', () => els.file.click());
@@ -89,6 +93,8 @@ async function start(url, body, label) {
   if (running) return;
   setBusy(true);
   events = [];
+  cards.clear();
+  finished = false;
   els.problems.replaceChildren();
   els.actions.hidden = true;
   els.run.hidden = false;
@@ -106,21 +112,50 @@ async function start(url, body, label) {
     const decoder = new TextDecoder();
     let buffer = '';
     for (;;) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
+      let chunk;
+      try {
+        chunk = await reader.read();
+      } catch (err) {
+        return failMidway(`The connection broke: ${err.message}`);
+      }
+      if (chunk.done) break;
+      buffer += decoder.decode(chunk.value, { stream: true });
       const lines = buffer.split('\n');
       buffer = lines.pop();
-      for (const line of lines) if (line.trim()) handle(JSON.parse(line));
+      for (const line of lines) if (line.trim()) handleLine(line);
     }
+    if (buffer.trim()) handleLine(buffer);
+    if (!finished) failMidway('The check stopped before it finished, so the results above are incomplete. Try again.');
   } catch (err) {
-    showError(`The connection broke: ${err.message}`);
+    showError(`Could not reach the service: ${err.message}`);
   } finally {
     setBusy(false);
   }
 }
 
 const cards = new Map();
+let finished = false;
+
+function handleLine(line) {
+  let ev;
+  try {
+    ev = JSON.parse(line);
+  } catch (err) {
+    console.error('unreadable event', line, err);
+    return failMidway('The service sent something this page could not read; the results may be incomplete.');
+  }
+  try {
+    handle(ev);
+  } catch (err) {
+    console.error('could not show event', ev, err);
+  }
+}
+
+function card(name) {
+  const c = cards.get(name);
+  if (!c) throw new Error(`no card for problem ${name}`);
+  return c;
+}
 
 function handle(ev) {
   events.push(ev);
@@ -132,28 +167,31 @@ function handle(ev) {
       cards.set(name, node);
     }
   } else if (ev.type === 'step') {
-    const card = cards.get(ev.problem);
-    $('.problem-state', card).textContent = 'running';
-    const steps = $('.steps', card);
+    const c = card(ev.problem);
+    $('.problem-state', c).textContent = 'running';
+    const steps = $('.steps', c);
     for (const li of steps.children) li.className = 'done';
     const li = document.createElement('li');
     li.className = 'now';
     li.textContent = ev.title;
     steps.append(li);
   } else if (ev.type === 'problem') {
-    renderProblem(cards.get(ev.problem), ev);
+    renderProblem(card(ev.problem), ev);
   } else if (ev.type === 'done') {
+    finished = true;
     setStatus(ev.ok ? 'all good' : 'needs work', ev.ok ? 'ok' : 'bad');
     els.title.textContent += ` · ${ev.seconds.toFixed(1)} s`;
     els.actions.hidden = false;
   } else if (ev.type === 'error') {
-    showError(ev.message);
+    finished = true;
+    failMidway(ev.message);
   }
 }
 
 function renderProblem(card, ev) {
   const state = $('.problem-state', card);
-  state.textContent = ev.ok ? 'verified' : 'problems found';
+  // polyman passed but a critical guideline failed: say so, it isn't the same as broken
+  state.textContent = ev.ok ? 'ready' : ev.report?.ok ? 'runs correctly, not contest-ready' : 'problems found';
   state.classList.add(ev.ok ? 'ok' : 'bad');
   for (const li of $('.steps', card).children) li.className = 'done';
   const result = $('.result', card);
@@ -196,6 +234,18 @@ function renderProblem(card, ev) {
 function setStatus(text, cls) {
   els.status.textContent = text;
   els.status.className = `pill ${cls}`;
+}
+
+/** An error after results started arriving: keep what came, add the error below it. */
+function failMidway(message) {
+  finished = true;
+  setStatus('failed', 'bad');
+  const box = document.createElement('div');
+  box.className = 'error-box';
+  box.textContent = message;
+  els.problems.append(box);
+  els.actions.hidden = false;
+  setBusy(false);
 }
 
 function showError(message, issues) {

@@ -53,7 +53,7 @@ export function findProblems(root: string): Problem[] {
   return found;
 }
 
-/** Every problem with what's wrong with its config; an empty list means it may run. */
+/** What's wrong with this problem's Config.json; an empty list means it may run. */
 export function configProblems(dir: string): string[] {
   let config: unknown;
   try {
@@ -61,19 +61,20 @@ export function configProblems(dir: string): string[] {
   } catch (err) {
     return [`Config.json is not valid JSON: ${(err as Error).message}`];
   }
-  const problems: string[] = [];
+  const issues: string[] = [];
   const real = realpathSync(dir);
 
   const walk = (value: unknown, key: string, at: string) => {
     if (Array.isArray(value)) return value.forEach((v, i) => walk(v, key, `${at}[${i}]`));
     if (value && typeof value === 'object') {
       const obj = value as Record<string, unknown>;
-      const standard = obj.isStandard === true;
+      // polyman treats any truthy isStandard as a standard checker, so do the same
+      const standard = !!obj.isStandard;
       for (const [k, v] of Object.entries(obj)) {
         // a standard checker's source names one of polyman's own checkers
         if (standard && k === 'source') {
           if (typeof v !== 'string' || !/^[\w.-]+$/.test(v) || v.startsWith('.')) {
-            problems.push(`${at}.source: a standard checker must be a plain name like "wcmp.cpp"`);
+            issues.push(`${at}.source: a standard checker must be a plain name like "wcmp.cpp"`);
           }
           continue;
         }
@@ -87,7 +88,7 @@ export function configProblems(dir: string): string[] {
         // the zip can't hold symlinks, but check the real location anyway
         if (existsSync(target)) inside(real, realpathSync(target));
       } catch (err) {
-        problems.push(`${at}: ${err instanceof UnsafeZipError ? err.message : String(err)}`);
+        issues.push(`${at}: ${err instanceof UnsafeZipError ? err.message : String(err)}`);
       }
     }
   };
@@ -102,17 +103,17 @@ export function configProblems(dir: string): string[] {
     (c[list] as unknown[]).forEach((item, i) => {
       if (!item || typeof item !== 'object') return;
       const o = item as Record<string, unknown>;
-      if ('name' in o && !plain(o.name)) problems.push(`Config.json.${list}[${i}].name: must be a plain name (letters, digits, . _ -)`);
+      if ('name' in o && !plain(o.name)) issues.push(`Config.json.${list}[${i}].name: must be a plain name (letters, digits, . _ -)`);
       if (list === 'testsets' && Array.isArray(o.groups)) {
         (o.groups as unknown[]).forEach((g, j) => {
           if (g && typeof g === 'object' && 'name' in g && !plain((g as { name: unknown }).name)) {
-            problems.push(`Config.json.testsets[${i}].groups[${j}].name: must be a plain name (letters, digits, . _ -)`);
+            issues.push(`Config.json.testsets[${i}].groups[${j}].name: must be a plain name (letters, digits, . _ -)`);
           }
         });
       }
     });
   }
-  return problems;
+  return issues;
 }
 
 /**

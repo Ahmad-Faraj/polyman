@@ -60,6 +60,7 @@ service:golden:
       alias: verify
   script:
     - for i in $(seq 1 30); do curl -sf http://verify:8080/health && break; sleep 2; done
+    - curl -sf http://verify:8080/health || { echo "the service never became healthy"; exit 1; }
     - node --disable-warning=ExperimentalWarning service/scripts/golden.ts http://verify:8080 --json golden.json
   artifacts:
     when: always
@@ -88,7 +89,8 @@ service:deploy:candidate:
     reports:
       dotenv: deploy.env
 
-# the new revision on its own URL, before any user reaches it
+# the new revision on its own URL, before it gets traffic (except on the very
+# first deploy, which creates the service and so serves at once)
 service:check:candidate:
   extends: .service:release
   stage: deploy
@@ -110,6 +112,8 @@ service:promote:production:
   script:
     - sh service/deploy/cloudrun.sh promote
   artifacts:
+    # also when the job fails after the switch: rollback needs PREVIOUS_REVISION
+    when: always
     reports:
       dotenv: deploy.env
 

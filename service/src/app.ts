@@ -9,22 +9,24 @@
  *   POST /api/samples/:name/verify  the same, on a sample
  *
  * Verify answers with newline-delimited JSON events while it works (start,
- * step, problem, done), so the page can show progress. Nothing is kept after a
+ * step, problem, then done, or error if the service itself fails), so the
+ * page can show progress. Nothing is kept after a
  * request: the upload lives in a temporary folder that is removed at the end.
  * One verification runs at a time; Cloud Run is set to one request per
  * instance as well, this is the same rule enforced here. If the visitor
  * leaves, the run is cancelled.
  *
  * In the image the service runs as root only to hand each upload to the
- * `runner` user and run polyman as that user (runAs); see verify.ts.
+ * `runner` user, run polyman as that user (runAs) and clean up after it; see
+ * verify.ts.
  */
-import { chmodSync, copyFileSync, lchownSync, lstatSync, cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { chmodSync, copyFileSync, mkdirSync, lchownSync, lstatSync, cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import multipart from '@fastify/multipart';
 import Fastify, { type FastifyReply } from 'fastify';
 import { configProblems, findProblems, problemLabel, type Problem } from './problems.ts';
-import { readFacts, readiness, type Facts } from './readiness.ts';
+import { readFacts, readiness, type Check, type Facts } from './readiness.ts';
 import { DEFAULT_LIMITS, unzip } from './unzip.ts';
 import { runVerify } from './verify.ts';
 
@@ -54,17 +56,19 @@ export function buildApp(opts: AppOptions) {
   const maxUploadBytes = opts.maxUploadBytes ?? 20 * 1024 * 1024;
   const maxProblems = opts.maxProblems ?? 26;
   const problemTimeoutMs = opts.problemTimeoutMs ?? 120_000;
-  const polymanVersion = (() => {
-    try {
-      return (JSON.parse(readFileSync(join(opts.polymanCli, '..', '..', 'package.json'), 'utf8')) as { version: string }).version;
-    } catch {
-      return 'unknown';
-    }
-  })();
 
   // requestTimeout: the whole upload must arrive within two minutes (it doesn't cover the streamed answer)
   const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? 'info' }, bodyLimit: 1024 * 1024, requestTimeout: 120_000 });
   app.register(multipart, { limits: { files: 1, fileSize: maxUploadBytes, fields: 0, parts: 1 } });
+
+  const polymanVersion = (() => {
+    try {
+      return (JSON.parse(readFileSync(join(opts.polymanCli, '..', '..', 'package.json'), 'utf8')) as { version: string }).version;
+    } catch (err) {
+      app.log.warn({ err }, 'could not read the polyman version next to POLYMAN_CLI');
+      return 'unknown';
+    }
+  })();
 
   let busy = false;
 
@@ -86,76 +90,89 @@ export function buildApp(opts: AppOptions) {
       .sort();
 
   app.get('/api/samples', async () =>
-    sampleNames().map((name) => {
-      const config = JSON.parse(readFileSync(join(opts.samplesDir, name, 'Config.json'), 'utf8')) as { description?: string };
-      const expectedFile = join(opts.samplesDir, `${name}.expected.json`);
-      return {
-        name,
-        description: config.description ?? '',
-        expected: existsSync(expectedFile) ? JSON.parse(readFileSync(expectedFile, 'utf8')) : null,
-      };
+    sampleNames().flatMap((name) => {
+      try {
+        const config = JSON.parse(readFileSync(join(opts.samplesDir, name, 'Config.json'), 'utf8')) as { description?: string };
+        const expectedFile = join(opts.samplesDir, `${name}.expected.json`);
+        return [
+          {
+            name,
+            description: config.description ?? '',
+            expected: existsSync(expectedFile) ? JSON.parse(readFileSync(expectedFile, 'utf8')) : null,
+          },
+        ];
+      } catch (err) {
+        // one broken sample must not hide the others
+        app.log.error({ err, sample: name }, 'sample could not be read');
+        return [];
+      }
     }),
   );
 
-  /** Runs every problem in `root` and streams the events; removes `root` at the end. */
+  /**
+   * Runs every problem in `root` and streams the events. Everything the
+   * service itself does to the upload happens before the first run: from then
+   * on the folders belong to the uploaded code, which could swap a file for a
+   * link to somewhere the service can write.
+   */
   async function verifyAll(root: string, problems: Problem[], reply: FastifyReply) {
     const started = Date.now();
     const visitorLeft = new AbortController();
     reply.raw.on('close', () => {
       if (!reply.raw.writableFinished) visitorLeft.abort();
     });
-    // Everything the service itself does to the upload happens here, before any
-    // of its code runs: from the first run on, the folders belong to that code,
-    // which could swap a file for a link to somewhere the service can write.
+    // the visitor may have left while the upload was being unpacked
+    if (reply.raw.destroyed) visitorLeft.abort();
+
     const facts = new Map<Problem, Facts | null>();
     for (const p of problems) {
       if (!existsSync(join(p.dir, 'testlib.h'))) copyFileSync(opts.testlib, join(p.dir, 'testlib.h'));
       try {
         facts.set(p, readFacts(p.dir));
-      } catch {
+      } catch (err) {
+        app.log.error({ err, problem: problemLabel(p, root) }, 'could not read what the guideline checks need');
         facts.set(p, null);
       }
     }
     if (opts.runAs) handTo(root, opts.runAs);
+
     reply.raw.writeHead(200, { 'content-type': 'application/x-ndjson; charset=utf-8', 'cache-control': 'no-store', 'x-accel-buffering': 'no' });
     const send = (event: object) => reply.raw.write(`${JSON.stringify(event)}\n`);
     let allOk = true;
+    let completed = 0;
     try {
       send({ type: 'start', problems: problems.map((p) => problemLabel(p, root)), polyman: polymanVersion });
       for (const p of problems) {
         if (visitorLeft.signal.aborted) break;
         const name = problemLabel(p, root);
-        try {
-          const result = await runVerify(p.dir, {
-            cli: opts.polymanCli,
-            timeoutMs: problemTimeoutMs,
-            onStep: (step, title) => send({ type: 'step', problem: name, step, title }),
-            runAs: opts.runAs,
-            signal: visitorLeft.signal,
-          });
-          const known = facts.get(p);
-          const checks = known ? readiness(known, result.report) : [];
-          const ok = !!result.report?.ok;
-          allOk &&= ok;
-          send({ type: 'problem', problem: name, ok, seconds: result.seconds, error: result.error, report: result.report, readiness: checks });
-        } catch (err) {
-          // one broken problem must not stop the rest of a contest
-          app.log.warn({ err, problem: name }, 'problem failed');
-          allOk = false;
-          send({ type: 'problem', problem: name, ok: false, seconds: 0, error: 'this problem could not be checked', report: null, readiness: [] });
-        }
+        const result = await runVerify(p.dir, {
+          cli: opts.polymanCli,
+          timeoutMs: problemTimeoutMs,
+          onStep: (step, title) => send({ type: 'step', problem: name, step, title }),
+          runAs: opts.runAs,
+          signal: visitorLeft.signal,
+          onCleanupProblem: (message) => app.log.error({ problem: name }, message),
+        });
+        const known = facts.get(p);
+        const checks: Check[] = known
+          ? readiness(known, result.report)
+          : [{ id: 'readiness', title: 'Contest guidelines', severity: 'warning', ok: false, detail: 'the service could not read the files these checks need' }];
+        // ready means polyman passed and no critical guideline failed
+        const ok = !!result.report?.ok && checks.every((c) => c.ok || c.severity !== 'critical');
+        allOk &&= ok;
+        completed++;
+        send({ type: 'problem', problem: name, ok, seconds: result.seconds, error: result.error, report: result.report, readiness: checks });
       }
-      send({ type: 'done', ok: allOk, seconds: (Date.now() - started) / 1000 });
+      send({ type: 'done', ok: allOk && completed === problems.length, seconds: (Date.now() - started) / 1000 });
     } catch (err) {
-      app.log.error(err);
-      send({ type: 'error', message: 'the verification failed unexpectedly' });
+      app.log.error({ err, completed, of: problems.length }, 'verification failed');
+      send({ type: 'error', message: 'the service failed while checking; this is our fault, not your upload' });
     } finally {
       reply.raw.end();
-      rmSync(root, { recursive: true, force: true });
     }
   }
 
-  /** Common checks before streaming; answers with an error and returns false if the run can't start. */
+  /** Common checks before streaming; answers with an error and returns null if the run can't start. */
   function prepare(root: string, reply: FastifyReply): Problem[] | null {
     const problems = findProblems(root);
     if (!problems.length) {
@@ -174,83 +191,74 @@ export function buildApp(opts: AppOptions) {
     return problems;
   }
 
-  /** Takes the one-at-a-time lock, or answers 429. Call it once the upload has arrived. */
-  function claim(reply: FastifyReply): boolean {
-    if (busy) {
-      reply.code(429).header('retry-after', '30').send({ error: 'busy with another verification, try again shortly' });
-      return false;
-    }
-    busy = true;
-    return true;
-  }
-  const release = () => {
-    busy = false;
-  };
+  const busyReply = (reply: FastifyReply) =>
+    reply.code(429).header('retry-after', '30').send({ error: 'busy with another verification, try again shortly' });
 
-  app.post('/api/verify', async (req, reply) => {
-    {
-      if (busy) {
-        // a cheap early answer; the lock itself is taken once the upload is in
-        return reply.code(429).header('retry-after', '30').send({ error: 'busy with another verification, try again shortly' });
-      }
-      let data;
-      try {
-        data = await req.file();
-      } catch {
-        reply.code(400).send({ error: 'send the zip as multipart form data, field "problem"' });
-        return;
-      }
-      if (!data || data.fieldname !== 'problem') {
-        reply.code(400).send({ error: 'send the zip as multipart form data, field "problem"' });
-        return;
-      }
-      let zip: Buffer;
-      try {
-        zip = await data.toBuffer();
-      } catch {
-        reply.code(413).send({ error: `the zip is larger than ${maxUploadBytes / 1024 / 1024} MB` });
-        return;
-      }
-      if (!claim(reply)) return;
-      try {
-      const root = mkdtempSync(join(tmpdir(), 'verify-'));
-      try {
-        await unzip(zip, root, DEFAULT_LIMITS);
-      } catch (err) {
-        rmSync(root, { recursive: true, force: true });
-        reply.code(400).send({ error: `the zip was refused: ${(err as Error).message}` });
-        return;
-      }
+  /**
+   * Takes the one-at-a-time lock, makes the upload folder, runs `fill` to put
+   * the problems in it and then verifies them. The folder is removed and the
+   * lock released whatever happens.
+   */
+  async function run(reply: FastifyReply, fill: (root: string) => Promise<boolean>) {
+    if (busy) return busyReply(reply);
+    busy = true;
+    // The folder in /tmp stays root's; the upload lives one level down and is
+    // what the runner user gets. After each run, what the runner owns directly
+    // in /tmp is removed, and that must never be the upload itself.
+    const outer = mkdtempSync(join(tmpdir(), 'verify-'));
+    const root = join(outer, 'upload');
+    try {
+      chmodSync(outer, 0o711); // the runner may pass through it to its upload, not list it
+      mkdirSync(root);
+      if (!(await fill(root))) return reply;
       const problems = prepare(root, reply);
-      if (!problems) {
-        rmSync(root, { recursive: true, force: true });
-        return;
-      }
-      await verifyAll(root, problems, reply);
-      } finally {
-        release();
-      }
+      if (problems) await verifyAll(root, problems, reply);
+    } catch (err) {
+      app.log.error({ err }, 'could not prepare the upload');
+      if (!reply.sent && !reply.raw.headersSent) reply.code(500).send({ error: 'the service could not prepare your upload; this is our fault, try again' });
+    } finally {
+      rmSync(outer, { recursive: true, force: true });
+      busy = false;
     }
     return reply;
+  }
+
+  app.post('/api/verify', async (req, reply) => {
+    // a cheap early answer before reading the body; the lock itself is taken once the upload is in
+    if (busy) return busyReply(reply);
+    let zip: Buffer;
+    try {
+      const data = await req.file();
+      if (!data || data.fieldname !== 'problem') return reply.code(400).send({ error: 'send the zip as multipart form data, field "problem"' });
+      zip = await data.toBuffer();
+    } catch (err) {
+      const e = err as { code?: string; statusCode?: number };
+      if (e.code === 'FST_REQ_FILE_TOO_LARGE') return reply.code(413).send({ error: `the zip is larger than ${maxUploadBytes / 1024 / 1024} MB` });
+      if (e.statusCode && e.statusCode < 500) return reply.code(400).send({ error: 'send the zip as multipart form data, field "problem"' });
+      app.log.error({ err }, 'could not read the upload');
+      return reply.code(500).send({ error: 'the upload could not be read; try again' });
+    }
+    return run(reply, async (root) => {
+      try {
+        await unzip(zip, root, DEFAULT_LIMITS);
+        return true;
+      } catch (err) {
+        const e = err as NodeJS.ErrnoException;
+        if (e.code === 'EEXIST') return !reply.code(400).send({ error: 'the zip was refused: it has the same file twice' });
+        // an errno code means our side failed (disk, permissions); anything else is the zip itself
+        if (e.code && /^E[A-Z]+$/.test(e.code)) throw err;
+        return !reply.code(400).send({ error: `the zip was refused: ${e.message}` });
+      }
+    });
   });
 
   app.post<{ Params: { name: string } }>('/api/samples/:name/verify', async (req, reply) => {
     const { name } = req.params;
     if (!sampleNames().includes(name)) return reply.code(404).send({ error: `no sample called ${name}` });
-    if (!claim(reply)) return reply;
-    try {
-      const root = mkdtempSync(join(tmpdir(), 'verify-'));
+    return run(reply, async (root) => {
       cpSync(join(opts.samplesDir, name), join(root, name), { recursive: true });
-      const problems = prepare(root, reply);
-      if (!problems) {
-        rmSync(root, { recursive: true, force: true });
-        return reply;
-      }
-      await verifyAll(root, problems, reply);
-    } finally {
-      release();
-    }
-    return reply;
+      return true;
+    });
   });
 
   return app;

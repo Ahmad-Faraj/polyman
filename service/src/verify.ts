@@ -1,12 +1,16 @@
 /**
  * Runs `polyman verify --json` on one problem folder.
  *
- * - The child gets a bare environment: no variables of ours, nothing to leak.
- * - In the image it runs as a user of its own (`runAs`), so the code it runs
- *   can't signal, inspect or read the service, and every process of that user
- *   is killed when the run ends, however it ends.
- * - A time limit for the whole run, and cancellation when the visitor leaves;
- *   either kills everything polyman started, solutions included.
+ * - The child gets only PATH, with HOME and TMPDIR set to the problem folder
+ *   and LANG; none of the service's other variables.
+ * - In the image it runs as a user of its own (`runAs`), with a cap on how
+ *   many processes that user may have, so the code it runs can't signal,
+ *   inspect or read the service, and can't fork without end. When the run
+ *   ends, however it ends, every process of that user is killed (from inside
+ *   the user, which a fork loop can't outrun) and the files it left in the
+ *   shared temp folders are removed.
+ * - A time limit for the whole run, cancellation when the visitor leaves, and
+ *   a cap on how much output is read.
  * - The upload's own compile cache (.polyman) never gets this far: unzip
  *   leaves it out, so what runs is compiled from the sources. (`--no-cache`
  *   would also turn off polyman's prebuilt testlib, and every compile would
@@ -15,7 +19,7 @@
  * Progress comes from the "Step N: ..." lines polyman prints to stderr.
  */
 import { spawn } from 'node:child_process';
-import { killTree, killUser } from './kill-tree.ts';
+import { killTree, killUser, removeFilesOf } from './kill-tree.ts';
 
 export interface VerifyReport {
   schemaVersion: number;
@@ -47,38 +51,57 @@ export interface RunOptions {
   /** run as this user and group (needs the service to run as root) */
   runAs?: { uid: number; gid: number };
   signal?: AbortSignal;
+  /** called when cleaning up after the run went wrong, for the log */
+  onCleanupProblem?: (message: string) => void;
 }
 
 const STEP = /Step (\d+): (.+?)\s*$/;
 // after the child exits, wait this long for its output to drain, then stop waiting:
 // a process it left behind could hold the pipes open forever
 const DRAIN_MS = 2000;
+// a report is a few hundred KB at most; anything near this is someone filling the pipe
+const MAX_STDOUT = 16 * 1024 * 1024;
+// processes the runner user may have at once: polyman, compilers, a solution and its threads
+const MAX_PROCESSES = 256;
 
-export function runVerify(dir: string, { cli, timeoutMs, onStep, runAs, signal }: RunOptions): Promise<RunResult> {
+/** A report has to have this shape before anything reads it. */
+export function isReport(value: unknown): value is VerifyReport {
+  const r = value as VerifyReport;
+  return (
+    !!r &&
+    typeof r === 'object' &&
+    r.schemaVersion === 1 &&
+    typeof r.ok === 'boolean' &&
+    Array.isArray(r.steps) &&
+    Array.isArray(r.solutions) &&
+    r.solutions.every((s) => s && typeof s.name === 'string' && Array.isArray(s.tests))
+  );
+}
+
+export function runVerify(dir: string, opts: RunOptions): Promise<RunResult> {
+  const { cli, timeoutMs, onStep, runAs, signal } = opts;
   const started = Date.now();
-  const child = spawn(process.execPath, ['--disable-sigusr1', cli, 'verify', '--json'], {
-    cwd: dir,
-    env: { PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin', HOME: dir, LANG: 'C.UTF-8' },
-    detached: true,
-    stdio: ['ignore', 'pipe', 'pipe'],
-    ...(runAs ?? {}),
-  });
+  const polyman = [process.execPath, '--disable-sigusr1', cli, 'verify', '--json'];
+  // as the runner user, go through prlimit so the process cap covers everything it starts
+  const [command, ...args] = runAs ? ['prlimit', `--nproc=${MAX_PROCESSES}:${MAX_PROCESSES}`, '--', ...polyman] : polyman;
+  let child: ReturnType<typeof spawn>;
+  try {
+    child = spawn(command, args, {
+      cwd: dir,
+      env: { PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin', HOME: dir, TMPDIR: dir, LANG: 'C.UTF-8' },
+      detached: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      ...(runAs ?? {}),
+    });
+  } catch (err) {
+    // spawn throws at once when it can't switch user (the service isn't root)
+    return Promise.resolve({ report: null, error: `could not start polyman: ${(err as Error).message}`, seconds: 0 });
+  }
 
   let stdout = '';
+  let stdoutBytes = 0;
   let stderrTail = '';
   let partial = '';
-  child.stdout.setEncoding('utf8').on('data', (c: string) => {
-    stdout += c;
-  });
-  child.stderr.setEncoding('utf8').on('data', (c: string) => {
-    stderrTail = (stderrTail + c).slice(-4000);
-    const lines = (partial + c).split('\n');
-    partial = lines.pop() ?? '';
-    for (const line of lines) {
-      const m = STEP.exec(line.replace(/\x1b\[[0-9;]*m/g, ''));
-      if (m) onStep?.(Number(m[1]), m[2]);
-    }
-  });
 
   let stopped: string | undefined;
   const stop = (why: string) => {
@@ -86,6 +109,23 @@ export function runVerify(dir: string, { cli, timeoutMs, onStep, runAs, signal }
     stopped = why;
     if (child.pid) killTree(child.pid);
   };
+
+  child.stdout!.setEncoding('utf8').on('data', (c: string) => {
+    if (stopped) return;
+    stdoutBytes += Buffer.byteLength(c);
+    if (stdoutBytes > MAX_STDOUT) return stop(`stopped: polyman printed more than ${MAX_STDOUT / 1024 / 1024} MB`);
+    stdout += c;
+  });
+  child.stderr!.setEncoding('utf8').on('data', (c: string) => {
+    stderrTail = (stderrTail + c).slice(-4000);
+    const lines = (partial + c).split('\n');
+    partial = (lines.pop() ?? '').slice(-4000);
+    for (const line of lines) {
+      const m = STEP.exec(line.replace(/\x1b\[[0-9;]*m/g, ''));
+      if (m) onStep?.(Number(m[1]), m[2]);
+    }
+  });
+
   const timer = setTimeout(() => stop(`stopped after ${timeoutMs / 1000} s`), timeoutMs);
   const onAbort = () => stop('cancelled');
   signal?.addEventListener('abort', onAbort, { once: true });
@@ -93,37 +133,49 @@ export function runVerify(dir: string, { cli, timeoutMs, onStep, runAs, signal }
 
   return new Promise((done) => {
     let finished = false;
-    const finish = (code: number | null) => {
+    const finish = (code: number | null, sig: NodeJS.Signals | null) => {
       if (finished) return;
       finished = true;
       clearTimeout(timer);
       signal?.removeEventListener('abort', onAbort);
-      // whatever is left: the tree, and in the image every process of the runner user
-      if (child.pid) killTree(child.pid);
-      if (runAs) killUser(runAs.uid);
-      child.stdout.destroy();
-      child.stderr.destroy();
+      try {
+        // whatever is left: the tree, and in the image every process and temp file of the runner user
+        if (child.pid) killTree(child.pid);
+        if (runAs) {
+          const left = killUser(runAs.uid, runAs.gid);
+          if (left) opts.onCleanupProblem?.(`${left} runner process(es) were still alive after the run and were killed`);
+          removeFilesOf(runAs.uid, ['/tmp', '/var/tmp', '/dev/shm']);
+        }
+      } catch (err) {
+        opts.onCleanupProblem?.(`cleanup after the run failed: ${(err as Error).message}`);
+      }
+      child.stdout?.destroy();
+      child.stderr?.destroy();
 
       const seconds = (Date.now() - started) / 1000;
       if (stopped) return done({ report: null, error: stopped, seconds });
+      let parsed: unknown;
       try {
-        done({ report: JSON.parse(stdout) as VerifyReport, seconds });
+        parsed = JSON.parse(stdout);
       } catch {
         const last = stderrTail.replace(/\x1b\[[0-9;]*m/g, '').trim().split('\n').slice(-5).join('\n');
-        done({ report: null, error: `polyman exited with ${code} and no report${last ? `:\n${last}` : ''}`, seconds });
+        const how = sig ? `was killed by ${sig}${sig === 'SIGKILL' ? ' (out of memory?)' : ''}` : `exited with ${code}`;
+        return done({ report: null, error: `polyman ${how} and no report${last ? `:\n${last}` : ''}`, seconds });
       }
+      if (!isReport(parsed)) return done({ report: null, error: 'polyman printed a report in a format this service does not know', seconds });
+      done({ report: parsed, seconds });
     };
-    child.on('exit', (code) => {
+    child.on('exit', (code, sig) => {
       // usually 'close' follows at once; if something holds the pipes, stop waiting
-      const drain = setTimeout(() => finish(code), DRAIN_MS);
+      const drain = setTimeout(() => finish(code, sig), DRAIN_MS);
       child.once('close', () => {
         clearTimeout(drain);
-        finish(code);
+        finish(code, sig);
       });
     });
     child.on('error', (err) => {
       stopped ??= `could not start polyman: ${err.message}`;
-      finish(null);
+      finish(null, null);
     });
   });
 }

@@ -114,6 +114,12 @@ describe('configProblems', () => {
     expect(configProblems(dir)).toEqual([]);
   });
 
+  it('treats any truthy isStandard as standard, as polyman does', () => {
+    const dir = fresh();
+    problemAt(dir, { checker: { isStandard: 1, source: '../../X/z' } });
+    expect(configProblems(dir)[0]).toContain('must be a plain name');
+  });
+
   it('reports a broken Config.json instead of throwing', () => {
     const dir = fresh();
     mkdirSync(dir, { recursive: true });

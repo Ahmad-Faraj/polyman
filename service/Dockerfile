@@ -36,8 +36,7 @@ COPY service/src ./service/src
 COPY service/public ./service/public
 COPY service/samples ./service/samples
 
-# Uploaded code runs as `runner`, a user that owns nothing but the upload it is
-# given. The service stays root only to hand each upload to that user, start
+# Uploaded code runs as `runner`, a user that owns nothing in the image. The service stays root only to hand each upload to that user, start
 # polyman as that user and kill every runner process when a run ends; the
 # uploaded code can't signal, inspect or read the service.
 RUN useradd --system --uid 10001 --user-group --no-create-home --shell /usr/sbin/nologin runner

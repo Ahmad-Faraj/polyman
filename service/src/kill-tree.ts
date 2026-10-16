@@ -9,14 +9,21 @@
  *
  * killUser: every process of one user. In the image, uploaded code runs as a
  * user of its own, so after each run this also catches anything that escaped
- * the tree (a double fork, a daemon in a new session).
+ * the tree (a double fork, a daemon in a new session, a fork loop).
+ *
+ * removeFilesOf: what that user left in the shared temp folders, so nothing
+ * carries over to the next visitor.
  */
-import { readFileSync, readdirSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { lstatSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
 
 interface Proc {
   ppid: number;
   pgrp: number;
   uid: number;
+  /** already dead, waiting for its parent to collect it: it can't do anything */
+  zombie: boolean;
 }
 
 function processTable(): Map<number, Proc> {
@@ -26,9 +33,9 @@ function processTable(): Map<number, Proc> {
     try {
       // the command name (2nd field) may hold spaces and parens, so read after the last ')'
       const stat = readFileSync(`/proc/${name}/stat`, 'utf8');
-      const [, ppid, pgrp] = stat.slice(stat.lastIndexOf(')') + 2).split(' '); // state, ppid, pgrp
+      const [state, ppid, pgrp] = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
       const uid = /^Uid:\s+(\d+)/m.exec(readFileSync(`/proc/${name}/status`, 'utf8'))?.[1];
-      table.set(Number(name), { ppid: Number(ppid), pgrp: Number(pgrp), uid: Number(uid ?? -1) });
+      table.set(Number(name), { ppid: Number(ppid), pgrp: Number(pgrp), uid: Number(uid ?? -1), zombie: state === 'Z' });
     } catch {
       // the process ended while we were looking
     }
@@ -39,8 +46,10 @@ function processTable(): Map<number, Proc> {
 const safeTable = () => {
   try {
     return processTable();
-  } catch {
-    return new Map<number, Proc>(); // no /proc (not Linux)
+  } catch (err) {
+    // no /proc means not Linux (a developer's machine); anything else is a real problem
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return new Map<number, Proc>();
+    throw err;
   }
 };
 
@@ -63,8 +72,8 @@ export function descendants(root: number, table: Map<number, Pick<Proc, 'ppid'>>
 const kill = (pid: number) => {
   try {
     process.kill(pid, 'SIGKILL');
-  } catch {
-    // already gone
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ESRCH') throw err; // ESRCH: already gone
   }
 };
 
@@ -75,10 +84,45 @@ export function killTree(root: number): void {
   for (const p of pids) kill(p);
 }
 
-/** Kills every process owned by `uid`; never our own user. Returns how many it found. */
-export function killUser(uid: number): number {
+const pidsOf = (uid: number) =>
+  [...safeTable()].filter(([, p]) => p.uid === uid && !p.zombie).map(([pid]) => pid);
+
+/**
+ * Kills every process owned by `uid`; never our own user. First from inside
+ * that user with kill(-1), which the kernel applies to all of the user's
+ * processes at once, so a fork loop can't slip past it; then from outside
+ * until none are left. Returns how many the outside passes still found.
+ */
+export function killUser(uid: number, gid = uid): number {
   if (uid === process.getuid?.()) throw new Error("refusing to kill the service's own user");
-  const pids = [...safeTable()].filter(([, p]) => p.uid === uid).map(([pid]) => pid);
-  for (const p of pids) kill(p);
-  return pids.length;
+  spawnSync('kill', ['-9', '--', '-1'], { uid, gid, stdio: 'ignore', timeout: 5000 });
+  let found = 0;
+  for (let pass = 0; pass < 5; pass++) {
+    const pids = pidsOf(uid);
+    if (!pids.length) return found;
+    found += pids.length;
+    for (const p of pids) kill(p);
+  }
+  if (pidsOf(uid).length) throw new Error(`processes of uid ${uid} survived five kill passes`);
+  return found;
+}
+
+/** Removes everything owned by `uid` directly inside these folders. */
+export function removeFilesOf(uid: number, dirs: string[]): void {
+  for (const dir of dirs) {
+    let names: string[];
+    try {
+      names = readdirSync(dir);
+    } catch {
+      continue; // the folder doesn't exist here
+    }
+    for (const name of names) {
+      const path = join(dir, name);
+      try {
+        if (lstatSync(path).uid === uid) rmSync(path, { recursive: true, force: true });
+      } catch {
+        // gone already
+      }
+    }
+  }
 }
