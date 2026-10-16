@@ -17,7 +17,7 @@
  * Run it from your machine with your own token:
  *   GITLAB_TOKEN=... node engine/src/cli/setup-flows.ts [project path] [--dry-run]
  */
-import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { type AutonomyConfig } from '../config.ts';
@@ -96,11 +96,49 @@ export function withAccounts(text: string, accounts: { reviewer?: string; fixer?
     ['fixer_account', accounts.fixer],
   ] as const) {
     if (!value) continue;
-    const line = new RegExp(`^(\\s*${key}:).*$`, 'm');
+    // a GitLab username; anything else would end up as YAML in the file
+    if (!/^[\w.-]+$/.test(value)) throw new Error(`not a username: ${JSON.stringify(value)}`);
+    // the key's own line only, keeping a comment at its end
+    const line = new RegExp(`^([ \\t]*${key}:)[^\\n#]*?([ \\t]+#[^\\n]*)?$`, 'm');
     if (!line.test(out)) throw new Error(`.autonomy.yml has no agents.${key} line to fill in`);
-    out = out.replace(line, `$1 ${value}`);
+    out = out.replace(line, (_, start: string, comment = '') => `${start} ${value}${comment}`);
   }
   return out;
+}
+
+/**
+ * Whether this run may write the account names into the .autonomy.yml it
+ * finds here: only when this checkout is the project being set up, and only
+ * if the file has the lines to fill. Checked before anything is created.
+ */
+export function mayWriteAccounts(own: string | undefined, projectPath: string, text: string | undefined): boolean {
+  if (own?.toLowerCase() !== projectPath.toLowerCase()) return false;
+  if (text === undefined) throw new Error('this checkout has no .autonomy.yml to write the accounts into');
+  withAccounts(text, { reviewer: 'check', fixer: 'check' });
+  return true;
+}
+
+/** What to tell the person at the end, and the new .autonomy.yml if there is one to write. */
+export function finishAccounts(o: {
+  own: string | undefined;
+  projectPath: string;
+  accounts: Record<string, string>;
+  dryRun: boolean;
+  write: boolean;
+  text: string | undefined;
+}): { messages: string[]; errors: string[]; write?: string } {
+  const file = '.autonomy.yml';
+  const reviewer = o.accounts['mr-reviewer'];
+  const fixer = o.accounts['pipeline-fixer'];
+  const unknown = [reviewer ? '' : 'mr-reviewer', fixer ? '' : 'pipeline-fixer'].filter(Boolean);
+  if (o.dryRun) return { messages: [`dry run: nothing changed${o.write ? `; a real run writes the accounts into ${file}` : ''}`], errors: [] };
+  if (unknown.length) {
+    return { messages: [], errors: [`no service account found for ${unknown.join(' and ')}; ${file} not changed. Check the flow's trigger in AI > Flows and run this again.`] };
+  }
+  if (!o.write) return { messages: [`${file} not written: this checkout is ${o.own ?? 'not a GitLab project'}, not ${o.projectPath}. Put these names in that project's ${file}.`], errors: [] };
+  const after = withAccounts(o.text!, { reviewer, fixer });
+  if (after === o.text) return { messages: [`${file} already has these accounts`], errors: [] };
+  return { messages: [`${file}: agent accounts set; commit it in an MR, then run sync-flows`], errors: [], write: after };
 }
 
 /** A GraphQL call: the data, or an error with GitLab's messages. */
@@ -111,7 +149,7 @@ export type Rest = <T>(path: string) => Promise<T | null>;
 /** Where to send the token: only over https. */
 export function gitlabUrl(value = 'https://gitlab.com'): string {
   if (!value.startsWith('https://')) throw new Error(`refusing to send your token to ${value}: use an https:// GITLAB_URL`);
-  return value;
+  return value.replace(/\/+$/, '');
 }
 
 interface PushLevel {
@@ -148,7 +186,7 @@ export async function unprotected(rest: Rest, projectPath: string, defaultBranch
   for (let i = parts.length; i > 0 && !mustSucceed; i--) {
     mustSucceed = !!(await rest<{ only_allow_merge_if_pipeline_succeeds?: boolean }>(`/groups/${encodeURIComponent(parts.slice(0, i).join('/'))}`))?.only_allow_merge_if_pipeline_succeeds;
   }
-  return [noPush ? '' : `people other than Maintainers (the agents among them) can push to ${defaultBranch}`, mustSucceed ? '' : '"Pipelines must succeed" is off'].filter(Boolean);
+  return [noPush ? '' : `nothing shows that only Maintainers can push to ${defaultBranch} (it isn't protected that way, or the rule couldn't be read)`, mustSucceed ? '' : '"Pipelines must succeed" is off'].filter(Boolean);
 }
 
 interface Page<T> {
@@ -168,7 +206,7 @@ async function allPages<T>(fetchPage: (after: string | null) => Promise<Page<T>>
 
 interface Consumer {
   id: string;
-  item: { id: string; name: string };
+  item: { id: string; name: string; project: { fullPath: string } | null };
 }
 
 interface Trigger {
@@ -213,20 +251,23 @@ export async function setupFlows(o: SetupOptions): Promise<{ defaultBranch: stri
 
   const missing = await unprotected(o.rest, projectPath, defaultBranch);
   if (missing.length && !o.unprotected) {
-    throw new Error(`not setting up agents that can push while ${missing.join(' and ')} (#14); fix that first, or pass --unprotected for a test project`);
+    throw new Error(`not setting up agents that can push while ${missing.join(' and ')} (#14); fix that first, or pass --unprotected (a test project, or a person deciding to go ahead before #14)`);
   }
 
-  const consumers = () =>
-    allPages<Consumer>(async (after) =>
+  // flows enabled here that this project owns: one enabled from another
+  // project's catalog entry under the same name isn't ours
+  const ours = (c: Consumer) => c.item.project?.fullPath.toLowerCase() === projectPath.toLowerCase();
+  const consumers = async () =>
+    (await allPages<Consumer>(async (after) =>
       (
         await gql<{ aiCatalogConfiguredItems: Page<Consumer> }>(
           `query($p: ProjectID!, $after: String) {
-            aiCatalogConfiguredItems(projectId: $p, first: 100, after: $after) { nodes { id item { id name } } pageInfo { hasNextPage endCursor } }
+            aiCatalogConfiguredItems(projectId: $p, first: 100, after: $after) { nodes { id item { id name project { fullPath } } } pageInfo { hasNextPage endCursor } }
           }`,
           { p: project.id, after },
         )
       ).aiCatalogConfiguredItems,
-    );
+    )).filter(ours);
   const triggers = () =>
     allPages<Trigger>(async (after) =>
       (
@@ -295,7 +336,7 @@ export async function setupFlows(o: SetupOptions): Promise<{ defaultBranch: stri
           `${name}: the flow exists (${itemId}) but could not be enabled: ${enabled.aiCatalogItemConsumerCreate.errors.join('; ') || 'no reason given'}. Run this again to retry; it finds the flow.`,
         );
       }
-      consumer = { id: enabled.aiCatalogItemConsumerCreate.itemConsumer.id, item: { id: itemId, name } };
+      consumer = { id: enabled.aiCatalogItemConsumerCreate.itemConsumer.id, item: { id: itemId, name, project: { fullPath: projectPath } } };
       log(`${name}: enabled`);
     }
 
@@ -360,32 +401,18 @@ if (import.meta.main) {
   } catch {
     // no remote to tell which project this checkout is
   }
-  const writeAccounts = own?.toLowerCase() === projectPath.toLowerCase();
   const autonomy = '.autonomy.yml';
-  if (writeAccounts) withAccounts(readFileSync(autonomy, 'utf8'), { reviewer: 'check', fixer: 'check' });
+  const read = () => (existsSync(autonomy) ? readFileSync(autonomy, 'utf8') : undefined);
+  const write = mayWriteAccounts(own, projectPath, read());
 
   const dir = '.gitlab/duo/flows';
   const sources = new Map(readdirSync(dir).map((f) => [f.replace(/\.ya?ml$/, ''), readFileSync(join(dir, f), 'utf8')]));
   const { accounts } = await setupFlows({ gql, rest, projectPath, sources, config: loadConfig(), dryRun, unprotected: args.includes('--unprotected') });
 
-  const reviewer = accounts['mr-reviewer'];
-  const fixer = accounts['pipeline-fixer'];
-  const unknown = [reviewer ? '' : 'mr-reviewer', fixer ? '' : 'pipeline-fixer'].filter(Boolean);
   console.log('\naccounts:', accounts);
-  if (dryRun) {
-    console.log(`dry run: nothing changed${writeAccounts ? `; a real run writes the accounts into ${autonomy}` : ''}`);
-  } else if (unknown.length) {
-    console.error(`no service account found for ${unknown.join(' and ')}; ${autonomy} not changed. Check the flow's trigger in AI > Flows and run this again.`);
-    process.exitCode = 1;
-  } else if (!writeAccounts) {
-    console.log(`${autonomy} not written: this checkout is ${own ?? 'not a GitLab project'}, not ${projectPath}. Put these names in that project's ${autonomy}.`);
-  } else {
-    const before = readFileSync(autonomy, 'utf8');
-    const after = withAccounts(before, { reviewer, fixer });
-    if (after === before) console.log(`${autonomy} already has these accounts`);
-    else {
-      writeFileSync(autonomy, after);
-      console.log(`${autonomy}: agent accounts set; commit it in an MR, then run sync-flows`);
-    }
-  }
+  const end = finishAccounts({ own, projectPath, accounts, dryRun, write, text: read() });
+  if (end.write !== undefined) writeFileSync(autonomy, end.write);
+  for (const line of end.messages) console.log(line);
+  for (const line of end.errors) console.error(line);
+  if (end.errors.length) process.exitCode = 1;
 }

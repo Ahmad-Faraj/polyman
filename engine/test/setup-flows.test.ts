@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { loadConfig } from '../src/config.ts';
-import { FLOWS, type Gql, type Rest, type SetupOptions, definitionFor, gitlabUrl, pipelineFilter, pushBlocked, setupFlows, triggerMatches, withAccounts } from '../src/cli/setup-flows.ts';
+import { FLOWS, type Gql, type Rest, type SetupOptions, definitionFor, finishAccounts, gitlabUrl, mayWriteAccounts, pipelineFilter, pushBlocked, setupFlows, triggerMatches, withAccounts } from '../src/cli/setup-flows.ts';
 
 const spec = (name: string) => FLOWS.find(([n]) => n === name)![2];
 
@@ -55,6 +55,16 @@ describe('withAccounts', () => {
     expect(withAccounts(yml, { reviewer: 'ai-r' })).toContain('fixer_account: ""');
   });
 
+  it('keeps a comment at the end of the line, and only touches that line', () => {
+    const commented = `agents:\n  reviewer_account: "" # set by setup-flows\n\n  fixer_account: ""\n`;
+    expect(withAccounts(commented, { reviewer: 'ai-r' })).toBe(`agents:\n  reviewer_account: ai-r # set by setup-flows\n\n  fixer_account: ""\n`);
+  });
+
+  it('refuses a value that is not a username', () => {
+    expect(() => withAccounts(yml, { reviewer: 'a$&b' })).toThrow('not a username');
+    expect(() => withAccounts(yml, { reviewer: 'a\nmonitor: x' })).toThrow('not a username');
+  });
+
   it('says so when the file has no line to fill', () => {
     expect(() => withAccounts('agents: {}\n', { reviewer: 'ai-r' })).toThrow('no agents.reviewer_account line');
   });
@@ -91,6 +101,8 @@ interface FakeOptions {
   items?: { id: string; name: string; project: { fullPath: string } | null }[];
   /** enabling fails this many times */
   enableFailures?: number;
+  /** flows enabled here already */
+  consumers?: { id: string; item: { id: string; name: string; project: { fullPath: string } | null } }[];
   pushLevels?: { access_level: number; user_id?: number }[] | null;
   mustSucceed?: { project?: boolean; group?: boolean };
 }
@@ -98,7 +110,7 @@ interface FakeOptions {
 /** Just enough of GitLab for setupFlows, with pages of one so paging is exercised. */
 function fakeGitLab(o: FakeOptions = {}) {
   const items = [...(o.items ?? [])];
-  const consumers: { id: string; item: { id: string; name: string } }[] = [];
+  const consumers: { id: string; item: { id: string; name: string; project: { fullPath: string } | null } }[] = [...(o.consumers ?? [])];
   const triggers: { id: string; eventTypes: number[]; filter: unknown; user: { username: string }; aiCatalogItemConsumer: { id: string } }[] = [];
   const mutations: string[] = [];
   let failures = o.enableFailures ?? 0;
@@ -120,7 +132,7 @@ function fakeGitLab(o: FakeOptions = {}) {
     if (query.includes('aiCatalogItemConsumerCreate')) {
       if (failures-- > 0) throw new Error('Internal server error');
       const item = items.find((i) => i.id === v.i.itemId)!;
-      const consumer = { id: `gid://gitlab/Ai::Catalog::ItemConsumer/${consumers.length + 1}`, item: { id: item.id, name: item.name } };
+      const consumer = { id: `gid://gitlab/Ai::Catalog::ItemConsumer/${consumers.length + 1}`, item: { id: item.id, name: item.name, project: item.project } };
       consumers.push(consumer);
       // GitLab makes the service account and a mention trigger when a flow is enabled
       triggers.push({ id: `t${triggers.length}`, eventTypes: [0], filter: {}, user: { username: `ai-${item.name}-group` }, aiCatalogItemConsumer: { id: consumer.id } });
@@ -183,9 +195,17 @@ describe('setupFlows against a fake GitLab', () => {
     expect(gitlab.consumers.find((c) => c.item.name === 'mr-reviewer')!.item.id).toBe('gid://gitlab/Ai::Catalog::Item/101');
   });
 
+  it("ignores a flow enabled here under the same name from another project's catalog entry", async () => {
+    const lookAlike = { id: 'gid://gitlab/Ai::Catalog::ItemConsumer/900', item: { id: 'gid://gitlab/Ai::Catalog::Item/9', name: 'mr-reviewer', project: { fullPath: 'someone/else' } } };
+    const gitlab = fakeGitLab({ consumers: [lookAlike] });
+    const { accounts } = await run(gitlab);
+    expect(gitlab.mutations.filter((m) => m === 'aiCatalogFlowCreate')).toHaveLength(4);
+    expect(accounts['mr-reviewer']).toBe('ai-mr-reviewer-group');
+  });
+
   it('refuses while Developers can push to the default branch, before changing anything', async () => {
     const gitlab = fakeGitLab({ pushLevels: [{ access_level: 30 }] });
-    await expect(run(gitlab)).rejects.toThrow(/can push to main \(#14\)/);
+    await expect(run(gitlab)).rejects.toThrow(/only Maintainers can push to main .*\(#14\)/);
     expect(gitlab.mutations).toEqual([]);
   });
 
@@ -223,5 +243,52 @@ describe('gitlabUrl', () => {
     expect(gitlabUrl()).toBe('https://gitlab.com');
     expect(gitlabUrl('https://gitlab.example.com')).toBe('https://gitlab.example.com');
     expect(() => gitlabUrl('http://gitlab.example.com')).toThrow('refusing to send your token');
+    expect(gitlabUrl('https://gitlab.example.com/')).toBe('https://gitlab.example.com');
+  });
+});
+
+describe('writing the accounts at the end of a run', () => {
+  const yml = `agents:\n  reviewer_account: ""\n  fixer_account: ""\n`;
+  const both = { 'mr-reviewer': 'ai-mr-reviewer-x', 'pipeline-fixer': 'ai-pipeline-fixer-x' };
+  const end = (o: Partial<Parameters<typeof finishAccounts>[0]>) =>
+    finishAccounts({ own: 'group/polyman', projectPath: 'group/polyman', accounts: both, dryRun: false, write: true, text: yml, ...o });
+
+  it("only this checkout's own project gets its file written", () => {
+    expect(mayWriteAccounts('Group/Polyman', 'group/polyman', yml)).toBe(true);
+    expect(mayWriteAccounts('someone/else', 'group/polyman', yml)).toBe(false);
+    expect(mayWriteAccounts(undefined, 'group/polyman', yml)).toBe(false);
+  });
+
+  it('refuses before anything is created when the file has no lines to fill', () => {
+    expect(() => mayWriteAccounts('group/polyman', 'group/polyman', 'agents: {}\n')).toThrow('no agents.reviewer_account line');
+    expect(() => mayWriteAccounts('group/polyman', 'group/polyman', undefined)).toThrow('no .autonomy.yml');
+  });
+
+  it('writes both names', () => {
+    expect(end({}).write).toBe(`agents:\n  reviewer_account: ai-mr-reviewer-x\n  fixer_account: ai-pipeline-fixer-x\n`);
+  });
+
+  it("writes nothing for another project's checkout, and says where the names go", () => {
+    const result = end({ own: 'someone/else', write: false });
+    expect(result.write).toBeUndefined();
+    expect(result.errors).toEqual([]);
+    expect(result.messages[0]).toContain('this checkout is someone/else, not group/polyman');
+  });
+
+  it('fails, without writing, when an account is missing', () => {
+    const result = end({ accounts: { 'mr-reviewer': 'ai-mr-reviewer-x' } });
+    expect(result.write).toBeUndefined();
+    expect(result.errors[0]).toContain('no service account found for pipeline-fixer');
+  });
+
+  it('a dry run writes nothing and says so', () => {
+    const result = end({ dryRun: true });
+    expect(result.write).toBeUndefined();
+    expect(result.messages).toEqual(['dry run: nothing changed; a real run writes the accounts into .autonomy.yml']);
+  });
+
+  it('leaves a file that already has the names alone', () => {
+    const done = end({}).write!;
+    expect(end({ text: done })).toEqual({ messages: ['.autonomy.yml already has these accounts'], errors: [] });
   });
 });
