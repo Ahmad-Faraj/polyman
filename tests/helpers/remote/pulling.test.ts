@@ -1117,5 +1117,31 @@ describe('pulling.ts', () => {
         expect(written().every(p => p.includes('english'))).toBe(true);
       }
     );
+
+    it('escapes control characters in names echoed in warnings', async () => {
+      const evil = 'a\n  ✔ forged\x1b[2J\u009b\u202eb.cpp';
+      mockSdk.getSolutions.mockResolvedValue([
+        { name: evil, tag: 'OK' },
+      ] as never);
+      mockSdk.viewSolution.mockRejectedValue(new Error(`no ${evil}`));
+      mockSdk.getFiles.mockResolvedValue({
+        sourceFiles: [{ name: evil, sourceType: 'cpp.g++17' }],
+      } as never);
+      mockSdk.viewFile.mockRejectedValue(new Error(`no ${evil}`));
+      mockSdk.getStatements.mockResolvedValue({
+        [evil + '/x']: { name: 'x' },
+      } as never);
+
+      await pulling.downloadSolutions(asSdk(mockSdk), 1, 'dir');
+      await pulling.downloadGenerators(asSdk(mockSdk), 1, 'dir', []);
+      await pulling.downloadStatements(asSdk(mockSdk), 1, 'dir');
+
+      const warnings = vi.mocked(fmt).warning.mock.calls.map(c => c[0]);
+      expect(warnings.length).toBeGreaterThanOrEqual(3);
+      for (const w of warnings) {
+        // eslint-disable-next-line no-control-regex
+        expect(w).not.toMatch(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e]/);
+      }
+    });
   });
 });

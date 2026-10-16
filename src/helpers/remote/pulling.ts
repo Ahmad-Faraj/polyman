@@ -48,11 +48,24 @@ export function assertPlainName(name: string): string {
 }
 
 /**
+ * Escapes control characters (newlines, ANSI escapes, C1 controls, bidi
+ * overrides) so text received from Polygon cannot forge log lines or drive
+ * the terminal when it is printed.
+ */
+export function printable(text: string): string {
+  return String(text).replace(
+    // eslint-disable-next-line no-control-regex
+    /[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g,
+    c => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0')
+  );
+}
+
+/**
  * Short reason for a failed download, so a refused name is not reported as a
  * generic failure.
  */
 function reason(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return printable(error instanceof Error ? error.message : String(error));
 }
 
 /**
@@ -94,7 +107,7 @@ export async function downloadSolutions(
         });
       } catch (error) {
         fmt.warning(
-          `  ⚠️  Failed to download solution: ${solution.name} (${reason(error)})`
+          `  ⚠️  Failed to download solution: ${printable(solution.name)} (${reason(error)})`
         );
       }
     }
@@ -329,7 +342,7 @@ export async function downloadGenerators(
         });
       } catch (error) {
         fmt.warning(
-          `  ⚠️  Failed to download: ${file.name} (${reason(error)})`
+          `  ⚠️  Failed to download: ${printable(file.name)} (${reason(error)})`
         );
       }
     }
@@ -369,7 +382,7 @@ export async function downloadStatements(
         assertPlainName(lang);
       } catch (error) {
         fmt.warning(
-          `  ⚠️  Skipping statement language ${JSON.stringify(lang)} (${reason(error)})`
+          `  ⚠️  Skipping statement language ${printable(JSON.stringify(lang))} (${reason(error)})`
         );
         continue;
       }
