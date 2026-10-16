@@ -37,3 +37,17 @@ runner), but a solution that never terminates must keep getting `TLE`.
 | Problem | What it pins |
 |---|---|
 | `sum-parity` | polyman's own template plus WA/RE/PE/TL mutants in C++ and Python |
+
+## Polygon round trip
+
+`polygon-roundtrip.mjs` pushes a corpus problem to Polygon with `polyman remote push`, reads it
+back through the Polygon API and compares it with the folder: solutions (tag, source type),
+checker and validator tests, generator script lines, manual tests and statements. It also fails
+when polyman reported a successful push although Polygon differs.
+
+```bash
+POLYGON_API_KEY=... POLYGON_API_SECRET=... node corpus/polygon-roundtrip.mjs --problem-id 605330
+```
+
+In CI it runs as `corpus:polygon` on the default branch only, where `POLYGON_API_KEY` and
+`POLYGON_API_SECRET` are masked, protected variables of a test Polygon account.

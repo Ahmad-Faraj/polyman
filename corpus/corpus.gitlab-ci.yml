@@ -53,3 +53,27 @@ corpus:toolchain:
     reports:
       junit: corpus/out/junit-${LANE}.xml
   allow_failure: true
+
+# Polygon round trip: push the corpus problem with polyman, read it back from
+# Polygon and compare it with the folder (corpus/polygon-roundtrip.mjs). Only on
+# the default branch (including scheduled pipelines), where the Polygon key is
+# available as a masked, protected variable; never on MR branches, which agents
+# write to. One run at a time, because every run writes the same problem.
+corpus:polygon:
+  extends: .node
+  stage: test
+  resource_group: polygon
+  variables:
+    POLYGON_PROBLEM_ID: "605330"
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $POLYGON_API_KEY && $POLYGON_API_SECRET
+  script:
+    - npm run build
+    - node corpus/polygon-roundtrip.mjs
+  artifacts:
+    when: always
+    expire_in: 30 days
+    reports:
+      junit: corpus/out/junit-polygon.xml
+  # Red on polyman 3.0.0 (#24, #25, #26). Becomes blocking once they're fixed.
+  allow_failure: true
