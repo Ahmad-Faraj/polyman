@@ -31,6 +31,14 @@ const EXPECTED = path.join(CORPUS, 'expected');
 const TESTLIB = path.join(CORPUS, 'vendor', 'testlib.h');
 const VERIFY_TIMEOUT_MS = 10 * 60 * 1000;
 
+/** The value after a flag, or a clear error when it's missing. */
+function valueOf(argv, i, flag) {
+  const value = argv[i];
+  if (value === undefined || value.startsWith('--'))
+    throw new Error(`${flag} needs a value`);
+  return value;
+}
+
 function parseArgs(argv) {
   const args = {
     polyman: path.join(ROOT, 'dist', 'cli.js'),
@@ -43,9 +51,12 @@ function parseArgs(argv) {
     const arg = argv[i];
     if (arg === '--record') args.record = true;
     else if (arg === '--keep') args.keep = true;
-    else if (arg === '--polyman') args.polyman = path.resolve(argv[++i]);
-    else if (arg === '--junit') args.junit = path.resolve(argv[++i]);
-    else if (arg === '--only') args.only = new Set(argv[++i].split(','));
+    else if (arg === '--polyman')
+      args.polyman = path.resolve(valueOf(argv, ++i, arg));
+    else if (arg === '--junit')
+      args.junit = path.resolve(valueOf(argv, ++i, arg));
+    else if (arg === '--only')
+      args.only = new Set(valueOf(argv, ++i, arg).split(','));
     else throw new Error(`Unknown argument: ${arg}`);
   }
   return args;
@@ -304,4 +315,9 @@ function main() {
   process.exit(failed ? 1 : 0);
 }
 
-main();
+try {
+  main();
+} catch (error) {
+  console.error(error instanceof Error ? error.message : error);
+  process.exit(2);
+}

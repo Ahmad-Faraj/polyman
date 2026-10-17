@@ -127,7 +127,8 @@ corpus:production:
     - node "$PUBLISHED" --version
     - status=0
     - node corpus/run.mjs --polyman "$PUBLISHED" --junit corpus/out/junit-production.xml || status=1
-    - if [ -n "$POLYGON_API_KEY" ]; then node corpus/polygon-roundtrip.mjs --polyman "$PUBLISHED" --junit corpus/out/junit-production-polygon.xml || status=1; fi
+    # without credentials the Polygon half would pass unseen: say so and fail
+    - if [ -n "$POLYGON_API_KEY" ]; then node corpus/polygon-roundtrip.mjs --polyman "$PUBLISHED" --junit corpus/out/junit-production-polygon.xml || status=1; else echo "SKIPPED: no Polygon credentials, the round trip did not run"; status=1; fi
     - exit $status
   artifacts:
     when: always

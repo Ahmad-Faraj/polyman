@@ -30,6 +30,8 @@ export function outcomeOf(report) {
  * warning (slow runner), and may excuse the matchesTag change it causes. That
  * excuse needs at least one expected OK to still be OK: a runner slow enough to
  * time out every test of a solution is not a slow runner, it's a broken limit.
+ * That rule needs two or more expected OK tests; with one, a single slow test
+ * stays a warning.
  */
 export function compare(expected, actual) {
   const diffs = [];
@@ -74,7 +76,7 @@ export function compare(expected, actual) {
         fail(`solution ${name}: expected ${wantTest}, got ${gotTest}`);
       }
     });
-    const allTimedOut = expectedOk > 0 && slower === expectedOk;
+    const allTimedOut = expectedOk > 1 && slower === expectedOk;
     if (allTimedOut)
       fail(
         `solution ${name}: all ${expectedOk} expected OK tests came back TLE; a slow runner doesn't time out every test`

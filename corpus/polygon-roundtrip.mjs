@@ -42,6 +42,14 @@ const CORPUS = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.dirname(CORPUS);
 const API = 'https://polygon.codeforces.com/api';
 
+/** The value after a flag, or a clear error when it's missing. */
+function valueOf(argv, i, flag) {
+  const value = argv[i];
+  if (value === undefined || value.startsWith('--'))
+    throw new Error(`${flag} needs a value`);
+  return value;
+}
+
 function parseArgs(argv) {
   const args = {
     polyman: path.join(ROOT, 'dist', 'cli.js'),
@@ -51,10 +59,12 @@ function parseArgs(argv) {
   };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
-    if (arg === '--polyman') args.polyman = path.resolve(argv[++i]);
-    else if (arg === '--problem') args.problem = argv[++i];
-    else if (arg === '--problem-id') args.problemId = argv[++i];
-    else if (arg === '--junit') args.junit = path.resolve(argv[++i]);
+    if (arg === '--polyman')
+      args.polyman = path.resolve(valueOf(argv, ++i, arg));
+    else if (arg === '--problem') args.problem = valueOf(argv, ++i, arg);
+    else if (arg === '--problem-id') args.problemId = valueOf(argv, ++i, arg);
+    else if (arg === '--junit')
+      args.junit = path.resolve(valueOf(argv, ++i, arg));
     else throw new Error(`Unknown argument: ${arg}`);
   }
   return args;
@@ -422,9 +432,10 @@ async function main() {
   }
 
   // Polygon problem 605330 is reused across runs: mark this run's upload so a
-  // push that uploads nothing can't pass on what the last run left there.
+  // push that uploads nothing can't pass on what the last run left there. The
+  // job ID, not the pipeline ID: a retried job must not reuse the marker.
   const marker = freshnessMarker(
-    process.env.CI_PIPELINE_ID ?? `local-${Date.now()}`
+    process.env.CI_JOB_ID ?? `local-${Date.now()}`
   );
   const before = JSON.parse(fs.readFileSync(configPath, 'utf8'));
   const [markedLang, markedStatement] =
