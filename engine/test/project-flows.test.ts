@@ -36,6 +36,14 @@ describe("the project's Duo flows", () => {
     expect(checkFlow(filled)).toEqual([]);
   });
 
+  it('the review note puts the decision on top and folds the evidence away', () => {
+    const prompt = read('mr-reviewer.yaml');
+    expect(prompt).toMatch(/"For the approver": what needs a person's decision, at most three\s+items/);
+    expect(prompt).toContain('<details><summary>Details: findings, evidence, risk</summary>');
+    // the monitor reads the watch block, so it stays in the visible top
+    expect(prompt.indexOf('language is "watch"')).toBeLessThan(prompt.indexOf('<details>'));
+  });
+
   it('no prompt still describes another project', () => {
     for (const file of files) expect(read(file)).not.toMatch(/Fastify|orders and payments|refund/i);
   });
