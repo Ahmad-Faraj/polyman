@@ -32,6 +32,12 @@ describe('projectPathFrom', () => {
     expect(projectPathFrom(undefined)).toBe(path);
   });
 
+  it('remoteOnly ignores GITLAB_PROJECT_PATH: which project this checkout is', () => {
+    git.url = 'https://gitlab.com/a/checkout.git';
+    process.env.GITLAB_PROJECT_PATH = 'other/project';
+    expect(projectPathFrom(undefined, { remoteOnly: true })).toBe('a/checkout');
+  });
+
   it('says what to do when there is no remote to read', () => {
     git.url = new Error('not a git repository');
     expect(() => projectPathFrom(undefined)).toThrow('pass the project path');

@@ -53,16 +53,30 @@ Do this only after `main` is protected (no one can push to it directly) and
 "Pipelines must succeed" is on (#14). The flows have `run_git_command`, and
 until then only a prompt line stops an agent from pushing straight to `main`.
 
-1. In AI > Flows, create them in this order, pasting
-   `node engine/src/cli/sync-flows.ts --print NAME`: **mr-reviewer**, then
-   **pipeline-fixer**, then **issue-builder** (it hands its MR to those two), then
-   **incident-responder** (it hands fixes to issue-builder).
-2. Enable each in the project with its trigger: mr-reviewer on Pipeline
-   passed, pipeline-fixer and incident-responder on Pipeline failed,
-   issue-builder on Assign and Mention. Remove the default conditions.
-3. Put the service account names GitLab created into `agents` in
-   `.autonomy.yml` (MR), then run `node engine/src/cli/sync-flows.ts` to
-   publish the filled-in flows.
+1. With `GITLAB_TOKEN` set to a token with the `api` scope:
+   `node engine/src/cli/setup-flows.ts --dry-run`, then without `--dry-run`.
+   It creates the four flows in the order they hand work to each other
+   (mr-reviewer, pipeline-fixer, issue-builder, incident-responder), enables
+   them, and sets each trigger to fire only for what the flow is for:
+
+   | Flow | Fires on |
+   |---|---|
+   | mr-reviewer | a passed merge request pipeline, a mention |
+   | pipeline-fixer | a failed merge request pipeline, a mention |
+   | issue-builder | being assigned or mentioned on an issue |
+   | incident-responder | a failed pipeline on the default branch |
+
+   Without those conditions the reviewer wakes for every pipeline in the
+   project and spends credits finding out it has nothing to do (in the
+   sandbox, about half of all sessions). It refuses to run until the #14
+   settings are in place (`--unprotected` skips that check, for a test project
+   or when a person decides to go ahead before #14), and is safe to run again:
+   existing flows are kept, a flow created but never enabled is found and
+   enabled, and only triggers that differ are changed.
+2. It writes the service account names GitLab created into `agents` in
+   `.autonomy.yml`. Commit that in an MR.
+3. After it merges, `node engine/src/cli/sync-flows.ts` publishes the flows with
+   those names filled in.
 4. `node engine/src/cli/doctor.ts` until it says ready.
 
 The release jobs (`ci/autonomy-release.gitlab-ci.yml`: release evidence,

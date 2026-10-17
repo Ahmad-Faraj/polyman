@@ -61,8 +61,8 @@ agents:
   test_guide: Tests use vitest and live in tests/, mirroring src/. Tests that compile C++ need g++.
   # service accounts GitLab creates when the flows are enabled here; fill in
   # once they exist (node engine/src/cli/doctor.ts checks them)
-  reviewer_account: ""
-  fixer_account: ""
+  reviewer_account: ai-mr-reviewer-gitlab-ai-hackathon_e50080
+  fixer_account: ai-pipeline-fixer-gitlab-ai-hackathon_b1d814
 
 monitor:
   # filled in with the verify service (#19)
