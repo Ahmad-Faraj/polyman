@@ -71,10 +71,12 @@ describe('withAccounts', () => {
 });
 
 describe('a dry run on a project with no flows yet', () => {
-  it('without the stand-in IDs the second flow could not be planned (the bug the reviewer found)', () => {
+  it("no flow needs another flow's ID, so each can be planned before any exists (Assisted: no hand-offs)", () => {
     const config = loadConfig('../.autonomy.yml');
-    const source = readFileSync('../.gitlab/duo/flows/pipeline-fixer.yaml', 'utf8');
-    expect(() => definitionFor(source, config, {})).toThrow('@@mr_reviewer_flow_id@@');
+    for (const [name] of FLOWS) {
+      const source = readFileSync(`../.gitlab/duo/flows/${name}.yaml`, 'utf8');
+      expect(() => definitionFor(source, config, {})).not.toThrow();
+    }
   });
 });
 
@@ -190,10 +192,8 @@ describe('setupFlows against a fake GitLab', () => {
       const trigger = gitlab.triggers.find((t) => t.aiCatalogItemConsumer.id === consumer.id)!;
       expect(triggerMatches(trigger, spec.events, pipelineFilter(spec, 'main'))).toBe(true);
     }
-    // each flow names the consumer IDs of the flows it hands work to
-    const idOf = (name: string) => gitlab.consumers.find((c) => c.item.name === name)!.id.split('/').pop()!;
-    expect(gitlab.definitions.get('pipeline-fixer')).toContain(`"ai_catalog_item_consumer_id": ${idOf('mr-reviewer')},`);
-    expect(gitlab.definitions.get('incident-responder')).toContain(`"ai_catalog_item_consumer_id": ${idOf('issue-builder')},`);
+    // Assisted: no flow hands work to another, so no definition names a flow ID
+    for (const [name] of FLOWS) expect(gitlab.definitions.get(name)).not.toContain('ai_catalog_item_consumer_id');
     gitlab.mutations.length = 0;
     const again = await run(gitlab);
     expect(gitlab.mutations).toEqual([]);
