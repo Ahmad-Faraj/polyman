@@ -11,6 +11,7 @@ export function changedFiles(baseRef: string): ChangedFile[] {
     const [code, ...paths] = line.split('\t');
     statuses.set(paths[paths.length - 1], code[0] as ChangedFile['status']);
   }
+  const hunks = addedLines(git('diff', '-U0', '--no-renames', '--no-color', '--no-ext-diff', range));
   const files: ChangedFile[] = [];
   for (const line of git('diff', '--numstat', '--no-renames', range).split('\n').filter(Boolean)) {
     const [added, deleted, ...rest] = line.split('\t');
@@ -22,9 +23,34 @@ export function changedFiles(baseRef: string): ChangedFile[] {
       // Binary files report "-".
       added: added === '-' ? 0 : Number(added),
       deleted: deleted === '-' ? 0 : Number(deleted),
+      addedLines: added === '-' ? undefined : hunks.get(path),
     });
   }
   return files;
+}
+
+/**
+ * The line ranges each file gained, from a `git diff -U0`: the new side of
+ * every hunk header. A path git quotes (unusual characters) is left out, so
+ * its findings count anywhere in the file.
+ */
+export function addedLines(diff: string): Map<string, [number, number][]> {
+  const out = new Map<string, [number, number][]>();
+  let current: [number, number][] | null = null;
+  for (const line of diff.split('\n')) {
+    if (line.startsWith('+++ ')) {
+      current = line.startsWith('+++ b/') ? [] : null;
+      if (current) out.set(line.slice(6), current);
+      continue;
+    }
+    const hunk = current && /^@@ -\S+ \+(\d+)(?:,(\d+))? @@/.exec(line);
+    if (hunk) {
+      const first = Number(hunk[1]);
+      const count = hunk[2] === undefined ? 1 : Number(hunk[2]);
+      if (count > 0) current!.push([first, first + count - 1]);
+    }
+  }
+  return out;
 }
 
 const SCANNERS: Record<string, Finding['scanner']> = {
@@ -35,7 +61,7 @@ const SCANNERS: Record<string, Finding['scanner']> = {
 
 interface SecurityReport {
   scan?: { type?: string };
-  vulnerabilities?: { name?: string; message?: string; severity?: string; location?: { file?: string } }[];
+  vulnerabilities?: { name?: string; message?: string; severity?: string; location?: { file?: string; start_line?: number } }[];
 }
 
 /** Reads every GitLab security report (gl-*-report.json) in `dir`. */
@@ -58,6 +84,7 @@ export function securityFindings(dir = '.'): { findings: Finding[]; reports: str
         severity: normalizeSeverity(v.severity),
         name: v.name ?? v.message ?? 'unnamed finding',
         file: v.location?.file,
+        line: typeof v.location?.start_line === 'number' ? v.location.start_line : undefined,
       });
     }
   }
