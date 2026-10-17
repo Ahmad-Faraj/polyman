@@ -40,6 +40,10 @@ export interface AutonomyConfig {
   monitor: {
     /** Routes the production traffic run exercises; anything else is "not measured". */
     measuredRoutes: string[];
+    /** jobs whose failure means production is affected (deploy, the production check) */
+    productionJobs: string[];
+    /** the job that moves production back when that happens */
+    rollbackJob: string;
   };
 }
 
@@ -63,7 +67,7 @@ export const DEFAULT_CONFIG: AutonomyConfig = {
     reviewerAccount: '',
     fixerAccount: '',
   },
-  monitor: { measuredRoutes: [] },
+  monitor: { measuredRoutes: [], productionJobs: ['deploy:production', 'monitor:production'], rollbackJob: 'rollback:production' },
 };
 
 type Raw = Partial<{
@@ -86,7 +90,7 @@ type Raw = Partial<{
     embodied_gco2e_per_vcpu_hour: number;
   }>;
   agents: Partial<{ about: string; checks: string; test_guide: string; security_focus: string; reviewer_account: string; fixer_account: string }>;
-  monitor: Partial<{ measured_routes: string[] }>;
+  monitor: Partial<{ measured_routes: string[]; production_jobs: string[]; rollback_job: string }>;
 }>;
 
 export function loadConfig(path = process.env.AUTONOMY_CONFIG || '.autonomy.yml'): AutonomyConfig {
@@ -111,13 +115,39 @@ export function loadConfig(path = process.env.AUTONOMY_CONFIG || '.autonomy.yml'
       reviewerAccount: raw.agents?.reviewer_account?.trim() ?? '',
       fixerAccount: raw.agents?.fixer_account?.trim() ?? '',
     },
-    monitor: { measuredRoutes: raw.monitor?.measured_routes ?? [] },
+    monitor: {
+      measuredRoutes: raw.monitor?.measured_routes ?? [],
+      productionJobs: jobNames(raw.monitor?.production_jobs, path) ?? d.monitor.productionJobs,
+      rollbackJob: jobName(raw.monitor?.rollback_job, path, 'rollback_job') ?? d.monitor.rollbackJob,
+    },
   };
   const { medium, high } = config.thresholds;
   if (!(medium > 0 && high > medium && high <= 100)) {
     throw new Error(`invalid thresholds in ${path}: need 0 < medium < high <= 100`);
   }
   return config;
+}
+
+// Job names go into a flow prompt, so only what CI job names look like.
+const JOB_NAME = /^[\w:./ -]+$/;
+
+function jobName(value: unknown, path: string, key: string): string | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (typeof value !== 'string' || !JOB_NAME.test(value.trim())) {
+    throw new Error(`invalid monitor.${key} in ${path}: need a CI job name, got ${JSON.stringify(value)}`);
+  }
+  return value.trim();
+}
+
+function jobNames(value: unknown, path: string): string[] | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!Array.isArray(value)) throw new Error(`invalid monitor.production_jobs in ${path}: need a list of CI job names`);
+  if (!value.length) return undefined;
+  return value.map((v, i) => {
+    const name = jobName(v, path, `production_jobs[${i}]`);
+    if (!name) throw new Error(`invalid monitor.production_jobs[${i}] in ${path}: empty`);
+    return name;
+  });
 }
 
 function sustainabilityFrom(raw: NonNullable<Raw['sustainability']>): SciCoefficients {
