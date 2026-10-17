@@ -798,6 +798,29 @@ describe('pulling.ts', () => {
       expect(m.useInStatements).toBeUndefined();
     });
 
+    it('refuses a test index that is not a non-negative integer', async () => {
+      mockSdk.getTests.mockResolvedValue([
+        {
+          index: '../../../../evil' as unknown as number,
+          manual: true,
+          input: 'x',
+          useInStatements: false,
+        },
+      ]);
+      mockSdk.getScript.mockResolvedValue('');
+
+      await expect(
+        pulling.downloadTestsetAndBuildGenerationScripts(
+          asSdk(mockSdk),
+          1,
+          'dir',
+          'tests',
+          []
+        )
+      ).rejects.toThrow(/Refusing unsafe test index/);
+      expect(fs.writeFileSync).not.toHaveBeenCalled();
+    });
+
     it('skips manual tests that have no input', async () => {
       mockSdk.getTests.mockResolvedValue([
         { index: 1, manual: true, useInStatements: false },

@@ -557,6 +557,11 @@ export async function downloadTestsetAndBuildGenerationScripts(
         fs.mkdirSync(manualTestsDir, { recursive: true });
       }
 
+      if (!Number.isInteger(test.index) || test.index < 0) {
+        throw new Error(
+          `Refusing unsafe test index from Polygon: ${printable(JSON.stringify(test.index))}`
+        );
+      }
       const padded = String(test.index).padStart(2, '0');
       const inFilename = `m-${padded}.in`;
       const inPath = path.join(manualTestsDir, inFilename);
