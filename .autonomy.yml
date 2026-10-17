@@ -3,7 +3,7 @@
 # review the agents do before that approval is asked for.
 
 thresholds:
-  # below medium: GitLab's Code Review flow, and a summary from the lead reviewer
+  # below medium: GitLab's Code Review (GitLabDuo as reviewer), and a summary from the lead reviewer
   medium: 25   # code and test reviewers
   high: 60     # security, code and test reviewers
 

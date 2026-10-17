@@ -40,15 +40,30 @@ describe("the project's Duo flows", () => {
     for (const file of files) expect(read(file)).not.toMatch(/Fastify|orders and payments|refund/i);
   });
 
-  it('only the lead reviewer, the pipeline fixer, the issue builder and the incident responder may start flows', () => {
+  it('only the pipeline fixer, the issue builder and the incident responder may start flows', () => {
     expect(toolset('pipeline-fixer.yaml', 'fixer')).toContain('start_flow');
     // the issue builder's own push starts no flow, so it hands its MR on itself
     expect(toolset('issue-builder.yaml', 'builder')).toContain('start_flow');
-    expect(toolset('mr-reviewer.yaml', 'lead_reviewer')).toContain('start_flow');
     expect(toolset('incident-responder.yaml', 'responder')).toContain('start_flow');
-    for (const c of ['security_reviewer', 'code_reviewer', 'test_reviewer']) {
+    // the reviewer asks for GitLab's Code Review with a quick action instead: a
+    // flow can't start Code Review with start_flow (one agent identity per request)
+    for (const c of ['lead_reviewer', 'security_reviewer', 'code_reviewer', 'test_reviewer']) {
       expect(toolset('mr-reviewer.yaml', c)).not.toContain('start_flow');
     }
+  });
+
+  it('for low risk the lead asks GitLabDuo to review with one quick action, and checks a new request went through', () => {
+    const prompt = read('mr-reviewer.yaml');
+    // one command in GitLab: it adds the reviewer, or re-requests if already one
+    // (`command :request_review, :assign_reviewer, :reviewer`), and it's on the
+    // list of quick actions AI workflows may use
+    expect(prompt).toMatch(/whose whole body is exactly "\/request_review @GitLabDuo"/);
+    expect(prompt).toMatch(/Don't post any other quick\s+action\./);
+    expect(prompt).toMatch(/system note "requested review from @GitLabDuo" is newer\s+than your quick-action note/);
+    // the tools that path needs
+    expect(toolset('mr-reviewer.yaml', 'lead_reviewer')).toEqual(
+      expect.arrayContaining(['get_merge_request', 'create_merge_request_note', 'list_all_merge_request_notes']),
+    );
   });
 
   it('the lead reviewer has no shell while it reads untrusted diffs and logs', () => {
