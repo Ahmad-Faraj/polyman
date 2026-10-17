@@ -32,12 +32,24 @@ function repo(count: number, email = 'service_account_group_1@noreply.gitlab.com
   return { dir, base, shas };
 }
 
+/** A route GitLab refuses, as it refuses issue notes to the job token. */
+class Refused {
+  readonly status: number;
+  constructor(status: number) {
+    this.status = status;
+  }
+}
+
 /** Answers like GitLab's API for the given paths (arrays are paged). */
 function gitlab(routes: Record<string, unknown>, seen?: (url: string) => void) {
   const server = createServer((req, res) => {
     seen?.(req.url ?? '');
     const url = new URL(req.url ?? '', 'http://x');
     const body = routes[url.pathname];
+    if (body instanceof Refused) {
+      res.writeHead(body.status).end('{"message":"401 Unauthorized"}');
+      return;
+    }
     if (body === undefined) {
       res.writeHead(404).end('{}');
       return;
@@ -74,6 +86,7 @@ interface Case {
   api?: string;
   env?: Record<string, string>;
   onEvents?: (url: string) => void;
+  issueNotesRefused?: boolean;
 }
 
 async function run(c: Case) {
@@ -86,7 +99,26 @@ async function runIn(r: { dir: string; base: string; shas: string[] }, c: Case) 
     '/api/v4/projects/1/merge_requests/7/notes': c.notes?.(r) ?? [],
     '/api/v4/projects/1/events': c.events(r),
     '/api/v4/projects/1/merge_requests/7/closes_issues': c.closes ?? [{ iid: 22, author: { username: c.issueAuthor ?? 'Mazen-Ghanaym' } }],
-    '/api/v4/projects/1/issues/22/notes': c.issueNotes ?? [],
+    '/api/v4/projects/1/issues/22/notes': c.issueNotesRefused ? new Refused(401) : (c.issueNotes ?? []),
+    '/api/graphql': {
+      data: {
+        project: {
+          issue: {
+            notes: {
+              pageInfo: { hasNextPage: false, endCursor: null },
+              nodes: ((c.issueNotes ?? []) as ReturnType<typeof note>[]).map((n) => ({
+                id: `gid://gitlab/Note/${n.id}`,
+                body: n.body,
+                system: n.system,
+                createdAt: n.created_at,
+                updatedAt: n.created_at,
+                author: n.author,
+              })),
+            },
+          },
+        },
+      },
+    },
   }, (url) => url.startsWith('/api/v4/projects/1/events') && c.onEvents?.(url));
   // async, so the stand-in server in this process can answer while the CLI runs
   const child = spawn('node', [CLI], {
@@ -100,6 +132,7 @@ async function runIn(r: { dir: string; base: string; shas: string[] }, c: Case) 
       AUTONOMY_TIER: c.tier ?? 'low',
       CI_JOB_TOKEN: 'job',
       AUTONOMY_CONFIG: '.autonomy.yml',
+      CI_PROJECT_PATH: 'group/showcase',
       ...c.env,
     },
   });
@@ -263,6 +296,41 @@ describe('autonomy:goahead against a git repo and a stand-in for GitLab', () => 
       issueNotes: [note(1, '08:00', BUILDER, 'Proposal for #22: ...'), note(2, '08:30', 'HamzaHassanain', `@${BUILDER} go-ahead`)],
       events: (r) => [push('08:45', BUILDER, null, r.shas[0])],
     });
+    expect(text).toMatch(/go-ahead in note 2 on #22 by @HamzaHassanain/);
+    expect(code).toBe(0);
+  });
+
+  it("counts the go-ahead of the person GitLab records as the MR's author when an agent created the branch (composite identity)", async () => {
+    // Mazen's go-ahead started issue-builder, so GitLab lists Mazen as the MR's author; Ahmed filed the issue
+    const { code, text } = await run({
+      mrAuthor: 'Mazen-Ghanaym',
+      issueAuthor: 'Ahmad-Faraj',
+      issueNotes: [note(1, '08:00', BUILDER, 'Proposal for #22: ...'), note(2, '08:30', 'Mazen-Ghanaym', `@${BUILDER} go-ahead`)],
+      events: (r) => [push('08:45', BUILDER, null, r.shas[0])],
+    });
+    expect(text).toMatch(/go-ahead in note 2 on #22 by @Mazen-Ghanaym/);
+    expect(code).toBe(0);
+  });
+
+  it('still refuses the go-ahead of the issue author on that MR', async () => {
+    const { code, text } = await run({
+      mrAuthor: 'Mazen-Ghanaym',
+      issueAuthor: 'Ahmad-Faraj',
+      issueNotes: [note(1, '08:00', BUILDER, 'Proposal for #22: ...'), note(2, '08:30', 'Ahmad-Faraj', `@${BUILDER} go-ahead`)],
+      events: (r) => [push('08:45', BUILDER, null, r.shas[0])],
+    });
+    expect(text).toMatch(/Ahmad-Faraj asked for this work/);
+    expect(code).toBe(1);
+  });
+
+  it("reads the issue's notes through GraphQL when the job token is refused (as on !26)", async () => {
+    const { code, text } = await run({
+      issueNotesRefused: true,
+      issueAuthor: 'Ahmad-Faraj',
+      issueNotes: [note(1, '08:00', BUILDER, 'Proposal for #22: ...'), note(2, '08:30', 'HamzaHassanain', `@${BUILDER} go-ahead`)],
+      events: (r) => [push('08:45', BUILDER, null, r.shas[0])],
+    });
+    expect(text).toMatch(/reading them through GraphQL/);
     expect(text).toMatch(/go-ahead in note 2 on #22 by @HamzaHassanain/);
     expect(code).toBe(0);
   });
