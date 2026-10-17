@@ -1,3 +1,15 @@
+# Pipeline inputs, chosen in Build > Pipelines > Run pipeline. The project
+# doesn't let Developers set pipeline variables, so the fire drill is an input.
+spec:
+  inputs:
+    drill:
+      description: >-
+        Fire drill: "production-check" fails the production check on purpose after
+        the manual promote, so the rollback and the incident responder run for real.
+        Only in a pipeline a person starts from the UI.
+      default: none
+      options: [none, production-check]
+---
 # GitLab CI for polyman: the jobs from .github/workflows/ci.yml and deploy-docs.yaml,
 # plus the verify service (service/ci), which has no GitHub counterpart.
 stages:
@@ -20,6 +32,8 @@ workflow:
 variables:
   # run the scanners in merge request pipelines too; the risk score reads them
   AST_ENABLE_MR_PIPELINES: "true"
+  # read by service:check:production, which also requires a pipeline started from the UI
+  DRILL: $[[ inputs.drill ]]
 
 include:
   - template: Jobs/SAST.gitlab-ci.yml

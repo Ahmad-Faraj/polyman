@@ -155,7 +155,8 @@ service:promote:production:
       dotenv: deploy.env
 
 # A fire drill on demand: run a pipeline on main from the UI (Build > Pipelines
-# > Run pipeline) with DRILL=production-check, and this check fails on purpose
+# > Run pipeline) with the input drill = production-check (.gitlab-ci.yml sets
+# DRILL from it), click the manual promote, and this check fails on purpose
 # after the switch, so the rollback and the incident run for real. Only a
 # pipeline a person starts in the UI can run the drill, not a push or the API.
 service:check:production:
