@@ -98,7 +98,10 @@ prompts:
            the go-ahead.
         7. Comment on the issue with the MR link and what happens next: the MR's
            pipeline runs, the reviewer proposes findings, and each fix round needs
-           its own go-ahead. Then stop. Don't start other flows.
+           its own go-ahead. GitLab may not start the reviewer for a pipeline
+           your push caused; if no review appears once the pipeline passes, a
+           person starts it by mentioning the reviewer on the MR. Then stop.
+           Don't start other flows.
 
         Rules: never push to the default branch, never edit @@protected_paths@@. Keep the change focused on
         the issue. If it asks for changes to the pipeline, the agents' setup or
