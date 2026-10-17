@@ -72,18 +72,28 @@ const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
  */
 export function saysGoAhead(body: string, account: string): boolean {
   const mention = new RegExp(`(^|[^\\w.-])@${escape(account)}(?![\\w.-])`, 'i');
-  let fenced = false;
-  return body
-    .replace(/<!--[\s\S]*?(-->|$)/g, '')
-    .split('\n')
-    .some((line) => {
-      if (/^\s*(```|~~~)/.test(line)) {
-        fenced = !fenced;
-        return false;
-      }
-      if (fenced || /^\s*>/.test(line)) return false;
-      return mention.test(line) && line.replace(/@[\w.-]+/g, ' ').trim().replace(/[.!]$/, '').toLowerCase() === 'go-ahead';
-    });
+  // the open fence (``` or ~~~, three or more): only the same character, at
+  // least as many times, closes it
+  let fence: string | null = null;
+  let blank = true;
+  let indented = false;
+  for (const line of body.replace(/<!--[\s\S]*?(-->|$)/g, '').split('\n')) {
+    const marker = line.match(/^ {0,3}(`{3,}|~{3,})/)?.[1];
+    if (fence) {
+      if (marker && marker[0] === fence[0] && marker.length >= fence.length && /^ {0,3}[`~]+\s*$/.test(line)) fence = null;
+      continue;
+    }
+    if (marker) {
+      fence = marker;
+      continue;
+    }
+    // an indented code block starts after a blank line and runs while lines stay indented
+    indented = /^( {4}|\t)/.test(line) && (blank || indented);
+    blank = !line.trim();
+    if (indented || /^\s*>/.test(line)) continue;
+    if (mention.test(line) && line.replace(/@[\w.-]+/g, ' ').trim().replace(/[.!]$/, '').toLowerCase() === 'go-ahead') return true;
+  }
+  return false;
 }
 
 /** A push as GitLab's project events record it: who pushed, when, and what it moved the branch from and to. */

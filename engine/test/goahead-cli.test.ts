@@ -185,6 +185,40 @@ describe('autonomy:goahead against a git repo and a stand-in for GitLab', () => 
     expect(code).toBe(1);
   });
 
+  it("accepts a rollback MR whose incident the responder opened, on a maintainer's go-ahead there", async () => {
+    const RESPONDER = 'ai-incident-responder-group_0566ec';
+    const { code, text } = await run({
+      mrAuthor: RESPONDER,
+      issueAuthor: RESPONDER,
+      issueNotes: [note(1, '08:00', RESPONDER, 'Rollback proposal for !9: ...'), note(2, '08:30', 'HamzaHassanain', `@${RESPONDER} go-ahead`)],
+      events: (r) => [push('08:45', RESPONDER, null, r.shas[0])],
+    });
+    expect(text).toMatch(/go-ahead in note 2 on #22 by @HamzaHassanain/);
+    expect(code).toBe(0);
+  });
+
+  it("doesn't let another agent's MR lean on an issue the responder opened", async () => {
+    const RESPONDER = 'ai-incident-responder-group_0566ec';
+    const { code, text } = await run({ mrAuthor: BUILDER, issueAuthor: RESPONDER, notes: () => [proposal, goAhead()], events: (r) => [push('10:10', AGENT, r.base, r.shas[0])] });
+    expect(text).toMatch(/no issue it closes that a person wrote/);
+    expect(code).toBe(1);
+  });
+
+  it("reads the policy from AUTONOMY_POLICY_REF, the target branch's head, when CI sets it", async () => {
+    const r = repo(1);
+    const git = (...a: string[]) => execFileSync('git', a, { cwd: r.dir, encoding: 'utf8' }).trim();
+    // the target branch moved on after the MR branched: it no longer lists any people
+    git('checkout', '-q', '-b', 'target', r.base);
+    const policy = readFileSync(join(r.dir, '.autonomy.yml'), 'utf8').replace(/^go_ahead:[\s\S]*?(?=^\S|$(?![\s\S]))/m, '');
+    writeFileSync(join(r.dir, '.autonomy.yml'), policy);
+    git('-c', 'user.name=h', '-c', 'user.email=h@x', 'commit', '-qam', 'no people');
+    const target = git('rev-parse', 'HEAD');
+    git('checkout', '-q', r.shas[0]);
+    const { code, text } = await runIn(r, { notes: () => [proposal, goAhead()], events: () => [push('10:10', AGENT, r.base, r.shas[0])], env: { AUTONOMY_POLICY_REF: target } });
+    expect(text).toMatch(/lists no go_ahead\.people/);
+    expect(code).toBe(1);
+  });
+
   it('passes an MR from a fork without reading anything: no agent here can push there', async () => {
     const { code, text } = await run({ api: 'http://127.0.0.1:1/api/v4', events: () => [], env: { CI_MERGE_REQUEST_SOURCE_PROJECT_ID: '9', CI_MERGE_REQUEST_PROJECT_ID: '1' } });
     expect(text).toMatch(/comes from a fork/);
