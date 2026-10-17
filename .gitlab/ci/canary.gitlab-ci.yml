@@ -1,7 +1,8 @@
-# Canary channel: every push to the default branch publishes
+# Canary channel: a push to the default branch can publish
 # <version>-canary.<pipeline iid> to this project's own npm registry (never to
-# npmjs.com) and judges that package, installed the way users install it, with
-# the corpus. The canary environment records each one.
+# npmjs.com), and the package is then judged, installed the way users install
+# it, with the corpus. The canary environment records each one. Assisted: the
+# publish is a person's go-ahead, a manual job on the merge's pipeline.
 
 .canary:
   extends: .node
@@ -13,6 +14,9 @@
 
 canary:publish:
   extends: .canary
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"
+      when: manual
   environment:
     name: canary
     deployment_tier: testing
