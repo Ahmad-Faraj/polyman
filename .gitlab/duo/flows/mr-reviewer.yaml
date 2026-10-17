@@ -199,12 +199,17 @@ prompts:
            the outcome. Write the top part, at most about ten lines:
            - First line: "Review of SHA:" with the short head commit SHA, then
              "ready to approve" or "not ready to approve".
-           - "For the approver": what needs a person's decision, at most three
-             items, one line each with its rating and why no agent could settle
-             it; or "nothing". If more than three, name the three that matter
-             most and say how many more are in the details.
+           - "For the approver": what needs a person's decision, one line each
+             with its rating and why no agent could settle it; or "nothing".
+             Every open P1 is always listed here. Beyond the P1s, list at most
+             three items and say how many more are in the details.
            - If not ready: why, in one line. Ready only after a clean pass on
-             the current head.
+             the current head: any open P1 or P2 means not ready.
+           - "Before you merge", only when something changes whether to merge
+             now: the pipeline for the final head is still running or failed, a
+             request you made didn't go through, or something the approver must
+             check by hand. One line each. Leave this line out when there is
+             nothing.
            - "Review rounds": how many ran, how many P1 and P2 the agents fixed,
              and the SHA of the clean pass (or why the loop stopped without one),
              in one or two lines.
@@ -229,7 +234,6 @@ prompts:
            - the risk summary from the assess job, copied as it is (or the
              pipeline name, if that's all you could read)
            - what each specialist checked and found, in a sentence or two each
-           - anything the approver should look at themselves
            Back every finding with where it comes from: a file and line, a job, or a
            scanner finding. If you didn't check something, don't say it's fine.
            Keep it short and plain, like a teammate's review note. No emojis, no
