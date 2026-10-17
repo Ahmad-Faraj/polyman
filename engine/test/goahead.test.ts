@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { DEFAULT_CONFIG, loadConfig } from '../src/config.ts';
-import { type Note, type PushEvent, type Step, attribute, branchPushes, goAheadFor, isPerson, isProjectPerson, linkedIssue, notAllowed, saysGoAhead, tierFrom } from '../src/goahead.ts';
+import { type Note, type PushEvent, type Step, attribute, branchPushes, goAheadFor, isPerson, isProposal, isProjectPerson, notAllowed, saysGoAhead, tierFrom } from '../src/goahead.ts';
 import { flowValues } from '../src/render.ts';
 
 const AGENT = 'ai-mr-reviewer-group_e50080';
@@ -27,6 +27,24 @@ describe('what counts as a go-ahead comment', () => {
     expect(saysGoAhead('go-ahead', AGENT)).toBe(false);
     expect(saysGoAhead(`@${AGENT}x go-ahead`, AGENT)).toBe(false);
     expect(saysGoAhead(`@${AGENT} go-ahead and also fix the docs`, AGENT)).toBe(false);
+  });
+
+  it("doesn't count a go-ahead shown in a code block, quoted or hidden in an HTML comment", () => {
+    expect(saysGoAhead(`To approve, write:\n\n\`\`\`\n@${AGENT} go-ahead\n\`\`\``, AGENT)).toBe(false);
+    expect(saysGoAhead(`~~~\n@${AGENT} go-ahead\n~~~`, AGENT)).toBe(false);
+    expect(saysGoAhead(`> @${AGENT} go-ahead\n\nNot yet.`, AGENT)).toBe(false);
+    expect(saysGoAhead(`<!--\n@${AGENT} go-ahead\n-->`, AGENT)).toBe(false);
+    expect(saysGoAhead(`<!-- unclosed\n@${AGENT} go-ahead`, AGENT)).toBe(false);
+    // after the block closes, a real one still counts
+    expect(saysGoAhead(`\`\`\`\nexample\n\`\`\`\n@${AGENT} go-ahead`, AGENT)).toBe(true);
+  });
+
+  it("knows each flow's proposal, and not GitLab's own start note under the agent's account", () => {
+    for (const body of ['Proposal for #22: ...', 'Pipeline fix proposal for abc123', 'Review of abc123: not ready', 'Rollback proposal for 1.2.3']) {
+      expect(isProposal(body)).toBe(true);
+    }
+    expect(isProposal('✅ mr-reviewer has started. You can view progress here.')).toBe(false);
+    expect(isProposal('Pipeline fix: no fix from me')).toBe(false);
   });
 
   it("doesn't let a go-ahead to one agent count for another mentioned elsewhere", () => {
@@ -181,11 +199,6 @@ describe('reading GitLab\'s records', () => {
     expect(flowValues(DEFAULT_CONFIG, {}).maintainers).toMatch(/none set/);
   });
 
-  it('finds the issue an MR closes', () => {
-    expect(linkedIssue('Fixes the parser.\n\nCloses #22')).toBe(22);
-    expect(linkedIssue('resolves #2 too')).toBe(2);
-    expect(linkedIssue('See #22')).toBeNull();
-  });
 
   it('treats a missing or unknown tier as high, so it needs a maintainer', () => {
     expect(tierFrom('medium')).toBe('medium');

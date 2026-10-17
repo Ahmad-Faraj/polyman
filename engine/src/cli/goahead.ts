@@ -9,9 +9,13 @@
  * work (the MR's or the issue's author), never an agent or GitLabDuo, and only
  * a maintainer for high risk and rollbacks. One go-ahead covers one push: it
  * has to be newer than the agent's latest proposal and than its previous push
- * anywhere in the project. A push made before the MR existed (an issue-builder
- * branch) needs that go-ahead on the issue the MR closes. A commit no push
- * accounts for fails the job.
+ * to the branch. A push that brings no new commits (a rewind, a force-push back)
+ * needs one too. A push made before the MR existed (an issue-builder branch)
+ * needs that go-ahead on the issue the MR closes. A commit no push accounts
+ * for fails the job.
+ *
+ * CI runs this file from the target branch, not from the MR, so an MR can't
+ * change the check it is checked by.
  *
  * Runs after autonomy:assess, whose AUTONOMY_TIER it reads; without one it
  * assumes high risk.
@@ -36,6 +40,11 @@ try {
 
 async function main() {
   const iid = required(env, 'CI_MERGE_REQUEST_IID');
+  // agents are members of this project only, so they can't push to a fork
+  if (env.CI_MERGE_REQUEST_SOURCE_PROJECT_ID && env.CI_MERGE_REQUEST_SOURCE_PROJECT_ID !== env.CI_MERGE_REQUEST_PROJECT_ID) {
+    console.log('this MR comes from a fork, where no agent of this project can push: nothing needs a go-ahead');
+    return;
+  }
   const base = env.CI_MERGE_REQUEST_DIFF_BASE_SHA || `origin/${env.CI_DEFAULT_BRANCH ?? 'main'}`;
   // The policy (who counts as a person, who may give a go-ahead, the protected
   // paths) comes from the target branch, never from this MR: an MR could add
@@ -45,13 +54,17 @@ async function main() {
   try {
     policy = execFileSync('git', ['show', `${base}:${file}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
   } catch {
-    // no policy file on the target branch: the defaults apply
+    // no policy on the target branch: without a people list a guard can't tell
+    // a person from an agent, so it fails rather than guess by name
+  }
+  if (policy === null) {
+    throw new Error(`the target branch has no ${file}, so nobody is listed in go_ahead.people`);
   }
   const configPath = join(mkdtempSync(join(tmpdir(), 'goahead-')), '.autonomy.yml');
-  writeFileSync(configPath, policy ?? '');
-  const config = loadConfig(policy === null ? '/nonexistent/.autonomy.yml' : configPath);
+  writeFileSync(configPath, policy);
+  const config = loadConfig(configPath);
   if (!config.goAhead.people.length) {
-    console.warn(`warning: the target branch's ${file} lists no go_ahead.people, so agents are told apart by name only`);
+    throw new Error(`the target branch's ${file} lists no go_ahead.people, so nobody can give a go-ahead`);
   }
   const tier = tierFrom(env.AUTONOMY_TIER);
   const isAncestor = (commit: string, of: string) => {
@@ -74,10 +87,6 @@ async function main() {
   };
   const commits = execFileSync('git', ['rev-list', `${base}..HEAD`], { encoding: 'utf8' }).split('\n').filter(Boolean);
   const isPerson = (username: string) => isProjectPerson(username, config);
-  if (!commits.length) {
-    console.log('no commits on this MR: nothing needs a go-ahead');
-    return;
-  }
 
   const gl = new GitLab();
   const all = async <T>(path: string, pages = 20) => {
@@ -92,10 +101,9 @@ async function main() {
 
   const mr = await gl.get<{ author: { username: string }; created_at: string; source_branch: string }>(`/:project/merge_requests/${iid}`);
   const notes = await all<Note>(`/:project/merge_requests/${iid}/notes?sort=asc&order_by=created_at`);
-  // pushes from two weeks before the MR on: enough for its branch, and for each agent's previous push
+  // pushes from 30 days before the MR on: enough for its branch, and for each agent's previous push
   const since = new Date(Date.parse(mr.created_at) - 30 * 86_400_000).toISOString().slice(0, 10);
   const events = await all<PushEvent>(`/:project/events?action=pushed&after=${since}&sort=asc`);
-  // a push whose head a later force-push threw away brought nothing that's still here
   // A push whose head a later force-push threw away brought nothing that's still
   // here. A push whose old head is gone (a rebase or force-push) is read as if
   // it created the branch: it brought whatever earlier pushes didn't.
@@ -107,25 +115,34 @@ async function main() {
   const problems: string[] = [];
   for (const sha of unaccounted) problems.push(`commit ${sha.slice(0, 8)} is in no push GitLab recorded for ${mr.source_branch}, so who pushed it and on whose go-ahead can't be told`);
 
-  // the issues GitLab says this MR closes (not the agent-written description)
+  // the issues GitLab says this MR closes, parsed from a description the agent may
+  // write, so only an issue a person wrote shows someone asked
   const closes = await gl.get<{ iid: number; author: { username: string } }[]>(`/:project/merge_requests/${iid}/closes_issues`);
-  const issue = closes[0]?.iid ?? null;
+  const asked = closes.filter((i) => isPerson(i.author.username));
+  const issue = asked[0]?.iid ?? null;
   // whoever asked: the MR's author if a person opened it, and the issues' authors
   const requesters = [...(isPerson(mr.author.username) ? [mr.author.username] : []), ...closes.map((i) => i.author.username)];
-  // an agent's MR with no issue has nobody on record who asked, so anyone could approve their own idea
-  if (!isPerson(mr.author.username) && !closes.length) {
-    problems.push(`an agent (@${mr.author.username}) opened this MR and GitLab lists no issue it closes, so who asked for the work isn't on record; link the issue ("Closes #N")`);
+  // an agent's MR with no person's issue has nobody on record who asked, so anyone could approve their own idea
+  if (!isPerson(mr.author.username) && !asked.length) {
+    problems.push(
+      `an agent (@${mr.author.username}) opened this MR and GitLab lists no issue it closes that a person wrote, so who asked for the work isn't on record; link the issue ("Closes #N")`,
+    );
   }
   const rollback = (account: string) => /incident-responder/i.test(account);
-  // the agent's previous push anywhere in the project: an older go-ahead was used up by it
+  // the agent's previous push to this branch: an older go-ahead was used up by it
+  // (the agent accounts are shared, so a push to another MR spends nothing here)
+  const allBranchPushes = branchPushes(events, mr.source_branch);
   const previousPush = (pusher: string, at: string) =>
-    events
-      .filter((e) => e.author.username.toLowerCase() === pusher.toLowerCase() && Date.parse(e.created_at) < Date.parse(at))
-      .map((e) => e.created_at)
-      .sort((a, b) => Date.parse(a) - Date.parse(b))
+    allBranchPushes
+      .filter((p) => p.pusher.toLowerCase() === pusher.toLowerCase() && Date.parse(p.at) < Date.parse(at))
+      .map((p) => p.at)
       .pop();
 
-  const agentPushes = [...new Set(by.values())].filter((p) => !isPerson(p.pusher));
+  // the agent pushes that brought commits, and every agent push since the MR
+  // opened even if it brought none: a rewind or a force-push back is a step too
+  const agentPushes = [...new Set([...by.values(), ...pushes.filter((p) => Date.parse(p.at) >= Date.parse(mr.created_at))])]
+    .filter((p) => !isPerson(p.pusher))
+    .sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
 
   // Agents may not change the pipeline, the policy or the engine. autonomy:guard
   // checks this by commit email, which an agent can set; this checks it by who
@@ -145,11 +162,11 @@ async function main() {
   }
   let issueNotes: Note[] | null = null;
   for (const push of agentPushes) {
-    const shas = [...by].filter(([, p]) => p === push).map(([sha]) => sha.slice(0, 8)).join(', ');
+    const shas = [...by].filter(([, p]) => p === push).map(([sha]) => sha.slice(0, 8)).join(', ') || `no new commits, head ${push.to.slice(0, 8)}`;
     const step: Step = { requesters, tier, rollback: rollback(push.pusher) };
     const beforeMr = Date.parse(push.at) < Date.parse(mr.created_at);
     if (beforeMr && !issue) {
-      problems.push(`push at ${push.at} by @${push.pusher} (${shas}) came before the MR, and GitLab lists no issue this MR closes to hold its go-ahead`);
+      problems.push(`push at ${push.at} by @${push.pusher} (${shas}) came before the MR, and GitLab lists no issue this MR closes, written by a person, to hold its go-ahead`);
       continue;
     }
     if (beforeMr) issueNotes ??= await all<Note>(`/:project/issues/${issue}/notes?sort=asc&order_by=created_at`);

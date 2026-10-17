@@ -7,8 +7,8 @@ import type { AutonomyConfig } from './config.ts';
  * when in the project's push events. Commit emails, commit dates and commit
  * trailers are the agent's own words, so they prove nothing here.
  *
- * One go-ahead covers one push: it has to come after the agent's latest note
- * (its proposal) and after its previous push.
+ * One go-ahead covers one push: it has to come after the agent's latest
+ * proposal and after its previous push to the branch.
  */
 
 export interface Note {
@@ -49,19 +49,41 @@ export function isProjectPerson(username: string, config: AutonomyConfig): boole
   return isPerson(username);
 }
 
+/**
+ * How each flow's proposal note starts. Other notes under an agent's account
+ * aren't proposals: GitLab itself posts "✅ <flow> has started" under it when a
+ * mention starts the flow, and counting that would cancel the go-ahead that
+ * started it.
+ */
+const PROPOSALS = ['Proposal for #', 'Pipeline fix proposal for', 'Review of ', 'Rollback proposal for'];
+
+export function isProposal(body: string): boolean {
+  return PROPOSALS.some((p) => body.trimStart().startsWith(p));
+}
+
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
  * One line of the comment mentions this account and, apart from @mentions,
  * says exactly "go-ahead" (a trailing full stop is fine). "No go-ahead yet" is
  * not one, and neither is a go-ahead to another agent with this one mentioned
- * elsewhere in the comment.
+ * elsewhere in the comment. Lines in code blocks, quotes and HTML comments
+ * don't count: they show or cite a go-ahead, they don't give one.
  */
 export function saysGoAhead(body: string, account: string): boolean {
   const mention = new RegExp(`(^|[^\\w.-])@${escape(account)}(?![\\w.-])`, 'i');
+  let fenced = false;
   return body
+    .replace(/<!--[\s\S]*?(-->|$)/g, '')
     .split('\n')
-    .some((line) => mention.test(line) && line.replace(/@[\w.-]+/g, ' ').trim().replace(/[.!]$/, '').toLowerCase() === 'go-ahead');
+    .some((line) => {
+      if (/^\s*(```|~~~)/.test(line)) {
+        fenced = !fenced;
+        return false;
+      }
+      if (fenced || /^\s*>/.test(line)) return false;
+      return mention.test(line) && line.replace(/@[\w.-]+/g, ' ').trim().replace(/[.!]$/, '').toLowerCase() === 'go-ahead';
+    });
 }
 
 /** A push as GitLab's project events record it: who pushed, when, and what it moved the branch from and to. */
@@ -124,9 +146,9 @@ export type Verdict = { ok: true; note: Note } | { ok: false; reason: string };
 
 /**
  * A push by an agent is allowed when a person the step allows wrote a go-ahead
- * that mentions the agent, after the agent's latest note before the push (its
- * proposal, counting edits made before the push), after the agent's previous
- * push, and before this push, and didn't edit it after the push.
+ * that mentions the agent, after the agent's latest proposal before the push
+ * (counting edits made before the push), after the agent's previous push to the
+ * branch, and before this push, and didn't edit it after the push.
  */
 export function goAheadFor(
   push: { at: string; pusher: string },
@@ -137,7 +159,9 @@ export function goAheadFor(
 ): Verdict {
   const at = time(push.at);
   const touched = (n: Note) => (n.updated_at && time(n.updated_at) < at ? Math.max(time(n.created_at), time(n.updated_at)) : time(n.created_at));
-  const own = notes.filter((n) => !n.system && time(n.created_at) < at && n.author.username.toLowerCase() === push.pusher.toLowerCase());
+  const own = notes.filter(
+    (n) => !n.system && time(n.created_at) < at && n.author.username.toLowerCase() === push.pusher.toLowerCase() && isProposal(n.body),
+  );
   if (!own.length) return { ok: false, reason: `@${push.pusher} wrote no proposal before the push at ${push.at}, so there was nothing to give a go-ahead to` };
   const proposal = Math.max(...own.map(touched));
   const floor = Math.max(proposal, previousPush ? time(previousPush) : -Infinity);
@@ -156,12 +180,6 @@ export function goAheadFor(
   }
   const since = floor === proposal ? `its proposal at ${new Date(proposal).toISOString()}` : `its previous push at ${previousPush}`;
   return { ok: false, reason: `no go-ahead mentioning @${push.pusher} between ${since} and the push at ${push.at}` };
-}
-
-/** The issue an MR says it closes ("Closes #12"), if any. */
-export function linkedIssue(description: string | null | undefined): number | null {
-  const m = (description ?? '').match(/\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)\b/i);
-  return m ? Number(m[1]) : null;
 }
 
 /** The assess job's tier; anything else is treated as high, so a missing tier needs a maintainer. */

@@ -71,6 +71,7 @@ interface Case {
   issueNotes?: unknown[];
   closes?: unknown[];
   api?: string;
+  env?: Record<string, string>;
 }
 
 async function run(c: Case) {
@@ -82,7 +83,7 @@ async function runIn(r: { dir: string; base: string; shas: string[] }, c: Case) 
     '/api/v4/projects/1/merge_requests/7': { author: { username: c.mrAuthor ?? 'Mazen-Ghanaym' }, created_at: '2026-10-17T09:00:00Z', description: 'Closes #22', source_branch: 'fix' },
     '/api/v4/projects/1/merge_requests/7/notes': c.notes?.(r) ?? [],
     '/api/v4/projects/1/events': c.events(r),
-    '/api/v4/projects/1/merge_requests/7/closes_issues': c.closes ?? [{ iid: 22, author: { username: c.issueAuthor ?? 'Issue-Author' } }],
+    '/api/v4/projects/1/merge_requests/7/closes_issues': c.closes ?? [{ iid: 22, author: { username: c.issueAuthor ?? 'Mazen-Ghanaym' } }],
     '/api/v4/projects/1/issues/22/notes': c.issueNotes ?? [],
   });
   // async, so the stand-in server in this process can answer while the CLI runs
@@ -97,6 +98,7 @@ async function runIn(r: { dir: string; base: string; shas: string[] }, c: Case) 
       AUTONOMY_TIER: c.tier ?? 'low',
       CI_JOB_TOKEN: 'job',
       AUTONOMY_CONFIG: '.autonomy.yml',
+      ...c.env,
     },
   });
   let text = '';
@@ -146,13 +148,47 @@ describe('autonomy:goahead against a git repo and a stand-in for GitLab', () => 
     expect(code).toBe(1);
   });
 
-  it('a go-ahead is used up by the same agent pushing anywhere else in between', async () => {
+  it("the same agent pushing to another MR's branch doesn't use up this MR's go-ahead (the accounts are shared)", async () => {
     const { code, text } = await run({
       notes: () => [proposal, goAhead()],
       events: (r) => [push('10:07', AGENT, 'aaaa', 'bbbb', 'other-branch'), push('10:10', AGENT, r.base, r.shas[0])],
     });
-    expect(text).toMatch(/between its previous push at 2026-10-17T10:07:00Z/);
+    expect(text).toContain('go-ahead in note 2 by @Ahmad-Faraj');
+    expect(code).toBe(0);
+  });
+
+  it("doesn't count GitLab's own \"has started\" note, posted under the agent's account, as a new proposal", async () => {
+    const started = note(3, '10:06', AGENT, '✅ mr-reviewer has started. You can view progress here.');
+    const { code, text } = await run({ notes: () => [proposal, goAhead(), started], events: (r) => [push('10:10', AGENT, r.base, r.shas[0])] });
+    expect(text).toContain('go-ahead in note 2 by @Ahmad-Faraj');
+    expect(code).toBe(0);
+  });
+
+  it('needs a go-ahead for an agent push that brings no new commits (a force-push back over a fix)', async () => {
+    const r = repo(1);
+    const git = (...a: string[]) => execFileSync('git', a, { cwd: r.dir, encoding: 'utf8' }).trim();
+    git('-c', 'user.name=h', '-c', 'user.email=h@x', 'commit', '-q', '--allow-empty', '-m', "a person's fix");
+    const fix = git('rev-parse', 'HEAD');
+    git('reset', '-q', '--hard', r.shas[0]);
+    const { code, text } = await runIn(r, {
+      email: 'mazen@example.com',
+      notes: () => [proposal, goAhead()],
+      events: () => [push('10:10', AGENT, r.base, r.shas[0]), push('10:20', 'Mazen-Ghanaym', r.shas[0], fix), push('10:30', AGENT, fix, r.shas[0])],
+    });
+    expect(text).toMatch(/push at 2026-10-17T10:30:00Z by @ai-mr-reviewer\S* \(no new commits, head \w{8}\).*between its previous push at 2026-10-17T10:10:00Z/);
     expect(code).toBe(1);
+  });
+
+  it('fails an agent-opened MR whose only closing issue an agent wrote', async () => {
+    const { code, text } = await run({ mrAuthor: BUILDER, issueAuthor: BUILDER, notes: () => [proposal, goAhead()], events: (r) => [push('10:10', AGENT, r.base, r.shas[0])] });
+    expect(text).toMatch(/no issue it closes that a person wrote/);
+    expect(code).toBe(1);
+  });
+
+  it('passes an MR from a fork without reading anything: no agent here can push there', async () => {
+    const { code, text } = await run({ api: 'http://127.0.0.1:1/api/v4', events: () => [], env: { CI_MERGE_REQUEST_SOURCE_PROJECT_ID: '9', CI_MERGE_REQUEST_PROJECT_ID: '1' } });
+    expect(text).toMatch(/comes from a fork/);
+    expect(code).toBe(0);
   });
 
   it('fails a commit that no recorded push brought', async () => {
@@ -248,6 +284,35 @@ describe('autonomy:goahead against a git repo and a stand-in for GitLab', () => 
     expect(code).toBe(1);
   });
 
+  it('fails when the target branch has no policy file, instead of telling agents apart by name', async () => {
+    const r = repo(0);
+    const git = (...a: string[]) => execFileSync('git', a, { cwd: r.dir, encoding: 'utf8' }).trim();
+    git('rm', '-q', '.autonomy.yml');
+    git('-c', 'user.name=h', '-c', 'user.email=h@x', 'commit', '-qm', 'no policy');
+    const base = git('rev-parse', 'HEAD');
+    writeFileSync(join(r.dir, 'a.txt'), 'x');
+    git('-c', 'user.name=h', '-c', 'user.email=h@x', 'commit', '-qam', 'change');
+    const head = git('rev-parse', 'HEAD');
+    const { code, text } = await runIn({ ...r, base }, { events: () => [push('10:10', 'helper-robot', base, head)] });
+    expect(text).toMatch(/has no \.autonomy\.yml/);
+    expect(code).toBe(1);
+  });
+
+  it('fails when the policy lists no go_ahead.people', async () => {
+    const r = repo(0);
+    const git = (...a: string[]) => execFileSync('git', a, { cwd: r.dir, encoding: 'utf8' }).trim();
+    const policy = readFileSync(join(r.dir, '.autonomy.yml'), 'utf8').replace(/^go_ahead:[\s\S]*?(?=^\S|$(?![\s\S]))/m, '');
+    writeFileSync(join(r.dir, '.autonomy.yml'), policy);
+    git('-c', 'user.name=h', '-c', 'user.email=h@x', 'commit', '-qam', 'no people');
+    const base = git('rev-parse', 'HEAD');
+    writeFileSync(join(r.dir, 'a.txt'), 'x');
+    git('-c', 'user.name=h', '-c', 'user.email=h@x', 'commit', '-qam', 'change');
+    const head = git('rev-parse', 'HEAD');
+    const { code, text } = await runIn({ ...r, base }, { events: () => [push('10:10', 'helper-robot', base, head)] });
+    expect(text).toMatch(/lists no go_ahead\.people/);
+    expect(code).toBe(1);
+  });
+
   it('needs a go-ahead for a push by an account outside go_ahead.people, whatever its name', async () => {
     const { code, text } = await run({ email: 'helper@example.com', events: (r) => [push('10:10', 'helper-robot', r.base, r.shas[0])] });
     expect(text).toMatch(/@helper-robot wrote no proposal/);
@@ -296,7 +361,7 @@ describe('autonomy:goahead against a git repo and a stand-in for GitLab', () => 
 
   it('passes an MR with no commits', async () => {
     const { code, text } = await run({ commits: 0, events: () => [] });
-    expect(text).toContain('no commits on this MR');
+    expect(text).toContain('0 commit(s) in 0 push(es), 0 by agents');
     expect(code).toBe(0);
   });
 });

@@ -69,6 +69,11 @@ autonomy:guard:
 # requester, never an agent). Read from what GitLab recorded (who wrote each
 # note, when each push arrived), not from commit dates or trailers, which the
 # agent writes itself. The tier comes from autonomy:assess, not from a label.
+# The guard's code and its dependencies come from the target branch, so an MR
+# can't change the check it is checked by. This job's own definition still
+# comes from the MR: agents can't change it (governance paths) or merge, and a
+# person merges, but a project that can should also require a code owner's
+# approval for engine/ and the CI files.
 autonomy:goahead:
   extends: .autonomy:node
   stage: assess
@@ -78,8 +83,16 @@ autonomy:goahead:
     GIT_DEPTH: 0
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  before_script:
+    - git worktree add --detach /tmp/goahead-base "$CI_MERGE_REQUEST_DIFF_BASE_SHA"
   script:
-    - node engine/src/cli/goahead.ts
+    - |
+      if [ ! -f /tmp/goahead-base/engine/src/cli/goahead.ts ]; then
+        echo "the target branch has no go-ahead guard yet: this MR adds it, and a person merges it"
+        exit 0
+      fi
+    - npm ci --prefix /tmp/goahead-base/engine --no-audit --no-fund --loglevel=error
+    - node /tmp/goahead-base/engine/src/cli/goahead.ts
 
 # The same rule on the default branch. This only reports after the fact: until
 # main is protected (no direct pushes) and "Pipelines must succeed" is on (#14),
