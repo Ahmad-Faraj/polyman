@@ -72,25 +72,37 @@ const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
  */
 export function saysGoAhead(body: string, account: string): boolean {
   const mention = new RegExp(`(^|[^\\w.-])@${escape(account)}(?![\\w.-])`, 'i');
-  // the open fence (``` or ~~~, three or more): only the same character, at
-  // least as many times, closes it
+  // the open fence (``` or ~~~, three or more): only a line of the same
+  // character, at least as many times, closes it
   let fence: string | null = null;
-  let blank = true;
+  // the previous line ended a block (blank, a fence, a heading, a rule), so an
+  // indented line here starts code
+  let boundary = true;
   let indented = false;
-  for (const line of body.replace(/<!--[\s\S]*?(-->|$)/g, '').split('\n')) {
+  let quoted = false;
+  const text = body.replace(/<!--[\s\S]*?(-->|$)/g, '').replace(/<(pre|details)\b[\s\S]*?(<\/\1>|$)/gi, '');
+  for (const line of text.split('\n')) {
     const marker = line.match(/^ {0,3}(`{3,}|~{3,})/)?.[1];
     if (fence) {
-      if (marker && marker[0] === fence[0] && marker.length >= fence.length && /^ {0,3}[`~]+\s*$/.test(line)) fence = null;
+      const close = line.match(/^ {0,3}(`+|~+)\s*$/)?.[1];
+      if (close && close[0] === fence[0] && close.length >= fence.length) fence = null;
+      boundary = true;
+      indented = false;
       continue;
     }
     if (marker) {
       fence = marker;
+      quoted = false;
       continue;
     }
-    // an indented code block starts after a blank line and runs while lines stay indented
-    indented = /^( {4}|\t)/.test(line) && (blank || indented);
-    blank = !line.trim();
-    if (indented || /^\s*>/.test(line)) continue;
+    const blank = !line.trim();
+    // an indented code block (4 columns, a tab counting to the next multiple of
+    // 4) starts after a block boundary and runs while lines stay indented
+    indented = /^( {0,3}\t| {4})/.test(line) && (boundary || indented);
+    // a quote runs on over the lines that follow it until a blank line
+    quoted = /^\s*>/.test(line) || (quoted && !blank);
+    boundary = blank || /^ {0,3}(#{1,6}(\s|$)|([-*_])( *\3){2,} *$)/.test(line);
+    if (indented || quoted) continue;
     if (mention.test(line) && line.replace(/@[\w.-]+/g, ' ').trim().replace(/[.!]$/, '').toLowerCase() === 'go-ahead') return true;
   }
   return false;

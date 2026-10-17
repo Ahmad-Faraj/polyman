@@ -104,15 +104,17 @@ async function main() {
 
   const mr = await gl.get<{ author: { username: string }; created_at: string; source_branch: string }>(`/:project/merge_requests/${iid}`);
   const notes = await all<Note>(`/:project/merge_requests/${iid}/notes?sort=asc&order_by=created_at`);
-  // Pushes from two days before the oldest commit on the MR (or before the MR,
-  // if that's earlier) on: no push to this branch can be older than what it
-  // brought. Commit dates are the pusher's own word, but one set late can't
-  // push the window past the MR's creation, and one set early only widens it.
-  // `after` leaves out the day it names, hence two days.
-  const oldest = Math.min(
-    Date.parse(mr.created_at),
-    ...commits.map((sha) => Number(execFileSync('git', ['show', '-s', '--format=%ct', sha], { encoding: 'utf8' }).trim()) * 1000),
-  );
+  // Pushes from two days before the MR's base commit on: the branch can't have
+  // been created before the commit it starts from. That date comes from the
+  // target branch, so unlike the MR's own commit dates no pusher sets it. At
+  // most 120 days before the MR, so a long-stale base can't make the job read
+  // more than the page cap allows; a push older than that shows up as a commit
+  // in no recorded push, and the job fails. `after` leaves out the day it
+  // names, hence two days.
+  const created = Date.parse(mr.created_at);
+  const baseTime = Number(execFileSync('git', ['show', '-s', '--format=%ct', base], { encoding: 'utf8' }).trim()) * 1000;
+  if (!Number.isFinite(baseTime) || baseTime <= 0) throw new Error(`can't read the date of the base commit ${base}`);
+  const oldest = Math.min(created, Math.max(baseTime, created - 120 * 86_400_000));
   const since = new Date(oldest - 2 * 86_400_000).toISOString().slice(0, 10);
   const events = await all<PushEvent>(`/:project/events?action=pushed&after=${since}&sort=asc`, 100);
   // A push whose head a later force-push threw away brought nothing that's still
@@ -124,7 +126,7 @@ async function main() {
   const { by, unaccounted } = attribute(commits, pushes, isAncestor);
 
   const problems: string[] = [];
-  for (const sha of unaccounted) problems.push(`commit ${sha.slice(0, 8)} is in no push GitLab recorded for ${mr.source_branch}, so who pushed it and on whose go-ahead can't be told`);
+  for (const sha of unaccounted) problems.push(`commit ${sha.slice(0, 8)} is in no push GitLab recorded for ${mr.source_branch}, so who pushed it and on whose go-ahead can't be told (pushes are read from ${since} on)`);
 
   const rollback = (account: string) => /incident-responder/i.test(account);
   // the issues GitLab says this MR closes, parsed from a description the agent may

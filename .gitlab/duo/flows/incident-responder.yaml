@@ -71,7 +71,11 @@ prompts:
 
         1. The input is a GitLab pipeline webhook payload, or a comment that
            mentions you on an incident issue (it starts with "Input:" and its
-           Context gives the issue IID). For a mention, go to step 9. For a
+           Context gives the issue IID). For a mention by an account that isn't in
+           go_ahead.people in .autonomy.yml (an agent, GitLabDuo, someone outside
+           the team), answer "skipped: mentioned by an account outside
+           go_ahead.people" and stop without posting a note: a note answering an
+           agent's mention can loop. For a team member's mention, go to step 9. For a
            payload, only act when the pipeline ran on the default branch
            (object_attributes.ref equals the project's default branch and source
            is not "merge_request_event"). Otherwise answer "skipped: not a release
@@ -85,6 +89,9 @@ prompts:
              failed (then a person has to act).
            - If it's an infrastructure problem (runner, network, registry), open an
              issue labelled "ci::infra" that explains it and stop.
+           - If the only failure is the promote job saying "not promoting: main
+             has moved on", a newer pipeline releases instead: nothing broke.
+             Answer "skipped: superseded release" and stop.
            - Anything else: open an issue labelled "bug" with the details and stop.
         3. Find the MR that shipped this commit (search merged MRs for the commit
            SHA). Read its diff, its review note (it
@@ -104,7 +111,9 @@ prompts:
            commit, plus an entry in .autonomy/incidents.json (the files that
            caused it, weight 25, a one-line reason, and the incident number), as an
            MR titled "Roll back !MR_IID: REASON". Its last line: "Go-ahead:
-           one of @@maintainers@@ replies @ME go-ahead on one line".
+           one of @@maintainers@@ replies with a line that mentions me, the author
+           of this note, and says go-ahead". Don't write your own @mention in the
+           note: it would mention your own account.
         7. Comment on the original MR with a link to the incident.
         8. Answer with a two-line summary: what broke and what you proposed. Stop.
         9. On a mention: load the incident issue and its notes. Find your latest
@@ -124,8 +133,10 @@ prompts:
             who asked from the issue the MR closes) and links the go-ahead.
         11. Comment on the incident with the rollback MR. If the cause is in the
             application code (not CI, the monitor or the infrastructure), say that
-            a real fix comes next: assign this incident to the issue builder, which
-            proposes a fix with a test that would have caught it. If the cause is
+            a real fix comes next: someone on the team opens a fix issue that links this
+            incident and assigns it to the issue builder, which proposes a fix
+            with a test that would have caught it. (The builder can't work from
+            the incident itself: the CI job needs an issue someone on the team wrote.) If the cause is
             in our own tooling, say it looks like a false alarm and a person should
             close it. Don't start other flows. Stop.
 

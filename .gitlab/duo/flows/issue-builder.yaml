@@ -56,8 +56,11 @@ prompts:
         mentions another account, doesn't count for you.
         It counts only if its author is one of the team (the people in go_ahead in
         .autonomy.yml), never a service account or GitLabDuo, and not the
-        requester: the issue's author. For a proposal whose expected tier is high or critical, or that touches
-        @@protected_paths@@, only @@maintainers@@ count.
+        requester: the issue's author. For a proposal that touches
+        @@protected_paths@@, or any path under paths.high or paths.critical in
+        .autonomy.yml, or that you expect to score high, only @@maintainers@@
+        count. The CI job checks against the tier it computes for the MR, not
+        your guess, so when in doubt ask a maintainer.
         One go-ahead covers one push: it must come after your latest proposal and
         after your previous push, so push once, at the end, and a second push needs
         a new go-ahead. Never edit a proposal; post a new one (editing it after a
@@ -69,6 +72,16 @@ prompts:
         1. The input is an issue IID (the issue was assigned to you) or a comment
            that mentions you with the issue IID in its context. Load the issue and
            all its comments with list_issue_notes.
+           If the comment that mentions you was written by an account that isn't
+           in go_ahead.people in .autonomy.yml (an agent, GitLabDuo, someone
+           outside the team), answer "skipped: mentioned by an account outside
+           go_ahead.people" and stop without posting a note: a note answering an
+           agent's mention can loop.
+           If the issue was opened by an account that isn't in go_ahead.people in
+           .autonomy.yml (an agent's incident, or someone outside the team),
+           don't build from it: the CI job only accepts an issue someone on the
+           team wrote, since it reads who asked from it. Post that someone on the
+           team should open a fix issue that links this one, and stop.
         2. Your proposals are your own notes on this issue that start with
            "Proposal for #". Find the latest one, then look for a go-ahead after it
            (see above). Skip comments that only mention you without the word.
@@ -79,8 +92,12 @@ prompts:
              with "Proposal for #ISSUE_IID:" and says, in a few lines: what you'll
              change and which files, the test that will fail without the change,
              the risk tier you expect from .autonomy.yml and why, and on its last
-             line who may give the go-ahead and how ("Go-ahead: someone other than
-             @ISSUE_AUTHOR replies @ME go-ahead on one line", or one of @@maintainers@@ for high and critical).
+             line who may give the go-ahead and how: "Go-ahead: someone other than
+             the issue's author (or one of @@maintainers@@ for high risk or a change
+             to the high, critical or protected paths) replies
+             with a line that mentions me, the author of this note, and says
+             go-ahead". Don't write your own @mention in the note: it would
+             mention your own account.
            - If a comment after your proposal asks for changes instead, post a
              revised proposal the same way.
            Then stop. Don't create a branch, commit or push before a go-ahead.
@@ -98,9 +115,9 @@ prompts:
            the go-ahead.
         7. Comment on the issue with the MR link and what happens next: the MR's
            pipeline runs, the reviewer proposes findings, and each fix round needs
-           its own go-ahead. GitLab may not start the reviewer for a pipeline
-           your push caused; if no review appears once the pipeline passes, a
-           person starts it by mentioning the reviewer on the MR. Then stop.
+           its own go-ahead. GitLab doesn't start flows for your push, so once
+           the pipeline passes a person mentions the reviewer on the MR (if it
+           fails, the pipeline fixer). Then stop.
            Don't start other flows.
 
         Rules: never push to the default branch, never edit @@protected_paths@@. Keep the change focused on

@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { loadConfig } from '../src/config.ts';
 import { checkFlow } from '../src/flows.ts';
+import { isProposal } from '../src/goahead.ts';
 import { HANDOFF_FLOWS, flowValues, markersIn, renderFlow } from '../src/render.ts';
 
 // The project's own flows and policy, one folder up. The autonomy:flows job
@@ -84,6 +85,60 @@ describe("the project's Duo flows", () => {
     expect(prompt).toContain('trailer line "Go-ahead: "');
   });
 
+  it("each flow's proposal starts the way the go-ahead guard recognises one", () => {
+    const starts: Record<string, string> = {
+      'issue-builder.yaml': 'Proposal for #ISSUE_IID:',
+      'pipeline-fixer.yaml': 'Pipeline fix proposal for SHA:',
+      'mr-reviewer.yaml': 'Review of SHA:',
+      'incident-responder.yaml': 'Rollback proposal for !MR_IID:',
+    };
+    for (const [file, start] of Object.entries(starts)) {
+      expect(flat(file)).toContain(`"${start}`.replace(/\s+/g, ' '));
+      expect(isProposal(`${start} ...`)).toBe(true);
+    }
+  });
+
+  it("no flow mentions its own account in a note, and none answers an agent's mention (a loop)", () => {
+    for (const file of files) {
+      const text = flat(file);
+      expect(text).not.toMatch(/@ME\b/);
+      expect(text).toContain('skipped: mentioned by an account outside go_ahead.people');
+    }
+    // where the account is known, the go-ahead line shows it in backticks, so it isn't a mention
+    expect(renderFlow(read('mr-reviewer.yaml'), values)).toContain('`@ai-reviewer go-ahead`');
+    expect(renderFlow(read('pipeline-fixer.yaml'), values)).toContain('`@ai-fixer go-ahead`');
+  });
+
+  it('the fixer reads the tier from the assess job, never from a label', () => {
+    expect(flat('pipeline-fixer.yaml')).toContain('never from a label');
+    expect(flat('pipeline-fixer.yaml')).toContain('field "name"');
+  });
+
+  it('a change to the high or critical paths needs a maintainer in every flow that pushes', () => {
+    for (const file of ['issue-builder.yaml', 'pipeline-fixer.yaml', 'mr-reviewer.yaml']) {
+      expect(flat(file)).toMatch(/path under paths\.high or paths\.critical|any path under paths\.high or paths\.critical/);
+    }
+  });
+
+  it("the fixer falls back to high when it can't read the tier", () => {
+    expect(flat('pipeline-fixer.yaml')).toContain("If you can't read it, use high.");
+  });
+
+  it("the responder doesn't treat a superseded release as an incident", () => {
+    expect(flat('incident-responder.yaml')).toContain('not promoting: main has moved on');
+    expect(flat('incident-responder.yaml')).toContain('skipped: superseded release');
+  });
+
+  it("the fixer doesn't promise a review that GitLab won't start", () => {
+    expect(flat('pipeline-fixer.yaml')).toContain("GitLab doesn't start flows for your push, so once it passes a person mentions the reviewer");
+    expect(flat('pipeline-fixer.yaml')).not.toContain('the reviewer will review the new head');
+  });
+
+  it("nobody builds from an agent's incident: a person opens the fix issue", () => {
+    expect(flat('issue-builder.yaml')).toContain('the CI job only accepts an issue someone on the team wrote');
+    expect(flat('incident-responder.yaml')).toContain('someone on the team opens a fix issue that links this incident');
+  });
+
   it('agents never count as a go-ahead, and the requester never approves their own step', () => {
     for (const file of files) expect(flat(file)).toContain('never a service account or GitLabDuo, and not the requester');
     expect(flat('issue-builder.yaml')).toContain("requester: the issue's author");
@@ -109,7 +164,7 @@ describe("the project's Duo flows", () => {
     const prompt = flat('mr-reviewer.yaml');
     expect(prompt).toContain('run that fix round (step 8)');
     expect(prompt).toContain('apply exactly its proposed fixes, nothing else');
-    expect(prompt).toContain('when it passes you review that head again');
+    expect(prompt).toContain("GitLab doesn't start flows for your own push, so once it passes a person mentions you to review that head again");
     expect(prompt).toContain('If 4 fix-round notes already exist');
   });
 
