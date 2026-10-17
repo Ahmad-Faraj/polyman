@@ -19,6 +19,7 @@
  */
 import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import { type AutonomyConfig } from '../config.ts';
 import { loadConfig } from '../config.ts';
@@ -370,7 +371,8 @@ export async function setupFlows(o: SetupOptions): Promise<{ defaultBranch: stri
   return { defaultBranch, accounts };
 }
 
-if (import.meta.main) {
+// import.meta.main is undefined before Node 22.18, which would skip this and exit 0 having done nothing
+if (import.meta.main ?? process.argv[1] === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
   const dryRun = args.includes('--dry-run');
   const projectPath = projectPathFrom(args.find((a) => !a.startsWith('--')));
