@@ -124,6 +124,10 @@ service:promote:production:
   stage: deploy
   needs: [service:deploy:candidate, service:check:candidate]
   rules:
+    # a pipeline schedule on main (a nightly check, say) counts every file as
+    # changed; it must not rebuild or redeploy the service
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $GCP_PROJECT_ID
       changes: *service_files
       when: manual
