@@ -117,8 +117,8 @@ export function loadConfig(path = process.env.AUTONOMY_CONFIG || '.autonomy.yml'
     },
     monitor: {
       measuredRoutes: raw.monitor?.measured_routes ?? [],
-      productionJobs: raw.monitor?.production_jobs?.length ? raw.monitor.production_jobs : d.monitor.productionJobs,
-      rollbackJob: raw.monitor?.rollback_job?.trim() || d.monitor.rollbackJob,
+      productionJobs: jobNames(raw.monitor?.production_jobs, path) ?? d.monitor.productionJobs,
+      rollbackJob: jobName(raw.monitor?.rollback_job, path, 'rollback_job') ?? d.monitor.rollbackJob,
     },
   };
   const { medium, high } = config.thresholds;
@@ -126,6 +126,28 @@ export function loadConfig(path = process.env.AUTONOMY_CONFIG || '.autonomy.yml'
     throw new Error(`invalid thresholds in ${path}: need 0 < medium < high <= 100`);
   }
   return config;
+}
+
+// Job names go into a flow prompt, so only what CI job names look like.
+const JOB_NAME = /^[\w:./ -]+$/;
+
+function jobName(value: unknown, path: string, key: string): string | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (typeof value !== 'string' || !JOB_NAME.test(value.trim())) {
+    throw new Error(`invalid monitor.${key} in ${path}: need a CI job name, got ${JSON.stringify(value)}`);
+  }
+  return value.trim();
+}
+
+function jobNames(value: unknown, path: string): string[] | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!Array.isArray(value)) throw new Error(`invalid monitor.production_jobs in ${path}: need a list of CI job names`);
+  if (!value.length) return undefined;
+  return value.map((v, i) => {
+    const name = jobName(v, path, `production_jobs[${i}]`);
+    if (!name) throw new Error(`invalid monitor.production_jobs[${i}] in ${path}: empty`);
+    return name;
+  });
 }
 
 function sustainabilityFrom(raw: NonNullable<Raw['sustainability']>): SciCoefficients {

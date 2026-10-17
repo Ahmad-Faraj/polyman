@@ -58,8 +58,10 @@ prompts:
         2. Read the failing jobs and their logs.
            - If the failure is in one of these jobs, production is affected:
              @@production_jobs@@. Continue with step 3. The @@rollback_job@@
-             job will already have moved traffic back to the previous version
-             if it could; check its log and say so in the incident.
+             job moves traffic back to the previous version only if production
+             serves this pipeline's release; read its log and say in the
+             incident whether it rolled back, found nothing to roll back, or
+             failed (then a person has to act).
            - If it's an infrastructure problem (runner, network, registry), open an
              issue labelled "ci::infra" that explains it and stop.
            - Anything else: open an issue labelled "bug" with the details and stop.

@@ -68,11 +68,13 @@ monitor:
   # filled in with the verify service (#19)
   measured_routes: []
   # failing one of these means production is affected (the incident responder
-  # opens an incident); the verify service releases through these jobs
+  # opens an incident). Only jobs that run once production serves the new
+  # release: a failed candidate deploy or check never got traffic, and promote
+  # also fails on purpose when main has moved on, so those are ordinary bugs.
   production_jobs:
-    - service:deploy:candidate
-    - service:promote:production
     - service:check:production
+    - service:rollback:production
+  # moves traffic back, but only when production serves this pipeline's release
   rollback_job: service:rollback:production
 
 # Used to estimate the carbon cost of each change (SCI). Defaults match a
