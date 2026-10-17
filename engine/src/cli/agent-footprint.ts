@@ -2,15 +2,16 @@
  * Measures what the Duo agents themselves cost to run. Every flow session runs
  * as a CI job on a runner (a "duo_workflow" pipeline), so its runner time can
  * be turned into energy and carbon with the same SCI coefficients as the CI.
- * Model inference happens on GitLab's side and isn't visible here; this covers
- * the runner the agent works on.
+ * Model inference happens on GitLab's side: its energy isn't visible here, but
+ * the agent graph's checkpoints are, which bound its model calls, so each
+ * session also gets an inference estimate as a low/high range (see sci.ts).
  *
  * Reads job logs, which needs a token with read access (run it locally):
  *   GITLAB_TOKEN=... node engine/src/cli/agent-footprint.ts [--json]
  */
 import { loadConfig } from '../config.ts';
 import { projectPathFrom } from '../project.ts';
-import { footprint } from '../sci.ts';
+import { INFERENCE_WH_PER_CALL, footprint, inferenceGrams, modelCalls } from '../sci.ts';
 
 const api = process.env.GITLAB_URL ?? 'https://gitlab.com';
 if (!api.startsWith('https://')) throw new Error(`refusing to send your token to ${api}: use an https:// GITLAB_URL`);
@@ -30,6 +31,8 @@ interface Session {
   mr: number | null;
   skipped: boolean;
   seconds: number;
+  /** model calls, bounded from the log's checkpoints */
+  calls: { low: number; high: number };
 }
 
 const FLOWS: [RegExp, string][] = [
@@ -52,7 +55,7 @@ for (let page = 1; ; page++) {
     const mr =
       Number(log.match(/"merge_request":\{"id":\d+,"iid":(\d+)/)?.[1] ?? log.match(/MergeRequest IID: (\d+)/)?.[1] ?? log.match(/merge request !(\d+)/i)?.[1]) || null;
     const skipped = /skipped: /.test(log.split('Starting Workflow').pop() ?? '');
-    sessions.push({ pipeline: p.id, flow, mr, skipped, seconds: job.duration });
+    sessions.push({ pipeline: p.id, flow, mr, skipped, seconds: job.duration, calls: modelCalls(log) });
   }
 }
 
@@ -69,6 +72,17 @@ for (const mr of new Set(sessions.map((s) => s.mr).filter((m): m is number => !!
 const coefficients = loadConfig().sustainability;
 const grams = (seconds: number) => footprint([{ name: 'agent', duration: seconds }], coefficients).totalGrams;
 const minutes = (seconds: number) => (seconds / 60).toFixed(1);
+const callsOf = (xs: Session[], per = 1) => ({
+  low: xs.reduce((n, s) => n + s.calls.low, 0) / per,
+  high: xs.reduce((n, s) => n + s.calls.high, 0) / per,
+});
+const calls = (c: { low: number; high: number }) => `${c.low.toFixed(0)}-${c.high.toFixed(0)}`;
+// runner (measured time, modelled energy) + inference (bounded calls, cited range)
+const range = (seconds: number, c: { low: number; high: number }) => {
+  const runner = grams(seconds);
+  const model = inferenceGrams(c, coefficients.gridGramsPerKwh);
+  return `${(runner + model.low).toFixed(1)}-${(runner + model.high).toFixed(1)}`;
+};
 
 const byFlow = new Map<string, Session[]>();
 for (const s of sessions) byFlow.set(s.flow, [...(byFlow.get(s.flow) ?? []), s]);
@@ -79,15 +93,19 @@ for (const s of reviews) byTier.set(tiers.get(s.mr!) ?? 'unknown', [...(byTier.g
 const avg = (xs: Session[]) => xs.reduce((n, s) => n + s.seconds, 0) / Math.max(1, xs.length);
 
 if (process.argv.includes('--json')) {
-  console.log(JSON.stringify({ coefficients, sessions, tiers: Object.fromEntries(tiers) }, null, 2));
+  console.log(JSON.stringify({ coefficients, inferenceWhPerCall: INFERENCE_WH_PER_CALL, sessions, tiers: Object.fromEntries(tiers) }, null, 2));
 } else {
   console.log(`${sessions.length} agent sessions\n`);
-  console.log('| Flow | Sessions | Skipped early | Runner min | gCO2e |\n|---|---|---|---|---|');
+  console.log('| Flow | Sessions | Skipped early | Runner min | Runner gCO2e | Model calls (low-high) | Total gCO2e (low-high) |\n|---|---|---|---|---|---|---|');
   for (const [flow, xs] of byFlow) {
     const total = xs.reduce((n, s) => n + s.seconds, 0);
-    console.log(`| ${flow} | ${xs.length} | ${xs.filter((s) => s.skipped).length} | ${minutes(total)} | ${grams(total).toFixed(2)} |`);
+    console.log(`| ${flow} | ${xs.length} | ${xs.filter((s) => s.skipped).length} | ${minutes(total)} | ${grams(total).toFixed(2)} | ${calls(callsOf(xs))} | ${range(total, callsOf(xs))} |`);
   }
   console.log('\nFull reviews by risk tier (mr-reviewer sessions that did a review):\n');
-  console.log('| Tier | Reviews | Avg runner min | Avg gCO2e |\n|---|---|---|---|');
-  for (const [tier, xs] of byTier) console.log(`| ${tier} | ${xs.length} | ${minutes(avg(xs))} | ${grams(avg(xs)).toFixed(2)} |`);
+  console.log('| Tier | Reviews | Avg runner min | Avg runner gCO2e | Avg model calls (low-high) | Avg total gCO2e (low-high) |\n|---|---|---|---|---|---|');
+  for (const [tier, xs] of byTier) {
+    const c = callsOf(xs, Math.max(1, xs.length));
+    console.log(`| ${tier} | ${xs.length} | ${minutes(avg(xs))} | ${grams(avg(xs)).toFixed(2)} | ${calls(c)} | ${range(avg(xs), c)} |`);
+  }
+  console.log(`\nModel calls are bounded from each session's checkpoints; ${INFERENCE_WH_PER_CALL.low}-${INFERENCE_WH_PER_CALL.high} Wh per call is a cited range (engine/src/sci.ts).`);
 }

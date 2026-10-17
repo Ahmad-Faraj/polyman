@@ -77,3 +77,42 @@ export function formatFootprint(f: Footprint): string {
   const minutes = (f.runnerSeconds / 60).toFixed(1);
   return `${minutes} runner-min, ${(f.energyKwh * 1000).toFixed(1)} Wh, ${f.totalGrams.toFixed(1)} gCO2e`;
 }
+
+/**
+ * Model inference per agent session. It runs on GitLab's side, so its energy
+ * can't be measured here. What the session log shows is the agent graph's
+ * checkpoints: one after every step (a model call, a tool step, the start and
+ * the finish). So the model calls are bounded, not counted:
+ *   at most  every checkpoint;
+ *   at least the checkpoints that came 3 s or more after the one before (a
+ *            model completion takes seconds; tool steps and bookkeeping
+ *            checkpoints arrive within a second).
+ * Energy per call is a cited range, not a measurement, and neither figure is
+ * for the Claude model our flows use:
+ *   0.24 Wh: Google's median Gemini Apps text prompt, serving overhead
+ *            included (Elsworth et al. 2025, arXiv:2508.15734)
+ *   2.5 Wh:  Epoch AI's rough estimate for a GPT-4o query with ~10k input
+ *            tokens ("How much energy does ChatGPT use?", 2025); agent calls
+ *            carry the prompt, the event and the work so far
+ * The low end pairs the fewest calls with the lower figure, the high end the
+ * most calls with the higher one. Grid intensity is the runner's; no embodied
+ * emissions are included for the model's hardware.
+ */
+export const INFERENCE_WH_PER_CALL = { low: 0.24, high: 2.5 } as const;
+
+/** Model calls in a session's job log, bounded from its checkpoints' times. */
+export function modelCalls(log: string): { low: number; high: number } {
+  const times = log
+    .split('\n')
+    .filter((line) => line.includes('Received new checkpoint'))
+    .map((line) => Date.parse(line.slice(0, 27)));
+  const spaced = times.slice(1).filter((t, i) => Number.isFinite(t) && Number.isFinite(times[i]) && t - times[i] >= 3000).length;
+  return { low: spaced, high: times.length };
+}
+
+export function inferenceGrams(calls: { low: number; high: number }, gridGramsPerKwh: number): { low: number; high: number } {
+  return {
+    low: (calls.low * INFERENCE_WH_PER_CALL.low * gridGramsPerKwh) / 1000,
+    high: (calls.high * INFERENCE_WH_PER_CALL.high * gridGramsPerKwh) / 1000,
+  };
+}
