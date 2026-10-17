@@ -78,11 +78,17 @@ monitor:
   rollback_job: service:rollback:production
 
 # Assisted (wiki: Assisted): who may give an agent the go-ahead for its next
-# step. The requester (the issue's or MR's author), agents and GitLabDuo never
-# count. By risk tier, "anyone" means any other person and "maintainers" only
+# step. The requester (the issue's or MR's author), agents, GitLabDuo and
+# anyone outside go_ahead.people never count. By risk tier, "anyone" means any other person and "maintainers" only
 # the people below; rollbacks always need a maintainer. The autonomy:goahead job
 # enforces this on every MR pipeline.
 go_ahead:
+  # the people on the project: anyone else (a new bot, a stranger on this
+  # public project) needs a go-ahead to push and can't give one
+  people:
+    - HamzaHassanain
+    - Ahmad-Faraj
+    - Mazen-Ghanaym
   maintainers:
     - HamzaHassanain
   low: anyone

@@ -20,7 +20,7 @@ import { execFileSync } from 'node:child_process';
 import { loadConfig } from '../config.ts';
 import { matchesAny } from '../glob.ts';
 import { GitLab, required } from '../gitlab.ts';
-import { type Note, type PushEvent, type Step, attribute, branchPushes, goAheadFor, isPerson, linkedIssue, tierFrom } from '../goahead.ts';
+import { type Note, type PushEvent, type Step, attribute, branchPushes, goAheadFor, isProjectPerson, tierFrom } from '../goahead.ts';
 
 const env = process.env;
 
@@ -46,7 +46,16 @@ async function main() {
       throw new Error(`git can't compare ${commit.slice(0, 8)} with ${of.slice(0, 8)} (is the history fetched?)`);
     }
   };
+  const inRepo = (sha: string) => {
+    try {
+      execFileSync('git', ['cat-file', '-e', `${sha}^{commit}`], { stdio: 'ignore' });
+      return true;
+    } catch {
+      return false;
+    }
+  };
   const commits = execFileSync('git', ['rev-list', `${base}..HEAD`], { encoding: 'utf8' }).split('\n').filter(Boolean);
+  const isPerson = (username: string) => isProjectPerson(username, config);
   if (!commits.length) {
     console.log('no commits on this MR: nothing needs a go-ahead');
     return;
@@ -63,21 +72,23 @@ async function main() {
     throw new Error(`more than ${pages * 100} records at ${path}; can't be sure every push was read`);
   };
 
-  const mr = await gl.get<{ author: { username: string }; created_at: string; description: string | null; source_branch: string }>(`/:project/merge_requests/${iid}`);
+  const mr = await gl.get<{ author: { username: string }; created_at: string; source_branch: string }>(`/:project/merge_requests/${iid}`);
   const notes = await all<Note>(`/:project/merge_requests/${iid}/notes?sort=asc&order_by=created_at`);
   // pushes from two weeks before the MR on: enough for its branch, and for each agent's previous push
-  const since = new Date(Date.parse(mr.created_at) - 14 * 86_400_000).toISOString().slice(0, 10);
+  const since = new Date(Date.parse(mr.created_at) - 30 * 86_400_000).toISOString().slice(0, 10);
   const events = await all<PushEvent>(`/:project/events?action=pushed&after=${since}&sort=asc`);
-  const pushes = branchPushes(events, mr.source_branch);
+  // a push whose head a later force-push threw away brought nothing that's still here
+  const pushes = branchPushes(events, mr.source_branch).filter((p) => inRepo(p.to) && (!p.from || inRepo(p.from)));
   const { by, unaccounted } = attribute(commits, pushes, isAncestor);
 
   const problems: string[] = [];
   for (const sha of unaccounted) problems.push(`commit ${sha.slice(0, 8)} is in no push GitLab recorded for ${mr.source_branch}, so who pushed it and on whose go-ahead can't be told`);
 
-  const issue = linkedIssue(mr.description);
-  const issueData = issue ? await gl.get<{ author: { username: string } }>(`/:project/issues/${issue}`) : null;
-  // whoever asked: the MR's author if a person opened it, and the issue's author
-  const requesters = [...(isPerson(mr.author.username) ? [mr.author.username] : []), ...(issueData ? [issueData.author.username] : [])];
+  // the issues GitLab says this MR closes (not the agent-written description)
+  const closes = await gl.get<{ iid: number; author: { username: string } }[]>(`/:project/merge_requests/${iid}/closes_issues`);
+  const issue = closes[0]?.iid ?? null;
+  // whoever asked: the MR's author if a person opened it, and the issues' authors
+  const requesters = [...(isPerson(mr.author.username) ? [mr.author.username] : []), ...closes.map((i) => i.author.username)];
   const rollback = (account: string) => /incident-responder/i.test(account);
   // the agent's previous push anywhere in the project: an older go-ahead was used up by it
   const previousPush = (pusher: string, at: string) =>
@@ -94,7 +105,14 @@ async function main() {
   // pushed. Only the incident responder may add to the incidents file.
   for (const [sha, p] of by) {
     if (isPerson(p.pusher)) continue;
-    const files = execFileSync('git', ['diff-tree', '--no-commit-id', '--name-only', '-r', '--root', sha], { encoding: 'utf8' }).split('\n').filter(Boolean);
+    // a merge commit's diff hides what it brings in, so agents push none
+    const parents = execFileSync('git', ['rev-list', '--parents', '-n', '1', sha], { encoding: 'utf8' }).trim().split(' ').length - 1;
+    if (parents > 1) {
+      problems.push(`commit ${sha.slice(0, 8)} pushed by @${p.pusher} is a merge commit; agents may not push merges (a person merges the default branch in)`);
+      continue;
+    }
+    // -z: paths come out as they are, not quoted (a quoted "engine/\303\251.ts" wouldn't match engine/**)
+    const files = execFileSync('git', ['diff-tree', '--no-commit-id', '--name-only', '-r', '--root', '-z', sha], { encoding: 'utf8' }).split('\0').filter(Boolean);
     const touched = files.filter((f) => matchesAny(f, config.governance) && !(f === config.incidentsFile && rollback(p.pusher)));
     if (touched.length) problems.push(`commit ${sha.slice(0, 8)} pushed by @${p.pusher} changes files only people may change: ${touched.join(', ')}`);
   }
@@ -104,7 +122,7 @@ async function main() {
     const step: Step = { requesters, tier, rollback: rollback(push.pusher) };
     const beforeMr = Date.parse(push.at) < Date.parse(mr.created_at);
     if (beforeMr && !issue) {
-      problems.push(`push at ${push.at} by @${push.pusher} (${shas}) came before the MR, which closes no issue to hold its go-ahead`);
+      problems.push(`push at ${push.at} by @${push.pusher} (${shas}) came before the MR, and GitLab lists no issue this MR closes to hold its go-ahead`);
       continue;
     }
     if (beforeMr) issueNotes ??= await all<Note>(`/:project/issues/${issue}/notes?sort=asc&order_by=created_at`);

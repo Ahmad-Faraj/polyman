@@ -3,11 +3,12 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { DEFAULT_CONFIG, loadConfig } from '../src/config.ts';
-import { type Note, type PushEvent, type Step, attribute, branchPushes, goAheadFor, isPerson, linkedIssue, notAllowed, saysGoAhead, tierFrom } from '../src/goahead.ts';
+import { type Note, type PushEvent, type Step, attribute, branchPushes, goAheadFor, isPerson, isProjectPerson, linkedIssue, notAllowed, saysGoAhead, tierFrom } from '../src/goahead.ts';
 import { flowValues } from '../src/render.ts';
 
 const AGENT = 'ai-mr-reviewer-group_e50080';
-const config = { ...DEFAULT_CONFIG, goAhead: { maintainers: ['HamzaHassanain'], byTier: DEFAULT_CONFIG.goAhead.byTier } };
+const config = { ...DEFAULT_CONFIG, goAhead: { maintainers: ['HamzaHassanain'], people: [], byTier: DEFAULT_CONFIG.goAhead.byTier } };
+const listed = { ...config, goAhead: { ...config.goAhead, people: ['HamzaHassanain', 'Ahmad-Faraj', 'Mazen-Ghanaym'] } };
 const low: Step = { requesters: ['Mazen-Ghanaym'], tier: 'low', rollback: false };
 
 let id = 0;
@@ -42,6 +43,14 @@ describe('who may give it', () => {
     }
     expect(isPerson('abbott')).toBe(true);
     expect(isPerson('Ahmad-Faraj')).toBe(true);
+  });
+
+  it('with go_ahead.people set, only those people count: not a new bot, not a stranger', () => {
+    expect(isProjectPerson('helper-robot', config)).toBe(true); // a name alone can't tell
+    expect(isProjectPerson('helper-robot', listed)).toBe(false);
+    expect(isProjectPerson('ahmad-faraj', listed)).toBe(true);
+    expect(notAllowed('random-stranger', low, listed)).toMatch(/not one of the people who may give a go-ahead/);
+    expect(notAllowed('Ahmad-Faraj', low, listed)).toBeNull();
   });
 
   it('never anyone who asked: the MR author or the issue author', () => {
@@ -117,7 +126,7 @@ describe('a push needs a go-ahead after the agent proposed and before it pushed'
     for (const bot of ['ai-pipeline-fixer-group_b1d814', 'GitLabDuo']) {
       const fake = note('10:05', bot, `@${AGENT} go-ahead`);
       const v = goAheadFor({ at: '2026-10-17T10:10:00Z', pusher: AGENT }, [proposal, fake], low, config);
-      expect(!v.ok && v.reason).toMatch(/is not a person/);
+      expect(!v.ok && v.reason).toMatch(/is not one of the people/);
     }
   });
 
@@ -193,7 +202,11 @@ describe('go_ahead in .autonomy.yml', () => {
   };
 
   it("reads this project's maintainers and tiers", () => {
-    expect(loadConfig('../.autonomy.yml').goAhead).toEqual({ maintainers: ['HamzaHassanain'], byTier: { low: 'anyone', medium: 'anyone', high: 'maintainers' } });
+    expect(loadConfig('../.autonomy.yml').goAhead).toEqual({
+      maintainers: ['HamzaHassanain'],
+      people: ['HamzaHassanain', 'Ahmad-Faraj', 'Mazen-Ghanaym'],
+      byTier: { low: 'anyone', medium: 'anyone', high: 'maintainers' },
+    });
   });
 
   it('refuses names that are not usernames and tiers that are not anyone or maintainers', () => {
@@ -203,5 +216,7 @@ describe('go_ahead in .autonomy.yml', () => {
     expect(load('go_ahead: maintainers\n')).toThrow('need a map');
     expect(load('go_ahead:\n  maintainers: [hamza, Hamza]\n')).toThrow('listed twice');
     expect(load('go_ahead:\n  maintainers: [ai-mr-reviewer-x]\n')).toThrow('is an agent or bot account');
+    expect(load('go_ahead:\n  people: [a, ai-bot]\n')).toThrow('people: ai-bot is an agent or bot account');
+    expect(load('go_ahead:\n  maintainers: [hamza]\n  people: [ahmad]\n')).toThrow('hamza is not in go_ahead.people');
   });
 });

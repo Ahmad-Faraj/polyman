@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 
 const CLI = resolve('src/cli/goahead.ts');
 const CONFIG = resolve('../.autonomy.yml');
@@ -21,6 +21,7 @@ function repo(count: number, email = 'service_account_group_1@noreply.gitlab.com
   const base = git('rev-parse', 'HEAD');
   const shas: string[] = [];
   for (let i = 0; i < count; i++) {
+    mkdirSync(dirname(join(dir, file)), { recursive: true });
     writeFileSync(join(dir, file), `change ${i}`);
     git('add', '.');
     git('-c', 'user.name=someone', '-c', `user.email=${email}`, 'commit', '-qm', `change ${i}`);
@@ -66,16 +67,20 @@ interface Case {
   notes?: (r: { base: string; shas: string[] }) => unknown[];
   events: (r: { base: string; shas: string[] }) => unknown[];
   issueNotes?: unknown[];
+  closes?: unknown[];
   api?: string;
 }
 
 async function run(c: Case) {
-  const r = repo(c.commits ?? 1, c.email, c.file);
+  return runIn(repo(c.commits ?? 1, c.email, c.file), c);
+}
+
+async function runIn(r: { dir: string; base: string; shas: string[] }, c: Case) {
   const api = await gitlab({
     '/api/v4/projects/1/merge_requests/7': { author: { username: c.mrAuthor ?? 'Mazen-Ghanaym' }, created_at: '2026-10-17T09:00:00Z', description: 'Closes #22', source_branch: 'fix' },
     '/api/v4/projects/1/merge_requests/7/notes': c.notes?.(r) ?? [],
     '/api/v4/projects/1/events': c.events(r),
-    '/api/v4/projects/1/issues/22': { author: { username: c.issueAuthor ?? 'Issue-Author' } },
+    '/api/v4/projects/1/merge_requests/7/closes_issues': c.closes ?? [{ iid: 22, author: { username: c.issueAuthor ?? 'Issue-Author' } }],
     '/api/v4/projects/1/issues/22/notes': c.issueNotes ?? [],
   });
   // async, so the stand-in server in this process can answer while the CLI runs
@@ -200,9 +205,54 @@ describe('autonomy:goahead against a git repo and a stand-in for GitLab', () => 
     expect(code).toBe(0);
   });
 
-  it("fails, rather than guessing, when git doesn't know a commit a push names", async () => {
-    const { code, text } = await run({ notes: () => [proposal, goAhead()], events: (r) => [push('10:10', AGENT, 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef', r.shas[0])] });
-    expect(text).toMatch(/git can't compare .* deadbeef/);
+  it('skips a push a later force-push threw away, and still accounts for every commit', async () => {
+    const gone = 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef';
+    const { code, text } = await run({
+      notes: () => [proposal, goAhead()],
+      events: (r) => [push('09:50', AGENT, r.base, gone), push('10:10', AGENT, gone, r.shas[0])],
+    });
+    // the second push names a head that's gone, so its commit is accounted for by no push
+    expect(text).toMatch(/is in no push GitLab recorded/);
+    expect(code).toBe(1);
+  });
+
+  it('needs a go-ahead for a push by an account outside go_ahead.people, whatever its name', async () => {
+    const { code, text } = await run({ email: 'helper@example.com', events: (r) => [push('10:10', 'helper-robot', r.base, r.shas[0])] });
+    expect(text).toMatch(/@helper-robot wrote no proposal/);
+    expect(code).toBe(1);
+  });
+
+  it("doesn't count a go-ahead from someone outside the project's people", async () => {
+    const { code, text } = await run({ notes: () => [proposal, goAhead('random-stranger')], events: (r) => [push('10:10', AGENT, r.base, r.shas[0])] });
+    expect(text).toMatch(/random-stranger is not one of the people/);
+    expect(code).toBe(1);
+  });
+
+  it('refuses a merge commit from an agent (its diff would hide a governance change)', async () => {
+    const r = repo(0);
+    const git = (...a: string[]) => execFileSync('git', a, { cwd: r.dir, encoding: 'utf8' }).trim();
+    git('checkout', '-qb', 'side');
+    execFileSync('mkdir', ['-p', join(r.dir, 'engine')]);
+    writeFileSync(join(r.dir, 'engine', 'evil.ts'), 'x');
+    git('add', '.');
+    git('-c', 'user.name=s', '-c', 'user.email=s@x', 'commit', '-qm', 'side');
+    git('checkout', '-q', '-');
+    writeFileSync(join(r.dir, 'b.txt'), 'b');
+    git('add', '.');
+    git('-c', 'user.name=s', '-c', 'user.email=s@x', 'commit', '-qm', 'main side');
+    git('-c', 'user.name=s', '-c', 'user.email=s@x', 'merge', '-q', '--no-ff', '-m', 'merge', 'side');
+    const head = git('rev-parse', 'HEAD');
+    const { code, text } = await runIn(r, {
+      notes: () => [proposal, goAhead()],
+      events: () => [push('10:10', AGENT, r.base, head)],
+    });
+    expect(text).toMatch(/is a merge commit; agents may not push merges/);
+    expect(code).toBe(1);
+  });
+
+  it('catches a governance file with a non-ASCII name', async () => {
+    const { code, text } = await run({ file: 'engine/é.ts', notes: () => [proposal, goAhead()], events: (r) => [push('10:10', AGENT, r.base, r.shas[0])] });
+    expect(text).toMatch(/changes files only people may change: engine\/é\.ts/);
     expect(code).toBe(1);
   });
 

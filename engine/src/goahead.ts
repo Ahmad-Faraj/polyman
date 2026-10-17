@@ -38,6 +38,17 @@ export function isPerson(username: string): boolean {
   return !/^ai-|^service_account|^duo-|^GitLabDuo$|^ghost$|(^|[-_])bot($|[-_])/i.test(username);
 }
 
+/**
+ * A person on this project: one of go_ahead.people when that list is set
+ * (anyone else, a new bot or a stranger on a public project, is not), and a
+ * name that doesn't look like an agent otherwise.
+ */
+export function isProjectPerson(username: string, config: AutonomyConfig): boolean {
+  const people = config.goAhead.people;
+  if (people.length) return people.some((p) => p.toLowerCase() === username.toLowerCase());
+  return isPerson(username);
+}
+
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
@@ -97,7 +108,7 @@ export function attribute(
 
 /** Why this person's go-ahead doesn't count for this step, or null if it does. */
 export function notAllowed(username: string, step: Step, config: AutonomyConfig): string | null {
-  if (!isPerson(username)) return `@${username} is not a person`;
+  if (!isProjectPerson(username, config)) return `@${username} is not one of the people who may give a go-ahead`;
   if (step.requesters.some((r) => r.toLowerCase() === username.toLowerCase())) {
     return `@${username} asked for this work, so someone else has to say go-ahead`;
   }

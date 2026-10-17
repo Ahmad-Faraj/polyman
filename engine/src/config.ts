@@ -50,6 +50,11 @@ export interface AutonomyConfig {
   goAhead: {
     /** exact usernames whose go-ahead counts where only maintainers may give it */
     maintainers: string[];
+    /**
+     * The people on the project. When set, only they count as people: anyone
+     * else's push needs a go-ahead, and their go-ahead doesn't count.
+     */
+    people: string[];
     /** by risk tier: any person who isn't the requester, or only a maintainer */
     byTier: Record<'low' | 'medium' | 'high', GoAheadFrom>;
   };
@@ -78,7 +83,7 @@ export const DEFAULT_CONFIG: AutonomyConfig = {
     fixerAccount: '',
   },
   monitor: { measuredRoutes: [], productionJobs: ['deploy:production', 'monitor:production'], rollbackJob: 'rollback:production' },
-  goAhead: { maintainers: [], byTier: { low: 'anyone', medium: 'anyone', high: 'maintainers' } },
+  goAhead: { maintainers: [], people: [], byTier: { low: 'anyone', medium: 'anyone', high: 'maintainers' } },
 };
 
 type Raw = Partial<{
@@ -102,7 +107,7 @@ type Raw = Partial<{
   }>;
   agents: Partial<{ about: string; checks: string; test_guide: string; security_focus: string; reviewer_account: string; fixer_account: string }>;
   monitor: Partial<{ measured_routes: string[]; production_jobs: string[]; rollback_job: string }>;
-  go_ahead: Partial<{ maintainers: unknown; low: unknown; medium: unknown; high: unknown }>;
+  go_ahead: Partial<{ maintainers: unknown; people: unknown; low: unknown; medium: unknown; high: unknown }>;
 }>;
 
 export function loadConfig(path = process.env.AUTONOMY_CONFIG || '.autonomy.yml'): AutonomyConfig {
@@ -160,6 +165,17 @@ function goAheadFrom(raw: Raw['go_ahead'], path: string): AutonomyConfig['goAhea
     const agent = maintainers.find((m) => !isPerson(m));
     if (agent) throw bad(`maintainers: ${agent} is an agent or bot account, and only a person can give a go-ahead`);
   }
+  let people = d.people;
+  if (raw.people !== undefined) {
+    if (!Array.isArray(raw.people) || !raw.people.every((u) => typeof u === 'string' && USERNAME.test(u))) {
+      throw bad('people: need a list of GitLab usernames');
+    }
+    people = raw.people as string[];
+    const agent = people.find((m) => !isPerson(m));
+    if (agent) throw bad(`people: ${agent} is an agent or bot account`);
+    const missing = maintainers.find((m) => !people.some((u) => u.toLowerCase() === m.toLowerCase()));
+    if (missing) throw bad(`maintainers: ${missing} is not in go_ahead.people`);
+  }
   const byTier = { ...d.byTier };
   for (const tier of ['low', 'medium', 'high'] as const) {
     const value = raw[tier];
@@ -167,7 +183,7 @@ function goAheadFrom(raw: Raw['go_ahead'], path: string): AutonomyConfig['goAhea
     if (value !== 'anyone' && value !== 'maintainers') throw bad(`${tier}: need "anyone" or "maintainers"`);
     byTier[tier] = value;
   }
-  return { maintainers, byTier };
+  return { maintainers, people, byTier };
 }
 
 // Job names go into a flow prompt, so only what CI job names look like.
