@@ -126,6 +126,8 @@ async function runIn(r: { dir: string; base: string; shas: string[] }, c: Case) 
     env: {
       ...process.env,
       CI_API_V4_URL: c.api ?? api.url,
+      // GitLab sets this in every job; left in, GraphQL would go to gitlab.com instead of the stand-in
+      CI_API_GRAPHQL_URL: '',
       CI_PROJECT_ID: '1',
       CI_MERGE_REQUEST_IID: '7',
       CI_MERGE_REQUEST_DIFF_BASE_SHA: r.base,
