@@ -8,8 +8,9 @@
  * fails the pipeline even when the unit tests stay green.
  *
  * Timing is not judged exactly: an expected OK that comes back TLE is reported
- * as a warning (slow runner), never the other way round. A solution that spins
- * forever must keep getting TLE.
+ * as a warning (slow runner), never the other way round, and only while some
+ * expected OK stays OK. A solution that spins forever must keep getting TLE.
+ * The judging logic is in lib.mjs.
  *
  * Usage:
  *   node corpus/run.mjs [--polyman dist/cli.js] [--record] [--only a,b]
@@ -21,6 +22,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { compare, outcomeOf, selectProblems } from './lib.mjs';
 
 const CORPUS = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.dirname(CORPUS);
@@ -96,79 +98,6 @@ function verifyProblem(name, args) {
     // Reported below with the captured stderr.
   }
   return { report, seconds, stderr: result.stderr ?? '', work };
-}
-
-/** Reduces a verify report to the parts the corpus pins. */
-function outcomeOf(report) {
-  const steps = {};
-  for (const step of report.steps) steps[step.name] = step.ok;
-  const solutions = {};
-  for (const solution of report.solutions) {
-    const tests = [...solution.tests].sort(
-      (a, b) => a.testset.localeCompare(b.testset) || a.index - b.index
-    );
-    solutions[solution.name] = {
-      tag: solution.tag,
-      matchesTag: solution.matchesTag,
-      verdicts: tests.map(
-        test => `${test.testset}#${test.index}:${test.verdict}`
-      ),
-    };
-  }
-  return { ok: report.ok, failedStep: report.failedStep, steps, solutions };
-}
-
-/** Lists differences as { kind: 'failure' | 'warning', message }. */
-function compare(expected, actual) {
-  const diffs = [];
-  const fail = message => diffs.push({ kind: 'failure', message });
-  const warn = message => diffs.push({ kind: 'warning', message });
-
-  for (const [step, ok] of Object.entries(expected.steps)) {
-    if (actual.steps[step] !== ok)
-      fail(`step ${step}: expected ok=${ok}, got ${actual.steps[step]}`);
-  }
-  for (const [name, want] of Object.entries(expected.solutions)) {
-    const got = actual.solutions[name];
-    if (!got) {
-      fail(`solution ${name}: missing from report`);
-      continue;
-    }
-    if (got.verdicts.length !== want.verdicts.length) {
-      fail(
-        `solution ${name}: expected ${want.verdicts.length} tests, got ${got.verdicts.length}`
-      );
-      continue;
-    }
-    // A slower runner can turn OK into TLE and so flip matchesTag; that's the
-    // only difference that excuses a matchesTag change.
-    let timing = false;
-    let other = false;
-    want.verdicts.forEach((wantTest, i) => {
-      const gotTest = got.verdicts[i];
-      if (gotTest === wantTest) return;
-      const slower = wantTest.endsWith(':OK') && gotTest.endsWith(':TLE');
-      if (slower) {
-        timing = true;
-        warn(
-          `solution ${name}: ${wantTest} came back ${gotTest} (timing, not judged)`
-        );
-      } else {
-        other = true;
-        fail(`solution ${name}: expected ${wantTest}, got ${gotTest}`);
-      }
-    });
-    if (got.matchesTag !== want.matchesTag && !(timing && !other)) {
-      fail(
-        `solution ${name}: expected matchesTag=${want.matchesTag}, got ${got.matchesTag}`
-      );
-    }
-  }
-  for (const name of Object.keys(actual.solutions)) {
-    if (!expected.solutions[name])
-      fail(`solution ${name}: not pinned in expected file`);
-  }
-  return diffs;
 }
 
 const xml = text =>
@@ -277,11 +206,18 @@ function main() {
   const tools = toolchain();
   console.log('toolchain:', JSON.stringify(tools));
 
-  const names = fs
+  const available = fs
     .readdirSync(PROBLEMS)
-    .filter(name => fs.statSync(path.join(PROBLEMS, name)).isDirectory())
-    .filter(name => !args.only || args.only.has(name))
-    .sort();
+    .filter(name => fs.statSync(path.join(PROBLEMS, name)).isDirectory());
+  const { names, unknown } = selectProblems(available, args.only);
+  if (unknown.length || !names.length) {
+    console.error(
+      unknown.length
+        ? `no such corpus problem: ${unknown.join(', ')} (have ${available.join(', ')})`
+        : 'no corpus problems to judge'
+    );
+    process.exit(1);
+  }
 
   const results = [];
   for (const name of names) {

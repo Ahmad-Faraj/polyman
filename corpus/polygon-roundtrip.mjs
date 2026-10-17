@@ -29,6 +29,14 @@ import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  freshnessCheck,
+  freshnessMarker,
+  nonEmpty,
+  pushChecks,
+  scriptLines,
+  text,
+} from './lib.mjs';
 
 const CORPUS = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.dirname(CORPUS);
@@ -98,8 +106,6 @@ async function polygon(creds, method, params, raw = false) {
   return data.result;
 }
 
-/** Line endings differ by platform; Polygon stores CRLF. Compare content only. */
-const text = s => String(s ?? '').replace(/\r\n/g, '\n');
 const base = p => path.basename(p);
 const stem = p => path.basename(p, path.extname(p));
 const readLocal = (dir, rel) =>
@@ -110,24 +116,6 @@ const readJson = (dir, rel) =>
   rel && fs.existsSync(path.join(dir, rel))
     ? JSON.parse(readLocal(dir, rel))
     : null;
-
-/**
- * The generator lines of a script as Polygon shows them per test: the
- * generator's file name (without extension) and its arguments, no target.
- * Returns null for scripts that use FreeMarker beyond comments.
- */
-function scriptLines(script, generatorFiles) {
-  const lines = [];
-  for (const raw of script.replace(/<#--[\s\S]*?-->/g, '').split(/\r?\n/)) {
-    const line = raw.trim();
-    if (!line) continue;
-    if (line.includes('<#') || line.includes('${')) return null;
-    const command = line.split('>')[0].trim().split(/\s+/);
-    command[0] = generatorFiles[command[0]] ?? command[0];
-    lines.push(command.join(' '));
-  }
-  return lines;
-}
 
 /** Push with polyman, as a user would, with credentials in a throwaway home. */
 function push(args, creds, problemDir) {
@@ -342,7 +330,14 @@ async function scriptParity(creds, problemId, polyman, testset) {
     'helpers',
     'script-parser.js'
   );
-  if (!fs.existsSync(parserFile)) return [];
+  if (!fs.existsSync(parserFile))
+    return [
+      {
+        name: 'scripts',
+        ok: false,
+        detail: `polyman's script parser is not at ${parserFile}`,
+      },
+    ];
   const { parseGeneratorScript } = createRequire(import.meta.url)(parserFile);
   const id = { problemId, testset };
   const original = await polygon(creds, 'problem.script', id, true);
@@ -426,6 +421,17 @@ async function main() {
     );
   }
 
+  // Polygon problem 605330 is reused across runs: mark this run's upload so a
+  // push that uploads nothing can't pass on what the last run left there.
+  const marker = freshnessMarker(
+    process.env.CI_PIPELINE_ID ?? `local-${Date.now()}`
+  );
+  const before = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  const [markedLang, markedStatement] =
+    Object.entries(before.statements ?? {}).find(([, st]) => st.legend) ?? [];
+  if (markedStatement)
+    fs.appendFileSync(path.join(dir, markedStatement.legend), `\n${marker}\n`);
+
   const pushed = push(args, creds, dir);
   const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
   if (!config.problemId) {
@@ -440,29 +446,42 @@ async function main() {
     );
 
   const checks = await compare(creds, config.problemId, dir, config);
-  const failed = checks.filter(c => !c.ok);
-  if (failed.length && pushed.status === 0) {
+  checks.push(...pushChecks(pushed.status, checks.filter(c => !c.ok).length));
+  if (markedStatement) {
+    const statements = await polygon(creds, 'problem.statements', {
+      problemId: config.problemId,
+    });
+    checks.push(freshnessCheck(statements[markedLang]?.legend, marker));
+  } else {
     checks.push({
-      name: 'push reports failures',
+      name: 'push is fresh',
       ok: false,
-      detail:
-        'polyman remote push exited 0, but Polygon differs from the folder',
+      detail: 'the problem has no statement legend to mark',
     });
   }
   const testset = config.testsets?.[0]?.name;
   if (testset) {
     checks.push(
-      ...(await inputParity(
-        creds,
-        config.problemId,
-        dir,
-        args.polyman,
-        testset
-      ))
+      ...nonEmpty(
+        `inputs ${testset}`,
+        await inputParity(creds, config.problemId, dir, args.polyman, testset),
+        `polyman generate wrote no test<N>.txt in testsets/${testset}`
+      )
     );
     checks.push(
-      ...(await scriptParity(creds, config.problemId, args.polyman, testset))
+      ...nonEmpty(
+        'scripts',
+        await scriptParity(creds, config.problemId, args.polyman, testset),
+        'corpus/scripts is empty'
+      )
     );
+  } else {
+    checks.push({
+      name: 'testsets',
+      ok: false,
+      detail:
+        'Config.json has no testset, so inputs and scripts were not compared',
+    });
   }
 
   for (const c of checks)
