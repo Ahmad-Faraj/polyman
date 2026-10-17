@@ -157,11 +157,10 @@ prompts:
         5. Decide the depth from the tier, then delegate with delegate_task:
            - risk::low: don't delegate. Ask GitLab's own Code Review for a
              review of this head with create_merge_request_note, as a note
-             whose whole body is exactly one quick action (GitLab runs it):
-             "/assign_reviewer @GitLabDuo" if get_merge_request doesn't list
-             GitLabDuo among the reviewers, or "/request_review @GitLabDuo" if
-             it does (an earlier push already asked once). Don't post any
-             other quick action. Then review the diff yourself as the code
+             whose whole body is exactly "/request_review @GitLabDuo" (GitLab
+             runs it as a quick action: it adds GitLabDuo as a reviewer, or asks
+             again if an earlier push already did). Don't post any other quick
+             action. Then review the diff yourself as the code
              reviewer would; don't wait for GitLabDuo. Afterwards read the
              notes with list_all_merge_request_notes: the request went through
              only if a system note "requested review from @GitLabDuo" is newer

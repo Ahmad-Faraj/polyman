@@ -54,11 +54,16 @@ describe("the project's Duo flows", () => {
 
   it('for low risk the lead asks GitLabDuo to review with one quick action, and checks a new request went through', () => {
     const prompt = read('mr-reviewer.yaml');
-    expect(prompt).toContain('"/assign_reviewer @GitLabDuo"');
-    // a later push: GitLabDuo is already a reviewer, so ask again for the new head
-    expect(prompt).toContain('"/request_review @GitLabDuo"');
-    expect(prompt).toMatch(/Don't post any\s+other quick action\./);
+    // one command in GitLab: it adds the reviewer, or re-requests if already one
+    // (`command :request_review, :assign_reviewer, :reviewer`), and it's on the
+    // list of quick actions AI workflows may use
+    expect(prompt).toMatch(/whose whole body is exactly "\/request_review @GitLabDuo"/);
+    expect(prompt).toMatch(/Don't post any other quick\s+action\./);
     expect(prompt).toMatch(/system note "requested review from @GitLabDuo" is newer\s+than your quick-action note/);
+    // the tools that path needs
+    expect(toolset('mr-reviewer.yaml', 'lead_reviewer')).toEqual(
+      expect.arrayContaining(['get_merge_request', 'create_merge_request_note', 'list_all_merge_request_notes']),
+    );
   });
 
   it('the lead reviewer has no shell while it reads untrusted diffs and logs', () => {
