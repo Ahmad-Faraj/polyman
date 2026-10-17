@@ -125,7 +125,7 @@ Polyman is a command-line tool designed for competitive programming problem sett
 
 ### Prerequisites
 
-- **Node.js** v14 or higher
+- **Node.js** ^20.19.0 or ≥ 22.12.0
 - **C++ Compiler** (g++ with C++23 support by default; set `cppStandard` in `Config.json` to target an older standard)
 - **Java JDK** (optional, for Java solutions)
 - **Python** (optional, for Python solutions)
@@ -2838,7 +2838,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v2
         with:
-          node-version: '16'
+          node-version: '22'
 
       - name: Install Polyman
         run: npm install -g polyman-cli
