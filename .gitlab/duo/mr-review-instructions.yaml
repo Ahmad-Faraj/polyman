@@ -32,7 +32,16 @@ instructions:
       2. A push step must not report success when any upload in it failed, and the command must exit non-zero; scripts and agents only see the exit code.
       3. Source types must be ones Polygon accepts (for Java: `java8`, `java21`, not `java.11`); check the argument order of API helpers like buildPackage(problemId, full, verify).
       4. The API key and secret must never be logged or sent anywhere but Polygon.
+  - name: Verify service sandbox
+    fileFilters:
+      - "service/src/**"
+      - "service/Dockerfile"
+      - "service/deploy/**"
+    instructions: |
+      1. The service runs code strangers upload. Uploaded code must run as the unprivileged runner user, with no environment variables of ours, and everything it started or created must be gone after the run; flag any path where cleanup can fail open.
+      2. Every path from an upload (zip entries, Config.json fields, solution and generator names) must stay inside the problem folder: reject `..`, absolute paths, symlinks and path separators in names.
+      3. On Cloud Run: no route to the internet, a service account with no roles, one request per instance. Flag changes that widen any of these.
   - name: Everything
     instructions: |
       1. Follow CLAUDE.md: Vitest tests for every fix, no refactors the issue didn't ask for.
-      2. Agents may not change `.gitlab-ci.yml`, `.gitlab/`, `.autonomy.yml`, `engine/` or `corpus/`; flag any MR where an agent's commit does.
+      2. Agents may not change `.gitlab-ci.yml`, `.gitlab/`, `.autonomy.yml`, `engine/`, `corpus/`, `service/samples/`, `service/scripts/golden.ts` or `service/ci/`; flag any MR where an agent's commit does.
