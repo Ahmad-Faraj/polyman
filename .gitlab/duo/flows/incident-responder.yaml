@@ -119,7 +119,9 @@ prompts:
             and only to add this entry), keeping it a valid JSON array. Commit
             with a message that ends with a trailer line "Go-ahead: " plus the
             go-ahead note's ID, push, and open the MR titled "Roll back !MR_IID:
-            REASON" with the label "incident", linking the issue and the go-ahead.
+            REASON" with the label "incident". Its description starts with
+            "Closes #" plus the incident issue's number (the go-ahead guard reads
+            who asked from the issue the MR closes) and links the go-ahead.
         11. Comment on the incident with the rollback MR. If the cause is in the
             application code (not CI, the monitor or the infrastructure), say that
             a real fix comes next: assign this incident to the issue builder, which
