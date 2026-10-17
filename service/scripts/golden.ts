@@ -79,6 +79,17 @@ export function readStream(text: string): { problem?: ProblemEvent; problems: st
   return { problem, problems };
 }
 
+/**
+ * A fire drill: the first sample's expected result turned around, so a correct
+ * service fails the check exactly as a service that judges wrongly would. Lets
+ * a person rehearse the rollback and the incident on demand.
+ */
+export function drillExpected(expected: Map<string, Expected>): { expected: Map<string, Expected>; sample: string } {
+  const [sample, want] = [...expected][0] ?? [];
+  if (!sample || !want) throw new Error('no sample to turn around for the drill');
+  return { expected: new Map([...expected].map(([name, w]) => [name, name === sample ? { ...w, ok: !w.ok } : w])), sample };
+}
+
 /** The expected results kept in this repository, by sample name. */
 export function expectedSamples(dir = fileURLToPath(new URL('../samples/', import.meta.url))): Map<string, Expected> {
   const out = new Map<string, Expected>();
@@ -194,14 +205,19 @@ async function check(url: string, init: RequestInit, want: Expected, waitMs?: nu
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const base = (process.argv[2] ?? '').replace(/\/$/, '');
   if (!/^https?:\/\//.test(base)) {
-    console.error('usage: golden.ts BASE_URL [--json FILE]');
+    console.error('usage: golden.ts BASE_URL [--json FILE] [--drill]');
     process.exit(2);
   }
   const jsonAt = process.argv.indexOf('--json');
   const write = (body: object) => {
     if (jsonAt > 0) writeFileSync(process.argv[jsonAt + 1], JSON.stringify({ base, ...body }, null, 2));
   };
-  const expected = expectedSamples();
+  let expected = expectedSamples();
+  if (process.argv.includes('--drill') && expected.size) {
+    const drill = drillExpected(expected);
+    expected = drill.expected;
+    console.log(`DRILL: the expected result for ${drill.sample} is turned around on purpose. A failure below is the drill working, not the service judging wrongly.`);
+  }
   if (!expected.size) {
     console.error('no samples with an expected result in service/samples');
     write({ error: 'no expected samples' });

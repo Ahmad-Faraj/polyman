@@ -131,13 +131,19 @@ service:promote:production:
     reports:
       dotenv: deploy.env
 
+# A fire drill on demand: run a pipeline on main from the UI (Build > Pipelines
+# > Run pipeline) with DRILL=production-check, and this check fails on purpose
+# after the switch, so the rollback and the incident run for real. Only a
+# pipeline a person starts in the UI can run the drill, not a push or the API.
 service:check:production:
   extends: .service:release
   stage: deploy
   image: node:22
   needs: [service:promote:production]
   script:
-    - node --disable-warning=ExperimentalWarning service/scripts/golden.ts "$SERVICE_URL" --json golden.json
+    - |
+      if [ "${DRILL:-}" = production-check ] && [ "$CI_PIPELINE_SOURCE" = web ]; then set -- --drill; else set --; fi
+      node --disable-warning=ExperimentalWarning service/scripts/golden.ts "$SERVICE_URL" --json golden.json "$@"
   artifacts:
     when: always
     paths: [golden.json]
