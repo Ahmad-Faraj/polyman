@@ -3,7 +3,7 @@
 # review the agents do before that approval is asked for.
 
 thresholds:
-  # below medium: GitLab's Code Review flow, and a summary from the lead reviewer
+  # below medium: GitLab's Code Review (GitLabDuo as reviewer), and a summary from the lead reviewer
   medium: 25   # code and test reviewers
   high: 60     # security, code and test reviewers
 
@@ -67,6 +67,15 @@ agents:
 monitor:
   # filled in with the verify service (#19)
   measured_routes: []
+  # failing one of these means production is affected (the incident responder
+  # opens an incident). Only jobs that run once production serves the new
+  # release: a failed candidate deploy or check never got traffic, and promote
+  # also fails on purpose when main has moved on, so those are ordinary bugs.
+  production_jobs:
+    - service:check:production
+    - service:rollback:production
+  # moves traffic back, but only when production serves this pipeline's release
+  rollback_job: service:rollback:production
 
 # Used to estimate the carbon cost of each change (SCI). Defaults match a
 # GitLab.com small Linux runner (2 vCPU, 8 GB) in GCP us-east1, with Cloud
