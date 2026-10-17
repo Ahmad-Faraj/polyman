@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, symlinkSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { loadConfig } from '../src/config.ts';
-import { FLOWS, type Gql, type Rest, type SetupOptions, definitionFor, finishAccounts, gitlabUrl, mayWriteAccounts, pipelineFilter, pushBlocked, setupFlows, triggerMatches, withAccounts } from '../src/cli/setup-flows.ts';
+import { FLOWS, type Gql, type Rest, type SetupOptions, definitionFor, finishAccounts, gitlabUrl, isEntry, mayWriteAccounts, pipelineFilter, pushBlocked, setupFlows, triggerMatches, withAccounts } from '../src/cli/setup-flows.ts';
 
 const spec = (name: string) => FLOWS.find(([n]) => n === name)![2];
 
@@ -317,5 +321,29 @@ describe('writing the accounts at the end of a run', () => {
   it('leaves a file that already has the names alone', () => {
     const done = end({}).write!;
     expect(end({ text: done })).toEqual({ messages: ['.autonomy.yml already has these accounts'], errors: [] });
+  });
+});
+
+describe('running setup-flows directly', () => {
+  const self = fileURLToPath(new URL('../src/cli/setup-flows.ts', import.meta.url));
+
+  it('runs its main block, so a missing token fails loudly instead of exiting 0 having done nothing', () => {
+    // a project path, so the token check is what stops it, also outside a checkout
+    const env: NodeJS.ProcessEnv = { ...process.env, GITLAB_PROJECT_PATH: 'group/project' };
+    delete env.GITLAB_TOKEN;
+    const r = spawnSync(process.execPath, [self], { env, encoding: 'utf8' });
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toMatch(/set GITLAB_TOKEN/);
+  });
+
+  it('knows itself through a symlink (the fallback for Node without import.meta.main)', () => {
+    const link = join(mkdtempSync(join(tmpdir(), 'entry-')), 'setup-flows.ts');
+    symlinkSync(self, link);
+    expect(isEntry(link, self)).toBe(true);
+    expect(isEntry(fileURLToPath(new URL('../src/cli/doctor.ts', import.meta.url)), self)).toBe(false);
+    expect(isEntry(undefined, self)).toBe(false);
+    // a path that doesn't exist falls back to comparing the strings
+    expect(isEntry('/no/such/setup-flows.ts', self)).toBe(false);
+    expect(isEntry('/no/such/x.ts', '/no/such/x.ts')).toBe(true);
   });
 });

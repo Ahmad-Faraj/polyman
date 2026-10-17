@@ -18,6 +18,8 @@ export interface Finding {
   name: string;
   file?: string;
   line?: number;
+  /** The last line a multi-line finding covers; its first line when unset. */
+  endLine?: number;
 }
 
 /** A learned weight: past incidents caused by changes to these paths. */
@@ -117,10 +119,14 @@ export function assessRisk(
   const byPath = new Map(files.map((f) => [f.path, f]));
   findings = findings.filter((f) => {
     if (!f.file) return true;
-    const changed = byPath.get(f.file);
+    // some scanners write "./src/x.ts"
+    const changed = byPath.get(f.file.replace(/^\.\//, ''));
     if (!changed) return false;
-    if (f.scanner === 'secret_detection' || f.line === undefined || !changed.addedLines) return true;
-    return changed.addedLines.some(([first, last]) => f.line! >= first && f.line! <= last);
+    const start = f.line;
+    if (f.scanner === 'secret_detection' || start === undefined || !changed.addedLines) return true;
+    // a finding that spans lines counts when any of them was added
+    const end = Math.max(start, f.endLine ?? start);
+    return changed.addedLines.some(([first, last]) => start <= last && end >= first);
   });
   const counts: Record<Severity, number> = { Critical: 0, High: 0, Medium: 0, Low: 0, Info: 0, Unknown: 0 };
   for (const f of findings) counts[f.severity]++;

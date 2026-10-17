@@ -17,7 +17,7 @@
  * Run it from your machine with your own token:
  *   GITLAB_TOKEN=... node engine/src/cli/setup-flows.ts [project path] [--dry-run]
  */
-import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
@@ -371,8 +371,20 @@ export async function setupFlows(o: SetupOptions): Promise<{ defaultBranch: stri
   return { defaultBranch, accounts };
 }
 
-// import.meta.main is undefined before Node 22.18, which would skip this and exit 0 having done nothing
-if (import.meta.main ?? process.argv[1] === fileURLToPath(import.meta.url)) {
+/** Whether `argv1` is this file, through symlinks and short paths. */
+export function isEntry(argv1: string | undefined, self: string): boolean {
+  if (!argv1) return false;
+  try {
+    // .native also expands short Windows names (MOHAME~1), which the JS version doesn't
+    return realpathSync.native(argv1) === realpathSync.native(self);
+  } catch {
+    return argv1 === self;
+  }
+}
+
+// import.meta.main is undefined before Node 22.18 (and on 23.x to 24.1), which would skip this and exit 0
+// having done nothing; compare real paths so a symlinked checkout or a short Windows path still runs it
+if (import.meta.main ?? isEntry(process.argv[1], fileURLToPath(import.meta.url))) {
   const args = process.argv.slice(2);
   const dryRun = args.includes('--dry-run');
   const projectPath = projectPathFrom(args.find((a) => !a.startsWith('--')));

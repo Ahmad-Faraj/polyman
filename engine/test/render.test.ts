@@ -32,6 +32,14 @@ describe('flow values', () => {
   });
 });
 
+describe('the people a proposal mentions', () => {
+  it('lists go_ahead.people as mentions, and tells the agent to mention no one when the list is empty', () => {
+    const team = flowValues({ ...DEFAULT_CONFIG, goAhead: { ...DEFAULT_CONFIG.goAhead, people: ['Ann', 'Bo'] } }, {});
+    expect(team.people).toBe('@Ann, @Bo');
+    expect(flowValues(DEFAULT_CONFIG, {}).people).toBe('nobody (go_ahead.people is empty, so mention no one)');
+  });
+});
+
 describe('renderFlow', () => {
   it('fills every marker, as often as it appears', () => {
     expect(renderFlow('@@checks@@ then @@checks@@', { checks: 'make test' })).toBe('make test then make test');

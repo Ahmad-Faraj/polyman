@@ -91,16 +91,19 @@ prompts:
            - Otherwise read the code you'll touch and post one note that starts
              with "Proposal for #ISSUE_IID:" and says, in a few lines: what you'll
              change and which files, the test that will fail without the change,
-             the risk tier you expect from .autonomy.yml and why, and on its last
-             line who may give the go-ahead and how: "Go-ahead: someone other than
+             the risk tier you expect from .autonomy.yml and why, and then who may
+             give the go-ahead and how: "Go-ahead: someone other than
              the issue's author (or one of @@maintainers@@ for high risk or a change
              to the high, critical or protected paths) replies
              with a line that mentions me, the author of this note, and says
-             go-ahead". Don't write your own @mention in the note: it would
-             mention your own account. Then end the note with a line that
-             mentions the people who may give it, so GitLab notifies them: those
-             of @@people@@ who aren't the issue's author (only @@maintainers@@
-             when only a maintainer counts). Mention people only, never an agent.
+             go-ahead". Never @mention your own account anywhere in the note. The
+             note's last line mentions the people who may give the go-ahead, so
+             GitLab notifies them: those of @@people@@ who aren't the issue's
+             author (only @@maintainers@@ when only a maintainer counts). Mention
+             people only, never an agent. Compare usernames without case. If
+             nobody is left, say in that line that someone other than the
+             requester (a maintainer, when only one counts) is needed, and
+             mention nobody.
            - If a comment after your proposal asks for changes instead, post a
              revised proposal the same way.
            Then stop. Don't create a branch, commit or push before a go-ahead.

@@ -104,6 +104,15 @@ describe('assessRisk', () => {
     expect(assessRisk(changed, [secret], config).tier).toBe('high');
   });
 
+  it('counts a finding that spans lines when any of them was added', () => {
+    const changed = [{ ...file('src/routes/orders.ts'), addedLines: [[505, 510]] as [number, number][] }, file('tests/api.test.ts')];
+    const across: Finding = { scanner: 'sast', severity: 'Medium', name: 'Path Traversal', file: 'src/routes/orders.ts', line: 500, endLine: 506 };
+    expect(assessRisk(changed, [across], config).stats.findings.Medium).toBe(1);
+    expect(assessRisk(changed, [{ ...across, endLine: 504 }], config).stats.findings.Medium).toBe(0);
+    // an end before the start is read as a single line
+    expect(assessRisk(changed, [{ ...across, line: 506, endLine: 1 }], config).stats.findings.Medium).toBe(1);
+  });
+
   it('high severity findings raise the score', () => {
     const vuln: Finding = { scanner: 'sast', severity: 'High', name: 'SQL injection', file: 'src/routes/orders.ts' };
     const clean = assessRisk([file('src/routes/orders.ts'), file('tests/api.test.ts')], [], config);

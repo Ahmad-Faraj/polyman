@@ -249,7 +249,11 @@ prompts:
              line that mentions the people who may give it, so GitLab notifies
              them: those of @@people@@ who aren't the MR's or the issue's author
              (only @@maintainers@@ when only a maintainer counts). Mention people
-             only, never an agent. Leave both out when there is nothing to fix.
+             only, never an agent. Compare usernames without case. If
+             nobody is left, say in that line that someone other than the
+             requester (a maintainer, when only one counts) is needed, and
+             mention nobody. Leave the Go-ahead line and
+             the mention line out when there is nothing to fix.
            - "Before you merge", only when something changes whether to merge
              now: the pipeline for the final head is still running or failed, a
              request you made didn't go through, or something the approver must

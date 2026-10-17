@@ -109,6 +109,18 @@ describe("the project's Duo flows", () => {
     expect(renderFlow(read('pipeline-fixer.yaml'), values)).toContain('`@ai-fixer go-ahead`');
   });
 
+  it("each proposal ends by mentioning the people who may give its go-ahead, or no one when nobody is left", () => {
+    for (const file of ['issue-builder.yaml', 'pipeline-fixer.yaml', 'mr-reviewer.yaml']) {
+      const text = flat(file);
+      expect(text).toContain('those of @@people@@ who aren');
+      expect(text).toContain('Compare usernames without case');
+      expect(text).toContain('If nobody is left, say in that line that someone other than the requester (a maintainer, when only one counts) is needed');
+    }
+    expect(flat('incident-responder.yaml')).toContain("Its last line mentions those of @@maintainers@@ who aren't the incident's author");
+    // the self-mention rule no longer reads as a ban on every mention
+    for (const file of files) expect(flat(file)).not.toContain("Don't write your own @mention");
+  });
+
   it('the fixer reads the tier from the assess job, never from a label', () => {
     expect(flat('pipeline-fixer.yaml')).toContain('never from a label');
     expect(flat('pipeline-fixer.yaml')).toContain('field "name"');

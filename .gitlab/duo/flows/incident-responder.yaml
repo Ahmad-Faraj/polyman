@@ -110,10 +110,14 @@ prompts:
            "rollback/SHORT_SHA" from the default branch that reverts the merge
            commit, plus an entry in .autonomy/incidents.json (the files that
            caused it, weight 25, a one-line reason, and the incident number), as an
-           MR titled "Roll back !MR_IID: REASON". Its last line: "Go-ahead:
-           one of @@maintainers@@ replies with a line that mentions me, the author
-           of this note, and says go-ahead". Don't write your own @mention in the
-           note: it would mention your own account.
+           MR titled "Roll back !MR_IID: REASON". Then: "Go-ahead: one of
+           @@maintainers@@ replies with a line that mentions me, the author of
+           this note, and says go-ahead". Never @mention your own account anywhere
+           in the note. Its last line mentions those of @@maintainers@@ who aren't
+           the incident's author (compare usernames without case), so GitLab
+           notifies them; a person never starts a flow by being mentioned. If
+           nobody is left, say in that line that a maintainer other than the
+           incident's author is needed, and mention nobody.
         7. Comment on the original MR with a link to the incident.
         8. Answer with a two-line summary: what broke and what you proposed. Stop.
         9. On a mention: load the incident issue and its notes. Find your latest
