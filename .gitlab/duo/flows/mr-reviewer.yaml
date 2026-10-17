@@ -245,8 +245,11 @@ prompts:
              or one of @@maintainers@@ for high risk or fixes that touch the high,
              critical or protected paths, replies with the line
              `@@@reviewer_account@@ go-ahead`, without the backticks"). Keep that
-             mention inside backticks: a plain one would mention your own account. Leave it out
-             when there is nothing to fix.
+             mention inside backticks: a plain one would mention your own account. Then a
+             line that mentions the people who may give it, so GitLab notifies
+             them: those of @@people@@ who aren't the MR's or the issue's author
+             (only @@maintainers@@ when only a maintainer counts). Mention people
+             only, never an agent. Leave both out when there is nothing to fix.
            - "Before you merge", only when something changes whether to merge
              now: the pipeline for the final head is still running or failed, a
              request you made didn't go through, or something the approver must

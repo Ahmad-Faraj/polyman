@@ -26,6 +26,8 @@ export function flowValues(config: AutonomyConfig, consumerIds: Record<string, s
     rollback_job: config.monitor.rollbackJob,
     // Assisted: whose go-ahead counts for high risk and rollbacks
     maintainers: config.goAhead.maintainers.map((m) => `@${m}`).join(', ') || 'a maintainer (none set in go_ahead.maintainers)',
+    // who a proposal mentions so GitLab notifies them (people never start a flow)
+    people: config.goAhead.people.map((m) => `@${m}`).join(', ') || 'the project members (none set in go_ahead.people)',
   };
   for (const name of HANDOFF_FLOWS) {
     const id = consumerIds[name];
