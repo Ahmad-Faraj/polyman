@@ -19,6 +19,35 @@
 
 </div>
 
+## GitLab Transcend: Life After Code (Path B · Assisted)
+
+**Who judges the judge?** polyman tells problem setters whether every solution gets the right verdict. When polyman is wrong, a broken contest problem looks correct to its author. Its 967 unit tests are green, so on GitLab we added judges that are neither an LLM nor us, and Duo agents that fix what they find, **one step at a time, each step on a person's go-ahead**.
+
+- **The corpus:** real g++, Java and Python run original problems with deliberately wrong solutions; every per-test verdict is compared with the true one ([!4](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/4), verdict matrix in the MR).
+- **Polygon itself:** we push a problem with polyman, read back what Polygon stored, and compare every generated test byte for byte.
+- **Mutation testing:** of 463 small bugs planted in the verdict code, the unit tests catch 314.
+
+They found 8 real bugs the unit tests miss ([by the corpus](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues?label_name[]=found-by::corpus), [by Polygon](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues?label_name[]=found-by::polygon)). **60-second proof:** [!5](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/5) plants one wrong line in the tag rules; all 967 unit tests pass, and the judge fails on exactly that case.
+
+### A go-ahead at every stage
+
+An agent proposes, a teammate who didn't ask for the work replies `@agent go-ahead` (the maintainer for high risk, governance and rollbacks), and the agent does that one step. A CI job (`autonomy:goahead`) fails any agent push without a valid go-ahead. Full rules: [Assisted](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/wikis/Assisted).
+
+| Stage | Proposes | Go-ahead | Where to look |
+|---|---|---|---|
+| Plan | A judge finds a wrong verdict → an issue with evidence | A person assigns it to issue-builder | [corpus](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues?label_name[]=found-by::corpus), [Polygon](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues?label_name[]=found-by::polygon) |
+| Create | issue-builder: "Proposal for #N" (change, test, risk) | `@issue-builder go-ahead` | [flows](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/17), first agent fix [!11](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/11) |
+| Verify | CI: tests, corpus, mutation score; pipeline-fixer proposes a fix if red | `@pipeline-fixer go-ahead` | [!4](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/4) |
+| Secure | SAST and secret detection in every MR; security specialist rates findings | part of the review go-ahead | [MR pipeline](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/pipelines/2956563455) |
+| Review | mr-reviewer: findings and proposed fixes; GitLab Duo Code Review | `@mr-reviewer go-ahead` per fix round | [!4's review](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/4) |
+| Package | the merge builds the package and the service image | a person merges | [canary](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/7) |
+| Release | canary → npm `next` (judged) → `latest` | manual jobs | [Release-design](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/wikis/Release-design) |
+| Configure | Cloud Run candidate, checked by the golden set | manual promote | `service/` |
+| Monitor | nightly judges on the published `polyman-cli`; incident-responder proposes a rollback | the maintainer's go-ahead | `corpus/corpus.gitlab-ci.yml` |
+| Govern | agents can't touch CI, policy, engine or corpus; the go-ahead guard | changes to the rules are a person's MR | [guard](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/19) |
+
+Links to agent runs on the judge bugs are added here as they happen. Team: Hamza Hassanain (polyman's author), Mazen Ghanayem, Ahmed Faraj.
+
 ## Why Polyman?
 
 Stop switching between environments. Create competitive programming problems entirely in your terminal:
