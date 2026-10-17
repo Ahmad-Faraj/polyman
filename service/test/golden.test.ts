@@ -102,3 +102,23 @@ describe('zipFolder', () => {
     }
   });
 });
+
+describe('the production-check fire drill', () => {
+  it('turns around exactly one sample, so a correct service fails the check', async () => {
+    const { drillExpected, expectedSamples } = await import('../scripts/golden.ts');
+    const expected = expectedSamples();
+    const { expected: drilled, sample } = drillExpected(expected);
+    expect(drilled.get(sample)!.ok).toBe(!expected.get(sample)!.ok);
+    for (const [name, want] of expected) if (name !== sample) expect(drilled.get(name)).toEqual(want);
+    // the repository's own expectations are untouched
+    expect(expectedSamples().get(sample)!.ok).toBe(expected.get(sample)!.ok);
+  });
+
+  it('runs in CI only when a person starts the pipeline from the UI with DRILL=production-check', async () => {
+    const { readFileSync } = await import('node:fs');
+    const ci = readFileSync(new URL('../ci/service.gitlab-ci.yml', import.meta.url), 'utf8');
+    const job = ci.slice(ci.indexOf('service:check:production:'), ci.indexOf('service:rollback:production:'));
+    expect(job).toContain('[ "${DRILL:-}" = production-check ] && [ "$CI_PIPELINE_SOURCE" = web ]');
+    expect(job).toContain('golden.json "$@"');
+  });
+});
