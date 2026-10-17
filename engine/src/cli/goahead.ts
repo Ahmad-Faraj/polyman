@@ -17,6 +17,9 @@
  * assumes high risk.
  */
 import { execFileSync } from 'node:child_process';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { loadConfig } from '../config.ts';
 import { matchesAny } from '../glob.ts';
 import { GitLab, required } from '../gitlab.ts';
@@ -32,9 +35,24 @@ try {
 }
 
 async function main() {
-  const config = loadConfig(env.AUTONOMY_CONFIG ?? '.autonomy.yml');
   const iid = required(env, 'CI_MERGE_REQUEST_IID');
   const base = env.CI_MERGE_REQUEST_DIFF_BASE_SHA || `origin/${env.CI_DEFAULT_BRANCH ?? 'main'}`;
+  // The policy (who counts as a person, who may give a go-ahead, the protected
+  // paths) comes from the target branch, never from this MR: an MR could add
+  // its own author to the people list.
+  const file = env.AUTONOMY_CONFIG ?? '.autonomy.yml';
+  let policy: string | null = null;
+  try {
+    policy = execFileSync('git', ['show', `${base}:${file}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  } catch {
+    // no policy file on the target branch: the defaults apply
+  }
+  const configPath = join(mkdtempSync(join(tmpdir(), 'goahead-')), '.autonomy.yml');
+  writeFileSync(configPath, policy ?? '');
+  const config = loadConfig(policy === null ? '/nonexistent/.autonomy.yml' : configPath);
+  if (!config.goAhead.people.length) {
+    console.warn(`warning: the target branch's ${file} lists no go_ahead.people, so agents are told apart by name only`);
+  }
   const tier = tierFrom(env.AUTONOMY_TIER);
   const isAncestor = (commit: string, of: string) => {
     try {
@@ -78,7 +96,12 @@ async function main() {
   const since = new Date(Date.parse(mr.created_at) - 30 * 86_400_000).toISOString().slice(0, 10);
   const events = await all<PushEvent>(`/:project/events?action=pushed&after=${since}&sort=asc`);
   // a push whose head a later force-push threw away brought nothing that's still here
-  const pushes = branchPushes(events, mr.source_branch).filter((p) => inRepo(p.to) && (!p.from || inRepo(p.from)));
+  // A push whose head a later force-push threw away brought nothing that's still
+  // here. A push whose old head is gone (a rebase or force-push) is read as if
+  // it created the branch: it brought whatever earlier pushes didn't.
+  const pushes = branchPushes(events, mr.source_branch)
+    .filter((p) => inRepo(p.to))
+    .map((p) => (p.from && !inRepo(p.from) ? { ...p, from: null } : p));
   const { by, unaccounted } = attribute(commits, pushes, isAncestor);
 
   const problems: string[] = [];
@@ -89,6 +112,10 @@ async function main() {
   const issue = closes[0]?.iid ?? null;
   // whoever asked: the MR's author if a person opened it, and the issues' authors
   const requesters = [...(isPerson(mr.author.username) ? [mr.author.username] : []), ...closes.map((i) => i.author.username)];
+  // an agent's MR with no issue has nobody on record who asked, so anyone could approve their own idea
+  if (!isPerson(mr.author.username) && !closes.length) {
+    problems.push(`an agent (@${mr.author.username}) opened this MR and GitLab lists no issue it closes, so who asked for the work isn't on record; link the issue ("Closes #N")`);
+  }
   const rollback = (account: string) => /incident-responder/i.test(account);
   // the agent's previous push anywhere in the project: an older go-ahead was used up by it
   const previousPush = (pusher: string, at: string) =>

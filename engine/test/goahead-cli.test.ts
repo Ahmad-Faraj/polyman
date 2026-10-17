@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -16,6 +16,8 @@ function repo(count: number, email = 'service_account_group_1@noreply.gitlab.com
   const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' }).trim();
   git('init', '-q');
   writeFileSync(join(dir, 'a.txt'), 'a');
+  // the policy lives on the target branch, i.e. in the base commit
+  copyFileSync(CONFIG, join(dir, '.autonomy.yml'));
   git('add', '.');
   git('-c', 'user.name=Mazen', '-c', 'user.email=mazen@example.com', 'commit', '-qm', 'base');
   const base = git('rev-parse', 'HEAD');
@@ -93,8 +95,8 @@ async function runIn(r: { dir: string; base: string; shas: string[] }, c: Case) 
       CI_MERGE_REQUEST_IID: '7',
       CI_MERGE_REQUEST_DIFF_BASE_SHA: r.base,
       AUTONOMY_TIER: c.tier ?? 'low',
-      AUTONOMY_CONFIG: CONFIG,
       CI_JOB_TOKEN: 'job',
+      AUTONOMY_CONFIG: '.autonomy.yml',
     },
   });
   let text = '';
@@ -205,14 +207,44 @@ describe('autonomy:goahead against a git repo and a stand-in for GitLab', () => 
     expect(code).toBe(0);
   });
 
-  it('skips a push a later force-push threw away, and still accounts for every commit', async () => {
+  it('reads a push over a head a force-push threw away as bringing what earlier pushes did not', async () => {
     const gone = 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef';
     const { code, text } = await run({
       notes: () => [proposal, goAhead()],
       events: (r) => [push('09:50', AGENT, r.base, gone), push('10:10', AGENT, gone, r.shas[0])],
     });
-    // the second push names a head that's gone, so its commit is accounted for by no push
-    expect(text).toMatch(/is in no push GitLab recorded/);
+    expect(text).toMatch(/push at 2026-10-17T10:10:00Z by @ai-mr-reviewer.*go-ahead in note 2/);
+    expect(code).toBe(0);
+  });
+
+  it("a person's rebase doesn't break the job: their push brings the rewritten commits", async () => {
+    const gone = 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef';
+    const { code, text } = await run({ email: 'mazen@example.com', events: (r) => [push('10:10', 'Mazen-Ghanaym', gone, r.shas[0])] });
+    expect(text).toMatch(/1 push\(es\), 0 by agents/);
+    expect(code).toBe(0);
+  });
+
+  it('takes the people list from the target branch, so an MR cannot add its own pusher', async () => {
+    const r = repo(0);
+    const git = (...a: string[]) => execFileSync('git', a, { cwd: r.dir, encoding: 'utf8' }).trim();
+    const policy = readFileSync(join(r.dir, '.autonomy.yml'), 'utf8').replace('  people:\n', '  people:\n    - helper-robot\n');
+    writeFileSync(join(r.dir, '.autonomy.yml'), policy);
+    git('-c', 'user.name=h', '-c', 'user.email=h@x', 'commit', '-qam', 'add me');
+    const head = git('rev-parse', 'HEAD');
+    const { code, text } = await runIn(r, { events: () => [push('10:10', 'helper-robot', r.base, head)] });
+    expect(text).toMatch(/@helper-robot wrote no proposal/);
+    expect(code).toBe(1);
+  });
+
+  it('fails an agent-opened MR that closes no issue: nobody on record asked for it', async () => {
+    const { code, text } = await run({ mrAuthor: BUILDER, closes: [], notes: () => [proposal, goAhead()], events: (r) => [push('10:10', AGENT, r.base, r.shas[0])] });
+    expect(text).toMatch(/opened this MR and GitLab lists no issue it closes/);
+    expect(code).toBe(1);
+  });
+
+  it('catches a governance file whose name has a newline in it', async () => {
+    const { code, text } = await run({ file: 'engine/a\nb.ts', notes: () => [proposal, goAhead()], events: (r) => [push('10:10', AGENT, r.base, r.shas[0])] });
+    expect(text).toMatch(/changes files only people may change: engine\/a\nb\.ts/);
     expect(code).toBe(1);
   });
 

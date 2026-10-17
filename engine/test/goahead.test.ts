@@ -220,3 +220,13 @@ describe('go_ahead in .autonomy.yml', () => {
     expect(load('go_ahead:\n  maintainers: [hamza]\n  people: [ahmad]\n')).toThrow('hamza is not in go_ahead.people');
   });
 });
+
+describe('governance globs', () => {
+  it('match paths with newlines and non-ASCII names', async () => {
+    const { matches } = await import('../src/glob.ts');
+    expect(matches('engine/a\nb.ts', 'engine/**')).toBe(true);
+    expect(matches('engine/é.ts', 'engine/**')).toBe(true);
+    expect(matches('docs/a\nb/c.md', '*.md')).toBe(true);
+    expect(matches('enginex/a.ts', 'engine/**')).toBe(false);
+  });
+});
