@@ -114,6 +114,28 @@ describe('the production-check fire drill', () => {
     expect(expectedSamples().get(sample)!.ok).toBe(expected.get(sample)!.ok);
   });
 
+  it('turns the first sample around in either direction, without touching its input', async () => {
+    const { drillExpected } = await import('../scripts/golden.ts');
+    const fail = { ok: false, solutions: { main: true }, readinessFailures: ['test_coverage'] };
+    const pass = { ok: true, solutions: { main: true }, readinessFailures: [] };
+    const input = new Map([
+      ['a', fail],
+      ['b', pass],
+    ]);
+    const drilled = drillExpected(input);
+    expect(drilled.sample).toBe('a');
+    expect(drilled.expected.get('a')).toEqual({ ...fail, ok: true });
+    expect(drilled.expected.get('b')).toBe(pass);
+    expect(input.get('a')).toBe(fail);
+    expect(fail.ok).toBe(false);
+    expect(drillExpected(new Map([['x', pass]])).expected.get('x')!.ok).toBe(false);
+  });
+
+  it('refuses to run a drill when there is no sample to turn around', async () => {
+    const { drillExpected } = await import('../scripts/golden.ts');
+    expect(() => drillExpected(new Map())).toThrow('no sample to turn around');
+  });
+
   it('runs in CI only when a person starts the pipeline from the UI with DRILL=production-check', async () => {
     const { readFileSync } = await import('node:fs');
     const ci = readFileSync(new URL('../ci/service.gitlab-ci.yml', import.meta.url), 'utf8');
