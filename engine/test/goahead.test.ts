@@ -35,6 +35,14 @@ describe('what counts as a go-ahead comment', () => {
     expect(saysGoAhead(`> @${AGENT} go-ahead\n\nNot yet.`, AGENT)).toBe(false);
     expect(saysGoAhead(`<!--\n@${AGENT} go-ahead\n-->`, AGENT)).toBe(false);
     expect(saysGoAhead(`<!-- unclosed\n@${AGENT} go-ahead`, AGENT)).toBe(false);
+    // a fence closes only on its own character, at least as long
+    expect(saysGoAhead(`~~~\n\`\`\`\n@${AGENT} go-ahead\n~~~`, AGENT)).toBe(false);
+    expect(saysGoAhead(`\`\`\`\`\n\`\`\`\n@${AGENT} go-ahead\n\`\`\`\``, AGENT)).toBe(false);
+    // an indented code block after a blank line, also over several lines
+    expect(saysGoAhead(`To approve:\n\n    @${AGENT} go-ahead`, AGENT)).toBe(false);
+    expect(saysGoAhead(`To approve:\n\n    example\n\t@${AGENT} go-ahead`, AGENT)).toBe(false);
+    // an indented line that continues a paragraph is not code
+    expect(saysGoAhead(`Looks right,\n    @${AGENT} go-ahead`, AGENT)).toBe(true);
     // after the block closes, a real one still counts
     expect(saysGoAhead(`\`\`\`\nexample\n\`\`\`\n@${AGENT} go-ahead`, AGENT)).toBe(true);
   });

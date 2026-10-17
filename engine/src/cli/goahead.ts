@@ -46,13 +46,16 @@ async function main() {
     return;
   }
   const base = env.CI_MERGE_REQUEST_DIFF_BASE_SHA || `origin/${env.CI_DEFAULT_BRANCH ?? 'main'}`;
+  // the policy is the target branch's as it is now (CI fetches its head), not as
+  // it was when the MR branched off
+  const policyRef = env.AUTONOMY_POLICY_REF || base;
   // The policy (who counts as a person, who may give a go-ahead, the protected
   // paths) comes from the target branch, never from this MR: an MR could add
   // its own author to the people list.
   const file = env.AUTONOMY_CONFIG ?? '.autonomy.yml';
   let policy: string | null = null;
   try {
-    policy = execFileSync('git', ['show', `${base}:${file}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    policy = execFileSync('git', ['show', `${policyRef}:${file}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
   } catch {
     // no policy on the target branch: without a people list a guard can't tell
     // a person from an agent, so it fails rather than guess by name
@@ -101,9 +104,17 @@ async function main() {
 
   const mr = await gl.get<{ author: { username: string }; created_at: string; source_branch: string }>(`/:project/merge_requests/${iid}`);
   const notes = await all<Note>(`/:project/merge_requests/${iid}/notes?sort=asc&order_by=created_at`);
-  // pushes from 30 days before the MR on: enough for its branch, and for each agent's previous push
-  const since = new Date(Date.parse(mr.created_at) - 30 * 86_400_000).toISOString().slice(0, 10);
-  const events = await all<PushEvent>(`/:project/events?action=pushed&after=${since}&sort=asc`);
+  // Pushes from two days before the oldest commit on the MR (or before the MR,
+  // if that's earlier) on: no push to this branch can be older than what it
+  // brought. Commit dates are the pusher's own word, but one set late can't
+  // push the window past the MR's creation, and one set early only widens it.
+  // `after` leaves out the day it names, hence two days.
+  const oldest = Math.min(
+    Date.parse(mr.created_at),
+    ...commits.map((sha) => Number(execFileSync('git', ['show', '-s', '--format=%ct', sha], { encoding: 'utf8' }).trim()) * 1000),
+  );
+  const since = new Date(oldest - 2 * 86_400_000).toISOString().slice(0, 10);
+  const events = await all<PushEvent>(`/:project/events?action=pushed&after=${since}&sort=asc`, 100);
   // A push whose head a later force-push threw away brought nothing that's still
   // here. A push whose old head is gone (a rebase or force-push) is read as if
   // it created the branch: it brought whatever earlier pushes didn't.
@@ -115,10 +126,13 @@ async function main() {
   const problems: string[] = [];
   for (const sha of unaccounted) problems.push(`commit ${sha.slice(0, 8)} is in no push GitLab recorded for ${mr.source_branch}, so who pushed it and on whose go-ahead can't be told`);
 
+  const rollback = (account: string) => /incident-responder/i.test(account);
   // the issues GitLab says this MR closes, parsed from a description the agent may
   // write, so only an issue a person wrote shows someone asked
   const closes = await gl.get<{ iid: number; author: { username: string } }[]>(`/:project/merge_requests/${iid}/closes_issues`);
-  const asked = closes.filter((i) => isPerson(i.author.username));
+  // ...or, for a rollback, the incident the responder opened: its push still
+  // needs a maintainer's go-ahead on that issue
+  const asked = closes.filter((i) => isPerson(i.author.username) || (rollback(i.author.username) && rollback(mr.author.username)));
   const issue = asked[0]?.iid ?? null;
   // whoever asked: the MR's author if a person opened it, and the issues' authors
   const requesters = [...(isPerson(mr.author.username) ? [mr.author.username] : []), ...closes.map((i) => i.author.username)];
@@ -128,7 +142,6 @@ async function main() {
       `an agent (@${mr.author.username}) opened this MR and GitLab lists no issue it closes that a person wrote, so who asked for the work isn't on record; link the issue ("Closes #N")`,
     );
   }
-  const rollback = (account: string) => /incident-responder/i.test(account);
   // the agent's previous push to this branch: an older go-ahead was used up by it
   // (the agent accounts are shared, so a push to another MR spends nothing here)
   const allBranchPushes = branchPushes(events, mr.source_branch);
