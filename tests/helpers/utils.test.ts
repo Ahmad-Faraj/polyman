@@ -1,4 +1,5 @@
 import type { ReadStream } from 'fs';
+import { spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -34,6 +35,10 @@ vi.mock('fs', () => {
   };
 });
 
+vi.mock('child_process', async importOriginal => {
+  const actual = await importOriginal<typeof import('child_process')>();
+  return { ...actual, spawnSync: vi.fn() };
+});
 vi.mock('../../src/executor');
 vi.mock('../../src/formatter');
 // Pass-through: compile-cache.test.ts covers the cache itself.
@@ -59,6 +64,28 @@ const mockExit = vi
   });
 
 const executorMocked = vi.mocked(executor);
+const spawnSyncMocked = vi.mocked(spawnSync);
+
+/**
+ * Pretends the machine has exactly these interpreters, each printing the given
+ * `--version` output. Anything else fails like a missing command.
+ */
+function mockInterpreters(versions: Record<string, string>) {
+  spawnSyncMocked.mockImplementation(((command: string) => {
+    const output = versions[command];
+    if (output === undefined) {
+      return {
+        error: Object.assign(new Error('spawnSync ENOENT'), {
+          code: 'ENOENT',
+        }),
+        status: null,
+        stdout: '',
+        stderr: '',
+      };
+    }
+    return { status: 0, stdout: output, stderr: '' };
+  }) as unknown as typeof spawnSync);
+}
 const fmtMocked = vi.mocked(fmt);
 const executeMock = () => executorMocked['execute'];
 const fmtErrorMock = () => fmtMocked['error'];
@@ -625,36 +652,91 @@ describe('utils.ts', () => {
       }
     );
 
-    it('should handle .py', () => {
-      const obj: LocalSolution = {
+    describe('python interpreter lookup', () => {
+      const pySolution: LocalSolution = {
         source: 'script.py',
         name: 'script',
         tag: 'MA',
       };
-      expect(utils.getCompiledCommandToRun(obj)).toContain('python');
-    });
 
-    it.skipIf(process.platform === 'win32')(
-      'should protect Python source paths containing shell metacharacters',
-      () => {
-        const cwdSpy = vi
-          .spyOn(process, 'cwd')
-          .mockReturnValue("/tmp/polyman path 3)'test");
-        const obj: LocalSolution = {
-          source: 'script.py',
-          name: 'script',
-          tag: 'MA',
-        };
+      beforeEach(() => {
+        utils.resetPythonCommandCache();
+        spawnSyncMocked.mockReset();
+      });
 
-        try {
-          expect(utils.getCompiledCommandToRun(obj)).toBe(
-            "python '/tmp/polyman path 3)'\\''test/script.py'"
-          );
-        } finally {
-          cwdSpy.mockRestore();
+      afterEach(() => {
+        utils.resetPythonCommandCache();
+      });
+
+      it('should handle .py with python3', () => {
+        mockInterpreters({ python3: 'Python 3.11.2\n' });
+        expect(utils.getCompiledCommandToRun(pySolution)).toMatch(
+          /^python3 .*script\.py/
+        );
+      });
+
+      it('should fall back to python when python3 is missing', () => {
+        mockInterpreters({ python: 'Python 3.12.0\n' });
+        expect(utils.getCompiledCommandToRun(pySolution)).toMatch(
+          /^python .*script\.py/
+        );
+      });
+
+      it('should prefer python3 when both exist', () => {
+        mockInterpreters({
+          python3: 'Python 3.11.2\n',
+          python: 'Python 3.12.0\n',
+        });
+        expect(utils.getCompiledCommandToRun(pySolution)).toMatch(/^python3 /);
+      });
+
+      it('should reject a python that is Python 2', () => {
+        mockInterpreters({ python: 'Python 2.7.18\n' });
+        expect(() => utils.getCompiledCommandToRun(pySolution)).toThrow(
+          /Python 3 was not found/
+        );
+      });
+
+      it('should skip a Python 2 python3 and use python', () => {
+        mockInterpreters({
+          python3: 'Python 2.7.18\n',
+          python: 'Python 3.10.0\n',
+        });
+        expect(utils.getCompiledCommandToRun(pySolution)).toMatch(/^python /);
+      });
+
+      it('should say Python is missing when no interpreter exists', () => {
+        mockInterpreters({});
+        expect(() => utils.getCompiledCommandToRun(pySolution)).toThrow(
+          'Python 3 was not found (tried python3, python). Install Python 3 to run script.py'
+        );
+      });
+
+      it('should look the interpreter up once per process', () => {
+        mockInterpreters({ python3: 'Python 3.11.2\n' });
+        utils.getCompiledCommandToRun(pySolution);
+        utils.getCompiledCommandToRun(pySolution);
+        expect(spawnSyncMocked).toHaveBeenCalledTimes(1);
+      });
+
+      it.skipIf(process.platform === 'win32')(
+        'should protect Python source paths containing shell metacharacters',
+        () => {
+          mockInterpreters({ python3: 'Python 3.11.2\n' });
+          const cwdSpy = vi
+            .spyOn(process, 'cwd')
+            .mockReturnValue("/tmp/polyman path 3)'test");
+
+          try {
+            expect(utils.getCompiledCommandToRun(pySolution)).toBe(
+              "python3 '/tmp/polyman path 3)'\\''test/script.py'"
+            );
+          } finally {
+            cwdSpy.mockRestore();
+          }
         }
-      }
-    );
+      );
+    });
 
     it('should handle .js', () => {
       const obj: LocalSolution = {
