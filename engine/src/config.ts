@@ -1,5 +1,6 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { parse } from 'yaml';
+import { isPerson } from './goahead.ts';
 import { DEFAULT_SCI, type SciCoefficients } from './sci.ts';
 
 /**
@@ -147,12 +148,17 @@ function goAheadFrom(raw: Raw['go_ahead'], path: string): AutonomyConfig['goAhea
   const d = DEFAULT_CONFIG.goAhead;
   if (raw === undefined || raw === null) return d;
   const bad = (what: string) => new Error(`invalid go_ahead.${what} in ${path}`);
+  if (typeof raw !== 'object' || Array.isArray(raw)) throw new Error(`invalid go_ahead in ${path}: need a map (maintainers, low, medium, high)`);
   let maintainers = d.maintainers;
   if (raw.maintainers !== undefined) {
     if (!Array.isArray(raw.maintainers) || !raw.maintainers.every((u) => typeof u === 'string' && USERNAME.test(u))) {
       throw bad('maintainers: need a list of GitLab usernames');
     }
     maintainers = raw.maintainers as string[];
+    const lower = maintainers.map((m) => m.toLowerCase());
+    if (new Set(lower).size !== lower.length) throw bad('maintainers: a name is listed twice');
+    const agent = maintainers.find((m) => !isPerson(m));
+    if (agent) throw bad(`maintainers: ${agent} is an agent or bot account, and only a person can give a go-ahead`);
   }
   const byTier = { ...d.byTier };
   for (const tier of ['low', 'medium', 'high'] as const) {
