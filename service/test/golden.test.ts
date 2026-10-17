@@ -229,3 +229,13 @@ describe('the production-check job script, run in sh', () => {
     expect(await args({ DRILL: '', CI_PIPELINE_SOURCE: 'web' })).toEqual(base);
   });
 });
+
+describe('pipeline schedules', () => {
+  it('never build, check or release the service (a schedule counts every file as changed)', async () => {
+    const { readFileSync } = await import('node:fs');
+    const ci = readFileSync(new URL('../ci/service.gitlab-ci.yml', import.meta.url), 'utf8');
+    const blocks = ci.split('  rules:\n').slice(1);
+    expect(blocks.length).toBeGreaterThan(0);
+    for (const block of blocks) expect(block.startsWith('    # a pipeline schedule on main') && block.includes('- if: $CI_PIPELINE_SOURCE == "schedule"\n      when: never')).toBe(true);
+  });
+});
