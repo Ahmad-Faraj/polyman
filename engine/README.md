@@ -41,22 +41,33 @@ The jobs use `CI_JOB_TOKEN` only and never write to merge requests.
 The four flows are in `.gitlab/duo/flows/`, and the environment they run in is
 `.gitlab/duo/agent-config.yml`. Each runs under its own service account.
 
-- **mr-reviewer** (pipeline passed): reads the risk tier from the pipeline name.
-  Low risk: it adds GitLabDuo as a reviewer (GitLab's own Code Review; a flow
-  can't start it with start_flow) and does a light pass itself; medium and high get the code,
-  test and (high) security reviewers, who rate findings P1/P2/P3 with
-  evidence, fix P1 and P2 with tests and re-check until a full round finds
-  none. It ends with one note for the approver: a short top (ready or not,
-  what needs a person, the rounds, what to watch after release) with the
-  evidence folded into a details block below it.
-- **pipeline-fixer** (pipeline failed): finds the cause, fixes it, waits for its
-  pipeline and hands the MR to the reviewer with `start_flow` (GitLab doesn't
-  start flows from commits agents push).
-- **issue-builder** (assigned or mentioned on an issue): plans, implements with
-  tests and opens the MR.
-- **incident-responder** (production check failed): opens an incident, prepares
-  a rollback MR, records the lesson in `.autonomy/incidents.json` and asks
-  issue-builder for a fix when the cause is in the code.
+They are **Assisted**: each one proposes, waits for a person's go-ahead, and
+then acts one step. A go-ahead is a comment that mentions the flow and says
+`go-ahead`, posted after its latest proposal by a person who is not an agent
+and not the requester (the issue's or MR's author); for high and critical risk,
+governance paths and rollbacks, only the maintainer's counts. No flow starts
+another flow. Every agent commit ends with a `Go-ahead:` trailer naming the
+note that allowed it.
+
+- **mr-reviewer** (pipeline passed, or mentioned): reads the risk tier from the
+  pipeline name. Low risk: it adds GitLabDuo as a reviewer (GitLab's own Code
+  Review; a flow can't start it with start_flow) and does a light pass itself;
+  medium and high get the code, test and (high) security reviewers, who rate
+  findings P1/P2/P3 with evidence without changing anything. Its note proposes
+  the fixes for P1 and P2; on a go-ahead the specialists apply exactly those,
+  one round, and the new head's green pipeline starts the next review, up to 4
+  rounds. The note's short top says ready or not, what needs a person, the
+  proposed fixes and who may give the go-ahead, and what to watch after
+  release, with the evidence folded into a details block below it.
+- **pipeline-fixer** (pipeline failed, or mentioned): finds the cause and
+  proposes the fix; on a go-ahead it pushes exactly that fix.
+- **issue-builder** (assigned or mentioned on an issue): proposes the change,
+  the test and the expected risk tier; on a go-ahead it implements it and opens
+  the MR.
+- **incident-responder** (production check failed, or mentioned): opens an
+  incident and proposes the rollback; on the maintainer's go-ahead it prepares
+  the rollback MR and records the lesson in `.autonomy/incidents.json`. A real
+  fix starts by assigning the incident to issue-builder.
 
 What differs per project (how to run the checks, what the project is, what
 security should focus on, account names, flow IDs) is not in the flow files:

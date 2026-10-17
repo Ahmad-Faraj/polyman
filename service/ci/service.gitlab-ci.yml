@@ -128,10 +128,21 @@ service:discard:candidate:
   script:
     - sh service/deploy/cloudrun.sh discard
 
+# Assisted: production is a person's go-ahead. The merge stages the candidate;
+# a person who has read its check clicks this job to switch traffic to it.
+# The rollback below stays automatic: a fixed safety net, not an agent.
 service:promote:production:
   extends: [.service:gcp, .service:release]
   stage: deploy
   needs: [service:deploy:candidate, service:check:candidate]
+  rules:
+    # a pipeline schedule on main (a nightly check, say) counts every file as
+    # changed; it must not rebuild or redeploy the service
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $GCP_PROJECT_ID
+      changes: *service_files
+      when: manual
   environment:
     name: verify/production
     url: $SERVICE_URL

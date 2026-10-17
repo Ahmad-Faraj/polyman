@@ -136,7 +136,9 @@ With Google Cloud set up (below), the default branch also releases it:
    `c-SHA`, and `service:check:candidate` runs the samples on its own URL
    (public, but not where visitors go). The very first deploy is the
    exception: creating the service gives that revision all traffic at once.
-5. `service:promote:production` moves all traffic to it, unless the default
+5. `service:promote:production` is manual: the pipeline shows as blocked
+   until a person who has read the candidate's check clicks it (the go-ahead
+   for production). It moves all traffic to the candidate, unless the default
    branch has moved on (that newer pipeline releases instead), and
    `service:check:production` runs the samples again on the public URL.
 6. If production gets them wrong, `service:rollback:production` moves traffic

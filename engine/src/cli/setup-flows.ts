@@ -41,15 +41,15 @@ interface TriggerSpec {
 }
 
 /**
- * In creation order: a flow is created after the ones it hands work over to
- * (pipeline-fixer to mr-reviewer; issue-builder to both; incident-responder to
- * issue-builder), since its definition names their IDs.
+ * The flows, in creation order. Assisted: none hands work to another (no
+ * start_flow); each proposes, waits for a person's go-ahead (a mention), and
+ * acts one step. Pipeline triggers only ever lead to a proposal.
  */
 export const FLOWS: [string, string, TriggerSpec][] = [
-  ['mr-reviewer', 'Reviews a merge request once its pipeline passes, fixes what it finds and writes one note for the approver.', { events: [PIPELINE, MENTION], status: ['success'], mergeRequests: true }],
-  ['pipeline-fixer', 'Fixes a failed merge request pipeline and hands the merge request to the reviewer.', { events: [PIPELINE, MENTION], status: ['failed'], mergeRequests: true }],
-  ['issue-builder', 'Turns an issue it is assigned or mentioned on into a merge request with tests.', { events: [MENTION, ASSIGN] }],
-  ['incident-responder', 'Opens an incident and a rollback when a release fails its production check.', { events: [PIPELINE], status: ['failed'], defaultBranch: true }],
+  ['mr-reviewer', 'Reviews a merge request once its pipeline passes and proposes fixes; applies them, one round, on a go-ahead from a person.', { events: [PIPELINE, MENTION], status: ['success'], mergeRequests: true }],
+  ['pipeline-fixer', 'Proposes the fix for a failed merge request pipeline; pushes it on a go-ahead from a person.', { events: [PIPELINE, MENTION], status: ['failed'], mergeRequests: true }],
+  ['issue-builder', 'Proposes how it will fix an issue it is assigned or mentioned on; opens the MR with tests on a go-ahead from a person.', { events: [MENTION, ASSIGN] }],
+  ['incident-responder', 'Opens an incident and proposes the rollback when a release fails its production check; prepares the rollback MR on a go-ahead from the maintainer.', { events: [PIPELINE, MENTION], status: ['failed'], defaultBranch: true }],
 ];
 
 /** The trigger's filter: GitLab matches these rules against the pipeline event. */

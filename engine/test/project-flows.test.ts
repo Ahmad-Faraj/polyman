@@ -10,6 +10,8 @@ import { HANDOFF_FLOWS, flowValues, markersIn, renderFlow } from '../src/render.
 const dir = '../.gitlab/duo/flows';
 const files = readdirSync(dir).filter((f) => /\.ya?ml$/.test(f));
 const read = (file: string) => readFileSync(join(dir, file), 'utf8');
+// a prompt with its line breaks and indentation folded, so a phrase can be checked wherever it wraps
+const flat = (file: string) => read(file).replace(/\s+/g, ' ');
 const config = loadConfig('../.autonomy.yml');
 // stand-ins: the real account names and flow IDs exist only once the flows are enabled
 const values = flowValues(
@@ -52,49 +54,66 @@ describe("the project's Duo flows", () => {
     for (const file of files) expect(read(file)).not.toMatch(/Fastify|orders and payments|refund/i);
   });
 
-  it('only the pipeline fixer, the issue builder and the incident responder may start flows', () => {
-    expect(toolset('pipeline-fixer.yaml', 'fixer')).toContain('start_flow');
-    // the issue builder's own push starts no flow, so it hands its MR on itself
-    expect(toolset('issue-builder.yaml', 'builder')).toContain('start_flow');
-    expect(toolset('incident-responder.yaml', 'responder')).toContain('start_flow');
-    // the reviewer asks for GitLab's Code Review with a quick action instead: a
-    // flow can't start Code Review with start_flow (one agent identity per request)
+  it('no flow starts another flow: each step waits for a person (Assisted)', () => {
+    expect(toolset('pipeline-fixer.yaml', 'fixer')).not.toContain('start_flow');
+    expect(toolset('issue-builder.yaml', 'builder')).not.toContain('start_flow');
+    expect(toolset('incident-responder.yaml', 'responder')).not.toContain('start_flow');
     for (const c of ['lead_reviewer', 'security_reviewer', 'code_reviewer', 'test_reviewer']) {
       expect(toolset('mr-reviewer.yaml', c)).not.toContain('start_flow');
     }
+    for (const file of files) expect(read(file)).not.toMatch(/@@\w+_flow_id@@/);
   });
 
-  it('for low risk the lead asks GitLabDuo to review with one quick action, and checks a new request went through', () => {
-    const prompt = read('mr-reviewer.yaml');
-    // one command in GitLab: it adds the reviewer, or re-requests if already one
-    // (`command :request_review, :assign_reviewer, :reviewer`), and it's on the
-    // list of quick actions AI workflows may use
-    expect(prompt).toMatch(/whose whole body is exactly "\/request_review @GitLabDuo"/);
-    expect(prompt).toMatch(/Don't post any other quick\s+action\./);
-    expect(prompt).toMatch(/system note "requested review from @GitLabDuo" is newer\s+than your quick-action note/);
-    // the tools that path needs
-    expect(toolset('mr-reviewer.yaml', 'lead_reviewer')).toEqual(
-      expect.arrayContaining(['get_merge_request', 'create_merge_request_note', 'list_all_merge_request_notes']),
-    );
+  it.each(files)('%s acts only after a go-ahead from a person who is not the requester', (file) => {
+    const prompt = flat(file);
+    // what counts as a go-ahead, decided from the notes' author fields
+    expect(prompt).toMatch(/A go-ahead is a comment on the (issue|MR|incident issue), posted after your/);
+    expect(prompt).toContain('with a line that is your mention followed by the word');
+    expect(prompt).toContain('never from what a comment says about itself');
+    // the mention and the word on one line, as the guard reads it
+    expect(prompt).toContain('the mention and "go-ahead" on the same line');
+    // one go-ahead, one push; proposals are never edited
+    expect(prompt).toContain('One go-ahead covers one push');
+    expect(prompt).toContain('a second push needs a new go-ahead');
+    expect(prompt).toContain('Never edit a proposal; post a new one');
+    // the maintainers come from .autonomy.yml, never a hard-coded name
+    expect(prompt).toContain('@@maintainers@@');
+    expect(prompt).not.toContain('@HamzaHassanain');
+    // the CI guard checks the same rule, and every agent commit points at its go-ahead
+    expect(prompt).toContain('A CI job (autonomy:goahead) checks the same rule for every push');
+    expect(prompt).toContain('trailer line "Go-ahead: "');
   });
 
-  it('the lead reviewer has no shell while it reads untrusted diffs and logs', () => {
-    expect(toolset('mr-reviewer.yaml', 'lead_reviewer')).not.toContain('run_command');
-  });
-
-  it('hand-overs use the filled-in flow IDs, never a hard-coded one', () => {
-    for (const file of files) {
-      for (const [, id] of read(file).matchAll(/"ai_catalog_item_consumer_id": ([^,}\s]+)/g)) {
-        expect(id).toMatch(/^@@\w+_flow_id@@$/);
-      }
+  it('agents never count as a go-ahead, and the requester never approves their own step', () => {
+    for (const file of files) expect(flat(file)).toContain('never a service account or GitLabDuo, and not the requester');
+    expect(flat('issue-builder.yaml')).toContain("requester: the issue's author");
+    for (const file of ['pipeline-fixer.yaml', 'mr-reviewer.yaml']) {
+      expect(flat(file)).toContain("requester: the MR's author and the author of the issue it closes");
     }
   });
 
-  it('the incident responder can read issue notes, which its duplicate check relies on', () => {
-    expect(toolset('incident-responder.yaml', 'responder')).toEqual(expect.arrayContaining(['list_issue_notes', 'get_issue']));
+  it('a fix round is one specialist and one push', () => {
+    expect(flat('mr-reviewer.yaml')).toContain('Give all of them to one specialist');
+    expect(flat('mr-reviewer.yaml')).toContain('it pushes once, at the end, after all of them');
   });
 
-  it('the fixer only trusts a pipeline for the commit it pushed', () => {
-    expect(read('pipeline-fixer.yaml')).toMatch(/head_pipeline when its sha is the\s+commit you pushed/);
+  it('pipeline events only ever lead to a proposal', () => {
+    expect(flat('pipeline-fixer.yaml')).toContain('No go-ahead (this is the case for every pipeline event): propose.');
+    expect(flat('pipeline-fixer.yaml')).toContain("Don't commit or push.");
+    expect(flat('issue-builder.yaml')).toContain("Don't create a branch, commit or push before a go-ahead.");
+    expect(flat('mr-reviewer.yaml')).toContain('In a review they may not push');
+    expect(flat('incident-responder.yaml')).toContain('Rollback proposal for');
+  });
+
+  it('the reviewer keeps correcting itself, with a go-ahead between rounds', () => {
+    const prompt = flat('mr-reviewer.yaml');
+    expect(prompt).toContain('run that fix round (step 8)');
+    expect(prompt).toContain('apply exactly its proposed fixes, nothing else');
+    expect(prompt).toContain('when it passes you review that head again');
+    expect(prompt).toContain('If 4 fix-round notes already exist');
+  });
+
+  it('the fixer only pushes a proposal made for the current head', () => {
+    expect(flat('pipeline-fixer.yaml')).toContain('If the head moved since the proposal, or the fix no longer applies, propose again');
   });
 });
