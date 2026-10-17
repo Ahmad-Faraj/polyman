@@ -1305,5 +1305,22 @@ describe('pulling.ts', () => {
         expect(w).not.toMatch(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e]/);
       }
     });
+
+    it('escapes control characters in the reason for checker and validator failures', async () => {
+      const evil = 'boom\n  ✔ forged\x1b[2J\u009b\u202e';
+      mockSdk.getChecker.mockResolvedValue('check.cpp');
+      mockSdk.getValidator.mockResolvedValue('val.cpp');
+      mockSdk.viewFile.mockRejectedValue(new Error(evil));
+
+      await pulling.downloadChecker(asSdk(mockSdk), 1, 'dir');
+      await pulling.downloadValidator(asSdk(mockSdk), 1, 'dir');
+
+      const errors = vi.mocked(fmt).error.mock.calls.map(c => c[0]);
+      expect(errors.length).toBeGreaterThanOrEqual(2);
+      for (const e of errors) {
+        // eslint-disable-next-line no-control-regex
+        expect(e).not.toMatch(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e]/);
+      }
+    });
   });
 });

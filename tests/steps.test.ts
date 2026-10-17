@@ -1092,6 +1092,31 @@ describe('steps.ts', () => {
     });
   });
 
+  describe('stepDownloadTests with a hostile error message', () => {
+    it('escapes control characters from Polygon in the warning', async () => {
+      vi.mocked(fs.existsSync).mockReturnValue(true);
+      vi.mocked(fs.readFileSync).mockReturnValue(
+        JSON.stringify(baseConfig({ testsets: [] }))
+      );
+      vi.mocked(
+        pulling.downloadTestsetAndBuildGenerationScripts
+      ).mockRejectedValue(
+        new Error('Polygon API Error: \u001b[2J\nfake line \u202e\u009b')
+      );
+      await steps.stepDownloadTests(1, {} as any, 7, 'tests', 'savePath');
+      const warnings = vi
+        .mocked(formatter.fmt.warning)
+        .mock.calls.map(c => String(c[0]));
+      const warning = warnings.find(w =>
+        w.includes('Could not fetch tests information')
+      );
+      expect(warning).toBeDefined();
+      // eslint-disable-next-line no-control-regex
+      expect(warning).not.toMatch(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e]/);
+      expect(warning).toContain('\\u001b[2J\\u000afake line');
+    });
+  });
+
   describe('stepDownloadTests with a non-Error rejection', () => {
     it('still names the reason when something other than an Error is thrown', async () => {
       vi.mocked(fs.existsSync).mockReturnValue(true);
