@@ -20,6 +20,7 @@ describe('MRs missing a review of their head', () => {
     expect(missingReviews([mr({ reviewedShas: ['abc12345'] })], now, [])).toEqual([]);
     expect(missingReviews([mr({ reviewedShas: ['abc12345def'] })], now, [])).toEqual([]);
     expect(missingReviews([mr({ reviewedShas: ['0ld0ld00'] })], now, [])).toHaveLength(1);
+    expect(missingReviews([mr({ reviewedShas: ['ABC12345'] })], now, [])).toEqual([]);
   });
 
   it('leaves alone drafts, failed or running pipelines, pipelines for an older commit, and recent ones', () => {

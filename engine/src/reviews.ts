@@ -21,8 +21,10 @@ export function missingReviews(mrs: OpenMr[], now: Date, runningSince: string[],
     if (mr.draft || !p || p.sha !== mr.sha || p.status !== 'success' || !p.finishedAt) return false;
     const finished = Date.parse(p.finishedAt);
     if (now.getTime() - finished < graceMinutes * 60_000) return false;
-    // a reviewer session started after the pipeline may still be on it
+    // a reviewer session started after the pipeline may still be on it (the
+    // session's MR can't be read without its log, so any such session counts)
     if (runningSince.some((s) => Date.parse(s) >= finished)) return false;
-    return !mr.reviewedShas.some((s) => mr.sha.startsWith(s) || s.startsWith(mr.sha.slice(0, s.length)));
+    const head = mr.sha.toLowerCase();
+    return !mr.reviewedShas.map((s) => s.toLowerCase()).some((s) => head.startsWith(s));
   });
 }
