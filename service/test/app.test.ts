@@ -84,6 +84,7 @@ beforeAll(() => {
   writeFileSync(join(base, 'testlib.h'), '// testlib');
   mkdirSync(join(base, 'public'));
   writeFileSync(join(base, 'public', 'index.html'), '<h1>verify</h1>');
+  writeFileSync(join(base, 'public', 'docs.html'), '<h1>how it works</h1>');
   mkdirSync(join(base, 'samples', 'demo'), { recursive: true });
   for (const [name, text] of Object.entries(problem('', { description: 'a demo' }))) writeFileSync(join(base, 'samples', 'demo', name), text);
   writeFileSync(join(base, 'samples', 'demo.expected.json'), JSON.stringify({ ok: true }));
@@ -111,6 +112,10 @@ afterAll(async () => {
 describe('read-only routes', () => {
   it('serves the page, health and version', async () => {
     expect((await app.inject('/')).body).toContain('verify');
+    const docs = await app.inject('/docs');
+    expect(docs.statusCode).toBe(200);
+    expect(docs.headers['content-type']).toContain('text/html');
+    expect(docs.body).toContain('how it works');
     expect((await app.inject('/health')).json()).toEqual({ ok: true });
     expect((await app.inject('/api/version')).json()).toEqual({ polyman: '9.9.9', service: '0.1.0', commit: 'abc1234' });
   });
