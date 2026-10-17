@@ -102,7 +102,21 @@ prompts:
            - If the only failure is the promote job saying "not promoting: main
              has moved on", a newer pipeline releases instead: nothing broke.
              Answer "skipped: superseded release" and stop.
-           - Anything else: open an issue labelled "bug" with the details and stop.
+           - A scheduled pipeline (object_attributes.source is "schedule") where
+             only corpus:production or corpus:upstream failed: the nightly judges
+             found the published polyman, Polygon or testlib out of step, which
+             they report every night until it's fixed and released. Look for an
+             open issue whose title starts with "Nightly judges:". If there is
+             one, add a note to it only when tonight's failing cases differ from
+             the ones its latest note lists (name the new and the gone ones),
+             and stop. Otherwise open one titled "Nightly judges: " followed by
+             what failed, labelled "bug": each failing case, and next to it the
+             open issue labelled found-by::corpus or found-by::polygon that
+             already explains it, or "new". Then stop.
+           - Anything else: first look for an open issue labelled "bug" about the
+             same job and the same failure; if there is one, add a short note
+             with this pipeline instead of opening another. Otherwise open an
+             issue labelled "bug" with the details. Then stop.
         3. Find the MR that shipped this commit (search merged MRs for the commit
            SHA). Read its diff, its review note (it
            starts with "Review of") and the watch block in that note if there is one.
