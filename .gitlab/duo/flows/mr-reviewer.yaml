@@ -192,22 +192,22 @@ prompts:
            A P1 or P2 goes to the approver only if no agent should settle it: it is
            in a file agents may not edit (@@protected_paths@@), it needs a product or design decision, or it is still
            open after the last round.
-        7. When they are done, post one note on the MR. The approver reads this note
-           and nothing else, so put the decision first. Its first line is
-           "Review of SHA:" with the short head commit SHA in place of SHA, followed
-           by ready to approve or not. Then write:
-           - "For the approver": the findings from step 6 that need a person, each
-             with its rating and why no agent could settle it, or "nothing"
-           - ready only after a clean pass on the current head; if not ready, why,
-             in one line
-           - "Review rounds": how many ran, and the SHA of the clean pass (or why
-             the loop stopped without one)
-           - "Fixed during review": each P1 and P2 the agents fixed, with the commit
-           - "Optional follow-ups": the P3 findings, one line each
-           - the risk summary from the assess job, copied as it is (or the
-             pipeline name, if that's all you could read)
-           - what each specialist checked and found, in a sentence or two each
-           - anything the approver should look at themselves
+        7. When they are done, post one note on the MR. The person who approves
+           reads its top and decides; they don't review each step. Merging is
+           their one decision (GitLab doesn't let agents merge) and the default
+           branch releases what merges, so the top must be enough to approve
+           the outcome. Write the top part, at most about ten lines:
+           - First line: "Review of SHA:" with the short head commit SHA, then
+             "ready to approve" or "not ready to approve".
+           - "For the approver": what needs a person's decision, at most three
+             items, one line each with its rating and why no agent could settle
+             it; or "nothing". If more than three, name the three that matter
+             most and say how many more are in the details.
+           - If not ready: why, in one line. Ready only after a clean pass on
+             the current head.
+           - "Review rounds": how many ran, how many P1 and P2 the agents fixed,
+             and the SHA of the clean pass (or why the loop stopped without one),
+             in one or two lines.
            - "Watch after release": the one to three signals that would show this
              change is broken in production, each as route + signal + limit, for
              example "POST /verify error rate above 2%" or "POST /verify p95
@@ -218,7 +218,18 @@ prompts:
              exactly these after deploying, so pick what really matters for this change.
              It only sends traffic to these routes, so only pick from them:
              @@measured_routes@@. If what matters isn't covered, or nothing is
-             measured yet, say so in the note and leave the watch list empty ([]).
+             measured yet, say so in one line and leave the watch list empty ([]).
+           Then put everything else inside
+           <details><summary>Details: findings, evidence, risk</summary> ... </details>
+           with a blank line after the summary line, so it stays readable for
+           anyone who opens it:
+           - every P1 and P2 with its evidence, including the ones for the approver
+           - "Fixed during review": each P1 and P2 the agents fixed, with the commit
+           - "Optional follow-ups": the P3 findings, one line each
+           - the risk summary from the assess job, copied as it is (or the
+             pipeline name, if that's all you could read)
+           - what each specialist checked and found, in a sentence or two each
+           - anything the approver should look at themselves
            Back every finding with where it comes from: a file and line, a job, or a
            scanner finding. If you didn't check something, don't say it's fine.
            Keep it short and plain, like a teammate's review note. No emojis, no

@@ -30,8 +30,9 @@ The four flows are in `.gitlab/duo/flows/`, and the environment they run in is
   can't start it with start_flow) and does a light pass itself; medium and high get the code,
   test and (high) security reviewers, who rate findings P1/P2/P3 with
   evidence, fix P1 and P2 with tests and re-check until a full round finds
-  none. It ends with one note for the approver ("For the approver", what was
-  fixed, what to watch after release).
+  none. It ends with one note for the approver: a short top (ready or not,
+  what needs a person, the rounds, what to watch after release) with the
+  evidence folded into a details block below it.
 - **pipeline-fixer** (pipeline failed): finds the cause, fixes it, waits for its
   pipeline and hands the MR to the reviewer with `start_flow` (GitLab doesn't
   start flows from commits agents push).
