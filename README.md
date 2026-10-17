@@ -36,17 +36,25 @@ An agent proposes, a teammate who didn't ask for the work replies `@agent go-ahe
 | Stage | Proposes | Go-ahead | Where to look |
 |---|---|---|---|
 | Plan | A judge finds a wrong verdict → an issue with evidence | A person assigns it to issue-builder | [corpus](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues?label_name[]=found-by::corpus), [Polygon](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues?label_name[]=found-by::polygon) |
-| Create | issue-builder: "Proposal for #N" (change, test, risk) | `@issue-builder go-ahead` | [flows](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/17), first agent fix [!11](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/11) |
+| Create | issue-builder: "Proposal for #N" (change, test, risk) | `@issue-builder go-ahead` | [Proposal for #22](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues/22#note_4035973201) → [go-ahead](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues/22#note_4036138042) → [!26](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/26) |
 | Verify | CI: tests, corpus, mutation score; pipeline-fixer proposes a fix if red | `@pipeline-fixer go-ahead` | [!4](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/4) |
 | Secure | SAST and secret detection in every MR; security specialist rates findings | part of the review go-ahead | [MR pipeline](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/pipelines/2956563455) |
-| Review | mr-reviewer: findings and proposed fixes; GitLab Duo Code Review | `@mr-reviewer go-ahead` per fix round | [!4's review](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/4) |
+| Review | mr-reviewer: findings and proposed fixes; GitLab Duo Code Review | `@mr-reviewer go-ahead` per fix round | [review of !26](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/26#note_4036237877) |
 | Package | the merge builds the package and the service image | a person merges | [canary](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/7) |
 | Release | canary → npm `next` (judged) → `latest` | manual jobs | [Release-design](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/wikis/Release-design) |
-| Configure | Cloud Run candidate, checked by the golden set | manual promote | `service/` |
+| Configure | Cloud Run candidate, checked by the golden set | manual promote | [live service](https://polyman-verify-ncvkutguda-ue.a.run.app), `service/` |
 | Monitor | nightly judges on the published `polyman-cli`; incident-responder proposes a rollback | the maintainer's go-ahead | `corpus/corpus.gitlab-ci.yml` |
 | Govern | agents can't touch CI, policy, engine or corpus; the go-ahead guard | changes to the rules are a person's MR | [guard](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/19) |
 
-Links to agent runs on the judge bugs are added here as they happen. Team: Hamza Hassanain (polyman's author), Mazen Ghanayem, Ahmed Faraj.
+### Agent runs on the judge bugs
+
+| Bug | Proposal → go-ahead (by someone who didn't file it) | MR, guard, review | What the judges show |
+|---|---|---|---|
+| [#22](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues/22) Python judged RE without a `python` command | [proposal](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues/22#note_4035973201) → [Mazen's go-ahead](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues/22#note_4036138042) | [!26](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/26), risk low (24), [guard passed](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17259651990), [review: ready](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/26#note_4036237877) | no-`python` lane: [before](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17258572979) Python ran 1 of 4 tests, [after](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17259651984) all run |
+
+The first run also caught two gaps in our own guard before it could pass: it couldn't read an issue's notes with the job token ([!28](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/28)), and the risk score counted old findings in any file a change touched ([!29](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/29)).
+
+Team: Hamza Hassanain (polyman's author), Mazen Ghanayem, Ahmed Faraj.
 
 ## Why Polyman?
 
