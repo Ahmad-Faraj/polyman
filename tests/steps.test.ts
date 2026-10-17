@@ -1076,6 +1076,20 @@ describe('steps.ts', () => {
       ).resolves.toBeUndefined();
       expect(formatter.fmt.warning).toHaveBeenCalled();
     });
+
+    it('says why the download failed in the warning', async () => {
+      vi.mocked(fs.existsSync).mockReturnValue(true);
+      vi.mocked(fs.readFileSync).mockReturnValue(
+        JSON.stringify(baseConfig({ testsets: [] }))
+      );
+      vi.mocked(
+        pulling.downloadTestsetAndBuildGenerationScripts
+      ).mockRejectedValue(new Error('Refusing unsafe test index from Polygon'));
+      await steps.stepDownloadTests(1, {} as any, 7, 'tests', 'savePath');
+      expect(formatter.fmt.warning).toHaveBeenCalledWith(
+        expect.stringContaining('Refusing unsafe test index from Polygon')
+      );
+    });
   });
 
   describe('stepReadConfig', () => {

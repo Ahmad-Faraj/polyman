@@ -1197,8 +1197,9 @@ export async function stepDownloadTests(
       `  ${fmt.infoIcon()} Downloaded ${fmt.highlight(manualCount.toString())} manual test(s); ${totalTests} configured`
     );
     fmt.stepComplete('Tests downloaded and testset configured');
-  } catch {
-    fmt.warning('  ⚠️  Could not fetch tests information');
+  } catch (error) {
+    const why = error instanceof Error ? error.message : String(error);
+    fmt.warning(`  ⚠️  Could not fetch tests information: ${why}`);
     fmt.stepComplete('No tests to download');
   }
 }
