@@ -1,8 +1,9 @@
 /**
- * Checks that a project is set up for the supervised flow: the policy, the
- * flow files, the flows in the AI Catalog (and that what is published there is
- * what the repo says), the agents' accounts, the approval rule, "pipelines must
- * succeed", and that no personal token sits in the CI variables.
+ * Checks that a project is set up for the flows: the policy, the flow files,
+ * the flows in the AI Catalog (and that what is published there is what the
+ * repo says), the agents' accounts, the approval rule, "pipelines must
+ * succeed", that no open MR is missing the review its green pipeline should
+ * have started, and that no personal token sits in the CI variables.
  *
  * Run it from your machine with your own token; it only reads:
  *   GITLAB_TOKEN=... node engine/src/cli/doctor.ts [project path]
@@ -15,6 +16,7 @@ import { projectPathFrom } from '../project.ts';
 import { loadConfig, type AutonomyConfig } from '../config.ts';
 import { checkFlow } from '../flows.ts';
 import { flowValues, renderFlow } from '../render.ts';
+import { type OpenMr, missingReviews } from '../reviews.ts';
 
 type Status = 'ok' | 'warn' | 'fail';
 const results: { status: Status; what: string; detail?: string }[] = [];
@@ -147,6 +149,30 @@ for (let i = parts.length; i > 0 && !mustSucceed; i--) {
   }
 }
 report(mustSucceed ? 'ok' : 'fail', 'pipelines must succeed', mustSucceed ? `set on the ${where}` : 'off: a red pipeline could be merged');
+
+// --- reviews: a reviewer session can end or crash without a note ---
+try {
+  const reviewer = config?.agents.reviewerAccount;
+  const mrs = await rest<{ iid: number; sha: string; draft: boolean }[]>(`/projects/${enc}/merge_requests?state=opened&per_page=100`);
+  const open: OpenMr[] = [];
+  for (const mr of mrs) {
+    const [p] = await rest<{ sha: string; status: string; updated_at: string }[]>(`/projects/${enc}/merge_requests/${mr.iid}/pipelines?per_page=1`);
+    const notes = await rest<{ body: string; author: { username: string } }[]>(`/projects/${enc}/merge_requests/${mr.iid}/notes?per_page=100&sort=desc`);
+    const reviewedShas = notes
+      .filter((n) => n.author.username === reviewer)
+      .map((n) => n.body.trim().match(/^\**Review of ([0-9a-f]{7,40})\b/i)?.[1])
+      .filter((s): s is string => !!s);
+    open.push({ iid: mr.iid, sha: mr.sha, draft: mr.draft, pipeline: p ? { sha: p.sha, status: p.status, finishedAt: p.updated_at } : null, reviewedShas });
+  }
+  const running = await rest<{ created_at: string }[]>(`/projects/${enc}/pipelines?source=duo_workflow&status=running&per_page=100`);
+  const missing = missingReviews(open, new Date(), running.map((r) => r.created_at));
+  if (!missing.length) report('ok', 'reviews', `every open MR whose pipeline passed over 40 minutes ago has a review of its head (${open.length} open)`);
+  for (const mr of missing) {
+    report('warn', `review of !${mr.iid}`, `the pipeline for ${mr.sha.slice(0, 8)} passed at ${mr.pipeline?.finishedAt} and no review covers that head; the session may have ended without a note. Mention @${reviewer} on the MR to start one`);
+  }
+} catch (err) {
+  report('warn', 'reviews', `couldn't check: ${(err as Error).message}`);
+}
 
 try {
   const vars = await rest<{ key: string }[]>(`/projects/${enc}/variables?per_page=100`);
