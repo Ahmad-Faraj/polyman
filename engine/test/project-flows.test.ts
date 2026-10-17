@@ -52,6 +52,15 @@ describe("the project's Duo flows", () => {
     }
   });
 
+  it('for low risk the lead asks GitLabDuo to review with one quick action, and checks a new request went through', () => {
+    const prompt = read('mr-reviewer.yaml');
+    expect(prompt).toContain('"/assign_reviewer @GitLabDuo"');
+    // a later push: GitLabDuo is already a reviewer, so ask again for the new head
+    expect(prompt).toContain('"/request_review @GitLabDuo"');
+    expect(prompt).toMatch(/Don't post any\s+other quick action\./);
+    expect(prompt).toMatch(/system note "requested review from @GitLabDuo" is newer\s+than your quick-action note/);
+  });
+
   it('the lead reviewer has no shell while it reads untrusted diffs and logs', () => {
     expect(toolset('mr-reviewer.yaml', 'lead_reviewer')).not.toContain('run_command');
   });
