@@ -81,6 +81,20 @@ describe('compare', () => {
     );
   });
 
+  it('keeps one slow test a warning when only one test is expected OK (#38)', () => {
+    const wa = {
+      tag: 'WA',
+      matchesTag: true,
+      verdicts: ['tests#1:WA', 'tests#2:OK'],
+    };
+    const want = expected({ wa });
+    const got = structuredClone(want);
+    got.solutions.wa.verdicts[1] = 'tests#2:TLE';
+    const diffs = compare(want, got);
+    expect(failures(diffs)).toEqual([]);
+    expect(warnings(diffs)).toHaveLength(1);
+  });
+
   it('never excuses OK where TLE is expected', () => {
     const tle = { tag: 'TL', matchesTag: true, verdicts: ['tests#1:TLE'] };
     const want = expected({ tle });
