@@ -1092,6 +1092,25 @@ describe('steps.ts', () => {
     });
   });
 
+  describe('stepDownloadTests with a non-Error rejection', () => {
+    it('still names the reason when something other than an Error is thrown', async () => {
+      vi.mocked(fs.existsSync).mockReturnValue(true);
+      vi.mocked(fs.readFileSync).mockReturnValue(
+        JSON.stringify(baseConfig({ testsets: [] }))
+      );
+      vi.mocked(
+        pulling.downloadTestsetAndBuildGenerationScripts
+      ).mockRejectedValue('plain string failure');
+      await expect(
+        steps.stepDownloadTests(1, {} as any, 7, 'tests', 'savePath')
+      ).resolves.toBeUndefined();
+      expect(formatter.fmt.warning).toHaveBeenCalledWith(
+        expect.stringContaining('plain string failure')
+      );
+      expect(fs.writeFileSync).not.toHaveBeenCalled();
+    });
+  });
+
   describe('stepReadConfig', () => {
     it('should read and parse Config.json', () => {
       vi.mocked(fs.existsSync).mockReturnValue(true);

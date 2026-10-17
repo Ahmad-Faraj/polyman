@@ -821,6 +821,125 @@ describe('pulling.ts', () => {
       expect(fs.writeFileSync).not.toHaveBeenCalled();
     });
 
+    it.each([
+      ['negative', -1],
+      ['float', 1.5],
+      ['NaN', NaN],
+      ['Infinity', Infinity],
+      ['null', null],
+      ['undefined', undefined],
+      ['numeric string', '1'],
+    ])('refuses a %s test index', async (_label, index) => {
+      mockSdk.getTests.mockResolvedValue([
+        {
+          index: index as unknown as number,
+          manual: true,
+          input: 'x',
+          useInStatements: false,
+        },
+      ]);
+      mockSdk.getScript.mockResolvedValue('');
+
+      await expect(
+        pulling.downloadTestsetAndBuildGenerationScripts(
+          asSdk(mockSdk),
+          1,
+          'dir',
+          'tests',
+          []
+        )
+      ).rejects.toThrow(/Refusing unsafe test index/);
+      expect(fs.writeFileSync).not.toHaveBeenCalled();
+    });
+
+    it('does not create the manual directory when the index is refused', async () => {
+      mockSdk.getTests.mockResolvedValue([
+        { index: -3, manual: true, input: 'x', useInStatements: false },
+      ]);
+      mockSdk.getScript.mockResolvedValue('');
+
+      await expect(
+        pulling.downloadTestsetAndBuildGenerationScripts(
+          asSdk(mockSdk),
+          1,
+          'dir',
+          'tests',
+          []
+        )
+      ).rejects.toThrow(/Refusing unsafe test index/);
+      const created = vi
+        .mocked(fs.mkdirSync)
+        .mock.calls.map(call => String(call[0]));
+      expect(created.some(dir => dir.includes('manual'))).toBe(false);
+    });
+
+    it('escapes control characters of a refused index in the message', async () => {
+      mockSdk.getTests.mockResolvedValue([
+        {
+          index: '\u009b31m\u202efake\u2028' as unknown as number,
+          manual: true,
+          input: 'x',
+          useInStatements: false,
+        },
+      ]);
+      mockSdk.getScript.mockResolvedValue('');
+
+      const error = await pulling
+        .downloadTestsetAndBuildGenerationScripts(
+          asSdk(mockSdk),
+          1,
+          'dir',
+          'tests',
+          []
+        )
+        .catch((e: unknown) => e as Error);
+      expect(error.message).toMatch(/Refusing unsafe test index/);
+      expect(error.message).not.toMatch(/[\u0080-\u009f\u2028\u202e]/);
+      expect(error.message).toContain('\\u202e');
+    });
+
+    it('accepts index 0 and writes m-00.in', async () => {
+      mockSdk.getTests.mockResolvedValue([
+        { index: 0, manual: true, input: 'zero', useInStatements: false },
+      ]);
+      mockSdk.getScript.mockResolvedValue('');
+
+      const result = await pulling.downloadTestsetAndBuildGenerationScripts(
+        asSdk(mockSdk),
+        1,
+        'dir',
+        'tests',
+        []
+      );
+
+      expect(result.manualCount).toBe(1);
+      expect(result.testset.manualTests![0]).toMatchObject({
+        input: './manual/tests/m-00.in',
+        index: 0,
+      });
+      expect(vi.mocked(fs.writeFileSync).mock.calls[0][0]).toMatch(/m-00\.in$/);
+    });
+
+    it('does not check the index of tests that are not manual', async () => {
+      mockSdk.getTests.mockResolvedValue([
+        { index: -1, manual: false, input: 'x', useInStatements: false },
+        { index: 1.5, manual: false, useInStatements: false },
+        { index: -2, manual: true, useInStatements: false },
+      ]);
+      mockSdk.getScript.mockResolvedValue('');
+
+      const result = await pulling.downloadTestsetAndBuildGenerationScripts(
+        asSdk(mockSdk),
+        1,
+        'dir',
+        'tests',
+        []
+      );
+
+      expect(result.manualCount).toBe(0);
+      expect(fs.writeFileSync).not.toHaveBeenCalled();
+    });
+
     it('skips manual tests that have no input', async () => {
       mockSdk.getTests.mockResolvedValue([
         { index: 1, manual: true, useInStatements: false },
