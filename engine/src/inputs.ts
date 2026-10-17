@@ -4,14 +4,17 @@ import type { ChangedFile, Finding, Incident, Severity } from './risk.ts';
 
 /** Files changed between the merge base with `baseRef` and HEAD. */
 export function changedFiles(baseRef: string): ChangedFile[] {
-  const git = (...args: string[]) => execFileSync('git', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  // core.quotepath=off: non-ASCII paths come out as they are (as the scanners
+  // report them), not quoted and octal-escaped
+  const git = (...args: string[]) => execFileSync('git', ['-c', 'core.quotepath=off', ...args], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
   const range = `${baseRef}...HEAD`;
   const statuses = new Map<string, ChangedFile['status']>();
   for (const line of git('diff', '--name-status', '--no-renames', range).split('\n').filter(Boolean)) {
     const [code, ...paths] = line.split('\t');
     statuses.set(paths[paths.length - 1], code[0] as ChangedFile['status']);
   }
-  const hunks = addedLines(git('diff', '-U0', '--no-renames', '--no-color', '--no-ext-diff', range));
+  // explicit prefixes, whatever diff.noprefix or diff.mnemonicPrefix say
+  const hunks = addedLines(git('diff', '-U0', '--no-renames', '--no-color', '--no-ext-diff', '--src-prefix=a/', '--dst-prefix=b/', range));
   const files: ChangedFile[] = [];
   for (const line of git('diff', '--numstat', '--no-renames', range).split('\n').filter(Boolean)) {
     const [added, deleted, ...rest] = line.split('\t');
@@ -31,18 +34,33 @@ export function changedFiles(baseRef: string): ChangedFile[] {
 
 /**
  * The line ranges each file gained, from a `git diff -U0`: the new side of
- * every hunk header. A path git quotes (unusual characters) is left out, so
- * its findings count anywhere in the file.
+ * every hunk header. A path git still quotes (a tab, a newline, a quote) is
+ * left out, so its findings count anywhere in the file.
+ *
+ * A `+++ ` line is a file header only between `diff --git` and the first
+ * hunk: an added line whose content starts with `++ ` prints as `+++ ` too,
+ * and read as a header it would file later hunks under a made-up path.
  */
 export function addedLines(diff: string): Map<string, [number, number][]> {
   const out = new Map<string, [number, number][]>();
   let current: [number, number][] | null = null;
+  let inHeader = false;
   for (const line of diff.split('\n')) {
-    if (line.startsWith('+++ ')) {
-      current = line.startsWith('+++ b/') ? [] : null;
-      if (current) out.set(line.slice(6), current);
+    // content lines always start with +, - or a space, so these can't be content
+    if (line.startsWith('diff --git ')) {
+      inHeader = true;
+      current = null;
       continue;
     }
+    if (inHeader && line.startsWith('+++ ')) {
+      // git ends the name with a tab when it contains a space
+      const name = line.slice(4).replace(/\t$/, '');
+      current = name.startsWith('b/') ? [] : null;
+      if (current) out.set(name.slice(2), current);
+      continue;
+    }
+    if (!line.startsWith('@@')) continue;
+    inHeader = false;
     const hunk = current && /^@@ -\S+ \+(\d+)(?:,(\d+))? @@/.exec(line);
     if (hunk) {
       const first = Number(hunk[1]);
@@ -61,7 +79,7 @@ const SCANNERS: Record<string, Finding['scanner']> = {
 
 interface SecurityReport {
   scan?: { type?: string };
-  vulnerabilities?: { name?: string; message?: string; severity?: string; location?: { file?: string; start_line?: number } }[];
+  vulnerabilities?: { name?: string; message?: string; severity?: string; location?: { file?: string; start_line?: number; end_line?: number } }[];
 }
 
 /** Reads every GitLab security report (gl-*-report.json) in `dir`. */
@@ -85,6 +103,7 @@ export function securityFindings(dir = '.'): { findings: Finding[]; reports: str
         name: v.name ?? v.message ?? 'unnamed finding',
         file: v.location?.file,
         line: typeof v.location?.start_line === 'number' ? v.location.start_line : undefined,
+        endLine: typeof v.location?.end_line === 'number' ? v.location.end_line : undefined,
       });
     }
   }
