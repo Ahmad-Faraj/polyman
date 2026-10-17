@@ -112,6 +112,17 @@ describe('assessRisk', () => {
     expect(assessRisk(changed, [secret], config).tier).toBe('high');
   });
 
+  it('matches a scanner path written "./src/x.ts" to the changed file', () => {
+    const changed = [{ ...file('src/routes/orders.ts'), addedLines: [[10, 12]] as [number, number][] }, file('tests/api.test.ts')];
+    const dotted: Finding = { scanner: 'sast', severity: 'Medium', name: 'x', file: './src/routes/orders.ts', line: 11 };
+    expect(assessRisk(changed, [dotted], config).stats.findings.Medium).toBe(1);
+  });
+
+  it('treats a change to .gitattributes as governance: it can hide line counts from assess', () => {
+    const report = assessRisk([file('.gitattributes')], [], DEFAULT_CONFIG);
+    expect(report.factors.map((f) => f.id)).toContain('governance');
+  });
+
   it('counts a finding that spans lines when any of them was added', () => {
     const changed = [{ ...file('src/routes/orders.ts'), addedLines: [[505, 510]] as [number, number][] }, file('tests/api.test.ts')];
     const across: Finding = { scanner: 'sast', severity: 'Medium', name: 'Path Traversal', file: 'src/routes/orders.ts', line: 500, endLine: 506 };

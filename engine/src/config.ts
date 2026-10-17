@@ -65,7 +65,8 @@ export type GoAheadFrom = 'anyone' | 'maintainers';
 export const DEFAULT_CONFIG: AutonomyConfig = {
   thresholds: { medium: 25, high: 60 },
   paths: { critical: [], high: [], medium: [], low: ['**/*.md', 'docs/**'] },
-  governance: ['.gitlab-ci.yml', '.autonomy.yml', '.autonomy/**', '.gitlab/**'],
+  // .gitattributes can mark text as binary ("* -diff"), which hides a change's line counts from assess
+  governance: ['.gitlab-ci.yml', '.autonomy.yml', '.autonomy/**', '.gitlab/**', '.gitattributes'],
   dependencies: {
     manifests: ['package.json', 'requirements.txt', 'pyproject.toml', 'go.mod', 'Cargo.toml', 'Gemfile', 'pom.xml'],
     lockfiles: ['package-lock.json', 'pnpm-lock.yaml', 'yarn.lock', 'poetry.lock', 'go.sum', 'Cargo.lock', 'Gemfile.lock'],

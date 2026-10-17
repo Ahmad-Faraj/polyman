@@ -10,7 +10,7 @@ const config = {
 
 describe('flow values', () => {
   it('turns the governance globs into a readable list', () => {
-    expect(flowValues(config, {}).protected_paths).toBe('.gitlab-ci.yml, .autonomy.yml, .autonomy/, .gitlab/');
+    expect(flowValues(config, {}).protected_paths).toBe('.gitlab-ci.yml, .autonomy.yml, .autonomy/, .gitlab/, .gitattributes');
   });
 
   it('lists the measured routes, or says there are none', () => {
