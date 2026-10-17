@@ -45,7 +45,16 @@ export interface AutonomyConfig {
     /** the job that moves production back when that happens */
     rollbackJob: string;
   };
+  /** Assisted: who may give an agent the go-ahead for its next step. */
+  goAhead: {
+    /** exact usernames whose go-ahead counts where only maintainers may give it */
+    maintainers: string[];
+    /** by risk tier: any person who isn't the requester, or only a maintainer */
+    byTier: Record<'low' | 'medium' | 'high', GoAheadFrom>;
+  };
 }
+
+export type GoAheadFrom = 'anyone' | 'maintainers';
 
 export const DEFAULT_CONFIG: AutonomyConfig = {
   thresholds: { medium: 25, high: 60 },
@@ -68,6 +77,7 @@ export const DEFAULT_CONFIG: AutonomyConfig = {
     fixerAccount: '',
   },
   monitor: { measuredRoutes: [], productionJobs: ['deploy:production', 'monitor:production'], rollbackJob: 'rollback:production' },
+  goAhead: { maintainers: [], byTier: { low: 'anyone', medium: 'anyone', high: 'maintainers' } },
 };
 
 type Raw = Partial<{
@@ -91,6 +101,7 @@ type Raw = Partial<{
   }>;
   agents: Partial<{ about: string; checks: string; test_guide: string; security_focus: string; reviewer_account: string; fixer_account: string }>;
   monitor: Partial<{ measured_routes: string[]; production_jobs: string[]; rollback_job: string }>;
+  go_ahead: Partial<{ maintainers: unknown; low: unknown; medium: unknown; high: unknown }>;
 }>;
 
 export function loadConfig(path = process.env.AUTONOMY_CONFIG || '.autonomy.yml'): AutonomyConfig {
@@ -120,12 +131,37 @@ export function loadConfig(path = process.env.AUTONOMY_CONFIG || '.autonomy.yml'
       productionJobs: jobNames(raw.monitor?.production_jobs, path) ?? d.monitor.productionJobs,
       rollbackJob: jobName(raw.monitor?.rollback_job, path, 'rollback_job') ?? d.monitor.rollbackJob,
     },
+    goAhead: goAheadFrom(raw.go_ahead, path),
   };
   const { medium, high } = config.thresholds;
   if (!(medium > 0 && high > medium && high <= 100)) {
     throw new Error(`invalid thresholds in ${path}: need 0 < medium < high <= 100`);
   }
   return config;
+}
+
+// A GitLab username, as it appears after an @.
+const USERNAME = /^[A-Za-z0-9_][A-Za-z0-9_.-]*$/;
+
+function goAheadFrom(raw: Raw['go_ahead'], path: string): AutonomyConfig['goAhead'] {
+  const d = DEFAULT_CONFIG.goAhead;
+  if (raw === undefined || raw === null) return d;
+  const bad = (what: string) => new Error(`invalid go_ahead.${what} in ${path}`);
+  let maintainers = d.maintainers;
+  if (raw.maintainers !== undefined) {
+    if (!Array.isArray(raw.maintainers) || !raw.maintainers.every((u) => typeof u === 'string' && USERNAME.test(u))) {
+      throw bad('maintainers: need a list of GitLab usernames');
+    }
+    maintainers = raw.maintainers as string[];
+  }
+  const byTier = { ...d.byTier };
+  for (const tier of ['low', 'medium', 'high'] as const) {
+    const value = raw[tier];
+    if (value === undefined) continue;
+    if (value !== 'anyone' && value !== 'maintainers') throw bad(`${tier}: need "anyone" or "maintainers"`);
+    byTier[tier] = value;
+  }
+  return { maintainers, byTier };
 }
 
 // Job names go into a flow prompt, so only what CI job names look like.

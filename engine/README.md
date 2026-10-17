@@ -14,6 +14,15 @@ work on every merge request, and a person approves the result once.
 - `autonomy:guard` fails the pipeline if a commit by a Duo agent touches the
   pipeline, the policy, the agent files or this folder. Those always go to a
   person.
+- `autonomy:goahead` (Assisted) fails the pipeline if an agent pushed to the
+  MR without a person's go-ahead for that step: a comment that mentions the
+  agent with a line `go-ahead`, after the agent's latest proposal and before
+  GitLab recorded the push. It never counts the requester, an agent or
+  GitLabDuo, and for high risk and rollbacks only `go_ahead.maintainers` in
+  `.autonomy.yml`. The tier comes from `autonomy:assess`, not from a label; who
+  wrote what and when comes from GitLab's notes, not from commit dates or
+  trailers. Commits an agent made before opening the MR need the go-ahead on
+  the issue the MR closes.
 - `autonomy:flows` checks the flow files in `.gitlab/duo/flows` the way GitLab
   does when they're saved (schema, prompt safety rules, inputs).
 - `autonomy:engine` runs this folder's type check and tests when it changes.
