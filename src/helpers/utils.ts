@@ -3,6 +3,7 @@
  * Provides cross-language compilation, test filtering, config reading, and directory management.
  */
 
+import { spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { executor } from '../executor';
@@ -503,6 +504,53 @@ export function readFirstLine(filePath: string): Promise<string> {
   });
 }
 
+/** Interpreter names tried for `.py` files, in order of preference. */
+const PYTHON_CANDIDATES = ['python3', 'python'];
+
+let cachedPythonCommand: string | undefined;
+
+/**
+ * Forgets the interpreter found by {@link findPythonCommand}. Used by tests.
+ */
+export function resetPythonCommandCache(): void {
+  cachedPythonCommand = undefined;
+}
+
+/**
+ * Finds a Python 3 interpreter on this machine: `python3`, then `python`.
+ * A candidate counts only if it runs and reports `Python 3.x`, so a `python`
+ * that is really Python 2 is skipped. The result is cached for the process.
+ *
+ * @param {string} [source] - Source file that needs Python, named in the error
+ * @throws {Error} If no Python 3 interpreter is found
+ */
+export function findPythonCommand(source?: string): string {
+  if (cachedPythonCommand !== undefined) {
+    return cachedPythonCommand;
+  }
+
+  for (const candidate of PYTHON_CANDIDATES) {
+    const result = spawnSync(candidate, ['--version'], {
+      encoding: 'utf-8',
+      timeout: 5000,
+    });
+    if (result.error || result.status !== 0) {
+      continue;
+    }
+    // Python 3.4+ prints the version on stdout, older versions on stderr.
+    const output = `${result.stdout ?? ''}${result.stderr ?? ''}`;
+    if (/^Python 3\./m.test(output)) {
+      cachedPythonCommand = candidate;
+      return candidate;
+    }
+  }
+
+  throw new Error(
+    `Python 3 was not found (tried ${PYTHON_CANDIDATES.join(', ')}).` +
+      (source ? ` Install Python 3 to run ${source}` : ' Install Python 3')
+  );
+}
+
 export function getCompiledCommandToRun(
   object: LocalChecker | LocalValidator | LocalSolution | LocalGenerator
 ): string {
@@ -528,7 +576,7 @@ export function getCompiledCommandToRun(
       return `java -cp ${quoteShellArgument(dir)} ${quoteShellArgument(className)}`;
     }
     case '.py':
-      return `python ${quoteShellArgument(source)}`;
+      return `${findPythonCommand(object.source)} ${quoteShellArgument(source)}`;
     case '.js':
       return `node ${quoteShellArgument(source)}`;
     default:
