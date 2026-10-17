@@ -209,13 +209,16 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     process.exit(2);
   }
   const jsonAt = process.argv.indexOf('--json');
+  // the sample a drill turned around, recorded so the incident responder can tell a drill from an outage
+  let drilled: string | undefined;
   const write = (body: object) => {
-    if (jsonAt > 0) writeFileSync(process.argv[jsonAt + 1], JSON.stringify({ base, ...body }, null, 2));
+    if (jsonAt > 0) writeFileSync(process.argv[jsonAt + 1], JSON.stringify({ base, ...(drilled ? { drill: drilled } : {}), ...body }, null, 2));
   };
   let expected = expectedSamples();
   if (process.argv.includes('--drill') && expected.size) {
     const drill = drillExpected(expected);
     expected = drill.expected;
+    drilled = drill.sample;
     console.log(`DRILL: the expected result for ${drill.sample} is turned around on purpose. A failure below is the drill working, not the service judging wrongly.`);
   }
   if (!expected.size) {

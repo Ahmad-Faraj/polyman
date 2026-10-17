@@ -176,9 +176,12 @@ describe('the fire drill, end to end', () => {
         );
       });
     try {
+      const { readFileSync } = await import('node:fs');
       const plain = await run();
       expect(plain.code).toBe(0);
       expect(plain.out).not.toContain('DRILL');
+      // no drill marker, so the incident responder treats a failure as real
+      expect(JSON.parse(readFileSync(join(dir, 'g.json'), 'utf8')).drill).toBeUndefined();
 
       const drill = await run('--drill');
       const sample = [...want.keys()][0];
@@ -189,6 +192,8 @@ describe('the fire drill, end to end', () => {
       expect(failed.every((l) => l.includes(sample))).toBe(true);
       expect(drill.out).toContain(`expected ok=${!want.get(sample)!.ok}, got ok=${want.get(sample)!.ok}`);
       expect(existsSync(join(dir, 'g.json'))).toBe(true);
+      // the marker the incident responder reads to open a "Drill:" incident instead of proposing a rollback MR
+      expect(JSON.parse(readFileSync(join(dir, 'g.json'), 'utf8')).drill).toBe(sample);
     } finally {
       server.close();
       rmSync(dir, { recursive: true, force: true });

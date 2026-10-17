@@ -81,6 +81,16 @@ prompts:
            is not "merge_request_event"). Otherwise answer "skipped: not a release
            pipeline" and stop.
         2. Read the failing jobs and their logs.
+           - A fire drill: the production check's log starts with "DRILL:", or
+             its golden.json artifact has a "drill" field. A person started it on
+             purpose to exercise this path; the release itself is fine. Read the
+             @@rollback_job@@ log, then open an issue labelled "incident" and
+             "drill", titled "Drill: " followed by the turned-around sample: who
+             started the pipeline, that the check failed on purpose, and whether
+             the rollback moved traffic back, found nothing to roll back, or
+             failed (then a person has to act). Propose no rollback MR: there is
+             nothing to revert. Say a person closes the issue once the service is
+             healthy again. Then stop.
            - If the failure is in one of these jobs, production is affected:
              @@production_jobs@@. Continue with step 3. The @@rollback_job@@
              job moves traffic back to the previous version only if production
