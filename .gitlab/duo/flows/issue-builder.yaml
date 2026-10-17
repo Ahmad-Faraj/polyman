@@ -97,7 +97,10 @@ prompts:
              to the high, critical or protected paths) replies
              with a line that mentions me, the author of this note, and says
              go-ahead". Don't write your own @mention in the note: it would
-             mention your own account.
+             mention your own account. Then end the note with a line that
+             mentions the people who may give it, so GitLab notifies them: those
+             of @@people@@ who aren't the issue's author (only @@maintainers@@
+             when only a maintainer counts). Mention people only, never an agent.
            - If a comment after your proposal asks for changes instead, post a
              revised proposal the same way.
            Then stop. Don't create a branch, commit or push before a go-ahead.
