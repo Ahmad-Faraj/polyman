@@ -13,8 +13,12 @@ const PERSON = ['-c', 'user.name=someone', '-c', 'user.email=someone@example.com
 
 let repo: string;
 const git = (...args: string[]) => execFileSync('git', args, { cwd: repo, encoding: 'utf8' }).trim();
-const guard = (base: string) =>
-  spawnSync(process.execPath, [GUARD, base], { cwd: repo, encoding: 'utf8', env: { ...process.env, AUTONOMY_CONFIG: CONFIG } });
+const guard = (base: string, login?: string) =>
+  spawnSync(process.execPath, [GUARD, base], {
+    cwd: repo,
+    encoding: 'utf8',
+    env: { ...process.env, AUTONOMY_CONFIG: CONFIG, GITLAB_USER_LOGIN: login ?? '' },
+  });
 
 beforeEach(() => {
   repo = mkdtempSync(join(tmpdir(), 'guard-'));
@@ -43,5 +47,41 @@ describe('guard', () => {
     const run = guard(base);
     expect(run.status).toBe(1);
     expect(run.stderr).toContain('engine/policy.ts');
+  });
+
+  describe('the incidents file', () => {
+    const RESPONDER = ['-c', 'user.name=incident-responder', '-c', 'user.email=service_account_2@noreply.gitlab.com'];
+    const lesson = (n: number) => ({ paths: [`src/f${n}.ts`], weight: 25, reason: `r${n}`, ref: `#${n}` });
+    const write = (entries: object[]) => {
+      mkdirSync(join(repo, '.autonomy'), { recursive: true });
+      writeFileSync(join(repo, '.autonomy/incidents.json'), JSON.stringify(entries));
+    };
+    let base: string;
+    beforeEach(() => {
+      write([lesson(1)]);
+      git('add', '.');
+      git(...PERSON, 'commit', '-q', '-m', 'first lesson');
+      base = git('rev-parse', 'HEAD');
+    });
+
+    it('lets the incident responder add a lesson', () => {
+      write([lesson(1), lesson(2)]);
+      git(...RESPONDER, 'commit', '-q', '-am', 'record incident 2');
+      expect(guard(base, 'ai-incident-responder-gitlab-ai-hackathon').status).toBe(0);
+    });
+
+    it('fails when the responder rewrites an old lesson', () => {
+      write([{ ...lesson(1), weight: 0 }, lesson(2)]);
+      git(...RESPONDER, 'commit', '-q', '-am', 'record incident 2');
+      expect(guard(base, 'ai-incident-responder-gitlab-ai-hackathon').status).toBe(1);
+    });
+
+    it('fails another agent that only takes the responder name', () => {
+      write([lesson(1), lesson(2)]);
+      git(...RESPONDER, 'commit', '-q', '-am', 'record incident 2');
+      const run = guard(base, 'ai-pipeline-fixer-gitlab-ai-hackathon');
+      expect(run.status).toBe(1);
+      expect(run.stderr).toContain('.autonomy/incidents.json');
+    });
   });
 });
