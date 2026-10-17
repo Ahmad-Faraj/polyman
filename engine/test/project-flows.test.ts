@@ -36,6 +36,18 @@ describe("the project's Duo flows", () => {
     expect(checkFlow(filled)).toEqual([]);
   });
 
+  it('the review note puts the decision on top and folds the evidence away', () => {
+    const prompt = read('mr-reviewer.yaml');
+    expect(prompt).toMatch(/Every open P1 is always listed here\. Beyond the P1s, list at most\s+three items/);
+    expect(prompt).toMatch(/any open P1 or P2 means not ready/);
+    // warnings that change whether to merge stay visible, above the fold
+    expect(prompt.indexOf('"Before you merge"')).toBeGreaterThan(-1);
+    expect(prompt.indexOf('"Before you merge"')).toBeLessThan(prompt.indexOf('<details>'));
+    expect(prompt).toContain('<details><summary>Details: findings, evidence, risk</summary>');
+    // the monitor reads the watch block, so it stays in the visible top
+    expect(prompt.indexOf('language is "watch"')).toBeLessThan(prompt.indexOf('<details>'));
+  });
+
   it('no prompt still describes another project', () => {
     for (const file of files) expect(read(file)).not.toMatch(/Fastify|orders and payments|refund/i);
   });
