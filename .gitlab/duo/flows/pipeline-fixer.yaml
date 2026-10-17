@@ -110,7 +110,11 @@ prompts:
              issue's author (or one of @@maintainers@@ for high risk or a fix that
              touches the high, critical or protected paths) replies with the line
              `@@@fixer_account@@ go-ahead`, without the backticks". Keep that mention inside
-             backticks: a plain one would mention your own account. Then stop.
+             backticks: a plain one would mention your own account. End the note
+             with a line that mentions the people who may give it, so GitLab
+             notifies them: those of @@people@@ who aren't the MR's or the issue's
+             author (only @@maintainers@@ when only a maintainer counts). Mention
+             people only, never an agent. Then stop.
         5. A go-ahead after a proposal for the current head: apply exactly that
            change on the MR source branch, run the checks again until they pass,
            and commit with a short plain message that ends with a trailer line

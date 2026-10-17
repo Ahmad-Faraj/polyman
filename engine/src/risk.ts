@@ -6,6 +6,8 @@ export interface ChangedFile {
   status: 'A' | 'M' | 'D' | 'R';
   added: number;
   deleted: number;
+  /** Line ranges (first, last) this change added, in the new file; unknown when unset. */
+  addedLines?: [number, number][];
 }
 
 export type Severity = 'Critical' | 'High' | 'Medium' | 'Low' | 'Info' | 'Unknown';
@@ -15,6 +17,7 @@ export interface Finding {
   severity: Severity;
   name: string;
   file?: string;
+  line?: number;
 }
 
 /** A learned weight: past incidents caused by changes to these paths. */
@@ -107,10 +110,18 @@ export function assessRisk(
   add('tests.missing', touchesSource && !touchesTests ? 10 : 0, 'source changed without any test changes');
 
   // Findings from the scanners in this pipeline. The scanners report the whole
-  // repository, so only findings in files this change touches count; ones
-  // without a file (some dependency findings) count too, to be safe.
-  const touched = new Set(files.map((f) => f.path));
-  findings = findings.filter((f) => !f.file || touched.has(f.file));
+  // repository, so a finding counts only where this change could have put it:
+  // on a line it added. Without a line or the added ranges, anywhere in a file
+  // it touches counts; a finding without a file (some dependency findings)
+  // counts too, and so does a secret anywhere in a touched file, to be safe.
+  const byPath = new Map(files.map((f) => [f.path, f]));
+  findings = findings.filter((f) => {
+    if (!f.file) return true;
+    const changed = byPath.get(f.file);
+    if (!changed) return false;
+    if (f.scanner === 'secret_detection' || f.line === undefined || !changed.addedLines) return true;
+    return changed.addedLines.some(([first, last]) => f.line! >= first && f.line! <= last);
+  });
   const counts: Record<Severity, number> = { Critical: 0, High: 0, Medium: 0, Low: 0, Info: 0, Unknown: 0 };
   for (const f of findings) counts[f.severity]++;
   const secretHits = findings.filter((f) => f.scanner === 'secret_detection');

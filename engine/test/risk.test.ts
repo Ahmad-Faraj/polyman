@@ -79,6 +79,31 @@ describe('assessRisk', () => {
     expect(assessRisk(changed, [noFile], config).score).toBeGreaterThan(clean.score);
   });
 
+  it('counts a finding in a touched file only on a line the change added', () => {
+    // !26 touched src/helpers/utils.ts at lines 507-553; its six old findings sit at 303-486
+    const changed = [{ ...file('src/routes/orders.ts'), addedLines: [[507, 553]] as [number, number][] }, file('tests/api.test.ts')];
+    const old: Finding = { scanner: 'sast', severity: 'High', name: 'path traversal', file: 'src/routes/orders.ts', line: 303 };
+    const added: Finding = { ...old, line: 520 };
+    const clean = assessRisk(changed, [], config);
+    expect(assessRisk(changed, [old], config).score).toBe(clean.score);
+    expect(assessRisk(changed, [added], config).score).toBeGreaterThan(clean.score);
+  });
+
+  it('counts a finding anywhere in a touched file when its line or the added lines are unknown', () => {
+    const unknownLines = [file('src/routes/orders.ts'), file('tests/api.test.ts')];
+    const knownLines = [{ ...file('src/routes/orders.ts'), addedLines: [[10, 12]] as [number, number][] }, file('tests/api.test.ts')];
+    const noLine: Finding = { scanner: 'sast', severity: 'High', name: 'x', file: 'src/routes/orders.ts' };
+    const withLine: Finding = { ...noLine, line: 300 };
+    expect(assessRisk(unknownLines, [withLine], config).stats.findings.High).toBe(1);
+    expect(assessRisk(knownLines, [noLine], config).stats.findings.High).toBe(1);
+  });
+
+  it('counts a secret anywhere in a touched file, whatever line it is on', () => {
+    const changed = [{ ...file('README.md'), addedLines: [[1, 2]] as [number, number][] }];
+    const secret: Finding = { scanner: 'secret_detection', severity: 'Critical', name: 'AWS key', file: 'README.md', line: 90 };
+    expect(assessRisk(changed, [secret], config).tier).toBe('high');
+  });
+
   it('high severity findings raise the score', () => {
     const vuln: Finding = { scanner: 'sast', severity: 'High', name: 'SQL injection', file: 'src/routes/orders.ts' };
     const clean = assessRisk([file('src/routes/orders.ts'), file('tests/api.test.ts')], [], config);
