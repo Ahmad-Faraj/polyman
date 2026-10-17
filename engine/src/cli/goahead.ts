@@ -45,13 +45,17 @@ async function main() {
   try {
     policy = execFileSync('git', ['show', `${base}:${file}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
   } catch {
-    // no policy file on the target branch: the defaults apply
+    // no policy on the target branch: without a people list a guard can't tell
+    // a person from an agent, so it fails rather than guess by name
+  }
+  if (policy === null) {
+    throw new Error(`the target branch has no ${file}, so nobody is listed in go_ahead.people`);
   }
   const configPath = join(mkdtempSync(join(tmpdir(), 'goahead-')), '.autonomy.yml');
-  writeFileSync(configPath, policy ?? '');
-  const config = loadConfig(policy === null ? '/nonexistent/.autonomy.yml' : configPath);
+  writeFileSync(configPath, policy);
+  const config = loadConfig(configPath);
   if (!config.goAhead.people.length) {
-    console.warn(`warning: the target branch's ${file} lists no go_ahead.people, so agents are told apart by name only`);
+    throw new Error(`the target branch's ${file} lists no go_ahead.people, so nobody can give a go-ahead`);
   }
   const tier = tierFrom(env.AUTONOMY_TIER);
   const isAncestor = (commit: string, of: string) => {

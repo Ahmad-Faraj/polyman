@@ -248,6 +248,35 @@ describe('autonomy:goahead against a git repo and a stand-in for GitLab', () => 
     expect(code).toBe(1);
   });
 
+  it('fails when the target branch has no policy file, instead of telling agents apart by name', async () => {
+    const r = repo(0);
+    const git = (...a: string[]) => execFileSync('git', a, { cwd: r.dir, encoding: 'utf8' }).trim();
+    git('rm', '-q', '.autonomy.yml');
+    git('-c', 'user.name=h', '-c', 'user.email=h@x', 'commit', '-qm', 'no policy');
+    const base = git('rev-parse', 'HEAD');
+    writeFileSync(join(r.dir, 'a.txt'), 'x');
+    git('-c', 'user.name=h', '-c', 'user.email=h@x', 'commit', '-qam', 'change');
+    const head = git('rev-parse', 'HEAD');
+    const { code, text } = await runIn({ ...r, base }, { events: () => [push('10:10', 'helper-robot', base, head)] });
+    expect(text).toMatch(/has no \.autonomy\.yml/);
+    expect(code).toBe(1);
+  });
+
+  it('fails when the policy lists no go_ahead.people', async () => {
+    const r = repo(0);
+    const git = (...a: string[]) => execFileSync('git', a, { cwd: r.dir, encoding: 'utf8' }).trim();
+    const policy = readFileSync(join(r.dir, '.autonomy.yml'), 'utf8').replace(/^go_ahead:[\s\S]*?(?=^\S|$(?![\s\S]))/m, '');
+    writeFileSync(join(r.dir, '.autonomy.yml'), policy);
+    git('-c', 'user.name=h', '-c', 'user.email=h@x', 'commit', '-qam', 'no people');
+    const base = git('rev-parse', 'HEAD');
+    writeFileSync(join(r.dir, 'a.txt'), 'x');
+    git('-c', 'user.name=h', '-c', 'user.email=h@x', 'commit', '-qam', 'change');
+    const head = git('rev-parse', 'HEAD');
+    const { code, text } = await runIn({ ...r, base }, { events: () => [push('10:10', 'helper-robot', base, head)] });
+    expect(text).toMatch(/lists no go_ahead\.people/);
+    expect(code).toBe(1);
+  });
+
   it('needs a go-ahead for a push by an account outside go_ahead.people, whatever its name', async () => {
     const { code, text } = await run({ email: 'helper@example.com', events: (r) => [push('10:10', 'helper-robot', r.base, r.shas[0])] });
     expect(text).toMatch(/@helper-robot wrote no proposal/);
