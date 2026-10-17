@@ -18,7 +18,7 @@ export interface Finding {
   name: string;
   file?: string;
   line?: number;
-  /** the last line of a finding that spans several */
+  /** The last line a multi-line finding covers; its first line when unset. */
   endLine?: number;
 }
 
@@ -119,11 +119,12 @@ export function assessRisk(
   const byPath = new Map(files.map((f) => [f.path, f]));
   findings = findings.filter((f) => {
     if (!f.file) return true;
-    const changed = byPath.get(f.file);
+    // some scanners write "./src/x.ts"
+    const changed = byPath.get(f.file.replace(/^\.\//, ''));
     if (!changed) return false;
     const start = f.line;
     if (f.scanner === 'secret_detection' || start === undefined || !changed.addedLines) return true;
-    // a finding over several lines counts if the change added any of them
+    // a finding that spans lines counts when any of them was added
     const end = Math.max(start, f.endLine ?? start);
     return changed.addedLines.some(([first, last]) => start <= last && end >= first);
   });

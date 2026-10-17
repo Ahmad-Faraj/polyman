@@ -105,16 +105,19 @@ prompts:
            - Post one note that starts with "Pipeline fix proposal for SHA:" (the
              head commit), then: what failed, why, the exact change (the diff, or
              each file and what changes in it if it's long), and how you checked
-             it, and the risk tier. Its last line says who may give the go-ahead
-             and how: "Go-ahead: someone other than the MR's author and the linked
+             it, and the risk tier. Then it says who may give the go-ahead and
+             how: "Go-ahead: someone other than the MR's author and the linked
              issue's author (or one of @@maintainers@@ for high risk or a fix that
              touches the high, critical or protected paths) replies with the line
              `@@@fixer_account@@ go-ahead`, without the backticks". Keep that mention inside
-             backticks: a plain one would mention your own account. End the note
-             with a line that mentions the people who may give it, so GitLab
+             backticks: a plain one would mention your own account. The note's
+             last line mentions the people who may give the go-ahead, so GitLab
              notifies them: those of @@people@@ who aren't the MR's or the issue's
              author (only @@maintainers@@ when only a maintainer counts). Mention
-             people only, never an agent. Then stop.
+             people only, never an agent. Compare usernames without case. If
+             nobody is left, say in that line that someone other than the
+             requester (a maintainer, when only one counts) is needed, and
+             mention nobody. Then stop.
         5. A go-ahead after a proposal for the current head: apply exactly that
            change on the MR source branch, run the checks again until they pass,
            and commit with a short plain message that ends with a trailer line

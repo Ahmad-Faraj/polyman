@@ -2,24 +2,22 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import type { ChangedFile, Finding, Incident, Severity } from './risk.ts';
 
-/** Files changed between the merge base with `baseRef` and HEAD. */
+/**
+ * Files changed between the merge base with `baseRef` and HEAD. Paths come
+ * from NUL-separated output (-z), so they are exactly what the scanners report,
+ * whatever characters they hold.
+ */
 export function changedFiles(baseRef: string): ChangedFile[] {
-  // core.quotepath=off: non-ASCII paths come out as they are (as the scanners
-  // report them), not quoted and octal-escaped
-  const git = (...args: string[]) => execFileSync('git', ['-c', 'core.quotepath=off', ...args], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  const git = (...args: string[]) => execFileSync('git', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
   const range = `${baseRef}...HEAD`;
   const statuses = new Map<string, ChangedFile['status']>();
-  for (const line of git('diff', '--name-status', '--no-renames', range).split('\n').filter(Boolean)) {
-    const [code, ...paths] = line.split('\t');
-    statuses.set(paths[paths.length - 1], code[0] as ChangedFile['status']);
-  }
-  // explicit prefixes, whatever diff.noprefix or diff.mnemonicPrefix say
-  const hunks = addedLines(git('diff', '-U0', '--no-renames', '--no-color', '--no-ext-diff', '--src-prefix=a/', '--dst-prefix=b/', range));
+  const status = git('diff', '--name-status', '-z', '--no-renames', range).split('\0');
+  for (let i = 0; i + 1 < status.length; i += 2) statuses.set(status[i + 1], status[i][0] as ChangedFile['status']);
+  const hunks = addedLinesOf(git, range);
   const files: ChangedFile[] = [];
-  for (const line of git('diff', '--numstat', '--no-renames', range).split('\n').filter(Boolean)) {
-    const [added, deleted, ...rest] = line.split('\t');
-    // Renames print as "old => new" or "dir/{old => new}/file".
-    const path = rest.join('\t').replace(/\{[^}]* => ([^}]*)\}/, '$1').replace(/^.* => /, '').replace('//', '/');
+  for (const entry of git('diff', '--numstat', '-z', '--no-renames', range).split('\0').filter(Boolean)) {
+    const [added, deleted, ...rest] = entry.split('\t');
+    const path = rest.join('\t');
     files.push({
       path,
       status: statuses.get(path) ?? 'M',
@@ -33,34 +31,52 @@ export function changedFiles(baseRef: string): ChangedFile[] {
 }
 
 /**
+ * The added line ranges per file, or none at all when the diff can't be read
+ * (one too big for the buffer, say): then every finding in a touched file
+ * counts, matched by file only. The prefixes and quoting are set here
+ * so a user's git config (diff.noprefix, core.quotePath) can't change them.
+ */
+export function addedLinesOf(git: (...args: string[]) => string, range: string): Map<string, [number, number][]> {
+  try {
+    return addedLines(
+      git('-c', 'core.quotePath=false', 'diff', '-U0', '--no-renames', '--no-color', '--no-ext-diff', '--src-prefix=a/', '--dst-prefix=b/', range),
+    );
+  } catch (err) {
+    // only git failing or its output overflowing the buffer; a bug in the parser still throws
+    const e = err as NodeJS.ErrnoException & { status?: number };
+    if (e.code !== 'ENOBUFS' && typeof e.status !== 'number') throw err;
+    console.warn(`warning: couldn't read the diff's line ranges (${e.message.split('\n')[0]}); findings count anywhere in a touched file`);
+    return new Map();
+  }
+}
+
+/**
  * The line ranges each file gained, from a `git diff -U0`: the new side of
- * every hunk header. A path git still quotes (a tab, a newline, a quote) is
- * left out, so its findings count anywhere in the file.
- *
- * A `+++ ` line is a file header only between `diff --git` and the first
- * hunk: an added line whose content starts with `++ ` prints as `+++ ` too,
- * and read as a header it would file later hunks under a made-up path.
+ * every hunk header. A "+++" line is a file name only in a file's header, after
+ * "diff --git" and before its first "@@": in a hunk, an added line that reads
+ * "++ x" shows up as "+++ x" and must not start a new file. A path git still
+ * quotes (a quote, a backslash or a control character in it) is left out, so
+ * its findings count anywhere in the file.
  */
 export function addedLines(diff: string): Map<string, [number, number][]> {
   const out = new Map<string, [number, number][]>();
   let current: [number, number][] | null = null;
-  let inHeader = false;
+  let header = false;
   for (const line of diff.split('\n')) {
-    // content lines always start with +, - or a space, so these can't be content
     if (line.startsWith('diff --git ')) {
-      inHeader = true;
+      header = true;
       current = null;
       continue;
     }
-    if (inHeader && line.startsWith('+++ ')) {
-      // git ends the name with a tab when it contains a space
+    if (header && line.startsWith('+++ ')) {
+      // git ends the name with a tab when it holds a space
       const name = line.slice(4).replace(/\t$/, '');
       current = name.startsWith('b/') ? [] : null;
       if (current) out.set(name.slice(2), current);
       continue;
     }
     if (!line.startsWith('@@')) continue;
-    inHeader = false;
+    header = false;
     const hunk = current && /^@@ -\S+ \+(\d+)(?:,(\d+))? @@/.exec(line);
     if (hunk) {
       const first = Number(hunk[1]);
