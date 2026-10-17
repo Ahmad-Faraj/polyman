@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs';
 
 // The release jobs in service/ci/service.gitlab-ci.yml, read as text: the
 // switch to production is a person's go-ahead (Assisted), the rollback is not.
-const ci = readFileSync(new URL('../ci/service.gitlab-ci.yml', import.meta.url), 'utf8');
+// .gitattributes has `*.yml text`, so a Windows checkout has CRLF line ends.
+const ci = readFileSync(new URL('../ci/service.gitlab-ci.yml', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
 
 /** One top-level job: from its name line to the next top-level key. */
 function job(name: string): string {
