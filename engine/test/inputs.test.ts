@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { addedLines } from '../src/inputs.ts';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { addedLines, securityFindings } from '../src/inputs.ts';
 
 describe('addedLines', () => {
   it('reads the new side of every hunk header in a -U0 diff', () => {
@@ -22,8 +25,48 @@ describe('addedLines', () => {
     expect(lines.get('tests/a.test.ts')).toEqual([]);
   });
 
-  it('leaves out deleted files and paths git quotes, so those count as unknown', () => {
-    const diff = ['--- a/gone.ts', '+++ /dev/null', '@@ -1,2 +0,0 @@', '--- "a/odd\\tname.ts"', '+++ "b/odd\\tname.ts"', '@@ -0,0 +1 @@'].join('\n');
+  it("doesn't read an added line that starts with '++ ' as a file header", () => {
+    // a.ts gains "++ evil" after line 1 and changes line 7: the content line prints as "+++ evil"
+    const diff = ['diff --git a/a.ts b/a.ts', '--- a/a.ts', '+++ b/a.ts', '@@ -1,0 +2 @@ a', '+++ evil', '@@ -7 +8 @@ f', '-g', '+G'].join('\n');
+    const lines = addedLines(diff);
+    expect(lines.get('a.ts')).toEqual([[2, 2], [8, 8]]);
+    expect([...lines.keys()]).toEqual(['a.ts']);
+  });
+
+  it('drops the tab git puts after a path with a space', () => {
+    const diff = ['diff --git a/sp ace.ts b/sp ace.ts', '--- a/sp ace.ts\t', '+++ b/sp ace.ts\t', '@@ -0,0 +1,2 @@'].join('\n');
+    expect(addedLines(diff).get('sp ace.ts')).toEqual([[1, 2]]);
+  });
+
+  it('leaves out deleted files and paths git still quotes, so those count as unknown', () => {
+    const diff = [
+      'diff --git a/gone.ts b/gone.ts',
+      '--- a/gone.ts',
+      '+++ /dev/null',
+      '@@ -1,2 +0,0 @@',
+      'diff --git "a/odd\\tname.ts" "b/odd\\tname.ts"',
+      '--- "a/odd\\tname.ts"',
+      '+++ "b/odd\\tname.ts"',
+      '@@ -0,0 +1 @@',
+    ].join('\n');
     expect([...addedLines(diff).keys()]).toEqual([]);
+  });
+});
+
+describe('securityFindings', () => {
+  it('keeps the first and last line of each finding', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'findings-'));
+    const vulnerabilities = [
+      { name: 'span', severity: 'Medium', location: { file: 'src/a.ts', start_line: 500, end_line: 510 } },
+      { name: 'one line', severity: 'High', location: { file: 'src/a.ts', start_line: 7 } },
+      { name: 'no line', severity: 'Low', location: { file: 'package.json' } },
+    ];
+    writeFileSync(join(dir, 'gl-sast-report.json'), JSON.stringify({ scan: { type: 'sast' }, vulnerabilities }));
+    const { findings } = securityFindings(dir);
+    expect(findings.map((f) => [f.name, f.line, f.endLine])).toEqual([
+      ['span', 500, 510],
+      ['one line', 7, undefined],
+      ['no line', undefined, undefined],
+    ]);
   });
 });

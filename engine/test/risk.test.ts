@@ -89,6 +89,14 @@ describe('assessRisk', () => {
     expect(assessRisk(changed, [added], config).score).toBeGreaterThan(clean.score);
   });
 
+  it('counts a finding over several lines if the change added any of them', () => {
+    const changed = [{ ...file('src/routes/orders.ts'), addedLines: [[505, 510]] as [number, number][] }, file('tests/api.test.ts')];
+    const spans: Finding = { scanner: 'sast', severity: 'High', name: 'x', file: 'src/routes/orders.ts', line: 500, endLine: 506 };
+    const before: Finding = { ...spans, line: 490, endLine: 504 };
+    expect(assessRisk(changed, [spans], config).stats.findings.High).toBe(1);
+    expect(assessRisk(changed, [before], config).stats.findings.High).toBe(0);
+  });
+
   it('counts a finding anywhere in a touched file when its line or the added lines are unknown', () => {
     const unknownLines = [file('src/routes/orders.ts'), file('tests/api.test.ts')];
     const knownLines = [{ ...file('src/routes/orders.ts'), addedLines: [[10, 12]] as [number, number][] }, file('tests/api.test.ts')];
