@@ -16,7 +16,7 @@ import { projectPathFrom } from '../project.ts';
 import { loadConfig, type AutonomyConfig } from '../config.ts';
 import { checkFlow } from '../flows.ts';
 import { flowValues, renderFlow } from '../render.ts';
-import { type OpenMr, missingReviews } from '../reviews.ts';
+import { type OpenMr, missingReviews, reviewedShasFrom } from '../reviews.ts';
 
 type Status = 'ok' | 'warn' | 'fail';
 const results: { status: Status; what: string; detail?: string }[] = [];
@@ -158,15 +158,15 @@ try {
   for (const mr of mrs) {
     const [p] = await rest<{ sha: string; status: string; updated_at: string }[]>(`/projects/${enc}/merge_requests/${mr.iid}/pipelines?per_page=1`);
     const notes = await rest<{ body: string; author: { username: string } }[]>(`/projects/${enc}/merge_requests/${mr.iid}/notes?per_page=100&sort=desc`);
-    const reviewedShas = notes
-      .filter((n) => n.author.username === reviewer)
-      .map((n) => n.body.trim().match(/^\**Review of ([0-9a-f]{7,40})\b/i)?.[1])
-      .filter((s): s is string => !!s);
+    const reviewedShas = reviewedShasFrom(notes, reviewer);
     open.push({ iid: mr.iid, sha: mr.sha, draft: mr.draft, pipeline: p ? { sha: p.sha, status: p.status, finishedAt: p.updated_at } : null, reviewedShas });
   }
   const running = await rest<{ created_at: string }[]>(`/projects/${enc}/pipelines?source=duo_workflow&status=running&per_page=100`);
   const missing = missingReviews(open, new Date(), running.map((r) => r.created_at));
-  if (!missing.length) report('ok', 'reviews', `every open MR whose pipeline passed over 40 minutes ago has a review of its head (${open.length} open)`);
+  if (!missing.length) {
+    const waiting = running.length ? `; ${running.length} reviewer session(s) still running, so MRs whose pipeline finished before one started are assumed to be in it` : '';
+    report('ok', 'reviews', `no open MR is missing a review of its head (${open.length} open${waiting})`);
+  }
   for (const mr of missing) {
     report('warn', `review of !${mr.iid}`, `the pipeline for ${mr.sha.slice(0, 8)} passed at ${mr.pipeline?.finishedAt} and no review covers that head; the session may have ended without a note. Mention @${reviewer} on the MR to start one`);
   }

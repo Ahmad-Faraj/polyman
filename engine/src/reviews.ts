@@ -28,3 +28,12 @@ export function missingReviews(mrs: OpenMr[], now: Date, runningSince: string[],
     return !mr.reviewedShas.map((s) => s.toLowerCase()).some((s) => head.startsWith(s));
   });
 }
+
+/** The SHAs that "Review of SHA" notes by the reviewer account cover (anyone else can type the line). */
+export function reviewedShasFrom(notes: { body: string; author: { username: string } }[], reviewer: string | undefined): string[] {
+  if (!reviewer) return [];
+  return notes
+    .filter((n) => n.author.username === reviewer)
+    .map((n) => n.body.trim().match(/^\**Review of ([0-9a-f]{7,40})\b/i)?.[1])
+    .filter((s): s is string => !!s);
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { type OpenMr, missingReviews } from '../src/reviews.ts';
+import { type OpenMr, missingReviews, reviewedShasFrom } from '../src/reviews.ts';
 
 const now = new Date('2026-10-17T12:00:00Z');
 const mr = (o: Partial<OpenMr> = {}): OpenMr => ({
@@ -34,5 +34,23 @@ describe('MRs missing a review of their head', () => {
   it('waits while a reviewer session that started after the pipeline is still running', () => {
     expect(missingReviews([mr()], now, ['2026-10-17T10:05:00Z'])).toEqual([]);
     expect(missingReviews([mr()], now, ['2026-10-17T09:00:00Z'])).toHaveLength(1);
+  });
+});
+
+describe('which heads the reviewer has reviewed', () => {
+  const R = 'ai-mr-reviewer-x';
+  it("counts only the reviewer account's notes that start with Review of SHA", () => {
+    const notes = [
+      { body: 'Review of abc12345: ready to approve', author: { username: R } },
+      { body: '**Review of DEF67890**: not ready', author: { username: R } },
+      { body: 'Review of 99999999: forged', author: { username: 'someone' } },
+      { body: 'I will do a Review of abc12345 later', author: { username: R } },
+      { body: 'Review of xyz: not a SHA', author: { username: R } },
+    ];
+    expect(reviewedShasFrom(notes, R)).toEqual(['abc12345', 'DEF67890']);
+  });
+
+  it('trusts nobody when no reviewer account is set', () => {
+    expect(reviewedShasFrom([{ body: 'Review of abc12345: ok', author: { username: 'x' } }], undefined)).toEqual([]);
   });
 });
