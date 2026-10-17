@@ -11,6 +11,7 @@
 [Governance] @HamzaHassanain @Mazen-Ghanaym @Ahmad-Faraj
 /.gitlab/
 /.gitlab-ci.yml
+/.gitattributes
 /.autonomy.yml
 /.autonomy/
 /engine/
