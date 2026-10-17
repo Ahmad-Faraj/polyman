@@ -47,6 +47,7 @@ export interface AppOptions {
 
 const STATIC: Record<string, string> = {
   '/': 'index.html',
+  '/docs': 'docs.html',
   '/app.js': 'app.js',
   '/style.css': 'style.css',
 };

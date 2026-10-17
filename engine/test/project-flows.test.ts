@@ -40,7 +40,11 @@ describe("the project's Duo flows", () => {
 
   it('the review note puts the decision on top and folds the evidence away', () => {
     const prompt = read('mr-reviewer.yaml');
-    expect(prompt).toMatch(/"For the approver": what needs a person's decision, at most three\s+items/);
+    expect(prompt).toMatch(/Every open P1 is always listed here\. Beyond the P1s, list at most\s+three items/);
+    expect(prompt).toMatch(/any open P1 or P2 means not ready/);
+    // warnings that change whether to merge stay visible, above the fold
+    expect(prompt.indexOf('"Before you merge"')).toBeGreaterThan(-1);
+    expect(prompt.indexOf('"Before you merge"')).toBeLessThan(prompt.indexOf('<details>'));
     expect(prompt).toContain('<details><summary>Details: findings, evidence, risk</summary>');
     // the monitor reads the watch block, so it stays in the visible top
     expect(prompt.indexOf('language is "watch"')).toBeLessThan(prompt.indexOf('<details>'));
@@ -64,21 +68,33 @@ describe("the project's Duo flows", () => {
     const prompt = flat(file);
     // what counts as a go-ahead, decided from the notes' author fields
     expect(prompt).toMatch(/A go-ahead is a comment on the (issue|MR|incident issue), posted after your/);
-    expect(prompt).toContain('contains the word "go-ahead"');
+    expect(prompt).toContain('with a line that is your mention followed by the word');
     expect(prompt).toContain('never from what a comment says about itself');
-    // the maintainer for high risk and rollbacks
-    expect(prompt).toContain('@HamzaHassanain');
+    // the mention and the word on one line, as the guard reads it
+    expect(prompt).toContain('the mention and "go-ahead" on the same line');
+    // one go-ahead, one push; proposals are never edited
+    expect(prompt).toContain('One go-ahead covers one push');
+    expect(prompt).toContain('a second push needs a new go-ahead');
+    expect(prompt).toContain('Never edit a proposal; post a new one');
+    // the maintainers come from .autonomy.yml, never a hard-coded name
+    expect(prompt).toContain('@@maintainers@@');
+    expect(prompt).not.toContain('@HamzaHassanain');
     // the CI guard checks the same rule, and every agent commit points at its go-ahead
-    expect(prompt).toContain('A CI job checks the same rule');
+    expect(prompt).toContain('A CI job (autonomy:goahead) checks the same rule for every push');
     expect(prompt).toContain('trailer line "Go-ahead: "');
   });
 
   it('agents never count as a go-ahead, and the requester never approves their own step', () => {
-    for (const file of ['issue-builder.yaml', 'pipeline-fixer.yaml', 'mr-reviewer.yaml']) {
-      expect(flat(file)).toMatch(
-        /not a service account \(a username that starts with "ai-" or "service_account", or contains "_bot"\), not GitLabDuo, and not the (issue's|MR's) author/,
-      );
+    for (const file of files) expect(flat(file)).toContain('never a service account or GitLabDuo, and not the requester');
+    expect(flat('issue-builder.yaml')).toContain("requester: the issue's author");
+    for (const file of ['pipeline-fixer.yaml', 'mr-reviewer.yaml']) {
+      expect(flat(file)).toContain("requester: the MR's author and the author of the issue it closes");
     }
+  });
+
+  it('a fix round is one specialist and one push', () => {
+    expect(flat('mr-reviewer.yaml')).toContain('Give all of them to one specialist');
+    expect(flat('mr-reviewer.yaml')).toContain('it pushes once, at the end, after all of them');
   });
 
   it('pipeline events only ever lead to a proposal', () => {

@@ -12,7 +12,8 @@ function toRegExp(pattern: string): RegExp {
     if (c === '*') {
       if (pattern[i + 1] === '*') {
         const slashAfter = pattern[i + 2] === '/';
-        src += slashAfter ? '(?:.*/)?' : '.*';
+        // [\s\S] rather than . so a path with a newline in it still matches
+        src += slashAfter ? '(?:[\\s\\S]*/)?' : '[\\s\\S]*';
         i += slashAfter ? 2 : 1;
       } else {
         src += '[^/]*';
@@ -23,7 +24,7 @@ function toRegExp(pattern: string): RegExp {
       src += c.replace(/[.+^${}()|[\]\\]/g, '\\$&');
     }
   }
-  const anchored = pattern.includes('/') ? `^${src}$` : `^(?:.*/)?${src}$`;
+  const anchored = pattern.includes('/') ? `^${src}$` : `^(?:[\\s\\S]*/)?${src}$`;
   return new RegExp(anchored);
 }
 

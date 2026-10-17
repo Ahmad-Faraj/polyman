@@ -64,6 +64,23 @@ autonomy:guard:
   script:
     - node engine/src/cli/guard.ts
 
+# Assisted (wiki: Assisted): every push an agent makes to an MR needs a
+# person's go-ahead first, from someone the risk tier allows (never the
+# requester, never an agent). Read from what GitLab recorded (who wrote each
+# note, when each push arrived), not from commit dates or trailers, which the
+# agent writes itself. The tier comes from autonomy:assess, not from a label.
+autonomy:goahead:
+  extends: .autonomy:node
+  stage: assess
+  needs:
+    - { job: autonomy:assess, artifacts: true }
+  variables:
+    GIT_DEPTH: 0
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  script:
+    - node engine/src/cli/goahead.ts
+
 # The same rule on the default branch. This only reports after the fact: until
 # main is protected (no direct pushes) and "Pipelines must succeed" is on (#14),
 # an agent account can push to main, so do not enable the flows before that.
