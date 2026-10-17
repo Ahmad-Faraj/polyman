@@ -15,17 +15,19 @@ work on every merge request, and a person approves the result once.
   pipeline, the policy, the agent files or this folder. Those always go to a
   person.
 - `autonomy:goahead` (Assisted) fails the pipeline if an agent pushed to the
-  MR without a person's go-ahead for that push: a comment with a line like
-  `@agent go-ahead` (the mention and the word on one line), after the agent's
-  latest proposal and its previous push, and before GitLab recorded the push.
-  One go-ahead covers one push, and editing the proposal afterwards cancels
-  it. It never counts whoever asked for the work (the MR's or the issue's
-  author), an agent or GitLabDuo, and for high risk and rollbacks only
-  `go_ahead.maintainers` in `.autonomy.yml`. The tier comes from `autonomy:assess`, not from a label; who
-  wrote what and when comes from GitLab's notes, not from commit dates or
-  trailers. Commits an agent made before opening the MR need the go-ahead on
-  the issue the MR closes, given to the agent that wrote them. An agent commit
-  that no push note accounts for fails the job.
+  MR's branch without a person's go-ahead for that push: a comment with a
+  line like `@agent go-ahead` (the mention and the word on one line), after
+  the agent's latest proposal and its previous push anywhere in the project,
+  and before the push. One go-ahead covers one push, and editing the proposal
+  afterwards cancels it. It never counts whoever asked for the work (the MR's
+  or the issue's author), an agent or GitLabDuo, and for high risk and
+  rollbacks only `go_ahead.maintainers` in `.autonomy.yml`. Who pushed which
+  commit comes from the project's push events, which GitLab writes, not from
+  commit emails, dates or trailers, which the agent writes; a commit no push
+  accounts for fails the job, and so does an agent push that changes a
+  governance path. The tier comes from `autonomy:assess`, not from a label. A
+  branch an agent pushed before the MR existed needs the go-ahead on the
+  issue the MR closes.
 - `autonomy:flows` checks the flow files in `.gitlab/duo/flows` the way GitLab
   does when they're saved (schema, prompt safety rules, inputs).
 - `autonomy:engine` runs this folder's type check and tests when it changes.

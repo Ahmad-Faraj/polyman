@@ -3,8 +3,8 @@ import type { AutonomyConfig } from './config.ts';
 /**
  * Assisted (wiki: Assisted): an agent may push only after a person gave it the
  * go-ahead for that step. This decides it from what GitLab recorded, never from
- * what the agent wrote: who wrote each note and when, and the "added N commits"
- * notes GitLab posts when a push reaches the MR. Commit dates and commit
+ * what the agent wrote: who wrote each note and when, and who pushed what and
+ * when in the project's push events. Commit emails, commit dates and commit
  * trailers are the agent's own words, so they prove nothing here.
  *
  * One go-ahead covers one push: it has to come after the agent's latest note
@@ -18,15 +18,6 @@ export interface Note {
   created_at: string;
   updated_at?: string;
   author: { username: string };
-}
-
-export interface Push {
-  /** when the push reached the MR (the system note's time) */
-  at: string;
-  /** who pushed: the account the system note is by */
-  pusher: string;
-  /** what GitLab listed: single short SHAs, or "first...last" for a long push */
-  shas: string[];
 }
 
 export type Tier = 'low' | 'medium' | 'high';
@@ -62,16 +53,46 @@ export function saysGoAhead(body: string, account: string): boolean {
     .some((line) => mention.test(line) && line.replace(/@[\w.-]+/g, ' ').trim().replace(/[.!]$/, '').toLowerCase() === 'go-ahead');
 }
 
-/** Pushes from GitLab's "added N commits" notes, oldest first. */
-export function pushesFrom(notes: Note[]): Push[] {
-  return notes
-    .filter((n) => n.system && /^added \d+ (new )?commits?\b/i.test(n.body.trim()))
-    .map((n) => ({
-      at: n.created_at,
-      pusher: n.author.username,
-      shas: [...n.body.matchAll(/<li>([0-9a-f]{7,40}(?:\.\.\.[0-9a-f]{7,40})?) - /g)].map((m) => m[1]),
-    }))
+/** A push as GitLab's project events record it: who pushed, when, and what it moved the branch from and to. */
+export interface PushEvent {
+  created_at: string;
+  author: { username: string };
+  push_data: { ref: string; ref_type: string; action: string; commit_from: string | null; commit_to: string | null };
+}
+
+export interface BranchPush {
+  at: string;
+  pusher: string;
+  /** the branch head before the push (null when the push created the branch) */
+  from: string | null;
+  to: string;
+}
+
+/** Pushes that moved this branch forward, oldest first. */
+export function branchPushes(events: PushEvent[], branch: string): BranchPush[] {
+  return events
+    .filter((e) => e.push_data?.ref_type === 'branch' && e.push_data.ref === branch && e.push_data.commit_to)
+    .map((e) => ({ at: e.created_at, pusher: e.author.username, from: e.push_data.commit_from, to: e.push_data.commit_to! }))
     .sort((a, b) => time(a.at) - time(b.at));
+}
+
+/**
+ * Which push brought each commit: the first push whose new head contains it and
+ * whose old head didn't. A commit no push accounts for is returned separately.
+ */
+export function attribute(
+  commits: string[],
+  pushes: BranchPush[],
+  isAncestor: (commit: string, of: string) => boolean,
+): { by: Map<string, BranchPush>; unaccounted: string[] } {
+  const by = new Map<string, BranchPush>();
+  const unaccounted: string[] = [];
+  for (const sha of commits) {
+    const push = pushes.find((p) => isAncestor(sha, p.to) && !(p.from && isAncestor(sha, p.from)));
+    if (push) by.set(sha, push);
+    else unaccounted.push(sha);
+  }
+  return { by, unaccounted };
 }
 
 /** Why this person's go-ahead doesn't count for this step, or null if it does. */
@@ -97,7 +118,7 @@ export type Verdict = { ok: true; note: Note } | { ok: false; reason: string };
  * push, and before this push, and didn't edit it after the push.
  */
 export function goAheadFor(
-  push: Pick<Push, 'at' | 'pusher'>,
+  push: { at: string; pusher: string },
   notes: Note[],
   step: Step,
   config: AutonomyConfig,
@@ -124,12 +145,6 @@ export function goAheadFor(
   }
   const since = floor === proposal ? `its proposal at ${new Date(proposal).toISOString()}` : `its previous push at ${previousPush}`;
   return { ok: false, reason: `no go-ahead mentioning @${push.pusher} between ${since} and the push at ${push.at}` };
-}
-
-/** Which agent account wrote a commit: the account whose name contains the commit's author name. */
-export function accountFor(authorName: string, accounts: string[]): string | undefined {
-  const slug = authorName.trim().toLowerCase().replace(/\s+/g, '-');
-  return slug ? accounts.find((a) => a.toLowerCase().includes(slug)) : undefined;
 }
 
 /** The issue an MR says it closes ("Closes #12"), if any. */

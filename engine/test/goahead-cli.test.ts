@@ -8,9 +8,10 @@ import { join, resolve } from 'node:path';
 const CLI = resolve('src/cli/goahead.ts');
 const CONFIG = resolve('../.autonomy.yml');
 const AGENT = 'ai-mr-reviewer-group_e50080';
+const BUILDER = 'ai-issue-builder-group_e1c791';
 
-/** A git repo with one person's commit (the base) and the given agent commits on top. */
-function repo(agentCommits: number, author = 'mr-reviewer') {
+/** A git repo with a base commit and `count` more on top, all with the given author email. */
+function repo(count: number, email = 'service_account_group_1@noreply.gitlab.com', file = 'a.txt') {
   const dir = mkdtempSync(join(tmpdir(), 'goahead-'));
   const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' }).trim();
   git('init', '-q');
@@ -19,24 +20,25 @@ function repo(agentCommits: number, author = 'mr-reviewer') {
   git('-c', 'user.name=Mazen', '-c', 'user.email=mazen@example.com', 'commit', '-qm', 'base');
   const base = git('rev-parse', 'HEAD');
   const shas: string[] = [];
-  for (let i = 0; i < agentCommits; i++) {
-    writeFileSync(join(dir, 'a.txt'), `fix ${i}`);
-    git('-c', `user.name=${author}`, '-c', 'user.email=service_account_group_1@noreply.gitlab.com', 'commit', '-qam', `fix ${i}`);
+  for (let i = 0; i < count; i++) {
+    writeFileSync(join(dir, file), `change ${i}`);
+    git('add', '.');
+    git('-c', 'user.name=someone', '-c', `user.email=${email}`, 'commit', '-qm', `change ${i}`);
     shas.push(git('rev-parse', 'HEAD'));
   }
   return { dir, base, shas };
 }
 
-/** Serves the MR, its notes, and an issue with its notes, like GitLab's API. */
+/** Answers like GitLab's API for the given paths (arrays are paged). */
 function gitlab(routes: Record<string, unknown>) {
   const server = createServer((req, res) => {
-    const path = (req.url ?? '').split('?')[0];
-    const page = new URL(req.url ?? '', 'http://x').searchParams.get('page') ?? '1';
-    const body = routes[path];
+    const url = new URL(req.url ?? '', 'http://x');
+    const body = routes[url.pathname];
     if (body === undefined) {
       res.writeHead(404).end('{}');
       return;
     }
+    const page = url.searchParams.get('page') ?? '1';
     res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(Array.isArray(body) && page !== '1' ? [] : body));
   });
   return new Promise<{ url: string; close: () => void }>((ok) =>
@@ -47,26 +49,48 @@ function gitlab(routes: Record<string, unknown>) {
   );
 }
 
-const note = (id: number, at: string, author: string, body: string, system = false) => ({ id, body, system, created_at: `2026-10-17T${at}:00Z`, author: { username: author } });
+const note = (id: number, at: string, author: string, body: string) => ({ id, body, system: false, created_at: `2026-10-17T${at}:00Z`, author: { username: author } });
+const push = (at: string, by: string, from: string | null, to: string, ref = 'fix') => ({
+  created_at: `2026-10-17T${at}:00Z`,
+  author: { username: by },
+  push_data: { ref, ref_type: 'branch', action: from ? 'pushed' : 'created', commit_from: from, commit_to: to },
+});
 
-async function run(
-  agentCommits: number,
-  notes: (shas: string[]) => unknown[],
-  tier = 'low',
-  extra: Record<string, unknown> = {},
-  opts: { author?: string; mrAuthor?: string } = {},
-) {
-  const r = repo(agentCommits, opts.author);
+interface Case {
+  commits?: number;
+  email?: string;
+  file?: string;
+  tier?: string;
+  mrAuthor?: string;
+  issueAuthor?: string;
+  notes?: (r: { base: string; shas: string[] }) => unknown[];
+  events: (r: { base: string; shas: string[] }) => unknown[];
+  issueNotes?: unknown[];
+  api?: string;
+}
+
+async function run(c: Case) {
+  const r = repo(c.commits ?? 1, c.email, c.file);
   const api = await gitlab({
-    '/api/v4/projects/1/merge_requests/7': { author: { username: opts.mrAuthor ?? 'Mazen-Ghanaym' }, created_at: '2026-10-17T09:00:00Z', description: 'Closes #22' },
-    '/api/v4/projects/1/issues/22': { author: { username: 'Issue-Author' } },
-    '/api/v4/projects/1/merge_requests/7/notes': notes(r.shas),
-    ...extra,
+    '/api/v4/projects/1/merge_requests/7': { author: { username: c.mrAuthor ?? 'Mazen-Ghanaym' }, created_at: '2026-10-17T09:00:00Z', description: 'Closes #22', source_branch: 'fix' },
+    '/api/v4/projects/1/merge_requests/7/notes': c.notes?.(r) ?? [],
+    '/api/v4/projects/1/events': c.events(r),
+    '/api/v4/projects/1/issues/22': { author: { username: c.issueAuthor ?? 'Issue-Author' } },
+    '/api/v4/projects/1/issues/22/notes': c.issueNotes ?? [],
   });
   // async, so the stand-in server in this process can answer while the CLI runs
   const child = spawn('node', [CLI], {
     cwd: r.dir,
-    env: { ...process.env, CI_API_V4_URL: api.url, CI_PROJECT_ID: '1', CI_MERGE_REQUEST_IID: '7', CI_MERGE_REQUEST_DIFF_BASE_SHA: r.base, AUTONOMY_TIER: tier, AUTONOMY_CONFIG: CONFIG, CI_JOB_TOKEN: 'job' },
+    env: {
+      ...process.env,
+      CI_API_V4_URL: c.api ?? api.url,
+      CI_PROJECT_ID: '1',
+      CI_MERGE_REQUEST_IID: '7',
+      CI_MERGE_REQUEST_DIFF_BASE_SHA: r.base,
+      AUTONOMY_TIER: c.tier ?? 'low',
+      AUTONOMY_CONFIG: CONFIG,
+      CI_JOB_TOKEN: 'job',
+    },
   });
   let text = '';
   child.stdout.on('data', (d) => (text += d));
@@ -76,95 +100,121 @@ async function run(
   return { code, text };
 }
 
-const pushed = (id: number, at: string, shas: string[]) => note(id, at, AGENT, `added ${shas.length} commit\n\n<ul>${shas.map((s) => `<li>${s.slice(0, 8)} - fix</li>`).join('')}</ul>`, true);
+const proposal = note(1, '10:00', AGENT, 'Review of x: proposed fixes');
+const goAhead = (who = 'Ahmad-Faraj', at = '10:05') => note(2, at, who, `@${AGENT} go-ahead`);
 
 describe('autonomy:goahead against a git repo and a stand-in for GitLab', () => {
-  it('passes an agent push that had a teammate\'s go-ahead after the proposal', async () => {
-    const { code, text } = await run(1, (s) => [note(1, '10:00', AGENT, 'Review of x: proposed fixes'), note(2, '10:05', 'Ahmad-Faraj', `@${AGENT} go-ahead`), pushed(3, '10:10', s)]);
+  it("passes an agent push that had a teammate's go-ahead after the proposal", async () => {
+    const { code, text } = await run({ notes: () => [proposal, goAhead()], events: (r) => [push('10:10', AGENT, r.base, r.shas[0])] });
     expect(text).toContain('go-ahead in note 2 by @Ahmad-Faraj');
     expect(code).toBe(0);
   });
 
   it('fails a planted agent push with no go-ahead', async () => {
-    const { code, text } = await run(1, (s) => [note(1, '10:00', AGENT, 'Review of x: proposed fixes'), pushed(3, '10:10', s)]);
+    const { code, text } = await run({ notes: () => [proposal], events: (r) => [push('10:10', AGENT, r.base, r.shas[0])] });
     expect(text).toMatch(/no go-ahead mentioning @ai-mr-reviewer/);
     expect(code).toBe(1);
   });
 
+  it("knows the agent from who pushed, not from the commit's email (which the agent writes)", async () => {
+    const { code, text } = await run({ email: 'dev@example.com', notes: () => [proposal], events: (r) => [push('10:10', AGENT, r.base, r.shas[0])] });
+    expect(text).toMatch(/push at .* by @ai-mr-reviewer.*no go-ahead/);
+    expect(code).toBe(1);
+  });
+
   it('fails a high-risk push whose go-ahead came from a teammate who is not the maintainer', async () => {
-    const { code, text } = await run(1, (s) => [note(1, '10:00', AGENT, 'Review'), note(2, '10:05', 'Ahmad-Faraj', `@${AGENT} go-ahead`), pushed(3, '10:10', s)], 'high');
+    const { code, text } = await run({ tier: 'high', notes: () => [proposal, goAhead()], events: (r) => [push('10:10', AGENT, r.base, r.shas[0])] });
     expect(text).toMatch(/not a maintainer; high risk needs @HamzaHassanain/);
     expect(code).toBe(1);
   });
 
-  it('checks agent commits that were there when the MR opened against the issue it closes', async () => {
-    const BUILDER = 'ai-issue-builder-group_e1c791';
-    const issue = {
-      '/api/v4/projects/1/issues/22': { author: { username: 'Ahmad-Faraj' } },
-      '/api/v4/projects/1/issues/22/notes': [note(1, '08:00', BUILDER, 'Proposal for #22: ...'), note(2, '08:30', 'HamzaHassanain', `@${BUILDER} go-ahead`)],
-    };
-    const { code, text } = await run(1, () => [], 'low', issue, { author: 'issue-builder' });
-    expect(text).toMatch(/go-ahead in note 2 on #22 by @HamzaHassanain/);
-    expect(code).toBe(0);
-  });
-
-  it("doesn't accept one agent's go-ahead on the issue for another agent's commits", async () => {
-    const BUILDER = 'ai-issue-builder-group_e1c791';
-    const issue = {
-      '/api/v4/projects/1/issues/22/notes': [note(1, '08:00', BUILDER, 'Proposal for #22: ...'), note(2, '08:30', 'Mazen-Ghanaym', `@${BUILDER} go-ahead`)],
-    };
-    const { code, text } = await run(1, () => [], 'low', issue, { author: 'pipeline-fixer' });
-    expect(text).toMatch(/by "pipeline-fixer": no agent account on #22 matches/);
-    expect(code).toBe(1);
-  });
-
-  it('on an MR an agent opened, the issue author still asked for it, so their go-ahead does not count', async () => {
-    const BUILDER = 'ai-issue-builder-group_e1c791';
-    const issue = {
-      '/api/v4/projects/1/issues/22': { author: { username: 'Ahmad-Faraj' } },
-      '/api/v4/projects/1/issues/22/notes': [note(1, '08:00', BUILDER, 'Proposal for #22: ...'), note(2, '08:30', 'Ahmad-Faraj', `@${BUILDER} go-ahead`)],
-    };
-    const { code, text } = await run(1, () => [], 'low', issue, { author: 'issue-builder', mrAuthor: BUILDER });
-    expect(text).toMatch(/Ahmad-Faraj asked for this work/);
-    expect(code).toBe(1);
-  });
-
-  it('reads a long push listed as a range, and needs a go-ahead for each push', async () => {
-    const rangeNote = (id: number, at: string, first: string, last: string, n: number) =>
-      note(id, at, AGENT, `added ${n} commits\n\n<ul><li>${first.slice(0, 8)}...${last.slice(0, 8)} - ${n} commits from branch \`fix\`</li></ul>`, true);
-    const { code, text } = await run(4, (s) => [
-      note(1, '10:00', AGENT, 'Review: proposed fixes'),
-      note(2, '10:05', 'Ahmad-Faraj', `@${AGENT} go-ahead`),
-      rangeNote(3, '10:10', s[0], s[2], 3),
-      pushed(4, '10:20', [s[3]]),
-    ]);
-    expect(text).toMatch(/push at 2026-10-17T10:10:00Z by @ai-mr-reviewer.*: go-ahead in note 2/);
+  it('needs a new go-ahead for a second push', async () => {
+    const { code, text } = await run({
+      commits: 2,
+      notes: () => [proposal, goAhead()],
+      events: (r) => [push('10:10', AGENT, r.base, r.shas[0]), push('10:20', AGENT, r.shas[0], r.shas[1])],
+    });
+    expect(text).toMatch(/push at 2026-10-17T10:10:00Z .* go-ahead in note 2/);
     expect(text).toMatch(/push at 2026-10-17T10:20:00Z .* between its previous push at 2026-10-17T10:10:00Z/);
     expect(code).toBe(1);
   });
 
-  it('fails an agent commit that came after a recorded push but is in no push note', async () => {
-    const { code, text } = await run(2, (s) => [note(1, '10:00', AGENT, 'Review'), note(2, '10:05', 'Ahmad-Faraj', `@${AGENT} go-ahead`), pushed(3, '10:10', [s[0]])]);
-    expect(text).toMatch(/came after a recorded push, but no push note lists it/);
+  it('a go-ahead is used up by the same agent pushing anywhere else in between', async () => {
+    const { code, text } = await run({
+      notes: () => [proposal, goAhead()],
+      events: (r) => [push('10:07', AGENT, 'aaaa', 'bbbb', 'other-branch'), push('10:10', AGENT, r.base, r.shas[0])],
+    });
+    expect(text).toMatch(/between its previous push at 2026-10-17T10:07:00Z/);
+    expect(code).toBe(1);
+  });
+
+  it('fails a commit that no recorded push brought', async () => {
+    const { code, text } = await run({ commits: 2, notes: () => [proposal, goAhead()], events: (r) => [push('10:10', AGENT, r.base, r.shas[0])] });
+    expect(text).toMatch(/is in no push GitLab recorded for fix/);
+    expect(code).toBe(1);
+  });
+
+  it('checks a branch an agent pushed before the MR existed against the issue it closes', async () => {
+    const { code, text } = await run({
+      issueNotes: [note(1, '08:00', BUILDER, 'Proposal for #22: ...'), note(2, '08:30', 'HamzaHassanain', `@${BUILDER} go-ahead`)],
+      events: (r) => [push('08:45', BUILDER, null, r.shas[0])],
+    });
+    expect(text).toMatch(/go-ahead in note 2 on #22 by @HamzaHassanain/);
+    expect(code).toBe(0);
+  });
+
+  it("doesn't accept a go-ahead on the issue given to a different agent", async () => {
+    const { code, text } = await run({
+      issueNotes: [note(1, '08:00', BUILDER, 'Proposal for #22'), note(2, '08:30', 'HamzaHassanain', `@${BUILDER} go-ahead`)],
+      events: (r) => [push('08:45', 'ai-pipeline-fixer-group_b1d814', null, r.shas[0])],
+    });
+    expect(text).toMatch(/@ai-pipeline-fixer-group_b1d814 wrote no proposal/);
+    expect(code).toBe(1);
+  });
+
+  it('on an MR an agent opened, the issue author still asked for it, so their go-ahead does not count', async () => {
+    const { code, text } = await run({
+      mrAuthor: BUILDER,
+      issueAuthor: 'Ahmad-Faraj',
+      issueNotes: [note(1, '08:00', BUILDER, 'Proposal for #22'), note(2, '08:30', 'Ahmad-Faraj', `@${BUILDER} go-ahead`)],
+      events: (r) => [push('08:45', BUILDER, null, r.shas[0])],
+    });
+    expect(text).toMatch(/Ahmad-Faraj asked for this work/);
+    expect(code).toBe(1);
+  });
+
+  it('fails an agent push that changes a governance file, whatever email the commit carries', async () => {
+    const { code, text } = await run({
+      email: 'dev@example.com',
+      file: '.autonomy.yml',
+      notes: () => [proposal, goAhead()],
+      events: (r) => [push('10:10', AGENT, r.base, r.shas[0])],
+    });
+    expect(text).toMatch(/pushed by @ai-mr-reviewer.* changes files only people may change: \.autonomy\.yml/);
+    expect(code).toBe(1);
+  });
+
+  it("leaves people's own pushes alone", async () => {
+    const { code, text } = await run({ email: 'mazen@example.com', events: (r) => [push('10:10', 'Mazen-Ghanaym', r.base, r.shas[0])] });
+    expect(text).toMatch(/1 push\(es\), 0 by agents/);
+    expect(code).toBe(0);
+  });
+
+  it("fails, rather than guessing, when git doesn't know a commit a push names", async () => {
+    const { code, text } = await run({ notes: () => [proposal, goAhead()], events: (r) => [push('10:10', AGENT, 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef', r.shas[0])] });
+    expect(text).toMatch(/git can't compare .* deadbeef/);
     expect(code).toBe(1);
   });
 
   it('fails with a plain message when GitLab does not answer', async () => {
-    const r = repo(1);
-    const child = spawn('node', [CLI], {
-      cwd: r.dir,
-      env: { ...process.env, CI_API_V4_URL: 'http://127.0.0.1:9/api/v4', CI_PROJECT_ID: '1', CI_MERGE_REQUEST_IID: '7', CI_MERGE_REQUEST_DIFF_BASE_SHA: r.base, AUTONOMY_CONFIG: CONFIG, CI_JOB_TOKEN: 'job' },
-    });
-    let text = '';
-    child.stderr.on('data', (d) => (text += d));
-    const code = await new Promise<number | null>((ok) => child.on('close', ok));
+    const { code, text } = await run({ api: 'http://127.0.0.1:9/api/v4', events: () => [] });
     expect(text).toMatch(/autonomy:goahead could not finish, so it fails/);
     expect(code).toBe(1);
   });
 
-  it('passes an MR with no agent pushes or commits', async () => {
-    const { code, text } = await run(0, () => []);
-    expect(text).toContain('no agent pushes or agent commits');
+  it('passes an MR with no commits', async () => {
+    const { code, text } = await run({ commits: 0, events: () => [] });
+    expect(text).toContain('no commits on this MR');
     expect(code).toBe(0);
   });
 });

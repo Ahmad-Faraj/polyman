@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { DEFAULT_CONFIG, loadConfig } from '../src/config.ts';
-import { type Note, type Step, accountFor, goAheadFor, isPerson, linkedIssue, notAllowed, pushesFrom, saysGoAhead, tierFrom } from '../src/goahead.ts';
+import { type Note, type PushEvent, type Step, attribute, branchPushes, goAheadFor, isPerson, linkedIssue, notAllowed, saysGoAhead, tierFrom } from '../src/goahead.ts';
 import { flowValues } from '../src/render.ts';
 
 const AGENT = 'ai-mr-reviewer-group_e50080';
@@ -12,9 +12,6 @@ const low: Step = { requesters: ['Mazen-Ghanaym'], tier: 'low', rollback: false 
 
 let id = 0;
 const note = (at: string, author: string, body: string, system = false): Note => ({ id: ++id, body, system, created_at: `2026-10-17T${at}:00Z`, author: { username: author } });
-const pushNote = (at: string, shas: string[], by = AGENT) =>
-  note(at, by, `added ${shas.length} commit${shas.length > 1 ? 's' : ''}\n\n<ul>${shas.map((s) => `<li>${s} - fix</li>`).join('')}</ul>`, true);
-
 describe('what counts as a go-ahead comment', () => {
   it('needs the mention and a line that says exactly go-ahead', () => {
     expect(saysGoAhead(`@${AGENT} go-ahead`, AGENT)).toBe(true);
@@ -133,24 +130,41 @@ describe('a push needs a go-ahead after the agent proposed and before it pushed'
 });
 
 describe('reading GitLab\'s records', () => {
-  it('takes pushes from "added N commits" system notes, with who pushed and when', () => {
-    const notes = [note('09:00', 'Ahmad-Faraj', 'a comment'), pushNote('10:10', ['1af099a0', '2b0aa1b1']), pushNote('09:30', ['00b09007'], 'Mazen-Ghanaym')];
-    expect(pushesFrom(notes)).toEqual([
-      { at: '2026-10-17T09:30:00Z', pusher: 'Mazen-Ghanaym', shas: ['00b09007'] },
-      { at: '2026-10-17T10:10:00Z', pusher: AGENT, shas: ['1af099a0', '2b0aa1b1'] },
+  const event = (at: string, by: string, ref: string, from: string | null, to: string | null): PushEvent => ({
+    created_at: `2026-10-17T${at}:00Z`,
+    author: { username: by },
+    push_data: { ref, ref_type: 'branch', action: from ? 'pushed' : 'created', commit_from: from, commit_to: to },
+  });
+
+  it("takes this branch's pushes from GitLab's push events, oldest first", () => {
+    const events = [event('10:10', AGENT, 'fix', 'b', 'c'), event('09:00', 'Ahmad-Faraj', 'other', null, 'x'), event('09:30', AGENT, 'fix', null, 'b'), event('11:00', 'Mazen-Ghanaym', 'fix', 'c', null)];
+    expect(branchPushes(events, 'fix')).toEqual([
+      { at: '2026-10-17T09:30:00Z', pusher: AGENT, from: null, to: 'b' },
+      { at: '2026-10-17T10:10:00Z', pusher: AGENT, from: 'b', to: 'c' },
     ]);
   });
 
-  it('reads a long push GitLab lists as a range', () => {
-    const n = note('10:10', AGENT, 'added 15 commits\n\n<ul><li>1af099a0...2b0aa1b1 - 15 commits from branch `fix`</li></ul>', true);
-    expect(pushesFrom([n])[0].shas).toEqual(['1af099a0...2b0aa1b1']);
+  it('gives each commit to the push that brought it, and reports commits no push brought', () => {
+    // history a <- b <- c; d is unrelated
+    const order = ['a', 'b', 'c'];
+    const isAncestor = (x: string, y: string) => order.includes(x) && order.includes(y) && order.indexOf(x) <= order.indexOf(y);
+    const pushes = [
+      { at: '2026-10-17T09:30:00Z', pusher: AGENT, from: null, to: 'b' },
+      { at: '2026-10-17T10:10:00Z', pusher: 'Ahmad-Faraj', from: 'b', to: 'c' },
+    ];
+    const { by, unaccounted } = attribute(['a', 'b', 'c', 'd'], pushes, isAncestor);
+    expect(by.get('a')?.pusher).toBe(AGENT);
+    expect(by.get('b')?.pusher).toBe(AGENT);
+    expect(by.get('c')?.pusher).toBe('Ahmad-Faraj');
+    expect(unaccounted).toEqual(['d']);
   });
 
-  it('matches a commit author to its agent account', () => {
-    const accounts = ['ai-issue-builder-group_e1c791', 'ai-pipeline-fixer-group_b1d814'];
-    expect(accountFor('issue-builder', accounts)).toBe('ai-issue-builder-group_e1c791');
-    expect(accountFor('pipeline fixer', accounts)).toBe('ai-pipeline-fixer-group_b1d814');
-    expect(accountFor('mr-reviewer', accounts)).toBeUndefined();
+  it("doesn't credit a push with commits its branch already had (they were pushed before the events we read)", () => {
+    const order = ['a', 'b', 'c'];
+    const isAncestor = (x: string, y: string) => order.indexOf(x) <= order.indexOf(y);
+    const { by, unaccounted } = attribute(['a', 'b', 'c'], [{ at: '2026-10-17T10:10:00Z', pusher: AGENT, from: 'b', to: 'c' }], isAncestor);
+    expect([...by.keys()]).toEqual(['c']);
+    expect(unaccounted).toEqual(['a', 'b']);
   });
 
   it('gives the flows the maintainers to name', () => {
