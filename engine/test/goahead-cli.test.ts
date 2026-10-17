@@ -33,8 +33,9 @@ function repo(count: number, email = 'service_account_group_1@noreply.gitlab.com
 }
 
 /** Answers like GitLab's API for the given paths (arrays are paged). */
-function gitlab(routes: Record<string, unknown>) {
+function gitlab(routes: Record<string, unknown>, seen?: (url: string) => void) {
   const server = createServer((req, res) => {
+    seen?.(req.url ?? '');
     const url = new URL(req.url ?? '', 'http://x');
     const body = routes[url.pathname];
     if (body === undefined) {
@@ -72,6 +73,7 @@ interface Case {
   closes?: unknown[];
   api?: string;
   env?: Record<string, string>;
+  onEvents?: (url: string) => void;
 }
 
 async function run(c: Case) {
@@ -85,7 +87,7 @@ async function runIn(r: { dir: string; base: string; shas: string[] }, c: Case) 
     '/api/v4/projects/1/events': c.events(r),
     '/api/v4/projects/1/merge_requests/7/closes_issues': c.closes ?? [{ iid: 22, author: { username: c.issueAuthor ?? 'Mazen-Ghanaym' } }],
     '/api/v4/projects/1/issues/22/notes': c.issueNotes ?? [],
-  });
+  }, (url) => url.startsWith('/api/v4/projects/1/events') && c.onEvents?.(url));
   // async, so the stand-in server in this process can answer while the CLI runs
   const child = spawn('node', [CLI], {
     cwd: r.dir,
@@ -217,6 +219,31 @@ describe('autonomy:goahead against a git repo and a stand-in for GitLab', () => 
     const { code, text } = await runIn(r, { notes: () => [proposal, goAhead()], events: () => [push('10:10', AGENT, r.base, r.shas[0])], env: { AUTONOMY_POLICY_REF: target } });
     expect(text).toMatch(/lists no go_ahead\.people/);
     expect(code).toBe(1);
+  });
+
+  // a base commit with a given date, and a commit dated 1970 on top of it
+  async function windowFor(baseDate: string) {
+    let asked = '';
+    const r = repo(0);
+    const git = (date: string, ...a: string[]) => execFileSync('git', a, { cwd: r.dir, encoding: 'utf8', env: { ...process.env, GIT_COMMITTER_DATE: date } }).trim();
+    git(baseDate, '-c', 'user.name=h', '-c', 'user.email=mazen@example.com', 'commit', '-q', '--allow-empty', '-m', 'base');
+    const base = git(baseDate, 'rev-parse', 'HEAD');
+    writeFileSync(join(r.dir, 'a.txt'), 'old');
+    git('1970-01-02T00:00:00Z', '-c', 'user.name=h', '-c', 'user.email=mazen@example.com', 'commit', '-qam', 'dated 1970');
+    const head = git(baseDate, 'rev-parse', 'HEAD');
+    const { code } = await runIn({ ...r, base }, { events: () => [push('10:10', 'Mazen-Ghanaym', base, head)], onEvents: (url) => (asked = url) });
+    return { asked, code };
+  }
+
+  it("reads pushes from two days before the MR's base commit; the MR's own commit dates don't move it", async () => {
+    const { asked, code } = await windowFor('2026-10-01T12:00:00Z');
+    expect(asked).toContain('after=2026-09-29');
+    expect(code).toBe(0);
+  });
+
+  it('reads at most 120 days back, however old the base', async () => {
+    const { asked } = await windowFor('2026-01-01T12:00:00Z');
+    expect(asked).toContain('after=2026-06-17');
   });
 
   it('passes an MR from a fork without reading anything: no agent here can push there', async () => {

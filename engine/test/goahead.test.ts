@@ -41,6 +41,21 @@ describe('what counts as a go-ahead comment', () => {
     // an indented code block after a blank line, also over several lines
     expect(saysGoAhead(`To approve:\n\n    @${AGENT} go-ahead`, AGENT)).toBe(false);
     expect(saysGoAhead(`To approve:\n\n    example\n\t@${AGENT} go-ahead`, AGENT)).toBe(false);
+    // a fence ends a block, so an indented line right after it is code, whatever came before
+    expect(saysGoAhead(`Example:\n\`\`\`\nfoo\n\`\`\`\n    @${AGENT} go-ahead`, AGENT)).toBe(false);
+    // a space then a tab reaches 4 columns: code
+    expect(saysGoAhead(`Example:\n\n \t@${AGENT} go-ahead`, AGENT)).toBe(false);
+    // a mixed closing line doesn't close a fence
+    expect(saysGoAhead(`\`\`\`\nx\n\`\`\`~\n@${AGENT} go-ahead\n\`\`\``, AGENT)).toBe(false);
+    // a heading or a rule ends a block too, so an indented line after one is code
+    expect(saysGoAhead(`# Example\n    @${AGENT} go-ahead`, AGENT)).toBe(false);
+    expect(saysGoAhead(`---\n    @${AGENT} go-ahead`, AGENT)).toBe(false);
+    // a quote runs on to the next line until a blank one
+    expect(saysGoAhead(`> Alice said:\n@${AGENT} go-ahead`, AGENT)).toBe(false);
+    expect(saysGoAhead(`> Alice said: wait\n\n@${AGENT} go-ahead`, AGENT)).toBe(true);
+    // folded or preformatted HTML blocks
+    expect(saysGoAhead(`<details><summary>how</summary>\n\n@${AGENT} go-ahead\n</details>`, AGENT)).toBe(false);
+    expect(saysGoAhead(`<pre>\n@${AGENT} go-ahead\n</pre>`, AGENT)).toBe(false);
     // an indented line that continues a paragraph is not code
     expect(saysGoAhead(`Looks right,\n    @${AGENT} go-ahead`, AGENT)).toBe(true);
     // after the block closes, a real one still counts

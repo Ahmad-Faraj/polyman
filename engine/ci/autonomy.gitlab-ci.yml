@@ -89,13 +89,19 @@ autonomy:goahead:
     - export AUTONOMY_POLICY_REF=$(git rev-parse refs/goahead/target)
     # a fresh directory each run, nothing registered in .git, so a reused checkout reruns cleanly
     - GUARD=$(mktemp -d)
-    - git archive "$AUTONOMY_POLICY_REF" engine | tar -x -C "$GUARD"
   script:
+    # Passing without a guard is allowed only for the MR that adds it. If git
+    # fails here, or the guard moved, both checks come out empty and the job fails.
     - |
-      if [ ! -f "$GUARD/engine/src/cli/goahead.ts" ]; then
-        echo "the target branch has no go-ahead guard yet: this MR adds it, and a person merges it"
-        exit 0
+      if [ -z "$(git ls-tree --name-only "$AUTONOMY_POLICY_REF" -- engine/src/cli/goahead.ts)" ]; then
+        if git diff --name-only --diff-filter=A "$AUTONOMY_POLICY_REF...HEAD" -- engine/src/cli/goahead.ts | grep -q .; then
+          echo "the target branch has no go-ahead guard yet: this MR adds it, and a person merges it"
+          exit 0
+        fi
+        echo "the target branch has no engine/src/cli/goahead.ts and this MR doesn't add it: can't check go-aheads" >&2
+        exit 1
       fi
+    - git archive "$AUTONOMY_POLICY_REF" engine | tar -x -C "$GUARD"
     - npm ci --prefix "$GUARD/engine" --no-audit --no-fund --loglevel=error
     - node "$GUARD/engine/src/cli/goahead.ts"
 
