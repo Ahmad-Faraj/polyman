@@ -1,0 +1,150 @@
+# The corpus: real problems with deliberately wrong solutions, judged by real
+# compilers and checkers, compared with pinned true verdicts (corpus/README.md).
+# Included from .gitlab-ci.yml. Runs when polyman's code, the corpus or the
+# dependencies change, and on every default-branch pipeline.
+
+.corpus:
+  extends: .node
+  stage: test
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - changes: [src/**/*, corpus/**/*, template/**/*, assets/**/*, package.json, package-lock.json]
+  artifacts:
+    when: always
+    expire_in: 30 days
+    paths: [corpus/out/]
+
+# g++, Java and Python reachable as `python`: the toolchain polyman supports.
+corpus:
+  extends: .corpus
+  script:
+    - apt-get update -qq && apt-get install -y -qq default-jdk-headless python-is-python3 >/dev/null
+    - npm run build
+    - node corpus/run.mjs
+  artifacts:
+    # The verdict matrix, linked from the merge request widget.
+    expose_as: 'Corpus verdicts'
+    paths: [corpus/out/report.html]
+    reports:
+      junit: corpus/out/junit.xml
+  # Red on polyman 3.0.0: `verify --json` reports tests the checker never judged
+  # as OK. Becomes blocking in the MR that fixes it.
+  allow_failure: true
+
+# Environments polyman's users have. Each lane pins one fact about them.
+corpus:toolchain:
+  extends: .corpus
+  parallel:
+    matrix:
+      # chalk@5 is ESM-only, which `require` can load only from Node 20.19 on;
+      # the README promises older Node versions work.
+      - LANE: node-20.18
+        NODE_IMAGE: node:20.18
+        PYTHON_ALIAS: 'yes'
+      # Stock Debian/Ubuntu: python3 only, no `python` command.
+      - LANE: no-python-alias
+        NODE_IMAGE: node:22
+        PYTHON_ALIAS: 'no'
+  image: ${NODE_IMAGE}
+  script:
+    - apt-get update -qq && apt-get install -y -qq default-jdk-headless >/dev/null
+    - if [ "$PYTHON_ALIAS" = "yes" ]; then apt-get install -y -qq python-is-python3 >/dev/null; fi
+    - npm run build
+    - node dist/cli.js --version
+    - node corpus/run.mjs --junit corpus/out/junit-${LANE}.xml
+  artifacts:
+    reports:
+      junit: corpus/out/junit-${LANE}.xml
+  allow_failure: true
+
+# Polygon round trip: push the corpus problem with polyman, read it back from
+# Polygon and compare it with the folder (corpus/polygon-roundtrip.mjs). Only on
+# the default branch (including scheduled pipelines), where the Polygon key is
+# available as a masked, protected variable; never on MR branches, which agents
+# write to. One run at a time, because every run writes the same problem.
+corpus:polygon:
+  extends: .node
+  stage: test
+  resource_group: polygon
+  variables:
+    POLYGON_PROBLEM_ID: "605330"
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $POLYGON_API_KEY && $POLYGON_API_SECRET
+  script:
+    - npm run build
+    - node corpus/polygon-roundtrip.mjs
+  artifacts:
+    when: always
+    expire_in: 30 days
+    reports:
+      junit: corpus/out/junit-polygon.xml
+  # Red on polyman 3.0.0 (#24, #25, #26). Becomes blocking once they're fixed.
+  allow_failure: true
+
+# Mutation testing of the code that decides verdicts: Stryker plants small bugs
+# in src/helpers/solution.ts and counts how many the unit tests catch. The score
+# shows in the merge request's metrics widget; the report says which ones live.
+corpus:mutation:
+  extends: .node
+  stage: test
+  variables:
+    # tests/actions.test.ts sets TZ at runtime, which Stryker's workers don't see
+    TZ: Asia/Kolkata
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - changes: [src/helpers/solution.ts, src/types.d.ts, tests/**/*, corpus/stryker.config.json, corpus/mutation-metrics.mjs]
+  script:
+    # --no-save keeps package.json as it is; --legacy-peer-deps avoids an npm
+    # crash (edgesOut) when adding packages without saving them
+    - npm i --no-save --legacy-peer-deps --no-audit --no-fund @stryker-mutator/core@9 @stryker-mutator/vitest-runner@9
+    - ./node_modules/.bin/stryker run corpus/stryker.config.json
+    - node corpus/mutation-metrics.mjs corpus/out/mutation/mutation.json corpus/out/mutation-metrics.txt
+  artifacts:
+    when: always
+    expire_in: 30 days
+    expose_as: 'Mutation report'
+    paths: [corpus/out/mutation/index.html]
+    reports:
+      metrics: corpus/out/mutation-metrics.txt
+
+# Production check: the polyman that users install from npm, judged by the same
+# corpus and Polygon round trip. Runs from a pipeline schedule (nightly), so a
+# release that judges wrongly, or a change on Polygon's side, turns a scheduled
+# pipeline red and the incident responder picks it up.
+corpus:production:
+  extends: .node
+  stage: test
+  resource_group: polygon
+  variables:
+    POLYMAN_VERSION: latest
+    POLYGON_PROBLEM_ID: "605330"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+  script:
+    - apt-get update -qq && apt-get install -y -qq default-jdk-headless python-is-python3 >/dev/null
+    - npm i --prefix /tmp/published --no-audit --no-fund polyman-cli@"$POLYMAN_VERSION"
+    - PUBLISHED=/tmp/published/node_modules/polyman-cli/dist/cli.js
+    - node "$PUBLISHED" --version
+    - status=0
+    - node corpus/run.mjs --polyman "$PUBLISHED" --junit corpus/out/junit-production.xml || status=1
+    - if [ -n "$POLYGON_API_KEY" ]; then node corpus/polygon-roundtrip.mjs --polyman "$PUBLISHED" --junit corpus/out/junit-production-polygon.xml || status=1; fi
+    - exit $status
+  artifacts:
+    when: always
+    expire_in: 90 days
+    expose_as: 'Production verdicts'
+    paths: [corpus/out/report.html]
+    reports:
+      junit: corpus/out/junit-production*.xml
+
+# Upstream drift: Polygon's API docs and testlib.h change outside our control.
+# Fails, listing the new upstream commits, when either moved since the commit
+# pinned in corpus/upstream.json.
+corpus:upstream:
+  extends: .node
+  stage: test
+  before_script: []
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+  script:
+    - node corpus/upstream.mjs

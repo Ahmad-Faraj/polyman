@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { MockedFunction } from 'vitest';
 import * as pulling from '../../../src/helpers/remote/pulling';
 import fs from 'fs';
+import { fmt } from '../../../src/formatter';
 import type { PolygonSDK } from '../../../src/polygon';
 import type { StatementConfig } from '../../../src/types';
 
@@ -797,6 +798,148 @@ describe('pulling.ts', () => {
       expect(m.useInStatements).toBeUndefined();
     });
 
+    it('refuses a test index that is not a non-negative integer', async () => {
+      mockSdk.getTests.mockResolvedValue([
+        {
+          index: '../../../../evil' as unknown as number,
+          manual: true,
+          input: 'x',
+          useInStatements: false,
+        },
+      ]);
+      mockSdk.getScript.mockResolvedValue('');
+
+      await expect(
+        pulling.downloadTestsetAndBuildGenerationScripts(
+          asSdk(mockSdk),
+          1,
+          'dir',
+          'tests',
+          []
+        )
+      ).rejects.toThrow(/Refusing unsafe test index/);
+      expect(fs.writeFileSync).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['negative', -1],
+      ['float', 1.5],
+      ['NaN', NaN],
+      ['Infinity', Infinity],
+      ['null', null],
+      ['undefined', undefined],
+      ['numeric string', '1'],
+    ])('refuses a %s test index', async (_label, index) => {
+      mockSdk.getTests.mockResolvedValue([
+        {
+          index: index as unknown as number,
+          manual: true,
+          input: 'x',
+          useInStatements: false,
+        },
+      ]);
+      mockSdk.getScript.mockResolvedValue('');
+
+      await expect(
+        pulling.downloadTestsetAndBuildGenerationScripts(
+          asSdk(mockSdk),
+          1,
+          'dir',
+          'tests',
+          []
+        )
+      ).rejects.toThrow(/Refusing unsafe test index/);
+      expect(fs.writeFileSync).not.toHaveBeenCalled();
+    });
+
+    it('does not create the manual directory when the index is refused', async () => {
+      mockSdk.getTests.mockResolvedValue([
+        { index: -3, manual: true, input: 'x', useInStatements: false },
+      ]);
+      mockSdk.getScript.mockResolvedValue('');
+
+      await expect(
+        pulling.downloadTestsetAndBuildGenerationScripts(
+          asSdk(mockSdk),
+          1,
+          'dir',
+          'tests',
+          []
+        )
+      ).rejects.toThrow(/Refusing unsafe test index/);
+      const created = vi
+        .mocked(fs.mkdirSync)
+        .mock.calls.map(call => String(call[0]));
+      expect(created.some(dir => dir.includes('manual'))).toBe(false);
+    });
+
+    it('escapes control characters of a refused index in the message', async () => {
+      mockSdk.getTests.mockResolvedValue([
+        {
+          index: '\u009b31m\u202efake\u2028' as unknown as number,
+          manual: true,
+          input: 'x',
+          useInStatements: false,
+        },
+      ]);
+      mockSdk.getScript.mockResolvedValue('');
+
+      const error = await pulling
+        .downloadTestsetAndBuildGenerationScripts(
+          asSdk(mockSdk),
+          1,
+          'dir',
+          'tests',
+          []
+        )
+        .catch((e: unknown) => e as Error);
+      expect(error.message).toMatch(/Refusing unsafe test index/);
+      expect(error.message).not.toMatch(/[\u0080-\u009f\u2028\u202e]/);
+      expect(error.message).toContain('\\u202e');
+    });
+
+    it('accepts index 0 and writes m-00.in', async () => {
+      mockSdk.getTests.mockResolvedValue([
+        { index: 0, manual: true, input: 'zero', useInStatements: false },
+      ]);
+      mockSdk.getScript.mockResolvedValue('');
+
+      const result = await pulling.downloadTestsetAndBuildGenerationScripts(
+        asSdk(mockSdk),
+        1,
+        'dir',
+        'tests',
+        []
+      );
+
+      expect(result.manualCount).toBe(1);
+      expect(result.testset.manualTests![0]).toMatchObject({
+        input: './manual/tests/m-00.in',
+        index: 0,
+      });
+      expect(vi.mocked(fs.writeFileSync).mock.calls[0][0]).toMatch(/m-00\.in$/);
+    });
+
+    it('does not check the index of tests that are not manual', async () => {
+      mockSdk.getTests.mockResolvedValue([
+        { index: -1, manual: false, input: 'x', useInStatements: false },
+        { index: 1.5, manual: false, useInStatements: false },
+        { index: -2, manual: true, useInStatements: false },
+      ]);
+      mockSdk.getScript.mockResolvedValue('');
+
+      const result = await pulling.downloadTestsetAndBuildGenerationScripts(
+        asSdk(mockSdk),
+        1,
+        'dir',
+        'tests',
+        []
+      );
+
+      expect(result.manualCount).toBe(0);
+      expect(fs.writeFileSync).not.toHaveBeenCalled();
+    });
+
     it('skips manual tests that have no input', async () => {
       mockSdk.getTests.mockResolvedValue([
         { index: 1, manual: true, useInStatements: false },
@@ -905,6 +1048,279 @@ describe('pulling.ts', () => {
       );
       expect(manualWrite).toBeDefined();
       expect(manualWrite![1]).toBe('line1\nline2\n');
+    });
+  });
+
+  describe('names from Polygon are plain file names', () => {
+    const written = () =>
+      vi.mocked(fs.writeFileSync).mock.calls.map(c => String(c[0]));
+
+    it('accepts legitimate names with spaces, dots and extensions', () => {
+      for (const name of ['my sol.v2.cpp', 'a b.py', 'Main.java', '.hidden']) {
+        expect(pulling.assertPlainName(name)).toBe(name);
+      }
+    });
+
+    it('refuses names with newline, ESC, C1 or bidi characters, so they never reach Config.json', async () => {
+      for (const name of ['a\nb.cpp', 'a\x1b[2Jb', 'a\u009bb', 'a\u202eb']) {
+        expect(() => pulling.assertPlainName(name)).toThrow(/unsafe name/);
+      }
+      mockSdk.getSolutions.mockResolvedValue([
+        { name: 'a\n  forged.cpp', tag: 'OK' },
+        { name: 'ünï 😀.cpp', tag: 'OK' },
+      ] as never);
+      mockSdk.viewSolution.mockResolvedValue('code');
+      const result = await pulling.downloadSolutions(asSdk(mockSdk), 1, 'dir');
+      expect(result.data.map(s => s.name)).toEqual(['ünï 😀']);
+    });
+
+    it('printable escapes control characters but keeps non-ASCII text', () => {
+      expect(pulling.printable('ünï 😀 日本.cpp')).toBe('ünï 😀 日本.cpp');
+      expect(pulling.printable('a\nb\u2028c\u2067d')).toBe(
+        'a\\u000ab\\u2028c\\u2067d'
+      );
+    });
+
+    it('refuses empty, dot, NUL and separator names', () => {
+      for (const name of ['', '.', '..', 'a\0b', 'a/b', 'a\\b', '../x']) {
+        expect(() => pulling.assertPlainName(name)).toThrow(/unsafe name/);
+      }
+    });
+
+    it('tells the user why a solution was refused and keeps going', async () => {
+      mockSdk.getSolutions.mockResolvedValue([
+        { name: '../../evil.cpp', tag: 'MA' },
+        { name: 'ok.cpp', tag: 'OK' },
+      ] as never);
+      mockSdk.viewSolution.mockResolvedValue('code');
+
+      const result = await pulling.downloadSolutions(asSdk(mockSdk), 1, 'dir');
+
+      expect(result.data.map(s => s.name)).toEqual(['ok']);
+      const warnings = vi.mocked(fmt).warning.mock.calls.map(c => c[0]);
+      expect(warnings.some(w => w.includes('Refusing unsafe name'))).toBe(true);
+    });
+
+    it('skips only the unsafe statement language, not the others', async () => {
+      mockSdk.getStatements.mockResolvedValue({
+        '../../evil': { name: 'x', legend: 'bad' },
+        english: { name: 'Problem', legend: 'good' },
+      } as never);
+
+      const result = await pulling.downloadStatements(asSdk(mockSdk), 1, 'dir');
+
+      expect(Object.keys(result.config)).toEqual(['english']);
+      expect(written().some(p => p.includes('evil'))).toBe(false);
+      expect(written().some(p => p.includes('legend.tex'))).toBe(true);
+    });
+
+    it('does not write a solution whose name climbs out of the directory', async () => {
+      mockSdk.getSolutions.mockResolvedValue([
+        { name: '../../evil.cpp', tag: 'MA' },
+        { name: 'ok.cpp', tag: 'OK' },
+      ] as never);
+      mockSdk.viewSolution.mockResolvedValue('code');
+
+      const result = await pulling.downloadSolutions(asSdk(mockSdk), 1, 'dir');
+
+      expect(written().some(p => p.includes('evil'))).toBe(false);
+      expect(mockSdk.viewSolution).not.toHaveBeenCalledWith(
+        1,
+        '../../evil.cpp'
+      );
+      expect(result.count).toBe(1);
+    });
+
+    it('does not write a generator whose name has a path separator', async () => {
+      mockSdk.getFiles.mockResolvedValue({
+        sourceFiles: [
+          { name: '..\\..\\evil.cpp', sourceType: 'cpp.g++17' },
+          { name: 'sub/evil.cpp', sourceType: 'cpp.g++17' },
+        ],
+        resourceFiles: [],
+        auxFiles: [],
+      } as never);
+      mockSdk.viewFile.mockResolvedValue('code');
+
+      const result = await pulling.downloadGenerators(
+        asSdk(mockSdk),
+        1,
+        'dir',
+        []
+      );
+
+      expect(written()).toEqual([]);
+      expect(result.count).toBe(0);
+    });
+
+    it('does not write a checker or validator with a traversal name', async () => {
+      mockSdk.getChecker.mockResolvedValue('../../evil.cpp');
+      mockSdk.getValidator.mockResolvedValue('../evil.cpp');
+      mockSdk.viewFile.mockResolvedValue('code');
+
+      await pulling.downloadChecker(asSdk(mockSdk), 1, 'dir');
+      await pulling.downloadValidator(asSdk(mockSdk), 1, 'dir');
+
+      expect(written()).toEqual([]);
+    });
+
+    it('does not create statement folders from a traversal language name', async () => {
+      mockSdk.getStatements.mockResolvedValue({
+        '../../evil': { name: 'x', legend: 'text' },
+      } as never);
+
+      await pulling.downloadStatements(asSdk(mockSdk), 1, 'dir');
+
+      expect(written()).toEqual([]);
+      expect(vi.mocked(fs.mkdirSync)).not.toHaveBeenCalled();
+    });
+
+    it('falls back to the default checker and says why when the name is unsafe', async () => {
+      mockSdk.getChecker.mockResolvedValue('../../evil.cpp');
+
+      const result = await pulling.downloadChecker(asSdk(mockSdk), 1, 'dir');
+
+      expect(result.data).toEqual({
+        name: 'ncmp',
+        source: 'ncmp.cpp',
+        isStandard: true,
+      });
+      expect(result.count).toBe(0);
+      expect(mockSdk.viewFile).not.toHaveBeenCalled();
+      const errors = vi.mocked(fmt).error.mock.calls.map(c => c[0]);
+      expect(errors.some(e => e.includes('Refusing unsafe name'))).toBe(true);
+    });
+
+    it('refuses a standard checker name that climbs out after std:: is removed', async () => {
+      mockSdk.getChecker.mockResolvedValue('std::../evil.cpp');
+
+      const result = await pulling.downloadChecker(asSdk(mockSdk), 1, 'dir');
+
+      expect(result.data.source).toBe('ncmp.cpp');
+      expect(written()).toEqual([]);
+    });
+
+    it('falls back to the default validator and says why when the name is unsafe', async () => {
+      mockSdk.getValidator.mockResolvedValue('..\\evil.cpp');
+
+      const result = await pulling.downloadValidator(asSdk(mockSdk), 1, 'dir');
+
+      expect(result.data).toEqual({ name: 'validator', source: 'val.cpp' });
+      expect(result.count).toBe(0);
+      expect(mockSdk.viewFile).not.toHaveBeenCalled();
+      const errors = vi.mocked(fmt).error.mock.calls.map(c => c[0]);
+      expect(errors.some(e => e.includes('Refusing unsafe name'))).toBe(true);
+    });
+
+    it('still downloads the safe generators around an unsafe one and warns', async () => {
+      mockSdk.getFiles.mockResolvedValue({
+        sourceFiles: [
+          { name: 'gen1.cpp', sourceType: 'cpp.g++17' },
+          { name: '../../evil.cpp', sourceType: 'cpp.g++17' },
+          { name: 'gen2.cpp', sourceType: 'cpp.g++17' },
+        ],
+        resourceFiles: [],
+        auxFiles: [],
+      } as never);
+      mockSdk.viewFile.mockResolvedValue('code');
+
+      const result = await pulling.downloadGenerators(
+        asSdk(mockSdk),
+        1,
+        'dir',
+        []
+      );
+
+      expect(result.data.map(g => g.name)).toEqual(['gen1', 'gen2']);
+      expect(result.count).toBe(2);
+      expect(written().some(p => p.includes('evil'))).toBe(false);
+      const warnings = vi.mocked(fmt).warning.mock.calls.map(c => c[0]);
+      expect(warnings.some(w => w.includes('Refusing unsafe name'))).toBe(true);
+    });
+
+    it('falls back to the default solution when every solution name is unsafe', async () => {
+      mockSdk.getSolutions.mockResolvedValue([
+        { name: '../evil.cpp', tag: 'MA' },
+        { name: 'sub/evil.cpp', tag: 'OK' },
+      ] as never);
+
+      const result = await pulling.downloadSolutions(asSdk(mockSdk), 1, 'dir');
+
+      expect(result.count).toBe(0);
+      expect(result.data[0]?.source).toBe('acc.cpp');
+      expect(mockSdk.viewSolution).not.toHaveBeenCalled();
+      expect(written()).toEqual([]);
+    });
+
+    it('refuses a name that is not a string', () => {
+      expect(() => pulling.assertPlainName(undefined as never)).toThrow(
+        /unsafe name/
+      );
+      expect(() => pulling.assertPlainName(42 as never)).toThrow(/unsafe name/);
+    });
+
+    it.each(['..', '.', '', 'a/b', 'a\\b', '../..'])(
+      'skips statement language %j and warns, keeping the other languages',
+      async lang => {
+        mockSdk.getStatements.mockResolvedValue({
+          [lang]: { name: 'x', legend: 'bad' },
+          english: { name: 'Problem', legend: 'good' },
+        } as never);
+
+        const result = await pulling.downloadStatements(
+          asSdk(mockSdk),
+          1,
+          'dir'
+        );
+
+        expect(Object.keys(result.config)).toEqual(['english']);
+        const warnings = vi.mocked(fmt).warning.mock.calls.map(c => c[0]);
+        expect(warnings.some(w => w.includes('Skipping statement'))).toBe(true);
+        expect(written().every(p => p.includes('english'))).toBe(true);
+      }
+    );
+
+    it('escapes control characters in names echoed in warnings', async () => {
+      const evil = 'a\n  ✔ forged\x1b[2J\u009b\u202eb.cpp';
+      mockSdk.getSolutions.mockResolvedValue([
+        { name: evil, tag: 'OK' },
+      ] as never);
+      mockSdk.viewSolution.mockRejectedValue(new Error(`no ${evil}`));
+      mockSdk.getFiles.mockResolvedValue({
+        sourceFiles: [{ name: evil, sourceType: 'cpp.g++17' }],
+      } as never);
+      mockSdk.viewFile.mockRejectedValue(new Error(`no ${evil}`));
+      mockSdk.getStatements.mockResolvedValue({
+        [evil + '/x']: { name: 'x' },
+      } as never);
+
+      await pulling.downloadSolutions(asSdk(mockSdk), 1, 'dir');
+      await pulling.downloadGenerators(asSdk(mockSdk), 1, 'dir', []);
+      await pulling.downloadStatements(asSdk(mockSdk), 1, 'dir');
+
+      const warnings = vi.mocked(fmt).warning.mock.calls.map(c => c[0]);
+      expect(warnings.length).toBeGreaterThanOrEqual(3);
+      for (const w of warnings) {
+        // eslint-disable-next-line no-control-regex
+        expect(w).not.toMatch(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e]/);
+      }
+    });
+
+    it('escapes control characters in the reason for checker and validator failures', async () => {
+      const evil = 'boom\n  ✔ forged\x1b[2J\u009b\u202e';
+      mockSdk.getChecker.mockResolvedValue('check.cpp');
+      mockSdk.getValidator.mockResolvedValue('val.cpp');
+      mockSdk.viewFile.mockRejectedValue(new Error(evil));
+
+      await pulling.downloadChecker(asSdk(mockSdk), 1, 'dir');
+      await pulling.downloadValidator(asSdk(mockSdk), 1, 'dir');
+
+      const errors = vi.mocked(fmt).error.mock.calls.map(c => c[0]);
+      expect(errors.length).toBeGreaterThanOrEqual(2);
+      for (const e of errors) {
+        // eslint-disable-next-line no-control-regex
+        expect(e).not.toMatch(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e]/);
+      }
     });
   });
 });

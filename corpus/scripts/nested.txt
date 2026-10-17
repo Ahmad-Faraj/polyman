@@ -1,0 +1,5 @@
+<#list 1..2 as i>
+<#list 1..2 as j>
+gen ${i} ${j} > $
+</#list>
+</#list>

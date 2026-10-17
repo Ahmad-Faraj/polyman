@@ -19,6 +19,46 @@ import type {
 import { fmt } from '../../formatter';
 import { normalizeLineEndingsFromRemoteToSystem } from './utils';
 import { CPP_EXTENSIONS } from '../utils';
+import { UNPRINTABLE, printable } from '../printable';
+
+export { printable };
+
+/**
+ * Rejects names Polygon returns that are not a plain file name, so a hostile
+ * or corrupted name such as `../../x` cannot make us write outside the
+ * problem directory.
+ *
+ * @param {string} name - A file or language name received from Polygon
+ * @returns {string} The same name
+ * @throws {Error} When the name contains a path separator or a control
+ *   character, or is `.`/`..`/empty
+ */
+export function assertPlainName(name: string): string {
+  if (
+    typeof name !== 'string' ||
+    name === '' ||
+    name === '.' ||
+    name === '..' ||
+    name.includes('/') ||
+    name.includes('\\') ||
+    name.includes('\0') ||
+    UNPRINTABLE.test(name) ||
+    path.basename(name) !== name
+  ) {
+    throw new Error(
+      `Refusing unsafe name from Polygon: ${JSON.stringify(name)}`
+    );
+  }
+  return name;
+}
+
+/**
+ * Short reason for a failed download, so a refused name is not reported as a
+ * generic failure.
+ */
+function reason(error: unknown): string {
+  return printable(error instanceof Error ? error.message : String(error));
+}
 
 /**
  * Downloads all solutions from Polygon and returns metadata.
@@ -43,6 +83,7 @@ export async function downloadSolutions(
     const solutions = await sdk.getSolutions(problemId);
     for (const solution of solutions) {
       try {
+        assertPlainName(solution.name);
         const code = await sdk.viewSolution(problemId, solution.name);
         const targetPath = path.join(problemDir, 'solutions', solution.name);
         fs.writeFileSync(
@@ -56,8 +97,10 @@ export async function downloadSolutions(
           source: './solutions/' + solution.name,
           tag: solution.tag,
         });
-      } catch {
-        fmt.warning(`  ⚠️  Failed to download solution: ${solution.name}`);
+      } catch (error) {
+        fmt.warning(
+          `  ⚠️  Failed to download solution: ${printable(solution.name)} (${reason(error)})`
+        );
       }
     }
   } catch {
@@ -95,6 +138,7 @@ export async function downloadChecker(
     let checkerName = await sdk.getChecker(problemId);
     const isStandard = checkerName.includes('std::');
     checkerName = checkerName.replace(/std::/g, '');
+    assertPlainName(checkerName);
 
     if (!isStandard) {
       const checkerCode = await sdk.viewFile(problemId, 'source', checkerName);
@@ -149,9 +193,9 @@ export async function downloadChecker(
       },
       count,
     };
-  } catch {
+  } catch (error) {
     fmt.error(
-      `  ${fmt.cross()} Could not download Checker, adding ncmp.cpp as default`
+      `  ${fmt.cross()} Could not download Checker (${reason(error)}), adding ncmp.cpp as default`
     );
     return {
       data: { name: 'ncmp', source: 'ncmp.cpp', isStandard: true },
@@ -179,7 +223,7 @@ export async function downloadValidator(
   let count = 0;
 
   try {
-    const validatorName = await sdk.getValidator(problemId);
+    const validatorName = assertPlainName(await sdk.getValidator(problemId));
     const validatorCode = await sdk.viewFile(
       problemId,
       'source',
@@ -226,9 +270,9 @@ export async function downloadValidator(
       },
       count,
     };
-  } catch {
+  } catch (error) {
     fmt.error(
-      `  ${fmt.cross()} Could not download validator, adding val.cpp to be implemented`
+      `  ${fmt.cross()} Could not download validator (${reason(error)}), adding val.cpp to be implemented`
     );
     return {
       data: { name: 'validator', source: 'val.cpp' },
@@ -275,6 +319,7 @@ export async function downloadGenerators(
       }
 
       try {
+        assertPlainName(file.name);
         const content = await sdk.viewFile(problemId, 'source', file.name);
         const targetPath = path.join(problemDir, 'generators', file.name);
         fs.writeFileSync(
@@ -287,8 +332,10 @@ export async function downloadGenerators(
           name: file.name.replace(/\.[^.]+$/, ''),
           source: './generators/' + file.name,
         });
-      } catch {
-        fmt.warning(`  ⚠️  Failed to download: ${file.name}`);
+      } catch (error) {
+        fmt.warning(
+          `  ⚠️  Failed to download: ${printable(file.name)} (${reason(error)})`
+        );
       }
     }
   } catch {
@@ -323,6 +370,14 @@ export async function downloadStatements(
     const statementsData = await sdk.getStatements(problemId);
 
     for (const [lang, statement] of Object.entries(statementsData)) {
+      try {
+        assertPlainName(lang);
+      } catch (error) {
+        fmt.warning(
+          `  ⚠️  Skipping statement language ${printable(JSON.stringify(lang))} (${reason(error)})`
+        );
+        continue;
+      }
       const langDir = path.join(problemDir, 'statements', lang);
       if (!fs.existsSync(langDir)) {
         fs.mkdirSync(langDir, { recursive: true });
@@ -485,6 +540,11 @@ export async function downloadTestsetAndBuildGenerationScripts(
 
   for (const test of tests) {
     if (test.manual && test.input) {
+      if (!Number.isInteger(test.index) || test.index < 0) {
+        throw new Error(
+          `Refusing unsafe test index from Polygon: ${printable(JSON.stringify(test.index))}`
+        );
+      }
       if (!fs.existsSync(manualTestsDir)) {
         fs.mkdirSync(manualTestsDir, { recursive: true });
       }

@@ -28,6 +28,8 @@ include:
   - local: engine/ci/autonomy.gitlab-ci.yml
   # the verify web service (#19): its tests, image, sample check and Cloud Run deploy
   - local: service/ci/service.gitlab-ci.yml
+  # golden + mutant corpus: real compilers judging real solutions (corpus/README.md)
+  - local: corpus/corpus.gitlab-ci.yml
 
 # Shared Node setup, kept out of `default:` so it doesn't leak into the scanner jobs.
 .node:

@@ -84,6 +84,7 @@ import {
 } from './helpers/solution';
 import { copyTemplate } from './helpers/create-template';
 import { downloadFile } from './helpers/testlib-download';
+import { printable } from './helpers/printable';
 import { logError, readConfigFile, stdinIsInteractive } from './helpers/utils';
 import {
   fetchStatements,
@@ -1197,8 +1198,12 @@ export async function stepDownloadTests(
       `  ${fmt.infoIcon()} Downloaded ${fmt.highlight(manualCount.toString())} manual test(s); ${totalTests} configured`
     );
     fmt.stepComplete('Tests downloaded and testset configured');
-  } catch {
-    fmt.warning('  ⚠️  Could not fetch tests information');
+  } catch (error) {
+    // The message can carry text from Polygon (its `comment`), so escape it.
+    const why = printable(
+      error instanceof Error ? error.message : String(error)
+    );
+    fmt.warning(`  ⚠️  Could not fetch tests information: ${why}`);
     fmt.stepComplete('No tests to download');
   }
 }
