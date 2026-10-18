@@ -2,7 +2,7 @@
   "polygon-api-docs": {
     "repo": "codeforces/polygon-misc",
     "path": "",
-    "seen": "98ff04852a47bb9106032d2f178b49e7e40b712a",
+    "seen": "d1d9c195141d778054cbdb26ece06dcf059bfe4b",
     "why": "Polygon's API documentation. polyman's remote commands must follow it."
   },
   "testlib": {
