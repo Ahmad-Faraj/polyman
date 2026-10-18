@@ -54,6 +54,12 @@ An agent proposes, a teammate who didn't ask for the work replies `@agent go-ahe
 
 The first run also caught two gaps in our own guard before it could pass: it couldn't read an issue's notes with the job token ([!28](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/28)), and the risk score counted old findings in any file a change touched ([!29](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/29)).
 
+### Who it's for, and why trust matters
+
+polyman was announced to problem setters on [Codeforces in November 2025](https://codeforces.com/blog/entry/148803) (+332, 52 comments). The first thing the community asked was whether they could trust it: "Has anybody used this tool and can recommend it?", and another reply pointed out a tool that's brand new has no history and no user base yet. This project is our answer to that question: polyman is now checked by judges that are neither an LLM nor its authors, on every change and every night.
+
+What we can say today, all public: about 1,950 npm downloads since September 2025 (downloads, not users: CI runs and mirrors count too), 12 versions, 41 stars and 4 forks on GitHub with five outside reporters or contributors, and two independent open-source projects that build on polyman's problem format.
+
 Team: Hamza Hassanain (polyman's author), Mazen Ghanayem, Ahmed Faraj.
 
 ## Why Polyman?
