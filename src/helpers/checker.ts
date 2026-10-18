@@ -25,8 +25,39 @@ import { DEFAULT_TIMEOUT, DEFAULT_MEMORY_LIMIT } from './utils';
 import { quoteShellArgument } from './shell';
 import { fmt } from '../formatter';
 
+/** Exit code testlib's `quitf(_wa, ...)` uses for a wrong answer. */
+const TESTLIB_WA_EXIT_CODE = 1;
+
 /** Exit code testlib's `quitf(_pe, ...)` uses for a presentation error. */
 const TESTLIB_PE_EXIT_CODE = 2;
+
+/**
+ * Maps an expected checker verdict to the testlib exit code it stands for.
+ * Accepts the documented names (`WRONG_ANSWER`, `PRESENTATION_ERROR`) and the
+ * short forms (`WA`, `PE`), in any letter case. Returns `undefined` for `OK`,
+ * `CRASHED` and anything else.
+ */
+function expectedFailureExitCode(
+  expectedVerdict: CheckerVerdict
+): number | undefined {
+  switch (String(expectedVerdict).toUpperCase()) {
+    case 'WA':
+    case 'WRONG_ANSWER':
+      return TESTLIB_WA_EXIT_CODE;
+    case 'PE':
+    case 'PRESENTATION_ERROR':
+      return TESTLIB_PE_EXIT_CODE;
+    default:
+      return undefined;
+  }
+}
+
+/** Describes what a failing checker run was, for "Expected X but got ..." messages. */
+function describeCheckerFailure(exitCode: number): string {
+  if (exitCode === TESTLIB_WA_EXIT_CODE) return 'WA';
+  if (exitCode === TESTLIB_PE_EXIT_CODE) return 'PE';
+  return `exit code ${exitCode}`;
+}
 
 /**
  * Raised by {@link runChecker} when a checker that was expected to accept the
@@ -48,10 +79,10 @@ export class PresentationError extends Error {
  * @param {string} inputFilePath - Path to test input file
  * @param {string} outputFilePath - Path to participant's output file
  * @param {string} answerFilePath - Path to jury's answer file
- * @param {CheckerVerdict} expectedVerdict - Expected verdict (OK, WA, PE)
+ * @param {CheckerVerdict} expectedVerdict - Expected verdict: OK, WRONG_ANSWER (or WA), PRESENTATION_ERROR (or PE), CRASHED
  *
  * @throws {PresentationError} If the checker was expected to return OK and exited with testlib's presentation-error code (2)
- * @throws {Error} If checker verdict doesn't match expected verdict
+ * @throws {Error} If checker verdict doesn't match expected verdict (WRONG_ANSWER expects exit code 1, PRESENTATION_ERROR expects exit code 2)
  * @throws {Error} If checker exceeds time or memory limits (exits process)
  *
  * @example
@@ -71,6 +102,7 @@ export async function runChecker(
   expectedVerdict: CheckerVerdict
 ) {
   let didCatchInvalid = false;
+  let failureExitCode = 0;
   await executor.execute(
     [
       execCommand,
@@ -91,6 +123,7 @@ export async function runChecker(
           throw new Error(message);
         }
         didCatchInvalid = true;
+        failureExitCode = result.exitCode;
       },
       onTimeout: () => {
         fmt.error(
@@ -109,12 +142,16 @@ export async function runChecker(
     }
   );
 
-  if (
-    (expectedVerdict.toUpperCase() === 'WA' ||
-      expectedVerdict.toUpperCase() === 'PE') &&
-    !didCatchInvalid
-  ) {
+  const expectedExitCode = expectedFailureExitCode(expectedVerdict);
+  if (expectedExitCode === undefined) return;
+
+  if (!didCatchInvalid) {
     throw new Error(`Expected ${expectedVerdict} but got OK`);
+  }
+  if (failureExitCode !== expectedExitCode) {
+    throw new Error(
+      `Expected ${expectedVerdict} but got ${describeCheckerFailure(failureExitCode)}`
+    );
   }
 }
 
