@@ -25,9 +25,9 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadConfig } from '../config.ts';
-import { matchesAny } from '../glob.ts';
-import { GitLab, GitLabError, required } from '../gitlab.ts';
-import { type Note, type PushEvent, type Step, attribute, branchPushes, goAheadFor, isProjectPerson, tierFrom } from '../goahead.ts';
+import { GitLab, required } from '../gitlab.ts';
+import { type Note, type PushEvent, tierFrom } from '../goahead.ts';
+import { allPages, checkMr, eventsSince, gitRepo, notesOf } from '../goahead-mr.ts';
 
 const env = process.env;
 
@@ -70,196 +70,32 @@ async function main() {
     throw new Error(`the target branch's ${file} lists no go_ahead.people, so nobody can give a go-ahead`);
   }
   const tier = tierFrom(env.AUTONOMY_TIER);
-  const isAncestor = (commit: string, of: string) => {
-    try {
-      execFileSync('git', ['merge-base', '--is-ancestor', commit, of], { stdio: 'ignore' });
-      return true;
-    } catch (err) {
-      // exit 1 means "no"; anything else (an unknown commit, say) is an error, not a no
-      if ((err as { status?: number }).status === 1) return false;
-      throw new Error(`git can't compare ${commit.slice(0, 8)} with ${of.slice(0, 8)} (is the history fetched?)`);
-    }
-  };
-  const inRepo = (sha: string) => {
-    try {
-      execFileSync('git', ['cat-file', '-e', `${sha}^{commit}`], { stdio: 'ignore' });
-      return true;
-    } catch {
-      return false;
-    }
-  };
+  const repo = gitRepo();
   const commits = execFileSync('git', ['rev-list', `${base}..HEAD`], { encoding: 'utf8' }).split('\n').filter(Boolean);
-  const isPerson = (username: string) => isProjectPerson(username, config);
 
   const gl = new GitLab();
-  const all = async <T>(path: string, pages = 20) => {
-    const out: T[] = [];
-    for (let page = 1; page <= pages; page++) {
-      const batch = await gl.get<T[]>(`${path}${path.includes('?') ? '&' : '?'}per_page=100&page=${page}`);
-      out.push(...batch);
-      if (batch.length < 100) return out;
-    }
-    throw new Error(`more than ${pages * 100} records at ${path}; can't be sure every push was read`);
-  };
-
-  // An issue's notes. The job token can't read them over REST, and REST wants a
-  // login even on a public project, but GraphQL serves a public project's notes
-  // without one. Notes that only members see aren't there: a go-ahead in one
-  // doesn't count, which fails closed.
-  const issueNotesOf = async (number: number): Promise<Note[]> => {
-    try {
-      return await all<Note>(`/:project/issues/${number}/notes?sort=asc&order_by=created_at`);
-    } catch (err) {
-      if (!(err instanceof GitLabError) || (err.status !== 401 && err.status !== 403)) throw err;
-      console.warn(`warning: the notes of #${number} aren't readable with the job token; reading them through GraphQL (public notes only)`);
-      return graphqlNotes(number);
-    }
-  };
-
   const mr = await gl.get<{ author: { username: string }; created_at: string; source_branch: string }>(`/:project/merge_requests/${iid}`);
-  const notes = await all<Note>(`/:project/merge_requests/${iid}/notes?sort=asc&order_by=created_at`);
-  // Pushes from two days before the MR's base commit on: the branch can't have
-  // been created before the commit it starts from. That date comes from the
-  // target branch, so unlike the MR's own commit dates no pusher sets it. At
-  // most 120 days before the MR, so a long-stale base can't make the job read
-  // more than the page cap allows; a push older than that shows up as a commit
-  // in no recorded push, and the job fails. `after` leaves out the day it
-  // names, hence two days.
-  const created = Date.parse(mr.created_at);
+  const notes = await allPages<Note>(gl, `/:project/merge_requests/${iid}/notes?sort=asc&order_by=created_at`);
+  // Pushes from two days before the MR's base commit on. That date comes from
+  // the target branch, so unlike the MR's own commit dates no pusher sets it. A
+  // push older than the window shows up as a commit in no recorded push, and
+  // the job fails.
   const baseTime = Number(execFileSync('git', ['show', '-s', '--format=%ct', base], { encoding: 'utf8' }).trim()) * 1000;
   if (!Number.isFinite(baseTime) || baseTime <= 0) throw new Error(`can't read the date of the base commit ${base}`);
-  const oldest = Math.min(created, Math.max(baseTime, created - 120 * 86_400_000));
-  const since = new Date(oldest - 2 * 86_400_000).toISOString().slice(0, 10);
-  const events = await all<PushEvent>(`/:project/events?action=pushed&after=${since}&sort=asc`, 100);
-  // A push whose head a later force-push threw away brought nothing that's still
-  // here. A push whose old head is gone (a rebase or force-push) is read as if
-  // it created the branch: it brought whatever earlier pushes didn't.
-  const pushes = branchPushes(events, mr.source_branch)
-    .filter((p) => inRepo(p.to))
-    .map((p) => (p.from && !inRepo(p.from) ? { ...p, from: null } : p));
-  const { by, unaccounted } = attribute(commits, pushes, isAncestor);
-
-  const problems: string[] = [];
-  for (const sha of unaccounted) problems.push(`commit ${sha.slice(0, 8)} is in no push GitLab recorded for ${mr.source_branch}, so who pushed it and on whose go-ahead can't be told (pushes are read from ${since} on)`);
-
-  const rollback = (account: string) => /incident-responder/i.test(account);
-  const allBranchPushes = branchPushes(events, mr.source_branch);
-  // Who opened the MR. GitLab records an MR a flow opens under the person whose
-  // mention or assignment started the flow (composite identity), so when an
-  // agent created the branch, the MR is the agent's: that person gave the
-  // go-ahead, they didn't ask for the work.
-  const creator = allBranchPushes.find((p) => p.from === null)?.pusher;
-  const opener = isPerson(mr.author.username) && creator && !isPerson(creator) ? creator : mr.author.username;
-  // the issues GitLab says this MR closes, parsed from a description the agent may
-  // write, so only an issue a person wrote shows someone asked
+  const since = eventsSince(mr.created_at, baseTime);
+  const events = await allPages<PushEvent>(gl, `/:project/events?action=pushed&after=${since}&sort=asc`, 100);
   const closes = await gl.get<{ iid: number; author: { username: string } }[]>(`/:project/merge_requests/${iid}/closes_issues`);
-  // ...or, for a rollback, the incident the responder opened: its push still
-  // needs a maintainer's go-ahead on that issue
-  const asked = closes.filter((i) => isPerson(i.author.username) || (rollback(i.author.username) && rollback(opener)));
-  const issue = asked[0]?.iid ?? null;
-  // whoever asked: the MR's author if a person opened it, and the issues' authors
-  const requesters = [...(isPerson(opener) ? [opener] : []), ...closes.map((i) => i.author.username)];
-  // an agent's MR with no person's issue has nobody on record who asked, so anyone could approve their own idea
-  if (!isPerson(opener) && !asked.length) {
-    problems.push(
-      `an agent (@${opener}) opened this MR and GitLab lists no issue it closes that a person wrote, so who asked for the work isn't on record; link the issue ("Closes #N")`,
-    );
-  }
-  // the agent's previous push to this branch: an older go-ahead was used up by it
-  // (the agent accounts are shared, so a push to another MR spends nothing here)
-  const previousPush = (pusher: string, at: string) =>
-    allBranchPushes
-      .filter((p) => p.pusher.toLowerCase() === pusher.toLowerCase() && Date.parse(p.at) < Date.parse(at))
-      .map((p) => p.at)
-      .pop();
 
-  // the agent pushes that brought commits, and every agent push since the MR
-  // opened even if it brought none: a rewind or a force-push back is a step too
-  const agentPushes = [...new Set([...by.values(), ...pushes.filter((p) => Date.parse(p.at) >= Date.parse(mr.created_at))])]
-    .filter((p) => !isPerson(p.pusher))
-    .sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+  const check = await checkMr({ mr, notes, closes, events, commits, since, tier }, config, repo, (issue) => notesOf(gl, 'issue', issue));
+  for (const c of check.agentPushes) if (c.verdict.ok) console.log(c.line);
 
-  // Agents may not change the pipeline, the policy or the engine. autonomy:guard
-  // checks this by commit email, which an agent can set; this checks it by who
-  // pushed. Only the incident responder may add to the incidents file.
-  for (const [sha, p] of by) {
-    if (isPerson(p.pusher)) continue;
-    // a merge commit's diff hides what it brings in, so agents push none
-    const parents = execFileSync('git', ['rev-list', '--parents', '-n', '1', sha], { encoding: 'utf8' }).trim().split(' ').length - 1;
-    if (parents > 1) {
-      problems.push(`commit ${sha.slice(0, 8)} pushed by @${p.pusher} is a merge commit; agents may not push merges (a person merges the default branch in)`);
-      continue;
-    }
-    // -z: paths come out as they are, not quoted (a quoted "engine/\303\251.ts" wouldn't match engine/**)
-    const files = execFileSync('git', ['diff-tree', '--no-commit-id', '--name-only', '-r', '--root', '-z', sha], { encoding: 'utf8' }).split('\0').filter(Boolean);
-    const touched = files.filter((f) => matchesAny(f, config.governance) && !(f === config.incidentsFile && rollback(p.pusher)));
-    if (touched.length) problems.push(`commit ${sha.slice(0, 8)} pushed by @${p.pusher} changes files only people may change: ${touched.join(', ')}`);
-  }
-  let issueNotes: Note[] | null = null;
-  for (const push of agentPushes) {
-    const shas = [...by].filter(([, p]) => p === push).map(([sha]) => sha.slice(0, 8)).join(', ') || `no new commits, head ${push.to.slice(0, 8)}`;
-    const step: Step = { requesters, tier, rollback: rollback(push.pusher) };
-    const beforeMr = Date.parse(push.at) < Date.parse(mr.created_at);
-    if (beforeMr && !issue) {
-      problems.push(`push at ${push.at} by @${push.pusher} (${shas}) came before the MR, and GitLab lists no issue this MR closes, written by a person, to hold its go-ahead`);
-      continue;
-    }
-    if (beforeMr) issueNotes ??= await issueNotesOf(issue);
-    const where = beforeMr ? issueNotes! : notes;
-    const verdict = goAheadFor(push, where, step, config, previousPush(push.pusher, push.at));
-    const place = beforeMr ? ` on #${issue}` : '';
-    if (verdict.ok) console.log(`push at ${push.at} by @${push.pusher} (${shas}): go-ahead in note ${verdict.note.id}${place} by @${verdict.note.author.username}`);
-    else problems.push(`push at ${push.at} by @${push.pusher} (${shas})${place}: ${verdict.reason}`);
-  }
-
-  if (!problems.length) {
-    console.log(`${commits.length} commit(s) in ${new Set(by.values()).size} push(es), ${agentPushes.length} by agents, risk ${tier}: each agent push had its own go-ahead`);
+  if (!check.problems.length) {
+    console.log(`${commits.length} commit(s) in ${check.pushes} push(es), ${check.agentPushes.length} by agents, risk ${tier}: each agent push had its own go-ahead`);
     return;
   }
-  for (const p of problems) console.error(p);
+  for (const p of check.problems) console.error(p.text);
   console.error(
     `Assisted: an agent acts only on a person's go-ahead (a line that mentions it and says "go-ahead"), one per push, from someone who didn't ask for the work${tier === 'high' ? `, and for ${tier} risk only from ${config.goAhead.maintainers.map((m) => `@${m}`).join(', ') || 'a maintainer'}` : ''}.`,
   );
   process.exit(1);
-}
-
-/** An issue's notes through GraphQL, without credentials, oldest first. */
-async function graphqlNotes(number: number): Promise<Note[]> {
-  const url = env.CI_API_GRAPHQL_URL || required(env, 'CI_API_V4_URL').replace(/\/v4\/?$/, '/graphql');
-  const query = `query($path: ID!, $iid: String!, $after: String) {
-    project(fullPath: $path) { issue(iid: $iid) { notes(first: 100, after: $after) {
-      pageInfo { hasNextPage endCursor }
-      nodes { id body system createdAt updatedAt author { username } }
-    } } }
-  }`;
-  const out: Note[] = [];
-  let after: string | null = null;
-  for (let page = 0; page < 20; page++) {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query, variables: { path: required(env, 'CI_PROJECT_PATH'), iid: String(number), after } }),
-    });
-    const body = (await res.json().catch(() => null)) as {
-      data?: { project?: { issue?: { notes: { pageInfo: { hasNextPage: boolean; endCursor: string | null }; nodes: GraphqlNote[] } } | null } | null };
-      errors?: unknown;
-    } | null;
-    const notes = body?.data?.project?.issue?.notes;
-    if (!res.ok || body?.errors || !notes) throw new Error(`GraphQL couldn't read the notes of #${number} (${res.status}): ${JSON.stringify(body?.errors ?? body).slice(0, 300)}`);
-    for (const n of notes.nodes) {
-      out.push({ id: Number(n.id.split('/').pop()), body: n.body, system: n.system, created_at: n.createdAt, updated_at: n.updatedAt, author: { username: n.author.username } });
-    }
-    if (!notes.pageInfo.hasNextPage) return out.sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
-    after = notes.pageInfo.endCursor;
-  }
-  throw new Error(`more than 2000 notes on #${number}; can't be sure every go-ahead was read`);
-}
-
-interface GraphqlNote {
-  id: string;
-  body: string;
-  system: boolean;
-  createdAt: string;
-  updatedAt: string;
-  author: { username: string };
 }

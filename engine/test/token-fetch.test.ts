@@ -18,15 +18,20 @@ describe('requests that carry a token', () => {
 
   it('go through tokenFetch everywhere: the only bare fetch calls send no credentials', () => {
     const dir = 'src';
-    const files = [...readdirSync(dir).map((f) => join(dir, f)), ...readdirSync(join(dir, 'cli')).map((f) => join(dir, 'cli', f))].filter((f) => f.endsWith('.ts'));
+    const files = [...readdirSync(dir).map((f) => join(dir, f)), ...readdirSync(join(dir, 'cli')).map((f) => join(dir, 'cli', f))].filter((f) => f.endsWith('.ts')).sort();
     const bare = files.flatMap((f) =>
       readFileSync(f, 'utf8')
         .split('\n')
         .filter((line) => /\bawait fetch\(/.test(line))
         .map((line) => `${f}: ${line.trim()}`),
     );
-    // the anonymous retry in gitlab.ts and the go-ahead guard's anonymous GraphQL read
-    expect(bare).toEqual(['src/gitlab.ts: const anon = await fetch(url);', 'src/cli/goahead.ts: const res = await fetch(url, {']);
+    // the anonymous retry in gitlab.ts and the go-ahead check's anonymous GraphQL read of notes
+    expect(bare).toEqual([
+      'src/gitlab.ts: let anon = await fetch(url);',
+      'src/gitlab.ts: anon = await fetch(url);',
+      'src/goahead-mr.ts: let res = await fetch(url, post);',
+      'src/goahead-mr.ts: res = await fetch(url, post);',
+    ]);
   });
 });
 
