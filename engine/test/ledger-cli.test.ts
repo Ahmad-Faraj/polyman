@@ -248,8 +248,8 @@ describe('autonomy:ledger against a git repo and a stand-in for GitLab', () => {
     // a chain judged by older rules: other tiers, but its links hold
     const old = { ...chain(first.project, first.since, [{ ...first.records[0], tier: 'high' as const }]), rules: 0 };
     const { code, text, ledger } = await run(r, { published: old });
-    expect(LEDGER_RULES).toBe(2);
-    expect(text).toMatch(/judged by rules 0 and this one by rules 2: a new chain starts/);
+    expect(LEDGER_RULES).toBe(3);
+    expect(text).toMatch(/judged by rules 0 and this one by rules 3: a new chain starts/);
     expect(ledger().replaces).toEqual({ rules: 0, head: old.head, records: 1 });
     expect(code).toBe(0);
   });
