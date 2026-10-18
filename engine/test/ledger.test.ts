@@ -201,4 +201,17 @@ describe('the counters and the page', () => {
     expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
     expect(html).not.toContain('<script>');
   });
+
+  it("links the guard's pipeline, and says none when there was no pipeline", async () => {
+    const { records } = await build();
+    const since = { commit: '06a116ff', at: '2026-10-17T20:11:08Z' };
+    const page = (guard: (typeof records)[0]['guard']) => {
+      const ledger = chain('group/showcase', since, [{ ...records[0], guard }]);
+      return renderLedgerPage({ ledger, open: [], runs: [], counters: counters(ledger, [], []), web: WEB, generatedAt: '2026-10-18T09:00:00Z', commit: 'abcdef12' });
+    };
+    const none = page({ pipeline: null, job: null, status: 'none' });
+    expect(none).toContain('<span class="muted">guard: none</span>');
+    expect(none).not.toContain('/-/pipelines/null');
+    expect(page({ pipeline: 100, job: 6, status: 'success' })).toContain(`<a class="muted" href="${WEB}/-/pipelines/100">guard: success</a>`);
+  });
 });

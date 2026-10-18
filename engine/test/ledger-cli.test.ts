@@ -4,7 +4,7 @@ import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } fro
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { LEDGER_RULES, type Ledger } from '../src/ledger.ts';
+import { LEDGER_RULES, type Ledger, chain } from '../src/ledger.ts';
 
 const CLI = resolve('src/cli/ledger.ts');
 const CONFIG = resolve('../.autonomy.yml');
@@ -191,7 +191,9 @@ describe('autonomy:ledger against a git repo and a stand-in for GitLab', () => {
     const first = (await run(r)).ledger();
     first.records[0].go_ahead!.by = 'HamzaHassanain';
     const { code, text } = await run(r, { published: first });
-    expect(text).toMatch(/go_ahead was \{.*"by":"HamzaHassanain".*\}, now \{.*"by":"Mazen-Ghanaym"/);
+    // the edit breaks the hash chain, so it is caught before anything in it is trusted
+    expect(text).toMatch(/published ledger: the ledger's head is \w+, but its last record hashes to \w+/);
+    expect(text).toMatch(/doesn't verify/);
     expect(code).toBe(1);
   });
 
@@ -243,10 +245,52 @@ describe('autonomy:ledger against a git repo and a stand-in for GitLab', () => {
   it('starts a new chain, naming the old head, when the published one was judged by other rules', async () => {
     const r = repo();
     const first = (await run(r)).ledger();
-    const old = { ...first, rules: 0, records: [{ ...first.records[0], tier: 'high' as const }] };
+    // a chain judged by older rules: other tiers, but its links hold
+    const old = { ...chain(first.project, first.since, [{ ...first.records[0], tier: 'high' as const }]), rules: 0 };
     const { code, text, ledger } = await run(r, { published: old });
-    expect(text).toMatch(new RegExp(`judged by rules 0 and this one by rules ${LEDGER_RULES}: a new chain starts`));
-    expect(ledger().replaces).toEqual({ rules: 0, head: first.head, records: 1 });
+    expect(LEDGER_RULES).toBe(2);
+    expect(text).toMatch(/judged by rules 0 and this one by rules 2: a new chain starts/);
+    expect(ledger().replaces).toEqual({ rules: 0, head: old.head, records: 1 });
     expect(code).toBe(0);
+  });
+
+  it('fails on a published ledger whose chain is broken, before it trusts a tier from it', async () => {
+    const r = repo();
+    const first = (await run(r)).ledger();
+    // after a rules bump nothing compares the old chain, so an edited tier would be copied as is
+    const old = { ...first, rules: 0, records: [{ ...first.records[0], tier: 'high' as const }] };
+    const expired = { '/jobs/5/artifacts/risk-report.json': undefined };
+    const { code, text } = await run(r, { published: old, routes: expired });
+    expect(text).toMatch(/published ledger: the ledger's head is \w+, but its last record hashes to \w+/);
+    expect(text).toMatch(/doesn't verify, so the tiers in it can't be trusted/);
+    expect(code).toBe(1);
+  });
+
+  it("fails on a published ledger of another project", async () => {
+    const r = repo();
+    const first = (await run(r)).ledger();
+    const { code, text } = await run(r, { published: { ...first, project: 'someone/else' } });
+    expect(text).toContain('published ledger: it is the ledger of someone/else, not of group/showcase');
+    expect(code).toBe(1);
+  });
+
+  it('leaves an open agent MR the guard has not run on yet out, as not judged, instead of refusing it', async () => {
+    const r = repo();
+    const mr = { iid: 7, state: 'opened', author: { username: 'Mazen-Ghanaym' }, created_at: '2026-10-17T22:13:10.000Z', merged_at: null, source_branch: 'fix', sha: r.head, merge_commit_sha: null, squash_commit_sha: null, diff_refs: { base_sha: r.base, head_sha: r.head, start_sha: r.base }, head_pipeline: null };
+    const { code, ledger, text, page } = await run(r, { routes: { '/merge_requests/7': mr } });
+    expect(code).toBe(0);
+    expect(ledger().records).toEqual([]);
+    expect(text).toContain("not in the ledger: !7: open, and autonomy:goahead hasn't run on it yet, so not judged yet");
+    expect(text).not.toMatch(/open !7 push/);
+    expect(page()).not.toContain('never ran on this MR');
+  });
+
+  it('warns when it reads the chain start on HEAD', async () => {
+    const r = repo();
+    const unset = await run(r, { env: { CI_DEFAULT_BRANCH: '' } });
+    expect(unset.text).toContain('warning: no CI_DEFAULT_BRANCH, so the chain start is read on HEAD');
+    const missing = await run(r, { env: { CI_DEFAULT_BRANCH: 'main' } });
+    expect(missing.text).toContain("warning: origin/main isn't fetched, so the chain start is read on HEAD");
+    expect(missing.code).toBe(0);
   });
 });

@@ -25,7 +25,7 @@ import { loadConfig } from '../config.ts';
 import { GitLab, GitLabError, required } from '../gitlab.ts';
 import { type PushEvent, branchPushes, isPerson, isProjectPerson, tierFrom } from '../goahead.ts';
 import { allPages, checkMr, eventsSince, gitRepo, notesOf } from '../goahead-mr.ts';
-import { type GuardRun, type Ledger, type LedgerRecord, type OpenPush, chain, compare, counters, flowOf, recordsFor, second } from '../ledger.ts';
+import { type GuardRun, type Ledger, type LedgerRecord, type OpenPush, chain, compare, counters, flowOf, recordsFor, second, verifyChain } from '../ledger.ts';
 import { renderLedgerPage } from '../ledger-page.ts';
 
 const env = process.env;
@@ -102,6 +102,17 @@ async function main() {
   // the published ledger, read before judging: a merged MR's risk-report.json
   // expires, and its record there keeps the tier the guard used
   let published = await previousLedger();
+  if (published) {
+    // its tiers are trusted below, so it must verify first: after a rules bump
+    // nothing compares it with the rebuilt ledger
+    const broken = verifyChain(published);
+    if (published.project !== projectPath) broken.unshift(`it is the ledger of ${published.project}, not of ${projectPath}`);
+    if (broken.length) {
+      for (const b of broken) console.error(`published ledger: ${b}`);
+      console.error(`The published go-ahead ledger doesn't verify, so the tiers in it can't be trusted and this job fails. A person has to find out why before anything is published.`);
+      process.exit(1);
+    }
+  }
   const publishedTier = new Map((published?.records ?? []).map((r) => [r.mr, r.tier]));
 
   const records: Omit<LedgerRecord, 'seq' | 'prev'>[] = [];
@@ -143,6 +154,11 @@ async function main() {
     const jobs = mr.head_pipeline ? await allPages<Job>(gl, `/:project/pipelines/${mr.head_pipeline.id}/jobs`) : [];
     const guardJob = jobs.find((j) => j.name === 'autonomy:goahead');
     for (const r of await guardRuns(gl, web, mr.iid)) if (fromGuard(r.at)) runs.push(r);
+    if (!merged && !guardJob) {
+      // still open: the guard may run yet, so it isn't refused, only not judged yet
+      skipped.push(`!${mr.iid}: open, and autonomy:goahead hasn't run on ${mr.head_pipeline ? `pipeline ${mr.head_pipeline.id}` : 'it'} yet, so not judged yet`);
+      continue;
+    }
 
     const assess = jobs.find((j) => j.name === 'autonomy:assess');
     let tierText: string | undefined;
@@ -153,7 +169,7 @@ async function main() {
     }
     if (!tierText && merged) tierText = publishedTier.get(mr.iid);
     if (!tierText) {
-      if (merged && guardJob) throw new Error(`can't read the risk tier of !${mr.iid}: pipeline ${mr.head_pipeline!.id} has no autonomy:assess risk-report.json (expired?), and no published record has it`);
+      if (merged && guardJob) throw new Error(`can't read the risk tier of !${mr.iid}: pipeline ${mr.head_pipeline?.id ?? 'none'} has no autonomy:assess risk-report.json (expired?), and no published record has it`);
       console.warn(`warning: !${mr.iid} has no risk tier${guardJob ? ' yet' : ''}; judged as high, as the guard does`);
     }
     const tier = tierFrom(tierText);
@@ -231,11 +247,15 @@ async function main() {
 /** The default branch as fetched (origin/<branch>), or HEAD where there is none (a run on the default branch itself). */
 function defaultBranchRef(git: (...args: string[]) => string): string {
   const branch = env.CI_DEFAULT_BRANCH;
-  if (!branch) return 'HEAD';
+  if (!branch) {
+    console.warn('warning: no CI_DEFAULT_BRANCH, so the chain start is read on HEAD');
+    return 'HEAD';
+  }
   try {
     git('rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}`);
     return `origin/${branch}`;
   } catch {
+    console.warn(`warning: origin/${branch} isn't fetched, so the chain start is read on HEAD (on another branch it may start too late)`);
     return 'HEAD';
   }
 }
