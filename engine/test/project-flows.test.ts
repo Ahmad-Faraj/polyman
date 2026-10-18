@@ -155,7 +155,9 @@ describe("the project's Duo flows", () => {
     for (const file of files) expect(flat(file)).toContain('never a service account or GitLabDuo, and not the requester');
     expect(flat('issue-builder.yaml')).toContain("requester: the issue's author");
     for (const file of ['pipeline-fixer.yaml', 'mr-reviewer.yaml']) {
-      expect(flat(file)).toContain("requester: the MR's author and the author of the issue it closes");
+      // the issue's author always; the MR's author only when a person opened it, as the CI guard counts (!28)
+      expect(flat(file)).toContain("The requesters are the author of the issue the MR closes, and the MR's author only when a person opened the MR.");
+      expect(flat(file)).toContain("they approved it, they didn't ask for the work, so they aren't a requester");
     }
   });
 

@@ -54,7 +54,12 @@ prompts:
         mentions another account, doesn't count for you.
         It counts only if its author is one of the team (the people in go_ahead in
         .autonomy.yml), never a service account or GitLabDuo, and not the
-        requester: the MR's author and the author of the issue it closes. If the
+        requester. The requesters are the author of the issue the MR closes, and
+        the MR's author only when a person opened the MR. When an agent opened it
+        (its first commit's author is a service account, as for the issue
+        builder's MRs), GitLab files the MR under the person whose go-ahead
+        started the build: they approved it, they didn't ask for the work, so
+        they aren't a requester. The CI job applies the same rule. If the
         MR's risk tier is high (read it as in step 3, never from a label: the
         reviewer only labels the MR after a green pipeline), or the fix touches
         @@protected_paths@@ or a path under paths.high or paths.critical in
@@ -106,14 +111,14 @@ prompts:
              head commit), then: what failed, why, the exact change (the diff, or
              each file and what changes in it if it's long), and how you checked
              it, and the risk tier. Then it says who may give the go-ahead and
-             how: "Go-ahead: someone other than the MR's author and the linked
-             issue's author (or one of @@maintainers@@ for high risk or a fix that
+             how: "Go-ahead: someone other than the requesters (name them, as
+             defined above) (or one of @@maintainers@@ for high risk or a fix that
              touches the high, critical or protected paths) replies with the line
              `@@@fixer_account@@ go-ahead`, without the backticks". Keep that mention inside
              backticks: a plain one would mention your own account. The note's
              last line mentions the people who may give the go-ahead, so GitLab
-             notifies them: those of @@people@@ who aren't the MR's or the issue's
-             author (only @@maintainers@@ when only a maintainer counts). Mention
+             notifies them: those of @@people@@ who aren't requesters
+             (only @@maintainers@@ when only a maintainer counts). Mention
              people only, never an agent. Compare usernames without case. If
              nobody is left, say in that line that someone other than the
              requester (a maintainer, when only one counts) is needed, and
