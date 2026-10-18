@@ -43,7 +43,7 @@ An agent proposes, a teammate who didn't ask for the work replies `@agent go-ahe
 | Package | the merge builds the package and the service image | a person merges | [canary](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/7) |
 | Release | canary → npm `next` (judged) → `latest` | manual jobs | [Release-design](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/wikis/Release-design) |
 | Configure | Cloud Run candidate, checked by the golden set | manual promote | [live service](https://polyman-verify-ncvkutguda-ue.a.run.app), `service/` |
-| Monitor | nightly judges on the published `polyman-cli`; incident-responder proposes a rollback | the maintainer's go-ahead | `corpus/corpus.gitlab-ci.yml` |
+| Monitor | nightly judges on the published `polyman-cli`; a failed production check rolls Cloud Run back by itself; incident-responder opens the incident and proposes a rollback MR | the maintainer's go-ahead | fire drill: [pipeline](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/pipelines/2959322051) → [rollback](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17260123329) → [incident #44](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues/44) |
 | Govern | agents can't touch CI, policy, engine or corpus; the go-ahead guard | changes to the rules are a person's MR | [guard](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/19) |
 
 ### Agent runs on the judge bugs
