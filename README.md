@@ -65,7 +65,15 @@ An agent proposes and waits. A person who didn't ask for the work replies `@<age
 | [#12][i12] → [!50][mr50], Oct 18, merged | issue-builder proposed and opened the MR; mr-reviewer: ready, no fixes | Hamza filed #12. Ahmed assigned it, gave the go-ahead, ran the tests on Windows, which CI can't do (8 failures on `main`, 0 on the branch), approved and merged. |
 | [#13][i13] → [!51][mr51], Oct 18, merged | issue-builder proposed and opened the MR; mr-reviewer [found a `remote push` example the CLI rejects](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/51#note_4036970240), fixed it in one round with a test that rejects the old form, then [re-reviewed: ready](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/51#note_4036994157) | Hamza filed #13. Ahmed gave the go-ahead to build it and [the go-ahead for the fix round](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/51#note_4036983381); [the guard checked each agent push against its own go-ahead](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17262610558). Ahmed approved and merged. |
 | [#4][i4] → [!54][mr54], Oct 18, merged | issue-builder proposed and opened the MR (a light theme, default output unchanged); mr-reviewer: ready, no fixes | Hamza filed #4 (a request from polyman's users). Ahmed gave the go-ahead, approved and merged. |
-| [#45][i45], Oct 18, open | incident-responder filed it from the failed nightly; issue-builder's proposals for #21 and #28 are ready | Ahmed checked each finding, reopened #21, and merged the follow-ups ([!45][mr45], [!46][mr46], [!48][mr48]). Hamza gave the go-ahead for the fixes; [!73](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/73) is the one for #21. |
+| [#8][i8] → [!59][mr59], Oct 18, merged | issue-builder built shell completion; mr-reviewer found a P1: a crafted name in `Config.json` ran a command on Tab; two fix rounds narrowed it | Hamza filed #8. Ahmed gave the go-ahead for the build and each fix round, then fixed the last two holes himself with tests that fail without the fix, and merged. |
+| [#45][i45], Oct 18, open | incident-responder filed it from the failed nightly and mapped each failure to its bug | Ahmed checked each finding, reopened #21, and merged the follow-ups ([!45][mr45], [!46][mr46], [!48][mr48]). All six bugs are fixed on `main` (rows below); #45 closes once 3.0.1 is published and a nightly passes. |
+| [#21][i21] → [!73][mr73], Oct 18, merged | issue-builder built it: `verify --json` no longer reports a test the checker never judged as OK | Ahmed filed #21 (from #45). Hamza gave the go-ahead. Ahmed merged. |
+| [#31][i31] → [!67][mr67] → [!83][mr83], Oct 18, merged | issue-builder built it; mr-reviewer found 4 P2s (one a crash on huge lists) and ran a fix round; in the re-review its test reviewer pushed tests nobody approved | Ahmed filed #31. Mazen gave the go-ahead for the build and the fix round. The guard refused the unapproved push, so Mazen moved the approved commits to !83. Ahmed merged. |
+| [#24][i24] → [!72][mr72] → [!86][mr86] and [#26][i26] → [!74][mr74] → [!87][mr87], Oct 18, merged | issue-builder built each; mr-reviewer ran a fix round on each, then pushed again during the re-review | Ahmed filed both. Hamza gave the go-ahead to build, Mazen to the fix rounds. The guard refused the re-review pushes; Ahmed moved the reviewed heads (6c58148c, e5eda7b8) to new MRs and merged. |
+| [#28][i28] → [!85][mr85] → [!92][mr92], Oct 18, merged | issue-builder built it (corpus 5/5); review specialists pushed two commits without a go-ahead | Ahmed filed #28. Mazen gave the go-ahead. Ahmed moved the reviewed build commit to !92 and merged; the specialists' fix (a PE tag that never gets PE) became [#60](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues/60). |
+| [#25][i25] → [!75][mr75] → [!95][mr95], Oct 18, merged | issue-builder built it; mr-reviewer fixed 3 P2s in one round; its test reviewer later pushed without a go-ahead | Ahmed filed #25. Hamza gave the go-ahead to build, Mazen to the fix round. After #26 merged first, Ahmed fixed how the two met, moved the reviewed commits to !95, wrote the fixes the last two reviews asked for, and merged. |
+
+Why some loops have two MRs: when an agent pushes without a go-ahead, the guard refuses that MR's branch for good. A person moves the approved commits, unchanged, to a new MR, and the go-aheads stay on the first one. It happened five times on Oct 18, each time a review specialist told to report only; [!88][mr88] took pushing out of review instructions, and the next review ([!95][mr95]) didn't push.
 
 ### Before and after
 
@@ -92,11 +100,12 @@ An agent proposes and waits. A person who didn't ask for the work replies `@<age
 
 ### Honest limits
 
-- Two Assisted loops have run end to end. No reviewer fix round has run yet: both reviews found nothing to fix.
+- 11 Assisted loops ran end to end, six with a fix round (#13, #8, #31, #24, #26, #25). In two (#8, #25) a person wrote the last fixes, and five moved to a new MR after a refused push (above).
+- Ahmed merged all 11 himself, after the reviewer's note, under the team's merge-then-review rule. From the evening of Oct 18 Mazen or Hamza merge agent MRs.
 - On !50 one person gave the go-ahead, approved and merged. The guard only keeps the go-ahead away from whoever asked: the issue's author, or the MR's if a person opened it.
 - On Oct 17 at 19:40 pipeline-fixer removed !5's planted line by itself, before the Assisted flows ([!17][mr17]) and the guard ([!19][mr19]) were on `main`. A person put it back on Oct 18 ([e4ed065](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/commit/e4ed065)), and [its pipeline](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/pipelines/2959983252) is red again on [`service:golden`](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17263548189). The guard now [refuses such a push](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17258462748).
 - GitLab Code Review didn't start when the reviewer flow asked for it (DCR4008 on !26 and !50); on !26 a person asked again and it ran.
-- On MRs the `corpus` job may fail until #21 and #28 are fixed; the nightly `corpus:production` job may not.
+- With the six judge bugs merged, `corpus` and the Polygon round trip (34/34) are green on `main` ([pipeline 2960439972](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/pipelines/2960439972)). The nightly `corpus:production` judges the published package, so it stays red until 3.0.1 is on npm.
 - We don't claim time or memory parity with Polygon.
 
 [mr4]: https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/4
@@ -126,6 +135,21 @@ An agent proposes and waits. A person who didn't ask for the work replies `@<age
 [i31]: https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues/31
 [i44]: https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues/44
 [i45]: https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues/45
+[i8]: https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues/8
+[mr57]: https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/57
+[mr59]: https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/59
+[mr67]: https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/67
+[mr72]: https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/72
+[mr73]: https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/73
+[mr74]: https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/74
+[mr75]: https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/75
+[mr83]: https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/83
+[mr85]: https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/85
+[mr86]: https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/86
+[mr87]: https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/87
+[mr88]: https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/88
+[mr92]: https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/92
+[mr95]: https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/95
 
 ### Who it's for, and why trust matters
 
