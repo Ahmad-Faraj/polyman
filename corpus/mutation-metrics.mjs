@@ -15,7 +15,8 @@ const [input = 'corpus/out/mutation/mutation.json', output = 'metrics.txt'] =
 
 // The real path of `file`, symlinks followed. The output may not exist yet,
 // so the nearest entry that does exist is resolved and the rest appended. A
-// dangling symlink exists (lstat) but has no real path: null.
+// dangling symlink is followed to where it points, so the check sees the file
+// that would really be written. A symlink loop throws (ELOOP).
 const lexists = p => {
   try {
     fs.lstatSync(p);
@@ -24,7 +25,9 @@ const lexists = p => {
     return false;
   }
 };
-const realPath = file => {
+const realPath = (file, hops = 0) => {
+  if (hops > 40)
+    throw Object.assign(new Error('too many symlinks'), { code: 'ELOOP' });
   const missing = [];
   let at = file;
   while (!lexists(at)) {
@@ -33,8 +36,14 @@ const realPath = file => {
   }
   try {
     return path.join(fs.realpathSync(at), ...missing);
-  } catch {
-    return null;
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+    // `at` is a dangling symlink: its target is read from the folder it is in
+    const target = path.resolve(
+      fs.realpathSync(path.dirname(at)),
+      fs.readlinkSync(at)
+    );
+    return realPath(path.join(target, ...missing), hops + 1);
   }
 };
 
@@ -42,8 +51,14 @@ const realPath = file => {
 // that points outside it.
 const basePath = fs.realpathSync(process.cwd());
 const inside = file => {
-  const resolved = realPath(path.resolve(basePath, file));
-  if (!resolved || !isInside(basePath, resolved)) {
+  let resolved;
+  try {
+    resolved = realPath(path.resolve(basePath, file));
+  } catch (error) {
+    console.error(`cannot resolve ${file}: ${error.code ?? error.message}`);
+    process.exit(1);
+  }
+  if (!isInside(basePath, resolved)) {
     console.error(`path outside the working directory: ${file}`);
     process.exit(1);
   }

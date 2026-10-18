@@ -104,7 +104,7 @@ corpus:mutation:
     TZ: Asia/Kolkata
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-    - changes: [src/helpers/solution.ts, src/types.d.ts, tests/**/*, corpus/stryker.config.json, corpus/mutation-metrics.mjs]
+    - changes: [src/helpers/solution.ts, src/types.d.ts, tests/**/*, corpus/stryker.config.json, corpus/mutation-metrics.mjs, corpus/lib.mjs]
   script:
     # --no-save keeps package.json as it is; --legacy-peer-deps avoids an npm
     # crash (edgesOut) when adding packages without saving them
