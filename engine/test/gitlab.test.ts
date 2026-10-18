@@ -258,3 +258,20 @@ describe('GitLab client and redirects', () => {
     expect(seen[1].headers).toEqual({});
   });
 });
+
+describe("GitLab.com's rate limit", () => {
+  const limited = () => new Response('{"message":"Rate limit exceeded"}', { status: 429, headers: { 'Retry-After': '0' } });
+
+  it('waits as long as a 429 asks and sends the request again', async () => {
+    const seen = fakeFetch(limited(), json({ iid: 7 }));
+    expect(await new GitLab({ ...baseEnv, CI_JOB_TOKEN: 'job' }).get('/:project/merge_requests/7')).toEqual({ iid: 7 });
+    expect(seen).toHaveLength(2);
+  });
+
+  it('does the same for the public retry, and says it was the limit when that runs out', async () => {
+    fakeFetch(json({}, 401), limited(), limited(), limited(), limited());
+    const err = (await new GitLab({ ...baseEnv, CI_JOB_TOKEN: 'job' }).get('/:project/merge_requests/7/notes').catch((e: unknown) => e)) as GitLabError;
+    expect(err).toBeInstanceOf(GitLabError);
+    expect(err.status).toBe(429);
+  });
+});

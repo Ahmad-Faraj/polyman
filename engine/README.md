@@ -30,6 +30,21 @@ work on every merge request, and a person approves the result once.
   `go_ahead.people` counts as an agent. The tier comes from `autonomy:assess`, not from a label. A
   branch an agent pushed before the MR existed needs the go-ahead on the
   issue GitLab says the MR closes.
+- `autonomy:ledger` (on `main`, and on MRs that change the engine or the
+  pipeline) rebuilds the go-ahead ledger from the GitLab API: one record per
+  agent push `autonomy:goahead` judged on a merged MR since the guard reached
+  `main`, judged again by the guard's own check (`src/goahead-mr.ts`) with the
+  policy of the target branch at the merge and the tier of the MR's last
+  pipeline. A record names the proposal and go-ahead notes, who gave the
+  go-ahead, who asked for the work (and checks that they differ), the risk
+  tier and who it allows, the commits and the guard job's result, and carries
+  the SHA-256 of the record before it. The job fails if the ledger published
+  on Pages isn't the start of the rebuilt one, so an edited or deleted
+  go-ahead, an edited proposal or a rewritten push shows up; the `pages` job
+  then doesn't run and the published ledger stays. A change to the guard's
+  rules that judges past pushes differently bumps `LEDGER_RULES` in
+  `src/ledger.ts`, which starts a new chain naming the old one's head. Pages:
+  `/ledger/` (table and counters) and `/ledger/ledger.json`.
 - `autonomy:flows` checks the flow files in `.gitlab/duo/flows` the way GitLab
   does when they're saved (schema, prompt safety rules, inputs).
 - `autonomy:engine` runs this folder's type check and tests when it changes.
