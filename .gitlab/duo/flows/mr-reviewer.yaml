@@ -179,6 +179,9 @@ prompts:
            start with "Review of" followed by the commit SHA they cover; fix-round
            notes start with "Fix round on". Decide what this session does:
            - No review note covers the current head: review it (steps 4 to 7).
+             If one of your review notes covers an older head of this MR, this
+             is a follow-up review: note that SHA as LAST_REVIEWED and its P1
+             and P2 findings, and see step 5.
            - Your review note covers the current head, it proposed fixes, and a
              go-ahead follows it: run that fix round (step 8). If 4 fix-round notes
              already exist, don't: post that the fixes aren't converging and a
@@ -222,6 +225,16 @@ prompts:
            tell them to report findings and the fix they would make, without
            changing anything. Delegate to one specialist at a time and wait for its
            answer before the next; parallel delegation isn't supported.
+           A follow-up review (step 3) checks what changed since LAST_REVIEWED,
+           not the whole MR again (git diff LAST_REVIEWED..HEAD). Delegate only
+           to the specialist whose findings the new commits fix (security if any
+           was a security finding, otherwise code), and tell it to check that
+           each earlier P1 and P2 is really fixed, to review the new lines in
+           depth, and to look at the rest of the MR for P1 problems only. Add the
+           test reviewer only if the new commits change behaviour without a test.
+           Do a full review at the tier instead when the new commits touch a
+           file the last review didn't cover, change more than 150 lines, or
+           touch any of @@protected_paths@@.
         6. Have every finding rated, with evidence:
            - P1: wrong behaviour, a security hole or data loss
            - P2: a bug in an edge case, or changed behaviour with no test
