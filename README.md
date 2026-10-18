@@ -32,18 +32,15 @@
 
 ```mermaid
 flowchart LR
-  J["Judges, not an LLM:<br/>corpus · round trip · mutation"] -->|finding| I[Issue]
-  I -->|a person assigns| B["issue-builder<br/>proposes, then waits"]
-  B -->|go-ahead from someone<br/>who didn't file it| M["MR built<br/>by the agent"]
-  M --> G["CI: the judges, and the guard<br/>on every agent push"]
-  G --> R["mr-reviewer<br/>reports"]
-  R -->|go-ahead per fix round| M
-  R --> P[a person merges]
-  P --> N["a person publishes<br/>to npm next"]
-  N --> C["installed and judged:<br/>old vs new"]
-  C -->|a person| L["latest + GitLab Release<br/>with evidence"]
-  L --> X["nightly judges what<br/>people install"]
-  X -->|failure wakes incident-responder| I
+  J["Judges find a bug<br/>(not an LLM)"] --> B["Agent<br/>proposes"]
+  B -->|"go-ahead from<br/>someone else"| M["Agent<br/>builds the MR"]
+  M --> G["CI: judges<br/>+ guard"]
+  G --> R["Agent<br/>reviews"]
+  R -.->|"go-ahead per<br/>fix round"| M
+  R --> P["Person<br/>merges"]
+  P --> N["Person publishes;<br/>judged as installed"]
+  N --> X["Nightly judges<br/>what people install"]
+  X -->|"failure wakes<br/>the incident agent"| J
 ```
 
 ### Check it yourself: no login, 60 seconds
