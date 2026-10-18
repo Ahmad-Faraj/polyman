@@ -276,7 +276,16 @@ function parseFreeMarker(script: string): FmPiece[] {
     const line = lineAt(script, offset);
 
     if (m[1] !== undefined) {
-      // Comments that survived preprocess (`@group ...`) stay as text.
+      // Comments that survived preprocess (`@group ...`) stay as text, but
+      // FreeMarker would evaluate a `${...}` inside them, so refuse those.
+      const interp = m[1].indexOf('${');
+      if (interp >= 0) {
+        const expr = /^\$\{[^}]*\}?/.exec(m[1].slice(interp))![0];
+        throw new Error(
+          `Unsupported expression ${expr} in @group on line ` +
+            `${lineAt(script, offset + interp)}`
+        );
+      }
       pending += m[1];
       continue;
     }

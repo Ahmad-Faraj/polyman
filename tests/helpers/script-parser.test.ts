@@ -358,6 +358,28 @@ describe('parseGeneratorScript - list size limit', () => {
   });
 });
 
+describe('parseGeneratorScript - ${} inside @group comments', () => {
+  it('rejects an interpolation in a group name', () => {
+    expect(() =>
+      parser.parseGeneratorScript('gen 1 > $\n<#-- @group g${i} -->\ngen 2 > $')
+    ).toThrow('Unsupported expression ${i} in @group on line 2');
+  });
+
+  it('rejects it inside a list too', () => {
+    expect(() =>
+      parser.parseGeneratorScript(
+        '<#list 1..2 as i>\n<#-- @group g${i} -->\ngen ${i} > $\n</#list>'
+      )
+    ).toThrow('Unsupported expression ${i} in @group on line 2');
+  });
+
+  it('still ignores ${} in ordinary comments', () => {
+    expect(
+      parser.parseGeneratorScript('<#-- note ${x} -->\ngen 1 > $')
+    ).toHaveLength(1);
+  });
+});
+
 describe('validateGeneratorReferences', () => {
   it('passes when all generators exist', () => {
     const lines = parser.parseGeneratorScript('gen 1 > 1\nother 2 > 2');
