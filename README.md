@@ -30,6 +30,22 @@
 - **Release:** [`polyman-cli` 3.0.1 on npm](https://www.npmjs.com/package/polyman-cli/v/3.0.1), with provenance. It shipped through the judged release jobs ([!47][mr47]): npm `next`, [judged as installed against 3.0.0](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17267989872), then `latest`. The [GitLab Release v3.0.1](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/releases/v3.0.1) carries the evidence. The publish and promote jobs are manual on purpose: a person clicks each one, so a "blocked" deployment on the environments page is a step nobody chose to take.
 - **Original repository:** [HamzaHassanain/polyman](https://github.com/HamzaHassanain/polyman), imported at [`dcb5779`](https://github.com/HamzaHassanain/polyman/commit/dcb5779705da91bc898cc456a0d96bd5d311cf41) ("release: 3.0.0", 2026-09-25), tagged `hackathon-start` here.
 
+```mermaid
+flowchart LR
+  J["Judges, not an LLM:<br/>corpus · round trip · mutation"] -->|finding| I[Issue]
+  I -->|a person assigns| B["issue-builder<br/>proposes, then waits"]
+  B -->|go-ahead from someone<br/>who didn't file it| M["MR built<br/>by the agent"]
+  M --> G["CI: the judges, and the guard<br/>on every agent push"]
+  G --> R["mr-reviewer<br/>reports"]
+  R -->|go-ahead per fix round| M
+  R --> P[a person merges]
+  P --> N["a person publishes<br/>to npm next"]
+  N --> C["installed and judged:<br/>old vs new"]
+  C -->|a person| L["latest + GitLab Release<br/>with evidence"]
+  L --> X["nightly judges what<br/>people install"]
+  X -->|failure wakes incident-responder| I
+```
+
 ### Check it yourself: no login, 60 seconds
 
 1. **[!5][mr5]: one wrong line, all unit tests green, the judge says no.** The demo makes the wrong-answer rule also accept `OK`. In [this pipeline](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/pipelines/2959006759) all 974 unit tests pass on Node 20 and 22, and the verify service's golden set [fails on the `wrong-tag` sample, and only there](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17258296779).

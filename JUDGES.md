@@ -30,6 +30,23 @@ polyman is an MIT command-line tool that people who set programming-contest prob
 - **A tamper-evident record**: every accepted agent push and the go-ahead it ran on, chained by SHA-256, rebuilt on every `main` pipeline and published: [ledger](https://showcase-ce2cdc.gitlab.io/ledger/).
 
 ### Design: one end-to-end workflow
+
+```mermaid
+flowchart LR
+  J["Judges, not an LLM:<br/>corpus · round trip · mutation"] -->|finding| I[Issue]
+  I -->|a person assigns| B["issue-builder<br/>proposes, then waits"]
+  B -->|go-ahead from someone<br/>who didn't file it| M["MR built<br/>by the agent"]
+  M --> G["CI: the judges, and the guard<br/>on every agent push"]
+  G --> R["mr-reviewer<br/>reports"]
+  R -->|go-ahead per fix round| M
+  R --> P[a person merges]
+  P --> N["a person publishes<br/>to npm next"]
+  N --> C["installed and judged:<br/>old vs new"]
+  C -->|a person| L["latest + GitLab Release<br/>with evidence"]
+  L --> X["nightly judges what<br/>people install"]
+  X -->|failure wakes incident-responder| I
+```
+
 Judge finds a bug → issue with evidence → agent proposes → someone else's go-ahead → agent builds the MR → CI judges it, the guard checks the go-ahead → review agent reports, each fix round on its own go-ahead → a person merges → a person publishes to `next` → judged as installed → a person makes it `latest` → the nightly judges what people install → a failure wakes incident-responder. It ran for real: [12 loops merged](README.md#what-people-did-per-loop), then [3.0.1](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/releases/v3.0.1) shipped all eight judge-found fixes, 6 h 48 min after the first one merged.
 
 ### Potential impact
