@@ -164,7 +164,19 @@ export function notAllowed(username: string, step: Step, config: AutonomyConfig)
   return null;
 }
 
-export type Verdict = { ok: true; note: Note } | { ok: false; reason: string };
+/** The go-ahead that counts and the proposal it answers (the ledger records both), or why there is none. */
+/**
+ * Who may give the go-ahead for this step: what the tier asks for, and the
+ * people on the list whose go-ahead would count (the rule above, applied to each).
+ */
+export function allowedApprovers(step: Step, config: AutonomyConfig): { from: 'anyone' | 'maintainers'; people: string[] } {
+  return {
+    from: step.rollback ? 'maintainers' : config.goAhead.byTier[step.tier],
+    people: config.goAhead.people.filter((p) => !notAllowed(p, step, config)),
+  };
+}
+
+export type Verdict = { ok: true; note: Note; proposal: Note } | { ok: false; reason: string; proposal?: Note };
 
 /**
  * A push by an agent is allowed when a person the step allows wrote a go-ahead
@@ -186,6 +198,7 @@ export function goAheadFor(
   );
   if (!own.length) return { ok: false, reason: `@${push.pusher} wrote no proposal before the push at ${push.at}, so there was nothing to give a go-ahead to` };
   const proposal = Math.max(...own.map(touched));
+  const latest = own.filter((n) => touched(n) === proposal).pop()!;
   const floor = Math.max(proposal, previousPush ? time(previousPush) : -Infinity);
   const candidates = notes.filter(
     (n) =>
@@ -196,12 +209,16 @@ export function goAheadFor(
       saysGoAhead(n.body, push.pusher),
   );
   const valid = candidates.filter((n) => !notAllowed(n.author.username, step, config));
-  if (valid.length) return { ok: true, note: valid[valid.length - 1] };
+  if (valid.length) return { ok: true, note: valid[valid.length - 1], proposal: latest };
   if (candidates.length) {
-    return { ok: false, reason: candidates.map((n) => `go-ahead in note ${n.id} doesn't count: ${notAllowed(n.author.username, step, config)}`).join('; ') };
+    return {
+      ok: false,
+      reason: candidates.map((n) => `go-ahead in note ${n.id} doesn't count: ${notAllowed(n.author.username, step, config)}`).join('; '),
+      proposal: latest,
+    };
   }
   const since = floor === proposal ? `its proposal at ${new Date(proposal).toISOString()}` : `its previous push at ${previousPush}`;
-  return { ok: false, reason: `no go-ahead mentioning @${push.pusher} between ${since} and the push at ${push.at}` };
+  return { ok: false, reason: `no go-ahead mentioning @${push.pusher} between ${since} and the push at ${push.at}`, proposal: latest };
 }
 
 /** The assess job's tier; anything else is treated as high, so a missing tier needs a maintainer. */

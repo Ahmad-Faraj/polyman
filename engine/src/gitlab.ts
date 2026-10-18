@@ -26,21 +26,34 @@ export class GitLab {
 
   async request<T = unknown>(method: string, path: string, body?: unknown): Promise<T> {
     const url = `${this.baseUrl}${path.replace(':project', `projects/${this.projectId}`)}`;
-    const res = await tokenFetch(url, {
+    const init = {
       method,
       headers: { ...this.auth, 'Content-Type': 'application/json' },
       body: body === undefined ? undefined : JSON.stringify(body),
-    });
+    };
+    let res = await tokenFetch(url, init);
+    // GitLab.com limits requests per minute (per IP address without a token):
+    // a 429 was not served, so wait as long as it asks and send it again
+    for (let tries = 1; res.status === 429 && tries <= RATE_LIMIT_RETRIES; tries++) {
+      await backOff(res);
+      res = await tokenFetch(url, init);
+    }
     // The job token only covers part of the API. Reads it can't do are public
     // on a public project, so retry those without credentials.
     if ((res.status === 401 || res.status === 403) && method === 'GET' && Object.keys(this.auth).length) {
       const refused = await res.text();
-      const anon = await fetch(url);
+      let anon = await fetch(url);
+      for (let tries = 1; anon.status === 429 && tries <= RATE_LIMIT_RETRIES; tries++) {
+        await backOff(anon);
+        anon = await fetch(url);
+      }
       if (anon.ok) {
         // public data only: confidential notes and restricted fields are missing
         console.warn(`warning: ${path} isn't readable with the job token; used the public API instead`);
         return parseBody<T>(method, path, anon.status, await anon.text());
       }
+      // still limited: say that, not that the token was refused
+      if (anon.status === 429) throw new GitLabError(method, path, 429, await anon.text());
       throw new GitLabError(method, path, res.status, refused);
     }
     const text = await res.text();
@@ -73,6 +86,17 @@ export async function finishedJobs(gl: GitLab, pipelineIds: number[]) {
     for (const j of page) if (j.duration) jobs.push({ name: j.name, duration: j.duration });
   }
   return jobs;
+}
+
+export const RATE_LIMIT_RETRIES = 3;
+
+/** Waits as long as a 429 answer's Retry-After asks (10 s if it doesn't say, at most a minute). */
+export async function backOff(res: Response) {
+  await res.body?.cancel();
+  const asked = Number(res.headers.get('retry-after') ?? NaN);
+  const seconds = Math.min(Number.isFinite(asked) && asked >= 0 ? asked : 10, 60);
+  console.warn(`warning: GitLab's rate limit; trying again in ${seconds} s`);
+  await new Promise((done) => setTimeout(done, seconds * 1000));
 }
 
 function parseBody<T>(method: string, path: string, status: number, text: string): T {

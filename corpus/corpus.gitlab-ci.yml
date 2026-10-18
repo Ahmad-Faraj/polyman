@@ -21,12 +21,18 @@ corpus:
     - apt-get update -qq && apt-get install -y -qq default-jdk-headless python-is-python3 >/dev/null
     - npm run build
     - node corpus/run.mjs
+  # The judge rules as Requirements (Plan > Requirements, #50): each one is
+  # marked satisfied or failed from this run. GitLab reads the report from any
+  # pipeline, so only the default branch writes one.
+  after_script:
+    - 'if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then node corpus/requirements.mjs corpus; else echo "Requirements are judged on $CI_DEFAULT_BRANCH only"; fi'
   artifacts:
     # The verdict matrix, linked from the merge request widget.
     expose_as: 'Corpus verdicts'
     paths: [corpus/out/report.html]
     reports:
       junit: corpus/out/junit.xml
+      requirements_v2: corpus/out/requirements.json
   # Red on polyman 3.0.0, on every problem, for two known bugs only: `verify
   # --json` reports tests the checker never judged as OK (#21) and presentation
   # errors as WA (#28). Becomes blocking in the MR that fixes them.
@@ -87,11 +93,16 @@ corpus:polygon:
   script:
     - npm run build
     - node corpus/polygon-roundtrip.mjs --all
+  # "Generated tests match the platform of record" (#50), from the inputs
+  # compared in every round-tripped problem's report
+  after_script:
+    - node corpus/requirements.mjs polygon
   artifacts:
     when: always
     expire_in: 30 days
     reports:
       junit: corpus/out/junit-polygon*.xml
+      requirements_v2: corpus/out/requirements.json
   # Red on polyman 3.0.0 (#24, #25, #26). Becomes blocking once they're fixed.
   allow_failure: true
 

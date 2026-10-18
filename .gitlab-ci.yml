@@ -102,12 +102,16 @@ build:
     expire_in: 7 days
 
 # API docs (TypeDoc) → GitLab Pages. typedoc.json still writes to docs/; Pages serves public/.
+# The go-ahead ledger from autonomy:ledger (an earlier stage, so its artifacts
+# are here) goes to /ledger/. If that job failed, this one doesn't run and
+# Pages keeps the last published ledger.
 pages:
   extends: .node
   stage: deploy
   script:
     - npm run docs
     - mv docs public
+    - cp -r ledger public/ledger
   artifacts:
     paths: [public]
   rules:

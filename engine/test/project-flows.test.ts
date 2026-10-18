@@ -136,6 +136,19 @@ describe("the project's Duo flows", () => {
     expect(flat('pipeline-fixer.yaml')).toContain("If you can't read it, use high.");
   });
 
+  it('the responder opens Incidents with a severity and a timeline, never through a mutation', () => {
+    const prompt = flat('incident-responder.yaml');
+    expect(prompt).toContain('create_issue and issue_type "incident"');
+    for (const s of ['S1', 'S2', 'S3', 'S4']) expect(prompt).toContain(`"/severity ${s}"`);
+    expect(prompt).toContain('"/timeline Detected:');
+    for (const step of ['Proposal:', 'Go-ahead: note', 'Rollback MR:', 'Fix merged:', 'Verified:']) expect(prompt).toContain(`"${step}`);
+    // a quick action's line is dropped from the note, so a proposal never carries one
+    expect(prompt).toContain('never put one in a note that says something else, least of all a proposal');
+    // the timeline is read with the read-only GraphQL tool; the responder never closes the incident
+    expect(toolset('incident-responder.yaml', 'responder')).toContain('gitlab_graphql');
+    expect(prompt).toContain('Never close the incident yourself');
+  });
+
   it("the responder doesn't treat a superseded release as an incident", () => {
     expect(flat('incident-responder.yaml')).toContain('not promoting: main has moved on');
     expect(flat('incident-responder.yaml')).toContain('skipped: superseded release');
