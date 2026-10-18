@@ -63,13 +63,15 @@ exit 0
 
 // Runs the completion function for the given words (the last one is the word
 // being completed) and prints every reply after eval, NUL-terminated, the way
-// the shell would read the line once the user accepts the completion.
+// the shell would read the line once the user accepts the completion: a reply
+// goes inside the quote the user left open, and the quote is closed after it.
 const DRIVER = `
 source "$GEN"
 COMP_WORDS=("$@")
 COMP_CWORD=$(( $# - 1 ))
 _polyman_complete
-for r in "\${COMPREPLY[@]}"; do eval "printf '%s\\\\0' $r"; done
+_polyman_unquote "\${COMP_WORDS[COMP_CWORD]}"
+for r in "\${COMPREPLY[@]}"; do eval "printf '%s\\\\0' $_polyman_q$r$_polyman_q"; done
 `;
 
 describe.skipIf(!hasBash)('bash completion script (real bash)', () => {
@@ -141,6 +143,72 @@ describe.skipIf(!hasBash)('bash completion script (real bash)', () => {
       }
     );
     expect(result.stdout).toBe('sol\\;touch\\ X\\;x\n');
+  });
+
+  /** Raw COMPREPLY entries (not evaluated) for the given words. */
+  const rawReplies = (...words: string[]): string[] => {
+    const result = spawnSync(
+      'bash',
+      [
+        '-c',
+        'source "$GEN"; COMP_WORDS=("$@"); COMP_CWORD=$(( $# - 1 )); ' +
+          '_polyman_complete; for r in "${COMPREPLY[@]}"; do printf "%s\\0" "$r"; done',
+        'bash',
+        ...words,
+      ],
+      {
+        cwd: work,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          PATH: `${bin}${delimiter}${process.env['PATH'] ?? ''}`,
+          GEN: scriptPath,
+          FAKE_NAMES: names,
+        },
+      }
+    );
+    expect(result.stderr).toBe('');
+    return result.stdout.split('\0').slice(0, -1);
+  };
+
+  /**
+   * Builds the command line the way readline does when the user has typed
+   * `typed` (which opens a quote) and accepts the single reply: the text after
+   * the open quote is replaced by the reply, then the user closes the quote.
+   * Runs it and returns the arguments as `<arg>` text.
+   */
+  const runLine = (typed: string, closing: string): string => {
+    const [reply] = rawReplies('polyman', 'run', typed);
+    const open = typed.slice(0, 1);
+    const result = spawnSync(
+      'bash',
+      ['-c', `printf "<%s>" ${open}${reply ?? ''}${closing}`],
+      { cwd: work, encoding: 'utf8' }
+    );
+    expect(result.stderr).toBe('');
+    return result.stdout;
+  };
+
+  it('keeps a name with a tab one literal argument inside an open single quote', () => {
+    const name = 'a\t;touch PWNED;:';
+    setNames('solutions', [name]);
+    expect(runLine("'a", "'")).toBe(`<${name}>`);
+    expect(readdirSync(work)).toEqual([]);
+  });
+
+  it('keeps a name one literal argument inside an open double quote', () => {
+    const name = 'sol;touch X;x';
+    setNames('solutions', [name]);
+    expect(runLine('"sol', '"')).toBe(`<${name}>`);
+    expect(readdirSync(work)).toEqual([]);
+  });
+
+  it('escapes only what a quote needs inside an open quote', () => {
+    const name = 'q\'$x`y"z\\w\tv';
+    setNames('solutions', [name]);
+    expect(runLine("'q", "'")).toBe(`<${name}>`);
+    expect(runLine('"q', '"')).toBe(`<${name}>`);
+    expect(readdirSync(work)).toEqual([]);
   });
 
   it('matches a prefix typed as plain text', () => {
