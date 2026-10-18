@@ -2859,7 +2859,7 @@ This automatically tests your problem on every commit.
 **Answer:** Yes. `polyman remote push` uploads your local problem to Polygon:
 
 ```bash
-polyman remote push 123456 ./my-problem
+polyman remote push ./my-problem
 ```
 
 It uploads solutions, checker, validator, generators, statements, tests, metadata and limits. Use the per-component flags (for example `-s -c` for solutions and checker only) to push part of the problem. If `Config.json` has no `problemId`, it creates the Polygon problem first. See [Push to Polygon](#basic-push) for details.
