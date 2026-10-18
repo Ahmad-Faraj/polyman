@@ -285,6 +285,54 @@ describe('checker.ts', () => {
       ).rejects.toThrow('Wrong answer expected...');
     });
 
+    it('should throw a PresentationError if expected OK and the checker exits with code 2', async () => {
+      mockedExecute.mockImplementation(
+        (_cmd: string, options: ExecutionOptions) => {
+          const failResult = makeExecResult({
+            stderr: 'FAIL wrong output format',
+            exitCode: 2,
+            success: false,
+          });
+          if (options.onError) {
+            options.onError(failResult);
+          }
+          return Promise.resolve(failResult);
+        }
+      );
+
+      const rejection = checker.runChecker(
+        mockExecCommand,
+        mockInput,
+        mockOutput,
+        mockAnswer,
+        'OK'
+      );
+      await expect(rejection).rejects.toBeInstanceOf(checker.PresentationError);
+      await expect(rejection).rejects.toThrow('FAIL wrong output format');
+    });
+
+    it('should throw a plain Error, not a PresentationError, for exit code 1', async () => {
+      mockedExecute.mockImplementation(
+        (_cmd: string, options: ExecutionOptions) => {
+          const failResult = makeExecResult({
+            stderr: 'wrong answer',
+            exitCode: 1,
+            success: false,
+          });
+          if (options.onError) {
+            options.onError(failResult);
+          }
+          return Promise.resolve(failResult);
+        }
+      );
+
+      const error = await checker
+        .runChecker(mockExecCommand, mockInput, mockOutput, mockAnswer, 'OK')
+        .catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(Error);
+      expect(error).not.toBeInstanceOf(checker.PresentationError);
+    });
+
     it('should throw "Expected OK but got WA" if stderr is empty on failure', async () => {
       mockedExecute.mockImplementation(
         (_cmd: string, options: ExecutionOptions) => {

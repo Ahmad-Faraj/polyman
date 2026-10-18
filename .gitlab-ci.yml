@@ -96,10 +96,16 @@ test:
 build:
   extends: .node
   stage: build
-  script: npm run build
+  script:
+    - npm run build
+    # what the published package ships (CycloneDX); GitLab lists it under
+    # Secure > Dependency list and shows new components in the MR
+    - npm sbom --sbom-format cyclonedx --omit dev > gl-sbom-npm-polyman.cdx.json
   artifacts:
     paths: [dist/]
     expire_in: 7 days
+    reports:
+      cyclonedx: gl-sbom-npm-polyman.cdx.json
 
 # API docs (TypeDoc) → GitLab Pages. typedoc.json still writes to docs/; Pages serves public/.
 # The go-ahead ledger from autonomy:ledger (an earlier stage, so its artifacts

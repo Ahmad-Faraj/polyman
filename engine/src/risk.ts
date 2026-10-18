@@ -77,6 +77,9 @@ export function assessRisk(
     const hit = byTier.get(tier);
     if (hit) {
       add(`paths.${tier}`, TIER_POINTS[tier], `${tier} path touched: ${hit.slice(0, 3).join(', ')}${hit.length > 3 ? ` (+${hit.length - 3})` : ''}`);
+      // a critical path (verdicts, credentials, the sandbox) is never below high:
+      // its review gets the security specialist and its go-ahead a maintainer
+      if (tier === 'critical') forcedBy ??= `it changes a critical path (${hit.slice(0, 3).join(', ')})`;
       const extra = Math.min(15, (hit.length - 1) * 5);
       add(`paths.${tier}.spread`, extra, `${hit.length} ${tier} files changed`);
       break;

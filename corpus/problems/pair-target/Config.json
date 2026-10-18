@@ -45,7 +45,7 @@
       "name": "ok_java",
       "source": "./solutions/ok_java.java",
       "tag": "OK",
-      "sourceType": "java.11"
+      "sourceType": "java21"
     },
     {
       "name": "wa_same_index",

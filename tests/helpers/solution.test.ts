@@ -66,7 +66,15 @@ vi.mock('../../src/helpers/utils', async () => {
     readFirstLine: vi.fn().mockResolvedValue(''),
   };
 });
-vi.mock('../../src/helpers/checker');
+vi.mock('../../src/helpers/checker', async importOriginal => {
+  const actual =
+    await importOriginal<typeof import('../../src/helpers/checker')>();
+  return {
+    ...actual,
+    runChecker: vi.fn(),
+    ensureCheckerExists: vi.fn(),
+  };
+});
 vi.mock('../../src/helpers/testset');
 vi.mock('fs');
 vi.mock('path', async () => {
@@ -708,6 +716,101 @@ describe('solution.ts', () => {
         );
       }
       spy.mockRestore();
+    });
+
+    describe('presentation errors', () => {
+      const mainSol: LocalSolution = {
+        name: 'm',
+        source: '',
+        tag: 'MA',
+        sourceType: 'cpp.g++17',
+      };
+      const solutionWithTag = (tag: LocalSolution['tag']): LocalSolution => ({
+        name: 'p',
+        source: '',
+        tag,
+        sourceType: 'cpp.g++17',
+      });
+      const checkerConfig: LocalChecker = { name: 'chk', source: 'chk.cpp' };
+
+      it('records PE on every test and accepts a PE-tagged solution', async () => {
+        const targetSol = solutionWithTag('PE');
+        const spy = vi.spyOn(report, 'updateTestVerdict');
+
+        mockedGetTestFiles.mockReturnValue(['t1.txt', 't2.txt', 't3.txt']);
+        mockedRunChecker.mockRejectedValue(
+          new checker.PresentationError('wrong output format')
+        );
+
+        await expect(
+          solution.startTheComparisonProcess(
+            checkerConfig,
+            mainSol,
+            targetSol,
+            [{ name: 'ts1' }]
+          )
+        ).resolves.not.toThrow();
+
+        expect(mockedRunChecker).toHaveBeenCalledTimes(3);
+        expect(spy).toHaveBeenCalledTimes(3);
+        for (const index of [1, 2, 3]) {
+          expect(spy).toHaveBeenCalledWith(
+            targetSol,
+            'ts1',
+            index,
+            'PE',
+            'wrong output format'
+          );
+        }
+        expect(spy).not.toHaveBeenCalledWith(
+          targetSol,
+          'ts1',
+          expect.anything(),
+          'WA',
+          expect.anything()
+        );
+        spy.mockRestore();
+      });
+
+      it('rejects an MA-tagged solution that gets a presentation error', async () => {
+        mockedGetTestFiles.mockReturnValue(['t1.txt']);
+        mockedRunChecker.mockRejectedValue(
+          new checker.PresentationError('wrong output format')
+        );
+
+        await expect(
+          solution.startTheComparisonProcess(
+            checkerConfig,
+            mainSol,
+            solutionWithTag('MA'),
+            [{ name: 'ts1' }]
+          )
+        ).rejects.toThrow(/Presentation Error/);
+      });
+
+      it('still records WA for a plain checker failure', async () => {
+        const targetSol = solutionWithTag('WA');
+        const spy = vi.spyOn(report, 'updateTestVerdict');
+
+        mockedGetTestFiles.mockReturnValue(['t1.txt']);
+        mockedRunChecker.mockRejectedValue(new Error('Wrong Answer'));
+
+        await solution.startTheComparisonProcess(
+          checkerConfig,
+          mainSol,
+          targetSol,
+          [{ name: 'ts1' }]
+        );
+
+        expect(spy).toHaveBeenCalledWith(
+          targetSol,
+          'ts1',
+          1,
+          'WA',
+          'Wrong Answer'
+        );
+        spy.mockRestore();
+      });
     });
 
     it('should handle skip logic via checkIfShouldSkipRest interception', () => {

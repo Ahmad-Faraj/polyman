@@ -39,6 +39,11 @@ service:test:
     - npm ci --no-audit --no-fund --loglevel=error
     - npm run typecheck
     - npm test
+    # what the verify service runs on Cloud Run (CycloneDX), for the dependency list
+    - npm sbom --sbom-format cyclonedx --omit dev > ../gl-sbom-npm-verify-service.cdx.json
+  artifacts:
+    reports:
+      cyclonedx: gl-sbom-npm-verify-service.cdx.json
 
 service:image:
   extends: .service:changes

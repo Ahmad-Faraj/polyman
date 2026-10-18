@@ -25,6 +25,21 @@ import { DEFAULT_TIMEOUT, DEFAULT_MEMORY_LIMIT } from './utils';
 import { quoteShellArgument } from './shell';
 import { fmt } from '../formatter';
 
+/** Exit code testlib's `quitf(_pe, ...)` uses for a presentation error. */
+const TESTLIB_PE_EXIT_CODE = 2;
+
+/**
+ * Raised by {@link runChecker} when a checker that was expected to accept the
+ * output exits with testlib's presentation-error code. Any other checker
+ * failure stays a plain `Error` and is treated as a wrong answer.
+ */
+export class PresentationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PresentationError';
+  }
+}
+
 /**
  * Runs a checker program to validate solution output against expected answer.
  * The checker receives three files: input, output (participant's answer), and answer (jury's answer).
@@ -35,6 +50,7 @@ import { fmt } from '../formatter';
  * @param {string} answerFilePath - Path to jury's answer file
  * @param {CheckerVerdict} expectedVerdict - Expected verdict (OK, WA, PE)
  *
+ * @throws {PresentationError} If the checker was expected to return OK and exited with testlib's presentation-error code (2)
  * @throws {Error} If checker verdict doesn't match expected verdict
  * @throws {Error} If checker exceeds time or memory limits (exits process)
  *
@@ -68,7 +84,11 @@ export async function runChecker(
       silent: true,
       onError: result => {
         if (expectedVerdict.toUpperCase() === 'OK') {
-          throw new Error(result.stderr || 'Expected OK but got WA');
+          const message = result.stderr || 'Expected OK but got WA';
+          if (result.exitCode === TESTLIB_PE_EXIT_CODE) {
+            throw new PresentationError(message);
+          }
+          throw new Error(message);
         }
         didCatchInvalid = true;
       },
