@@ -81,7 +81,7 @@ function makeReadStreamStub(
 ): ReadStream {
   const stub: Pick<ReadStream, 'on' | 'close'> = {
     on: on as unknown as ReadStream['on'],
-    close: vi.fn() as unknown as ReadStream['close'],
+    close: vi.fn(),
   };
   return stub as ReadStream;
 }

@@ -3,8 +3,6 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 
-/* eslint-disable @typescript-eslint/unbound-method */
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as steps from '../src/steps';
 import * as createTemplate from '../src/helpers/create-template';
@@ -262,7 +260,7 @@ describe('steps.ts', () => {
       await steps.stepCompileGeneratorsForSingleTest(
         1,
         config,
-        { name: 'tests' } as any,
+        { name: 'tests' },
         2
       );
       expect(generator.compileGeneratorsForTests).toHaveBeenCalledWith(
@@ -275,12 +273,7 @@ describe('steps.ts', () => {
   describe('stepGenerateSingleTest', () => {
     it('should call generateSingleTest', async () => {
       const config = baseConfig();
-      await steps.stepGenerateSingleTest(
-        1,
-        config,
-        { name: 'tests' } as any,
-        2
-      );
+      await steps.stepGenerateSingleTest(1, config, { name: 'tests' }, 2);
       expect(testset.generateSingleTest).toHaveBeenCalledWith(
         { name: 'tests' },
         2,
@@ -318,7 +311,7 @@ describe('steps.ts', () => {
       await steps.stepCompileGeneratorsForGroup(
         1,
         config,
-        { name: 'tests' } as any,
+        { name: 'tests' },
         'a'
       );
       expect(generator.compileGeneratorsForTests).toHaveBeenCalledWith(
@@ -355,7 +348,7 @@ describe('steps.ts', () => {
       await steps.stepCompileGeneratorsForGroup(
         1,
         config,
-        { name: 'tests' } as any,
+        { name: 'tests' },
         'all'
       );
       expect(generator.compileGeneratorsForTests).toHaveBeenCalledWith(
@@ -368,12 +361,7 @@ describe('steps.ts', () => {
   describe('stepGenerateTestsForGroup', () => {
     it('should call generateTestsForGroup', async () => {
       const config = baseConfig();
-      await steps.stepGenerateTestsForGroup(
-        1,
-        config,
-        { name: 'tests' } as any,
-        'g'
-      );
+      await steps.stepGenerateTestsForGroup(1, config, { name: 'tests' }, 'g');
       expect(testset.generateTestsForGroup).toHaveBeenCalledWith(
         { name: 'tests' },
         'g',
@@ -399,7 +387,7 @@ describe('steps.ts', () => {
       const config = baseConfig();
       await steps.stepCompileGeneratorsForTestset(1, config, {
         name: 'tests',
-      } as any);
+      });
       expect(generator.compileGeneratorsForTests).toHaveBeenCalledWith(
         tests,
         config.generators
@@ -412,7 +400,7 @@ describe('steps.ts', () => {
       const config = baseConfig();
       await steps.stepGenerateTestsForTestset(1, config, {
         name: 'tests',
-      } as any);
+      });
       expect(testset.generateTestsForTestset).toHaveBeenCalledWith(
         { name: 'tests' },
         config.generators
@@ -745,7 +733,7 @@ describe('steps.ts', () => {
 
   describe('stepFetchStatements', () => {
     it('should fetch statements', async () => {
-      vi.mocked(viewer.fetchStatements).mockResolvedValue([] as any);
+      vi.mocked(viewer.fetchStatements).mockResolvedValue([]);
       const result = await steps.stepFetchStatements(1, {} as any, 5);
       expect(result).toEqual([]);
       expect(viewer.logStatementsFetch).toHaveBeenCalled();
@@ -787,7 +775,7 @@ describe('steps.ts', () => {
         resourceFiles: [],
         sourceFiles: [],
         auxFiles: [],
-      } as any);
+      });
       await steps.stepFetchFiles(1, {} as any, 5);
       expect(formatter.fmt.stepComplete).toHaveBeenCalledWith(
         'Files check complete'
@@ -834,7 +822,7 @@ describe('steps.ts', () => {
       ] as any);
       const result = steps.stepFetchGenerators(
         1,
-        { resourceFiles: [], sourceFiles: [], auxFiles: [] } as any,
+        { resourceFiles: [], sourceFiles: [], auxFiles: [] },
         'wcmp',
         'val.cpp'
       );
@@ -857,7 +845,7 @@ describe('steps.ts', () => {
         {} as any,
         [],
         [],
-        { resourceFiles: [], sourceFiles: [], auxFiles: [] } as any,
+        { resourceFiles: [], sourceFiles: [], auxFiles: [] },
         [],
         '',
         '',
@@ -956,7 +944,7 @@ describe('steps.ts', () => {
       vi.mocked(pulling.downloadSolutions).mockResolvedValue({
         count: 1,
         data: [],
-      } as any);
+      });
       vi.mocked(pulling.downloadChecker).mockResolvedValue({
         count: 1,
         data: checker,
@@ -964,11 +952,11 @@ describe('steps.ts', () => {
       vi.mocked(pulling.downloadValidator).mockResolvedValue({
         count: 1,
         data: { name: 'val', source: 'val.cpp' },
-      } as any);
+      });
       vi.mocked(pulling.downloadGenerators).mockResolvedValue({
         count: 2,
         data: [],
-      } as any);
+      });
       vi.mocked(pulling.downloadStatements).mockResolvedValue({
         count: 0,
         config: {},
@@ -976,7 +964,7 @@ describe('steps.ts', () => {
       vi.mocked(pulling.fetchProblemMetadata).mockResolvedValue({
         description: 'd',
         tags: ['t'],
-      } as any);
+      });
       vi.mocked(fs.writeFileSync).mockImplementation(() => undefined);
 
       await steps.stepDownloadProblemFilesAndSetUpConfig(

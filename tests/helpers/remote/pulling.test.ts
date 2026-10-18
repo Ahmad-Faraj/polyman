@@ -58,7 +58,7 @@ function createMockSdk(): MockSdk {
     viewTags: vi.fn(),
     getCheckerTests: vi.fn(),
     getValidatorTests: vi.fn(),
-  } as MockSdk;
+  };
 }
 
 /** Cast a partial mock SDK to the full {@link PolygonSDK} shape via `unknown`. */

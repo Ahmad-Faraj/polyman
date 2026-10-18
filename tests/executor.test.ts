@@ -621,7 +621,6 @@ describe('CommandExecutor', () => {
         await vi.advanceTimersByTimeAsync(500);
         await promise;
 
-        // eslint-disable-next-line @typescript-eslint/unbound-method
         expect(fmt.log).toHaveBeenCalledWith('Unexpected Error');
         vi.useRealTimers();
       });

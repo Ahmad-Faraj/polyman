@@ -105,7 +105,7 @@ function mockReadFileSyncWith(impl: ReadFileCallback): void {
   // `fs.readFileSync` is heavily overloaded; the cast below narrows our
   // text-only mock to a single signature compatible with the union return
   // type expected by vi.mocked.
-  mockedReadFileSync.mockImplementation(impl as typeof fs.readFileSync);
+  mockedReadFileSync.mockImplementation(impl);
 }
 
 const mockConfig: ConfigFile = asConfig({
@@ -319,7 +319,7 @@ describe('pushing.ts', () => {
 
       const result = await pushing.uploadSolutions(sdk, 1, 'dir', mockConfig);
       expect(result).toBe(0);
-      // eslint-disable-next-line @typescript-eslint/unbound-method
+
       expect(fmt.warning).toHaveBeenCalledWith(
         expect.stringContaining('sol: quota exceeded')
       );
@@ -744,7 +744,7 @@ describe('pushing.ts', () => {
 
       const result = await pushing.uploadGenerators(sdk, 1, 'dir', cfg);
       expect(result).toBe(0);
-      // eslint-disable-next-line @typescript-eslint/unbound-method
+
       expect(fmt.warning).toHaveBeenCalledWith(
         expect.stringContaining('gen: Polygon API Error: sourceType: unknown')
       );

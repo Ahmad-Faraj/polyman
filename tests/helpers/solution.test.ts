@@ -138,9 +138,9 @@ function makeConfig(overrides: Partial<ConfigFile> = {}): ConfigFile {
 }
 
 describe('solution.ts', () => {
-  const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {
+  const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
     throw new Error('process.exit called');
-  }) as (code?: number | string | null) => never);
+  });
   void exitSpy;
 
   beforeEach(() => {
@@ -611,8 +611,7 @@ describe('solution.ts', () => {
   });
 
   describe('startTheComparisonProcess', () => {
-    const checkerOk: Awaited<ReturnType<typeof checker.runChecker>> =
-      undefined as unknown as Awaited<ReturnType<typeof checker.runChecker>>;
+    const checkerOk: Awaited<ReturnType<typeof checker.runChecker>> = undefined;
 
     it('should validate expected verdicts', async () => {
       const mainSol: LocalSolution = {
@@ -1109,9 +1108,7 @@ describe('solution.ts', () => {
       await solution.runSolutionOnGroup(
         mockSolution,
         mockConfig,
-        { name: 'tests' } as unknown as Parameters<
-          typeof solution.runSolutionOnGroup
-        >[2],
+        { name: 'tests' },
         'samples'
       );
       expect(spy).toHaveBeenCalledWith(

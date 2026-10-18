@@ -242,9 +242,7 @@ export async function uploadValidator(
             let index: number = 1;
             for (const test of testsData.tests) {
               if (test.input && test.expectedVerdict) {
-                const validatorVerdict = test.expectedVerdict as
-                  | 'VALID'
-                  | 'INVALID';
+                const validatorVerdict = test.expectedVerdict;
                 await sdk.saveValidatorTest(
                   problemId,
                   test.index ? test.index : index++,

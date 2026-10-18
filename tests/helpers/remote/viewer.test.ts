@@ -494,7 +494,7 @@ describe('viewer.ts', () => {
           legend: '',
           input: '',
           output: '',
-        } as Statement & { language: string },
+        },
       ]);
       expect(mockedFmt.info).toHaveBeenCalled();
       const calls = getInfoCallStrings();

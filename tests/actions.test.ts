@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 /* eslint-disable @typescript-eslint/no-unsafe-return */
-/* eslint-disable @typescript-eslint/unbound-method */
+
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as actions from '../src/actions';
 import * as steps from '../src/steps';
@@ -61,7 +61,7 @@ describe('actions.ts', () => {
       /\.(cpp|cc|cxx)$/.test(f)
     );
     vi.mocked(testset.findTestset).mockImplementation(
-      (_sets: any, name: string) => ({ name }) as any
+      (_sets: any, name: string) => ({ name })
     );
     vi.mocked(solution.findMatchingSolutions).mockImplementation(
       (sols: any) => sols || []
@@ -102,7 +102,7 @@ describe('actions.ts', () => {
   describe('listAvailableCheckersAction', () => {
     it('should warn when no checker files found', () => {
       vi.mocked(fs.existsSync).mockReturnValue(true);
-      vi.mocked(fs.readdirSync).mockReturnValue([] as any);
+      vi.mocked(fs.readdirSync).mockReturnValue([]);
       actions.listAvailableCheckersAction();
       expect(formatter.fmt.warning).toHaveBeenCalled();
     });
@@ -116,7 +116,7 @@ describe('actions.ts', () => {
         'readme.txt',
       ] as any);
       vi.mocked(fs.readFileSync).mockReturnValue(
-        '// Description: number compare\nint main() {}\n' as any
+        '// Description: number compare\nint main() {}\n'
       );
       actions.listAvailableCheckersAction();
       expect(fs.readFileSync).toHaveBeenCalled();
@@ -126,7 +126,7 @@ describe('actions.ts', () => {
     it('should handle checker file with no description', () => {
       vi.mocked(fs.existsSync).mockReturnValue(true);
       vi.mocked(fs.readdirSync).mockReturnValue(['x.cpp'] as any);
-      vi.mocked(fs.readFileSync).mockReturnValue('int main() {}\n' as any);
+      vi.mocked(fs.readFileSync).mockReturnValue('int main() {}\n');
       actions.listAvailableCheckersAction();
       expect(formatter.fmt.log).toHaveBeenCalled();
     });
@@ -789,7 +789,7 @@ describe('actions.ts', () => {
       vi.mocked(steps.stepReadCredentials).mockReturnValue({
         apiKey: 'k',
         secret: 's',
-      } as any);
+      });
       vi.mocked(steps.stepInitializeSDK).mockReturnValue({} as any);
     });
 
@@ -836,7 +836,7 @@ describe('actions.ts', () => {
     beforeEach(() => {
       vi.mocked(steps.stepReadCredentials).mockReturnValue({} as any);
       vi.mocked(steps.stepInitializeSDK).mockReturnValue({} as any);
-      vi.mocked(steps.stepGetProblemId).mockReturnValue(123 as any);
+      vi.mocked(steps.stepGetProblemId).mockReturnValue(123);
     });
 
     it('should pull all by default', async () => {
@@ -1017,16 +1017,16 @@ describe('actions.ts', () => {
     beforeEach(() => {
       vi.mocked(steps.stepReadCredentials).mockReturnValue({} as any);
       vi.mocked(steps.stepInitializeSDK).mockReturnValue({} as any);
-      vi.mocked(steps.stepGetProblemId).mockReturnValue(7 as any);
+      vi.mocked(steps.stepGetProblemId).mockReturnValue(7);
       vi.mocked(steps.stepFetchProblemInfo).mockResolvedValue({} as any);
       vi.mocked(steps.stepFetchStatements).mockResolvedValue({} as any);
-      vi.mocked(steps.stepFetchSolutions).mockResolvedValue([] as any);
+      vi.mocked(steps.stepFetchSolutions).mockResolvedValue([]);
       vi.mocked(steps.stepFetchFiles).mockResolvedValue([] as any);
-      vi.mocked(steps.stepFetchPackages).mockResolvedValue([] as any);
+      vi.mocked(steps.stepFetchPackages).mockResolvedValue([]);
       vi.mocked(steps.stepFetchChecker).mockResolvedValue({} as any);
       vi.mocked(steps.stepFetchValidator).mockResolvedValue({} as any);
-      vi.mocked(steps.stepFetchGenerators).mockReturnValue([] as any);
-      vi.mocked(steps.stepFetchSampleTests).mockResolvedValue([] as any);
+      vi.mocked(steps.stepFetchGenerators).mockReturnValue([]);
+      vi.mocked(steps.stepFetchSampleTests).mockResolvedValue([]);
     });
 
     it('should view problem details', async () => {
@@ -1049,7 +1049,7 @@ describe('actions.ts', () => {
     beforeEach(() => {
       vi.mocked(steps.stepReadCredentials).mockReturnValue({} as any);
       vi.mocked(steps.stepInitializeSDK).mockReturnValue({} as any);
-      vi.mocked(steps.stepGetProblemId).mockReturnValue(11 as any);
+      vi.mocked(steps.stepGetProblemId).mockReturnValue(11);
     });
 
     it('should commit changes', async () => {
@@ -1070,7 +1070,7 @@ describe('actions.ts', () => {
     beforeEach(() => {
       vi.mocked(steps.stepReadCredentials).mockReturnValue({} as any);
       vi.mocked(steps.stepInitializeSDK).mockReturnValue({} as any);
-      vi.mocked(steps.stepGetProblemId).mockReturnValue(13 as any);
+      vi.mocked(steps.stepGetProblemId).mockReturnValue(13);
     });
 
     it('should build package successfully', async () => {
@@ -1078,7 +1078,7 @@ describe('actions.ts', () => {
         id: 1,
         state: 'READY',
         comment: 'done',
-      } as any);
+      });
       await actions.remotePackageProblemAction('./p', 'standard');
       expect(steps.stepValidatePackageType).toHaveBeenCalled();
       expect(formatter.fmt.successBox).toHaveBeenCalled();
