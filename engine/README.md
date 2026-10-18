@@ -64,8 +64,9 @@ note that allowed it.
 - **issue-builder** (assigned or mentioned on an issue): proposes the change,
   the test and the expected risk tier; on a go-ahead it implements it and opens
   the MR.
-- **incident-responder** (production check failed, or mentioned): opens an
-  incident and proposes the rollback; on the maintainer's go-ahead it prepares
+- **incident-responder** (production check failed, or mentioned): opens a
+  GitLab Incident with a severity and a timeline (detected, proposal, go-ahead,
+  rollback MR, fix merged, verified) and proposes the rollback; on the maintainer's go-ahead it prepares
   the rollback MR and records the lesson in `.autonomy/incidents.json`. A real
   fix starts by assigning the incident to issue-builder.
 
