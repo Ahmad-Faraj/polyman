@@ -1,0 +1,437 @@
+name: agent review footprint
+description: "One merge request review by our Duo flows: runner time (measured)
+  and model calls (bounded from the session log), turned into gCO2e. Energy per
+  model call is a cited range (0.24-2.5 Wh), not a measurement; see
+  SUSTAINABILITY.md."
+tags:
+  kind: agents
+aggregation:
+  metrics:
+    - carbon-low
+    - carbon-high
+  type: horizontal
+initialize:
+  plugins:
+    runner-energy:
+      method: Multiply
+      path: builtin
+      config:
+        input-parameters:
+          - runner-hours
+          - runner-kw
+        output-parameter: runner-energy
+    runner-carbon:
+      method: Multiply
+      path: builtin
+      config:
+        input-parameters:
+          - runner-energy
+          - grid-g-per-kwh
+        output-parameter: runner-carbon
+    runner-embodied:
+      method: Multiply
+      path: builtin
+      config:
+        input-parameters:
+          - runner-hours
+          - embodied-g-per-hour
+        output-parameter: runner-embodied
+    model-energy-low:
+      method: Multiply
+      path: builtin
+      config:
+        input-parameters:
+          - model-calls-low
+          - kwh-per-call-low
+        output-parameter: model-energy-low
+    model-energy-high:
+      method: Multiply
+      path: builtin
+      config:
+        input-parameters:
+          - model-calls-high
+          - kwh-per-call-high
+        output-parameter: model-energy-high
+    model-carbon-low:
+      method: Multiply
+      path: builtin
+      config:
+        input-parameters:
+          - model-energy-low
+          - grid-g-per-kwh
+        output-parameter: model-carbon-low
+    model-carbon-high:
+      method: Multiply
+      path: builtin
+      config:
+        input-parameters:
+          - model-energy-high
+          - grid-g-per-kwh
+        output-parameter: model-carbon-high
+    carbon-low:
+      method: Sum
+      path: builtin
+      config:
+        input-parameters:
+          - runner-carbon
+          - runner-embodied
+          - model-carbon-low
+        output-parameter: carbon-low
+      parameter-metadata:
+        outputs:
+          carbon-low:
+            unit: gCO2e
+            description: carbon-low for one review
+            aggregation-method:
+              time: sum
+              component: sum
+    carbon-high:
+      method: Sum
+      path: builtin
+      config:
+        input-parameters:
+          - runner-carbon
+          - runner-embodied
+          - model-carbon-high
+        output-parameter: carbon-high
+      parameter-metadata:
+        outputs:
+          carbon-high:
+            unit: gCO2e
+            description: carbon-high for one review
+            aggregation-method:
+              time: sum
+              component: sum
+tree:
+  children:
+    high-risk-reviews:
+      pipeline:
+        compute:
+          - runner-energy
+          - runner-carbon
+          - runner-embodied
+          - model-energy-low
+          - model-energy-high
+          - model-carbon-low
+          - model-carbon-high
+          - carbon-low
+          - carbon-high
+      defaults:
+        runner-kw: 0.008916599999999998
+        embodied-g-per-hour: 2.4
+        grid-g-per-kwh: 560
+        kwh-per-call-low: 0.00023999999999999998
+        kwh-per-call-high: 0.0025
+      inputs:
+        - timestamp: 2026-10-17T23:36:12.870Z
+          duration: 321
+          runner-hours: 0.0890315886111111
+          model-calls-low: 24
+          model-calls-high: 81
+        - timestamp: 2026-10-17T23:16:45.625Z
+          duration: 68
+          runner-hours: 0.018932875833333335
+          model-calls-low: 1
+          model-calls-high: 6
+        - timestamp: 2026-10-17T23:13:55.673Z
+          duration: 283
+          runner-hours: 0.0785601663888889
+          model-calls-low: 19
+          model-calls-high: 51
+        - timestamp: 2026-10-17T23:11:52.927Z
+          duration: 593
+          runner-hours: 0.16458398305555555
+          model-calls-low: 21
+          model-calls-high: 47
+        - timestamp: 2026-10-17T22:46:09.695Z
+          duration: 393
+          runner-hours: 0.10928396083333333
+          model-calls-low: 25
+          model-calls-high: 73
+        - timestamp: 2026-10-17T22:44:49.717Z
+          duration: 436
+          runner-hours: 0.12108151444444445
+          model-calls-low: 22
+          model-calls-high: 67
+        - timestamp: 2026-10-17T22:38:12.564Z
+          duration: 639
+          runner-hours: 0.17756067333333334
+          model-calls-low: 29
+          model-calls-high: 85
+        - timestamp: 2026-10-17T22:21:08.053Z
+          duration: 319
+          runner-hours: 0.08858242694444443
+          model-calls-low: 21
+          model-calls-high: 61
+        - timestamp: 2026-10-17T20:28:46.293Z
+          duration: 2059
+          runner-hours: 0.5718408952777778
+          model-calls-low: 61
+          model-calls-high: 141
+        - timestamp: 2026-10-17T20:26:36.135Z
+          duration: 1485
+          runner-hours: 0.41239666555555554
+          model-calls-low: 41
+          model-calls-high: 101
+        - timestamp: 2026-10-17T20:15:24.410Z
+          duration: 3194
+          runner-hours: 0.8871138991666666
+          model-calls-low: 86
+          model-calls-high: 193
+        - timestamp: 2026-10-17T19:41:48.862Z
+          duration: 3653
+          runner-hours: 1.0147688530555556
+          model-calls-low: 71
+          model-calls-high: 146
+        - timestamp: 2026-10-17T19:37:45.969Z
+          duration: 1248
+          runner-hours: 0.3465357547222222
+          model-calls-low: 57
+          model-calls-high: 131
+        - timestamp: 2026-10-17T19:37:36.582Z
+          duration: 1058
+          runner-hours: 0.29397867499999997
+          model-calls-low: 60
+          model-calls-high: 145
+        - timestamp: 2026-10-17T19:37:10.069Z
+          duration: 565
+          runner-hours: 0.15688133750000002
+          model-calls-low: 35
+          model-calls-high: 99
+        - timestamp: 2026-10-17T19:37:04.545Z
+          duration: 421
+          runner-hours: 0.1170532525
+          model-calls-low: 29
+          model-calls-high: 89
+        - timestamp: 2026-10-17T19:36:50.559Z
+          duration: 817
+          runner-hours: 0.22692154166666667
+          model-calls-low: 44
+          model-calls-high: 97
+        - timestamp: 2026-10-17T19:32:17.142Z
+          duration: 1673
+          runner-hours: 0.4646788608333333
+          model-calls-low: 81
+          model-calls-high: 178
+        - timestamp: 2026-10-17T19:16:42.476Z
+          duration: 3652
+          runner-hours: 1.0144583008333334
+          model-calls-low: 53
+          model-calls-high: 110
+        - timestamp: 2026-10-17T18:36:25.432Z
+          duration: 2483
+          runner-hours: 0.689649933611111
+          model-calls-low: 65
+          model-calls-high: 133
+        - timestamp: 2026-10-17T18:09:53.694Z
+          duration: 349
+          runner-hours: 0.09701023916666666
+          model-calls-low: 24
+          model-calls-high: 59
+        - timestamp: 2026-10-17T17:57:02.425Z
+          duration: 1833
+          runner-hours: 0.5090875147222222
+          model-calls-low: 45
+          model-calls-high: 95
+        - timestamp: 2026-10-17T17:56:37.732Z
+          duration: 304
+          runner-hours: 0.08431518194444444
+          model-calls-low: 23
+          model-calls-high: 51
+        - timestamp: 2026-10-17T17:27:23.234Z
+          duration: 419
+          runner-hours: 0.11634065777777777
+          model-calls-low: 24
+          model-calls-high: 63
+        - timestamp: 2026-10-17T17:03:20.935Z
+          duration: 2314
+          runner-hours: 0.6426918416666667
+          model-calls-low: 63
+          model-calls-high: 121
+        - timestamp: 2026-10-17T15:39:17.288Z
+          duration: 2274
+          runner-hours: 0.6315382383333333
+          model-calls-low: 58
+          model-calls-high: 119
+        - timestamp: 2026-10-17T14:33:42.913Z
+          duration: 882
+          runner-hours: 0.2451230211111111
+          model-calls-low: 52
+          model-calls-high: 127
+        - timestamp: 2026-10-17T14:31:33.323Z
+          duration: 839
+          runner-hours: 0.23298880249999998
+          model-calls-low: 24
+          model-calls-high: 67
+        - timestamp: 2026-10-17T14:21:59.376Z
+          duration: 592
+          runner-hours: 0.16438000388888888
+          model-calls-low: 27
+          model-calls-high: 73
+        - timestamp: 2026-10-17T14:11:27.676Z
+          duration: 307
+          runner-hours: 0.08517610416666667
+          model-calls-low: 14
+          model-calls-high: 45
+        - timestamp: 2026-10-17T14:10:34.829Z
+          duration: 2085
+          runner-hours: 0.5791975375
+          model-calls-low: 30
+          model-calls-high: 68
+        - timestamp: 2026-10-17T10:27:56.052Z
+          duration: 1841
+          runner-hours: 0.5112967433333334
+          model-calls-low: 99
+          model-calls-high: 232
+        - timestamp: 2026-10-17T03:06:01.057Z
+          duration: 260
+          runner-hours: 0.07221050972222222
+          model-calls-low: 21
+          model-calls-high: 47
+        - timestamp: 2026-10-17T02:57:18.852Z
+          duration: 414
+          runner-hours: 0.11507638972222223
+          model-calls-low: 27
+          model-calls-high: 73
+        - timestamp: 2026-10-16T23:00:31.472Z
+          duration: 408
+          runner-hours: 0.11343362111111112
+          model-calls-low: 21
+          model-calls-high: 71
+        - timestamp: 2026-10-16T23:00:27.018Z
+          duration: 361
+          runner-hours: 0.10036133555555556
+          model-calls-low: 24
+          model-calls-high: 77
+        - timestamp: 2026-10-16T22:31:04.562Z
+          duration: 1942
+          runner-hours: 0.5395322702777777
+          model-calls-low: 38
+          model-calls-high: 83
+        - timestamp: 2026-10-16T22:14:26.310Z
+          duration: 730
+          runner-hours: 0.20281381222222222
+          model-calls-low: 37
+          model-calls-high: 93
+        - timestamp: 2026-10-16T22:12:25.611Z
+          duration: 2710
+          runner-hours: 0.7528442452777777
+          model-calls-low: 140
+          model-calls-high: 344
+        - timestamp: 2026-10-16T22:12:16.351Z
+          duration: 768
+          runner-hours: 0.21330111361111112
+          model-calls-low: 28
+          model-calls-high: 79
+        - timestamp: 2026-10-16T21:26:44.602Z
+          duration: 856
+          runner-hours: 0.23784160000000001
+          model-calls-low: 41
+          model-calls-high: 89
+        - timestamp: 2026-10-16T19:35:26.000Z
+          duration: 933
+          runner-hours: 0.2592108063888889
+          model-calls-low: 39
+          model-calls-high: 89
+        - timestamp: 2026-10-16T19:15:23.802Z
+          duration: 816
+          runner-hours: 0.22678812027777778
+          model-calls-low: 31
+          model-calls-high: 77
+    unknown-risk-reviews:
+      pipeline:
+        compute:
+          - runner-energy
+          - runner-carbon
+          - runner-embodied
+          - model-energy-low
+          - model-energy-high
+          - model-carbon-low
+          - model-carbon-high
+          - carbon-low
+          - carbon-high
+      defaults:
+        runner-kw: 0.008916599999999998
+        embodied-g-per-hour: 2.4
+        grid-g-per-kwh: 560
+        kwh-per-call-low: 0.00023999999999999998
+        kwh-per-call-high: 0.0025
+      inputs:
+        - timestamp: 2026-10-17T23:35:52.537Z
+          duration: 60
+          runner-hours: 0.016682627777777778
+          model-calls-low: 1
+          model-calls-high: 6
+    low-risk-reviews:
+      pipeline:
+        compute:
+          - runner-energy
+          - runner-carbon
+          - runner-embodied
+          - model-energy-low
+          - model-energy-high
+          - model-carbon-low
+          - model-carbon-high
+          - carbon-low
+          - carbon-high
+      defaults:
+        runner-kw: 0.008916599999999998
+        embodied-g-per-hour: 2.4
+        grid-g-per-kwh: 560
+        kwh-per-call-low: 0.00023999999999999998
+        kwh-per-call-high: 0.0025
+      inputs:
+        - timestamp: 2026-10-17T23:06:02.733Z
+          duration: 112
+          runner-hours: 0.031194534722222222
+          model-calls-low: 6
+          model-calls-high: 16
+        - timestamp: 2026-10-17T22:55:27.064Z
+          duration: 100
+          runner-hours: 0.02766183277777778
+          model-calls-low: 7
+          model-calls-high: 16
+        - timestamp: 2026-10-17T19:34:54.066Z
+          duration: 89
+          runner-hours: 0.024829628055555556
+          model-calls-low: 6
+          model-calls-high: 14
+        - timestamp: 2026-10-17T19:24:07.762Z
+          duration: 144
+          runner-hours: 0.040016086944444446
+          model-calls-low: 7
+          model-calls-high: 18
+        - timestamp: 2026-10-17T18:11:38.581Z
+          duration: 88
+          runner-hours: 0.02441669861111111
+          model-calls-low: 5
+          model-calls-high: 14
+        - timestamp: 2026-10-16T19:48:27.328Z
+          duration: 81
+          runner-hours: 0.02262972638888889
+          model-calls-low: 4
+          model-calls-high: 14
+    medium-risk-reviews:
+      pipeline:
+        compute:
+          - runner-energy
+          - runner-carbon
+          - runner-embodied
+          - model-energy-low
+          - model-energy-high
+          - model-carbon-low
+          - model-carbon-high
+          - carbon-low
+          - carbon-high
+      defaults:
+        runner-kw: 0.008916599999999998
+        embodied-g-per-hour: 2.4
+        grid-g-per-kwh: 560
+        kwh-per-call-low: 0.00023999999999999998
+        kwh-per-call-high: 0.0025
+      inputs:
+        - timestamp: 2026-10-17T18:08:33.693Z
+          duration: 717
+          runner-hours: 0.1990760063888889
+          model-calls-low: 39
+          model-calls-high: 109

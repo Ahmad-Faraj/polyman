@@ -56,12 +56,19 @@ SCI (Software Carbon Intensity, ISO/IEC 21031:2024): `(E x I + M) per R`.
 - **Embodied emissions**: per vCPU-hour for the runner; not included for the
   model's hardware.
 
-Reproduce: `GITLAB_TOKEN=... node engine/src/cli/agent-footprint.ts <project path>`
-(read-only; it reads the job logs of the project's `duo_workflow` pipelines).
+Recompute it yourself, no token needed: every review's inputs and every step
+of the arithmetic are in an [Impact Framework](https://if.greensoftware.foundation/)
+manifest, [sustainability/agent-reviews.yml](sustainability/agent-reviews.yml)
+(builtin Multiply and Sum only):
+
+    npx @grnsft/if@1.1.1 if-run -m sustainability/agent-reviews.yml
+
+It gives the table above per tier (carbon-low, carbon-high, summed over the
+tier's reviews). To rebuild the manifest from the job logs (read-only, needs a
+token): `GITLAB_TOKEN=... node engine/src/cli/agent-footprint.ts <project path> --manifest sustainability/agent-reviews.yml`.
 
 ## What's not here yet
 
 - A same-task before/after: the same MRs reviewed with tiering off (all high)
   and on. The table compares different MRs at different tiers.
 - The verify service on Cloud Run (its energy per request).
-- An Impact Framework manifest so anyone can recompute the numbers.

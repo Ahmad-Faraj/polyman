@@ -7,15 +7,21 @@
  * session also gets an inference estimate as a low/high range (see sci.ts).
  *
  * Reads job logs, which needs a token with read access (run it locally):
- *   GITLAB_TOKEN=... node engine/src/cli/agent-footprint.ts [--json]
+ *   GITLAB_TOKEN=... node engine/src/cli/agent-footprint.ts [project] [--json] [--manifest file.yml]
+ * --manifest also writes the reviews as an Impact Framework manifest, which
+ * `npx @grnsft/if if-run -m file.yml` recomputes without a token.
  */
 import { loadConfig } from '../config.ts';
 import { projectPathFrom } from '../project.ts';
+import { writeFileSync } from 'node:fs';
+import { ifManifest } from '../manifest.ts';
 import { INFERENCE_WH_PER_CALL, footprint, inferenceGrams, modelCalls } from '../sci.ts';
 
 const api = process.env.GITLAB_URL ?? 'https://gitlab.com';
 if (!api.startsWith('https://')) throw new Error(`refusing to send your token to ${api}: use an https:// GITLAB_URL`);
-const project = encodeURIComponent(projectPathFrom(process.argv.slice(2).find((a) => !a.startsWith('--'))));
+const args = process.argv.slice(2);
+// the project is the first argument that isn't an option or --manifest's file
+const project = encodeURIComponent(projectPathFrom(args.find((a, i) => !a.startsWith('--') && args[i - 1] !== '--manifest')));
 const token = process.env.GITLAB_TOKEN;
 if (!token) throw new Error('set GITLAB_TOKEN to read the agent job logs');
 
@@ -27,6 +33,7 @@ async function get<T>(path: string, raw = false): Promise<T> {
 
 interface Session {
   pipeline: number;
+  at: string;
   flow: string;
   mr: number | null;
   skipped: boolean;
@@ -45,7 +52,7 @@ const FLOWS: [RegExp, string][] = [
 
 const sessions: Session[] = [];
 for (let page = 1; ; page++) {
-  const pipelines = await get<{ id: number }[]>(`/pipelines?source=duo_workflow&per_page=100&page=${page}`);
+  const pipelines = await get<{ id: number; created_at: string }[]>(`/pipelines?source=duo_workflow&per_page=100&page=${page}`);
   if (!pipelines.length) break;
   for (const p of pipelines) {
     const [job] = await get<{ id: number; duration: number | null }[]>(`/pipelines/${p.id}/jobs`);
@@ -55,7 +62,7 @@ for (let page = 1; ; page++) {
     const mr =
       Number(log.match(/"merge_request":\{"id":\d+,"iid":(\d+)/)?.[1] ?? log.match(/MergeRequest IID: (\d+)/)?.[1] ?? log.match(/merge request !(\d+)/i)?.[1]) || null;
     const skipped = /skipped: /.test(log.split('Starting Workflow').pop() ?? '');
-    sessions.push({ pipeline: p.id, flow, mr, skipped, seconds: job.duration, calls: modelCalls(log) });
+    sessions.push({ pipeline: p.id, at: p.created_at, flow, mr, skipped, seconds: job.duration, calls: modelCalls(log) });
   }
 }
 
@@ -91,6 +98,14 @@ const reviews = sessions.filter((s) => s.flow === 'mr-reviewer' && !s.skipped &&
 const byTier = new Map<string, Session[]>();
 for (const s of reviews) byTier.set(tiers.get(s.mr!) ?? 'unknown', [...(byTier.get(tiers.get(s.mr!) ?? 'unknown') ?? []), s]);
 const avg = (xs: Session[]) => xs.reduce((n, s) => n + s.seconds, 0) / Math.max(1, xs.length);
+
+const manifestAt = process.argv.indexOf('--manifest');
+if (manifestAt > 0) {
+  const file = process.argv[manifestAt + 1];
+  if (!file) throw new Error('--manifest needs a file name');
+  writeFileSync(file, ifManifest(new Map([...byTier].map(([tier, xs]) => [tier, xs.map(({ at, seconds, calls }) => ({ at, seconds, calls }))])), coefficients));
+  console.error(`wrote ${file}: recompute it with npx @grnsft/if@1.1.1 if-run -m ${file}`);
+}
 
 if (process.argv.includes('--json')) {
   console.log(JSON.stringify({ coefficients, inferenceWhPerCall: INFERENCE_WH_PER_CALL, sessions, tiers: Object.fromEntries(tiers) }, null, 2));
