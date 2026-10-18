@@ -122,7 +122,7 @@ describe('compare', () => {
       expect(failures(diffs)).toEqual([]);
       expect(warnings(diffs).map(d => d.message)).toEqual([
         `solution main: tests#${slowTest}:OK came back tests#${slowTest}:TLE (timing, not judged)`,
-        `solution main: ${4 - slowTest} tests after tests#${slowTest} did not run (timing, not judged)`,
+        `solution main: ${4 - slowTest} ${slowTest === 3 ? 'test' : 'tests'} after tests#${slowTest} did not run (timing, not judged)`,
       ]);
     }
   );
@@ -136,6 +136,22 @@ describe('compare', () => {
     got.solutions.main.matchesTag = false;
     expect(failures(compare(want, got))).toContain(
       'solution main: cut short at tests#1:TLE with no expected OK test still OK (a broken limit, not a slow runner)'
+    );
+  });
+
+  // the WA this solution is in the corpus for never ran (review of !80)
+  it('fails a short report whose skipped tests expect a non-OK verdict', () => {
+    const wa = {
+      tag: 'WA',
+      matchesTag: true,
+      verdicts: ['tests#1:OK', 'tests#2:OK', 'tests#3:WA'],
+    };
+    const want = expected({ wa });
+    const got = structuredClone(want);
+    got.solutions.wa.verdicts = ['tests#1:OK', 'tests#2:TLE'];
+    got.solutions.wa.matchesTag = false;
+    expect(failures(compare(want, got))).toContain(
+      'solution wa: cut short at tests#2:TLE before tests#3:WA ran, so the expected verdict was never seen'
     );
   });
 
