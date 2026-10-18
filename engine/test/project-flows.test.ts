@@ -263,4 +263,11 @@ describe("the project's Duo flows", () => {
   it('the fixer only pushes a proposal made for the current head', () => {
     expect(flat('pipeline-fixer.yaml')).toContain('If the head moved since the proposal, or the fix no longer applies, propose again');
   });
+
+  it('the fixer posts one proposal per head, even when a retry or a question starts it again', () => {
+    const prompt = flat('pipeline-fixer.yaml');
+    expect(prompt).toContain('If your latest proposal is for the current head and no go-ahead follows it, don\'t post another');
+    expect(prompt).toContain('answer "skipped: proposal already posted for SHA" and stop');
+    expect(prompt).toContain('A go-ahead after a proposal for an older head is spent');
+  });
 });
