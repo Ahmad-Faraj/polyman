@@ -211,6 +211,21 @@ describe.skipIf(!hasBash)('bash completion script (real bash)', () => {
     expect(readdirSync(work)).toEqual([]);
   });
 
+  it('never evaluates what the user typed', () => {
+    setNames('solutions', ['main']);
+    setNames('testsets', ['tests']);
+    setNames('groups.tests', ['g']);
+    const typed = ['$(touch PWNED)', '"$(touch PWNED2)"', 'x;touch PWNED3'];
+    for (const word of typed) {
+      // as the word being completed, as a testset value and as a --testset=
+      rawReplies('polyman', 'run', word);
+      rawReplies('polyman', 'generate', '--testset', word);
+      rawReplies('polyman', 'generate', '--testset', word, '-g', '');
+      rawReplies('polyman', 'generate', `--testset=${word}`, '-g', '');
+    }
+    expect(readdirSync(work)).toEqual([]);
+  });
+
   it('matches a prefix typed as plain text', () => {
     setNames('solutions', NASTY_NAMES);
     expect(complete('polyman', 'run', 'sol')).toEqual(['sol;touch X;x']);
