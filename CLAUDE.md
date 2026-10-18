@@ -141,7 +141,6 @@ Every solution has a `tag` (`SolutionTag` in `types.d.ts`):
 - **End-user usage** — `README.md`, `GUIDE.md` (90 KB, comprehensive reference), `TUTORIAL.md` (worked example).
 - **Architecture, type system, internals** — `DOCUMENTATION.md` (75 KB).
 - **Windows-specific gotchas** — `NOTES.md`.
-- **Open work** — `TODO.md`.
 - **Generated API docs** — `npm run docs` then open `docs/index.html`, or [hosted TypeDoc](https://hamzahassanain.github.io/polyman/).
 
 Read these on demand — do not pull all of them into context at the start of a task.
