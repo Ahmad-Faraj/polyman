@@ -1,0 +1,11 @@
+<#-- Polygon-format generator script. -->
+<#-- gen n maxAbs mode. mode: yes (a pair is planted), no (no pair exists), -->
+<#-- twice (only a_k + a_k reaches t, so the answer is -1), many (small values, many pairs) -->
+
+<#-- @group main -->
+gen 6 20 yes > $
+gen 8 30 twice > $
+gen 1000 1000000000 no > $
+gen 100000 1000000000 yes > $
+gen 100000 50 many > $
+gen 100000 1000000000 twice > $

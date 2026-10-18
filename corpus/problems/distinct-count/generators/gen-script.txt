@@ -1,0 +1,11 @@
+<#-- Polygon-format generator script. -->
+<#-- gen T maxN maxV: T test cases, each n in [1, maxN], values in [1, maxV], -->
+<#-- and the sum of n kept within 2 * 10^5 -->
+
+<#-- @group main -->
+gen 1 10 5 > $
+gen 5 10 3 > $
+gen 100 50 10 > $
+gen 1 200000 1000 > $
+gen 10000 20 1000000000 > $
+gen 2 100000 100000 > $

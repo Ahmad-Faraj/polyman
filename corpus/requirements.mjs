@@ -12,6 +12,7 @@
  * Usage:
  *   node corpus/requirements.mjs corpus  [corpus/out/summary.json] [out.json]
  *   node corpus/requirements.mjs polygon [corpus/out/junit-polygon.xml] [out.json]
+ *     (without an input: every corpus/out/junit-polygon*.xml the round trip wrote)
  */
 
 import fs from 'node:fs';
@@ -169,10 +170,23 @@ function main() {
     }
     report = corpusRequirements(summary, expected);
   } else if (mode === 'polygon') {
-    const file = input ?? path.join(CORPUS, 'out', 'junit-polygon.xml');
-    report = fs.existsSync(file)
-      ? polygonRequirements(fs.readFileSync(file, 'utf8'))
-      : {};
+    // by default every problem the round trip pushed (`--all` writes one
+    // junit-polygon-<problem>.xml each), not the list of skipped ones
+    const reports = path.join(CORPUS, 'out');
+    const files = input
+      ? [input]
+      : fs.existsSync(reports)
+        ? fs
+            .readdirSync(reports)
+            .filter(f => /^junit-polygon(-.+)?\.xml$/.test(f))
+            .filter(f => f !== 'junit-polygon-skipped.xml')
+            .map(f => path.join(reports, f))
+        : [];
+    const xml = files
+      .filter(f => fs.existsSync(f))
+      .map(f => fs.readFileSync(f, 'utf8'))
+      .join('\n');
+    report = xml ? polygonRequirements(xml) : {};
   } else {
     throw new Error('usage: requirements.mjs corpus|polygon [input] [output]');
   }

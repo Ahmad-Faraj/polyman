@@ -64,7 +64,7 @@ release:next-check:
     - npm i --prefix /tmp/latest --no-audit --no-fund polyman-cli@latest
     - node corpus/run.mjs --polyman /tmp/latest/node_modules/polyman-cli/dist/cli.js --junit corpus/out/latest/junit.xml || true
     - node corpus/run.mjs --polyman /tmp/next/node_modules/polyman-cli/dist/cli.js --junit corpus/out/next/junit.xml || true
-    - 'if [ -n "$POLYGON_API_KEY" ]; then node corpus/polygon-roundtrip.mjs --polyman /tmp/next/node_modules/polyman-cli/dist/cli.js --junit corpus/out/next/junit-polygon.xml || echo "the round trip on next failed: see its report (evidence, not yet a gate)"; fi'
+    - 'if [ -n "$POLYGON_API_KEY" ]; then node corpus/polygon-roundtrip.mjs --all --polyman /tmp/next/node_modules/polyman-cli/dist/cli.js --junit corpus/out/next/junit-polygon.xml || echo "the round trip on next failed: see its report (evidence, not yet a gate)"; fi'
     - node corpus/regressions.mjs corpus/out/latest/summary.json corpus/out/next/summary.json
   artifacts:
     when: always
@@ -122,7 +122,8 @@ release:evidence:
     - mkdir -p evidence
     - cp corpus/out/next/report.html evidence/corpus-verdicts-next.html
     - cp corpus/out/latest/report.html evidence/corpus-verdicts-latest.html || true
-    - cp corpus/out/next/junit-polygon.xml evidence/polygon-roundtrip-next.xml || echo "no Polygon round trip on next (no Polygon key in this pipeline)"
+    # one report per round-tripped problem (polygon-roundtrip.mjs --all), and the skipped ones
+    - 'for f in corpus/out/next/junit-polygon-*.xml; do [ -e "$f" ] || { echo "no Polygon round trip on next (no Polygon key in this pipeline)"; break; }; cp "$f" "evidence/polygon-roundtrip-next-${f##*/junit-polygon-}"; done'
     - cp corpus/out/mutation/index.html evidence/mutation-report.html || echo "no mutation report in this pipeline"
     - npx --yes @cyclonedx/cyclonedx-npm@6.0.1 --omit dev --output-format JSON --output-file evidence/sbom.cdx.json
     # what npm recorded when release:npm-next published with --provenance

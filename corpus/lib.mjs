@@ -223,3 +223,20 @@ export function regressions(baseline, candidate) {
   }
   return { added, fixed };
 }
+
+/**
+ * Which problems the Polygon round trip pushes (`--all`): those with a Polygon
+ * problem ID in corpus/polygon.json. The others are skipped, by name, so a
+ * report says what the round trip did not cover.
+ */
+export function polygonTargets(problems, ids) {
+  const targets = [];
+  const skipped = [];
+  for (const problem of [...problems].sort()) {
+    const id = ids?.[problem];
+    if (Number.isInteger(id) && id > 0)
+      targets.push({ problem, problemId: String(id) });
+    else skipped.push(problem);
+  }
+  return { targets, skipped };
+}
