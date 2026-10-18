@@ -53,6 +53,8 @@ service:image:
   # defaults to 1500, so large packets stall: apt-get inside the build fetched
   # the small index files and then hung until the job timed out (since about
   # 18:00 UTC on Oct 18). Plain jobs on the same runners weren't affected.
+  # BuildKit's RUN steps don't take the daemon's --mtu, so the build also runs
+  # on the DinD container's own network (--network host below).
   services:
     - name: docker:27.5.1-dind
       command: ['--mtu=1460']
@@ -61,7 +63,7 @@ service:image:
   needs: []
   script:
     - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
-    - docker build -f service/Dockerfile --build-arg APP_COMMIT=$CI_COMMIT_SHORT_SHA -t "$SERVICE_IMAGE" .
+    - docker build --network host -f service/Dockerfile --build-arg APP_COMMIT=$CI_COMMIT_SHORT_SHA -t "$SERVICE_IMAGE" .
     - docker push "$SERVICE_IMAGE"
 
 # The image runs as a job service and gets the sample problems, which must give
