@@ -7,10 +7,27 @@
  */
 
 import fs from 'node:fs';
+import path from 'node:path';
 
 const [input = 'corpus/out/mutation/mutation.json', output = 'metrics.txt'] =
   process.argv.slice(2);
-const report = JSON.parse(fs.readFileSync(input, 'utf8'));
+
+// Both paths must stay inside the working directory: `path.relative` catches
+// `..` and sibling folders such as `/repo-other`, which `startsWith` lets through.
+const basePath = process.cwd();
+const inside = file => {
+  const resolved = path.resolve(basePath, file);
+  const rel = path.relative(basePath, resolved);
+  if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) {
+    console.error(`path outside the working directory: ${file}`);
+    process.exit(1);
+  }
+  return resolved;
+};
+const inputPath = inside(input);
+const outputPath = inside(output);
+
+const report = JSON.parse(fs.readFileSync(inputPath, 'utf8'));
 
 const lines = [];
 let detected = 0;
@@ -28,5 +45,5 @@ for (const [file, { mutants }] of Object.entries(report.files)) {
 }
 const score = valid ? Math.round((1000 * detected) / valid) / 10 : 0;
 lines.unshift(`mutation_score ${score}`);
-fs.writeFileSync(output, `${lines.join('\n')}\n`);
+fs.writeFileSync(outputPath, `${lines.join('\n')}\n`);
 console.log(lines.join('\n'));
