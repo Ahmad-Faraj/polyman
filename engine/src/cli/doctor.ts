@@ -12,7 +12,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { parse } from 'yaml';
-import { projectPathFrom } from '../project.ts';
+import { gitlabUrl, projectPathFrom } from '../project.ts';
 import { loadConfig, type AutonomyConfig } from '../config.ts';
 import { checkFlow } from '../flows.ts';
 import { flowValues, renderFlow } from '../render.ts';
@@ -26,8 +26,7 @@ const args = process.argv.slice(2);
 const projectPath = projectPathFrom(args.find((a) => !a.startsWith('--')));
 const token = process.env.GITLAB_TOKEN;
 if (!token) throw new Error('set GITLAB_TOKEN (a token with read_api) to run the checks');
-const api = process.env.GITLAB_URL ?? 'https://gitlab.com';
-if (!api.startsWith('https://')) throw new Error(`refusing to send your token to ${api}: use an https:// GITLAB_URL`);
+const api = gitlabUrl(process.env.GITLAB_URL);
 
 async function rest<T>(path: string): Promise<T> {
   const res = await fetch(`${api}/api/v4${path}`, { redirect: 'error', headers: { Authorization: `Bearer ${token}` } });

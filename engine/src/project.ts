@@ -18,3 +18,13 @@ export function projectPathFrom(arg: string | undefined, opts: { remoteOnly?: bo
   if (!path) throw new Error('pass the project path (group/project) or set GITLAB_PROJECT_PATH');
   return path;
 }
+
+/**
+ * GITLAB_URL without trailing slashes (".../api" must not become "//api":
+ * GitLab redirects that, and our token-carrying requests refuse redirects),
+ * and only over https, so a token never goes out in the clear.
+ */
+export function gitlabUrl(value = 'https://gitlab.com'): string {
+  if (!value.startsWith('https://')) throw new Error(`refusing to send your token to ${value}: use an https:// GITLAB_URL`);
+  return value.replace(/\/+$/, '');
+}

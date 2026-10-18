@@ -8,6 +8,7 @@ interface Seen {
   url: string;
   method: string;
   headers: Record<string, string>;
+  redirect?: string;
 }
 
 /** Fakes fetch: `replies` are returned in order, and every request is recorded. */
@@ -16,8 +17,8 @@ function fakeFetch(...replies: Response[]) {
   const queue = [...replies];
   vi.stubGlobal(
     'fetch',
-    vi.fn(async (url: string, init: { method?: string; headers?: Record<string, string> } = {}) => {
-      seen.push({ url, method: init.method ?? 'GET', headers: init.headers ?? {} });
+    vi.fn(async (url: string, init: { method?: string; headers?: Record<string, string>; redirect?: string } = {}) => {
+      seen.push({ url, method: init.method ?? 'GET', headers: init.headers ?? {}, redirect: init.redirect });
       const next = queue.shift();
       if (!next) throw new Error('unexpected extra request');
       return next;
@@ -238,5 +239,22 @@ describe('GitLab non-JSON replies', () => {
 describe('GitLab client no longer writes MR notes on its own', () => {
   it('has no upsertMrNote', () => {
     expect('upsertMrNote' in GitLab.prototype).toBe(false);
+  });
+});
+
+describe('GitLab client and redirects', () => {
+  it('refuses redirects on every request that carries a token, GET, POST and PUT', async () => {
+    const seen = fakeFetch(json({}), json({}), json({}));
+    const gl = new GitLab({ ...baseEnv, CI_JOB_TOKEN: 'job' });
+    await gl.get('/x');
+    await gl.post('/x', {});
+    await gl.put('/x', {});
+    expect(seen.map((r) => r.redirect)).toEqual(['error', 'error', 'error']);
+  });
+
+  it('sends no credentials on the anonymous retry', async () => {
+    const seen = fakeFetch(json({ message: '401' }, 401), json({ ok: true }));
+    await new GitLab({ ...baseEnv, CI_JOB_TOKEN: 'job' }).get('/x');
+    expect(seen[1].headers).toEqual({});
   });
 });

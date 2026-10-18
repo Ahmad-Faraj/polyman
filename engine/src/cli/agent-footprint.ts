@@ -12,13 +12,12 @@
  * `npx -y -p @grnsft/if@1.1.1 if-run -m file.yml` recomputes without a token.
  */
 import { loadConfig } from '../config.ts';
-import { projectPathFrom } from '../project.ts';
+import { gitlabUrl, projectPathFrom } from '../project.ts';
 import { writeFileSync } from 'node:fs';
 import { footprintArgs, ifManifest } from '../manifest.ts';
-import { INFERENCE_WH_PER_CALL, callsOf, footprint, modelCalls, sessionGrams } from '../sci.ts';
+import { INFERENCE_WH_PER_CALL, callsOf, checkpointsMissing, footprint, modelCalls, sessionGrams } from '../sci.ts';
 
-const api = process.env.GITLAB_URL ?? 'https://gitlab.com';
-if (!api.startsWith('https://')) throw new Error(`refusing to send your token to ${api}: use an https:// GITLAB_URL`);
+const api = gitlabUrl(process.env.GITLAB_URL);
 // read before any network call, so a bad option fails at once
 const args = footprintArgs(process.argv.slice(2));
 const project = encodeURIComponent(projectPathFrom(args.project));
@@ -64,8 +63,7 @@ for (let page = 1; ; page++) {
       Number(log.match(/"merge_request":\{"id":\d+,"iid":(\d+)/)?.[1] ?? log.match(/MergeRequest IID: (\d+)/)?.[1] ?? log.match(/merge request !(\d+)/i)?.[1]) || null;
     const skipped = /skipped: /.test(log.split('Starting Workflow').pop() ?? '');
     const calls = modelCalls(log);
-    // a session that ran but shows no checkpoint: the runner's log layout changed, and the count would be silently 0
-    if (job.duration > 10 && calls.high === 0) console.error(`warning: no checkpoint lines in pipeline ${p.id}'s log; its model calls count as 0`);
+    if (checkpointsMissing(job.duration, calls)) console.error(`warning: no checkpoint lines in pipeline ${p.id}'s log; its model calls count as 0`);
     sessions.push({ pipeline: p.id, at: p.created_at, flow, mr, skipped, seconds: job.duration, calls });
   }
 }

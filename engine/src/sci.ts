@@ -142,3 +142,8 @@ export function sessionGrams(seconds: number, calls: Calls, c: SciCoefficients):
   const model = inferenceGrams(calls, c.gridGramsPerKwh);
   return { low: runner + model.low, high: runner + model.high };
 }
+
+/** A session that ran a while but shows no checkpoint: the runner's log layout changed, and its calls would count as 0. */
+export function checkpointsMissing(seconds: number, calls: Calls): boolean {
+  return seconds > 10 && calls.high === 0;
+}

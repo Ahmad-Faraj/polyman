@@ -24,7 +24,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { type AutonomyConfig } from '../config.ts';
 import { loadConfig } from '../config.ts';
 import { checkFlow } from '../flows.ts';
-import { projectPathFrom } from '../project.ts';
+import { gitlabUrl, projectPathFrom } from '../project.ts';
 import { flowValues, renderFlow } from '../render.ts';
 
 const MENTION = 0;
@@ -148,10 +148,7 @@ export type Gql = <T>(query: string, variables?: Record<string, unknown>) => Pro
 export type Rest = <T>(path: string) => Promise<T | null>;
 
 /** Where to send the token: only over https. */
-export function gitlabUrl(value = 'https://gitlab.com'): string {
-  if (!value.startsWith('https://')) throw new Error(`refusing to send your token to ${value}: use an https:// GITLAB_URL`);
-  return value.replace(/\/+$/, '');
-}
+export { gitlabUrl } from '../project.ts';
 
 interface PushLevel {
   access_level: number;

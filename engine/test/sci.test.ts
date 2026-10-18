@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_SCI, INFERENCE_WH_PER_CALL, callsOf, footprint, inferenceGrams, modelCalls, sessionGrams } from '../src/sci.ts';
+import { DEFAULT_SCI, INFERENCE_WH_PER_CALL, callsOf, checkpointsMissing, footprint, inferenceGrams, modelCalls, sessionGrams } from '../src/sci.ts';
 
 describe('footprint', () => {
   it('is zero for no jobs', () => {
@@ -82,5 +82,13 @@ describe('model inference per session', () => {
     expect(g.low).toBeCloseTo(runner + inferenceGrams({ low: 3, high: 7.5 }, DEFAULT_SCI.gridGramsPerKwh).low, 12);
     expect(g.high).toBeCloseTo(runner + inferenceGrams({ low: 3, high: 7.5 }, DEFAULT_SCI.gridGramsPerKwh).high, 12);
     expect(sessionGrams(0, { low: 0, high: 0 }, DEFAULT_SCI)).toEqual({ low: 0, high: 0 });
+  });
+});
+
+describe('a session whose log shows no checkpoints', () => {
+  it('is flagged when it ran for a while, not when it was only a few seconds or has checkpoints', () => {
+    expect(checkpointsMissing(120, { low: 0, high: 0 })).toBe(true);
+    expect(checkpointsMissing(5, { low: 0, high: 0 })).toBe(false);
+    expect(checkpointsMissing(120, { low: 0, high: 3 })).toBe(false);
   });
 });
