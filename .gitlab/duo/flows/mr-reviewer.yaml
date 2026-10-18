@@ -359,6 +359,10 @@ prompts:
           give the evidence for P1 and P2: file and line plus how it fails, a
           failing test, or steps to reproduce. No evidence means P3.
         - Never edit @@protected_paths@@.
+        - Each tool call is a billed model call, so get what you need in few
+          calls: put several reads (git diff, sed -n, grep) in one run_command,
+          and don't look up what the lead already gave you (MR, branch, head,
+          changed files) or the repository's state again.
         - Finish with a short plain-text report: what you checked, what you found,
           what you changed.
       user: |
@@ -407,6 +411,10 @@ prompts:
           give the evidence for P1 and P2: file and line plus how it fails, a
           failing test, or steps to reproduce. No evidence means P3.
         - Never edit @@protected_paths@@.
+        - Each tool call is a billed model call, so get what you need in few
+          calls: put several reads (git diff, sed -n, grep) in one run_command,
+          and don't look up what the lead already gave you (MR, branch, head,
+          changed files) or the repository's state again.
         - Finish with a short plain-text report of what you found and changed.
       user: |
         Project ID: {{project_id}}
@@ -444,6 +452,10 @@ prompts:
           give the evidence for P1 and P2: file and line plus how it fails, a
           failing test, or steps to reproduce. No evidence means P3.
         - Never edit @@protected_paths@@.
+        - Each tool call is a billed model call, so get what you need in few
+          calls: put several reads (git diff, sed -n, grep) in one run_command,
+          and don't look up what the lead already gave you (MR, branch, head,
+          changed files) or the repository's state again.
         - Finish with a short plain-text report of what was covered, what you added
           and anything still untested.
       user: |
