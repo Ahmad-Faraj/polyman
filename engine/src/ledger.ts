@@ -78,9 +78,11 @@ export interface LedgerRecord {
  * an agent's MR with no issue a person wrote) refuses every push of that MR,
  * and so does a merged MR the guard never ran on.
  *
- * 3: an accepted push on a closed MR whose commits reached the default branch
- * through another merged MR is recorded (carried_by), and records are ordered
- * by the merge that brought them.
+ * 3: a push on a closed MR whose commits reached the default branch through
+ * another merged MR is recorded (carried_by), accepted or refused, judged by
+ * the default branch's policy when that MR was closed. Records are ordered by
+ * when they joined the chain: the merge, or for a carried push the later of
+ * its carrier's merge and its MR's close.
  */
 export const LEDGER_RULES = 3;
 
@@ -180,25 +182,30 @@ export interface Carrier {
 /**
  * The records of a closed MR that still reached the default branch: when the
  * guard refuses a push, it refuses that branch for good, so a person moves the
- * accepted commits to a new MR (!67 -> !83). Each accepted push whose head
- * `carrierOf` finds on the default branch is recorded as the guard judged it
- * on the closed MR, with the go-ahead given there, and with the carrier's
- * merge time. Refused pushes, and pushes that never reached the default
- * branch, stay off the chain.
+ * accepted commits to a new MR (!67 -> !83). Each push whose head `carrierOf`
+ * finds on the default branch is recorded as the guard judged it on the
+ * closed MR, with the go-ahead given there (if any), and with the carrier's
+ * merge time. A refused push that reached the default branch this way is
+ * recorded as refused: the chain shows it instead of letting it in unseen.
+ * Pushes that never reached the default branch stay off the chain.
  */
 export function carriedRecords(records: Omit<LedgerRecord, 'seq' | 'prev'>[], carrierOf: (head: string) => Carrier | null): Omit<LedgerRecord, 'seq' | 'prev'>[] {
   return records.flatMap((r) => {
-    const by = r.accepted ? carrierOf(r.head) : null;
+    const by = carrierOf(r.head);
     return by ? [{ ...r, merged_at: second(by.merged_at), carried_by: { mr: by.iid, mr_url: by.mr_url } }] : [];
   });
 }
 
-/** Records in the order their merges reached the default branch; one merge's records keep their order. */
-export function byMerge<T extends { merged_at: string }>(records: T[]): T[] {
-  return records
-    .map((r, i) => ({ r, i }))
-    .sort((a, b) => Date.parse(a.r.merged_at) - Date.parse(b.r.merged_at) || a.i - b.i)
-    .map(({ r }) => r);
+/**
+ * Items in the order they joined the chain (`at`), oldest first; items with
+ * the same time keep their order. The chain must only grow at its end, so `at`
+ * has to be no earlier than any run that could have published what precedes it.
+ */
+export function byMerge<T>(items: T[], at: (item: T) => string): T[] {
+  return items
+    .map((item, i) => ({ item, i }))
+    .sort((a, b) => Date.parse(at(a.item)) - Date.parse(at(b.item)) || a.i - b.i)
+    .map(({ item }) => item);
 }
 
 /** Numbers the records and links each to the one before it. */

@@ -47,6 +47,7 @@ interface Mr {
   author: { username: string };
   created_at: string;
   merged_at: string | null;
+  closed_at: string | null;
   source_branch: string;
   sha: string;
   merge_commit_sha: string | null;
@@ -118,7 +119,8 @@ async function main() {
   }
   const publishedTier = new Map((published?.records ?? []).map((r) => [r.mr, r.tier]));
 
-  const records: Omit<LedgerRecord, 'seq' | 'prev'>[] = [];
+  // each record with the time it joins the chain (its merge, or for a carried push see below)
+  const records: { record: Omit<LedgerRecord, 'seq' | 'prev'>; at: string }[] = [];
   const open: OpenPush[] = [];
   const runs: GuardRun[] = [];
   const skipped: string[] = [];
@@ -130,9 +132,14 @@ async function main() {
     const start = Date.parse(window) + 86_400_000;
     const seen = events.filter((e) => Date.parse(e.created_at) >= start && (!merged || Date.parse(e.created_at) <= Date.parse(mr.merged_at!)));
     // the policy the guard read: the target branch's when the MR was merged (the
-    // commit before the merge), or now, for an MR still open
+    // commit before the merge); for a closed MR, whose pushes can still be
+    // chained through the MR that carried them, the default branch's when it was
+    // closed, so a later policy change can't re-judge a published record; now,
+    // for an MR still open
+    const closed = mr.state === 'closed' && mr.closed_at;
     const mergeSha = mr.merge_commit_sha ?? mr.squash_commit_sha;
-    const policyRef = !merged ? env.LEDGER_POLICY_REF || 'HEAD' : mergeSha ? `${mergeSha}^1` : mr.diff_refs?.base_sha;
+    const closedRef = closed ? git('rev-list', '-1', '--first-parent', `--before=${mr.closed_at}`, chainRef) : '';
+    const policyRef = merged ? (mergeSha ? `${mergeSha}^1` : mr.diff_refs?.base_sha) : closedRef || env.LEDGER_POLICY_REF || 'HEAD';
     let policy: string;
     try {
       policy = git('show', `${policyRef}:${env.AUTONOMY_CONFIG ?? '.autonomy.yml'}`);
@@ -157,8 +164,9 @@ async function main() {
     const jobs = mr.head_pipeline ? await allPages<Job>(gl, `/:project/pipelines/${mr.head_pipeline.id}/jobs`) : [];
     const guardJob = jobs.find((j) => j.name === 'autonomy:goahead');
     for (const r of await guardRuns(gl, web, mr.iid)) if (fromGuard(r.at)) runs.push(r);
-    if (!merged && !guardJob) {
+    if (mr.state === 'opened' && !guardJob) {
       // still open: the guard may run yet, so it isn't refused, only not judged yet
+      // (a closed MR without one is judged like a merged one: refused, and chained if its commits reached main)
       skipped.push(`!${mr.iid}: open, and autonomy:goahead hasn't run on ${mr.head_pipeline ? `pipeline ${mr.head_pipeline.id}` : 'it'} yet, so not judged yet`);
       continue;
     }
@@ -170,7 +178,8 @@ async function main() {
     } catch (err) {
       if (!(err instanceof GitLabError) || err.status !== 404) throw err;
     }
-    if (!tierText && merged) tierText = publishedTier.get(mr.iid);
+    // a closed MR's carried records are published too, so their tier survives the artifact the same way
+    if (!tierText && (merged || closed)) tierText = publishedTier.get(mr.iid);
     if (!tierText) {
       if (merged && guardJob) throw new Error(`can't read the risk tier of !${mr.iid}: pipeline ${mr.head_pipeline?.id ?? 'none'} has no autonomy:assess risk-report.json (expired?), and no published record has it`);
       console.warn(`warning: !${mr.iid} has no risk tier${guardJob ? ' yet' : ''}; judged as high, as the guard does`);
@@ -197,17 +206,24 @@ async function main() {
       fromGuard(r.pushed_at),
     );
     if (merged) {
-      records.push(...mine);
+      records.push(...mine.map((record) => ({ record, at: record.merged_at })));
       continue;
     }
-    // a closed MR whose accepted commits a person moved to an MR that merged
+    // a closed MR whose commits a person moved to an MR that merged: each push
+    // whose head reached the default branch is chained, accepted or refused, so
+    // a refused commit can't reach main unrecorded. It joins the chain when it
+    // became chainable, the later of its carrier's merge and this MR's close, so
+    // it lands after everything a run before that could have published.
     const carriers = new Map<string, Carrier | null>();
-    if (mr.state === 'closed')
-      for (const r of mine) if (r.accepted && repo.has(r.head) && repo.isAncestor(r.head, chainRef)) carriers.set(r.head, await carrierOf(gl, web, r.head, mr.iid));
-    records.push(...carriedRecords(mine, (head) => carriers.get(head) ?? null));
+    if (closed && !env.CI_DEFAULT_BRANCH) console.warn(`warning: no CI_DEFAULT_BRANCH, so !${mr.iid}'s pushes can't be matched to a merge on it and stay in the open list`);
+    else if (closed) for (const r of mine) if (repo.has(r.head) && repo.isAncestor(r.head, chainRef)) carriers.set(r.head, await carrierOf(gl, web, r.head, mr.iid));
+    for (const record of carriedRecords(mine, (head) => carriers.get(head) ?? null)) {
+      const at = Date.parse(record.merged_at) > Date.parse(mr.closed_at!) ? record.merged_at : second(mr.closed_at!);
+      records.push({ record, at });
+    }
     open.push(
       ...mine
-        .filter((r) => !(r.accepted && carriers.get(r.head)))
+        .filter((r) => !carriers.get(r.head))
         .map((r) => ({
           mr: r.mr,
           mr_url: r.mr_url,
@@ -222,7 +238,11 @@ async function main() {
     );
   }
 
-  const ledger = chain(projectPath, since, byMerge(records));
+  const ledger = chain(
+    projectPath,
+    since,
+    byMerge(records, (r) => r.at).map((r) => r.record),
+  );
   if (published && published.rules !== ledger.rules) {
     // a reviewed change to the rules re-judges history: a new chain, which names the old one
     console.log(`the published ledger was judged by rules ${published.rules} and this one by rules ${ledger.rules}: a new chain starts, replacing ${published.records.length} record(s) ending in ${published.head}`);
@@ -293,9 +313,9 @@ async function previousLedger(): Promise<Ledger | null> {
 
 /** The first merged MR into the default branch, other than `iid`, whose commits include `sha`. */
 async function carrierOf(gl: GitLab, web: string, sha: string, iid: number): Promise<Carrier | null> {
-  const mrs = await gl.get<{ iid: number; state: string; merged_at: string | null; target_branch: string }[]>(`/:project/repository/commits/${sha}/merge_requests`);
+  const mrs = await allPages<{ iid: number; state: string; merged_at: string | null; target_branch: string }>(gl, `/:project/repository/commits/${sha}/merge_requests`);
   const merged = mrs
-    .filter((m) => m.iid !== iid && m.state === 'merged' && m.merged_at && (!env.CI_DEFAULT_BRANCH || m.target_branch === env.CI_DEFAULT_BRANCH))
+    .filter((m) => m.iid !== iid && m.state === 'merged' && m.merged_at && m.target_branch === env.CI_DEFAULT_BRANCH)
     .sort((a, b) => Date.parse(a.merged_at!) - Date.parse(b.merged_at!));
   return merged[0] ? { iid: merged[0].iid, mr_url: `${web}/-/merge_requests/${merged[0].iid}`, merged_at: merged[0].merged_at! } : null;
 }

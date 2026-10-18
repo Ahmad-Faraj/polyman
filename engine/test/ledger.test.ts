@@ -193,9 +193,17 @@ describe('a closed MR whose accepted commits a person moved to a merged MR (!67 
     expect(carried[0]).toMatchObject({ mr: 67, merged_at: '2026-10-18T13:35:37Z', carried_by: { mr: 83, mr_url: CARRIER.mr_url }, go_ahead: { by: 'Mazen-Ghanaym' }, accepted: true });
   });
 
-  it('leaves out a refused push even when its commit reached the default branch', async () => {
+  it('records a refused push whose commit reached the default branch, as refused, so it never gets in unseen', async () => {
     const [, , refused] = await closed();
-    expect(carriedRecords([refused], () => CARRIER)).toEqual([]);
+    const [record] = carriedRecords([refused], () => CARRIER);
+    expect(record).toMatchObject({ mr: 67, accepted: false, go_ahead: null, reasons: ['no go-ahead'], carried_by: { mr: 83 } });
+    const ledger = chain('group/showcase', { commit: '06a116ff', at: '2026-10-17T20:11:08Z' }, [record]);
+    expect(counters(ledger, [], [])).toMatchObject({ records: 1, accepted: 0, refused: 1, goAheads: 0 });
+  });
+
+  it('leaves out a push whose commit never reached the default branch', async () => {
+    const [accepted, later, refused] = await closed();
+    expect(carriedRecords([accepted, later, refused], () => null)).toEqual([]);
   });
 
   it('counts the carried go-ahead for the person who gave it', async () => {
@@ -204,9 +212,11 @@ describe('a closed MR whose accepted commits a person moved to a merged MR (!67 
     expect(counters(ledger, [], []).byWhom).toEqual({ 'Mazen-Ghanaym': 1 });
   });
 
-  it('orders records by the merge that brought them, and keeps the order within one merge', () => {
-    const r = (mr: number, merged_at: string) => ({ mr, merged_at });
-    expect(byMerge([r(95, '2026-10-18T15:30:00Z'), r(59, '2026-10-18T13:50:00Z'), r(83, '2026-10-18T13:35:37Z'), r(831, '2026-10-18T13:35:37Z')]).map((x) => x.mr)).toEqual([83, 831, 59, 95]);
+  it('orders records by when they joined the chain, and keeps the order within one time', () => {
+    const r = (mr: number, at: string) => ({ mr, at });
+    expect(byMerge([r(95, '2026-10-18T15:30:00Z'), r(59, '2026-10-18T13:50:00Z'), r(83, '2026-10-18T13:35:37Z'), r(831, '2026-10-18T13:35:37Z')], (x) => x.at).map((x) => x.mr)).toEqual([
+      83, 831, 59, 95,
+    ]);
   });
 
   it('shows on the page where the moved commits merged', async () => {
