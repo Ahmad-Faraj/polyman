@@ -40,6 +40,9 @@ testlib validators expect CR LF line ends, so the validator steps come out false
 
 Timing is not judged exactly: an expected `OK` that comes back `TLE` is a warning (a slow
 runner), and so are the tests after it, which polyman doesn't run once a solution times out.
+Two cases still fail: a solution cut short with no expected `OK` still `OK` (that looks like a
+broken limit), and one cut short before a test that expects `WA`, `RE`, `ML` or another
+rejection (the verdict it is in the corpus for was never seen).
 A solution that never terminates must keep getting `TLE`.
 
 ## Needs

@@ -36,7 +36,7 @@ export function outcomeOf(report) {
  * stays a warning. polyman stops a solution at its first TLE, so a report cut
  * short right after an expected OK that came back TLE is judged on the tests
  * that ran, and the rest are a warning, if an earlier expected OK still came
- * back OK.
+ * back OK and every test that didn't run expects OK.
  */
 export function compare(expected, actual) {
   const diffs = [];
@@ -103,10 +103,21 @@ export function compare(expected, actual) {
       fail(
         `solution ${name}: cut short at ${got.verdicts.at(-1)} with no expected OK test still OK (a broken limit, not a slow runner)`
       );
-    else if (notRun)
-      warn(
-        `solution ${name}: ${notRun} tests after ${wantVerdicts.at(-1).replace(/:OK$/, '')} did not run (timing, not judged)`
-      );
+    else if (notRun) {
+      // a skipped test that expects WA, RE, ML, ... is the verdict this
+      // solution is in the corpus for: without it nothing was judged
+      const missed = want.verdicts
+        .slice(wantVerdicts.length)
+        .filter(v => !v.endsWith(':OK'));
+      if (missed.length)
+        fail(
+          `solution ${name}: cut short at ${got.verdicts.at(-1)} before ${missed.join(', ')} ran, so the expected verdict was never seen`
+        );
+      else
+        warn(
+          `solution ${name}: ${notRun} ${notRun === 1 ? 'test' : 'tests'} after ${wantVerdicts.at(-1).replace(/:OK$/, '')} did not run (timing, not judged)`
+        );
+    }
     const allTimedOut = expectedOk > 1 && slower === expectedOk;
     if (allTimedOut)
       fail(
