@@ -37,9 +37,6 @@ components:
 
   - name: "code_reviewer"
     type: AgentComponent
-    # GitLab bills each model call, and a call on the small model costs about
-    # half as much. Security and the lead stay on the default model.
-    model_tags: ["small"]
     description: >-
       Code reviewer. Checks the MR diff for bugs, edge cases, error handling and
       readability, leaves inline comments on specific lines, and fixes clear bugs
@@ -67,7 +64,9 @@ components:
   - name: "test_reviewer"
     type: AgentComponent
     # GitLab bills each model call, and a call on the small model costs about
-    # half as much. Security and the lead stay on the default model.
+    # half as much. The test reviewer checks coverage and runs the suite; the
+    # lead, the code reviewer (which also applies fixes) and security stay on
+    # the default model.
     model_tags: ["small"]
     description: >-
       Test reviewer. Checks whether the changed behaviour is covered by tests,
