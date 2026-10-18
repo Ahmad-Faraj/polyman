@@ -14,7 +14,10 @@ const loop = JSON.parse(readFileSync('test/fixtures/ledger/loop-22-26.json', 'ut
   mr: { iid: number; author: { username: string }; created_at: string; merged_at: string; source_branch: string; head_pipeline: { id: number } };
   closes: { iid: number; author: { username: string } }[];
 };
-const config = loadConfig('../.autonomy.yml');
+// the policy when !26 merged: Hamza was the only maintainer (Mazen joined on
+// Oct 18). The ledger judges each MR by the policy of its own merge, as here.
+const current = loadConfig('../.autonomy.yml');
+const config = { ...current, goAhead: { ...current.goAhead, maintainers: ['HamzaHassanain'] } };
 const WEB = 'https://gitlab.com/group/showcase';
 const BUILDER = 'ai-issue-builder-gitlab-ai-hackathon_e1c791';
 const AGENT_COMMIT = '83d78ea8f145e005b6ca06a9907bfe5deb30c72b';

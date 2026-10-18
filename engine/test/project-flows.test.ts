@@ -131,7 +131,7 @@ describe("the project's Duo flows", () => {
     const text = flat('mr-reviewer.yaml');
     expect(text).toContain('"After merge", only when the diff touches service/, src/, assets/, template/, package.json or package-lock.json');
     expect(text).toContain('service:promote:production');
-    expect(renderFlow(read('mr-reviewer.yaml'), values).replace(/\s+/g, ' ')).toContain('mentioning @HamzaHassanain so GitLab notifies them');
+    expect(renderFlow(read('mr-reviewer.yaml'), values).replace(/\s+/g, ' ')).toContain('mentioning @HamzaHassanain, @Mazen-Ghanaym so GitLab notifies them');
   });
 
   it('the fixer reads the tier from the assess job, never from a label', () => {
