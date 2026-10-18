@@ -223,13 +223,16 @@ describe('utils.ts', () => {
       it.each(['.cc', '.cxx'])(
         'should compile %s file and strip the extension for the output',
         async ext => {
-          const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue('/p');
+          const cwd = path.resolve('/p');
+          const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(cwd);
           try {
             await utils.compileCPP(`solutions/main${ext}`);
 
+            const output = path.join(cwd, 'solutions', 'main');
+            const source = path.join(cwd, 'solutions', `main${ext}`);
             expect(executeMock()).toHaveBeenCalledWith(
               expect.stringContaining(
-                `-o '/p/solutions/main' '/p/solutions/main${ext}'`
+                `-o ${quoteShellArgument(output)} ${quoteShellArgument(source)}`
               ),
               expect.anything()
             );
@@ -583,14 +586,17 @@ describe('utils.ts', () => {
     });
 
     it.each(['.cc', '.cxx'])('should handle %s like .cpp', ext => {
-      const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue('/p');
+      const cwd = path.resolve('/p');
+      const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(cwd);
       const obj: LocalSolution = {
         source: `solutions/main${ext}`,
         name: 'main',
         tag: 'MA',
       };
       try {
-        expect(utils.getCompiledCommandToRun(obj)).toBe("'/p/solutions/main'");
+        expect(utils.getCompiledCommandToRun(obj)).toBe(
+          quoteShellArgument(path.join(cwd, 'solutions', 'main'))
+        );
       } finally {
         cwdSpy.mockRestore();
       }
@@ -783,7 +789,7 @@ describe('utils.ts', () => {
         isStandard: true,
       };
       const res = utils.getCompiledCommandToRun(obj);
-      expect(res).toContain('assets/checkers/std');
+      expect(res).toContain(path.join('assets', 'checkers', 'std'));
     });
 
     it('should not include cpp extension for standard checkers', () => {

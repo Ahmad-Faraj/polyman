@@ -1004,7 +1004,7 @@ describe('solution.ts', () => {
           );
 
           expect(mockedFsMkdirSync).toHaveBeenCalledWith(
-            expect.stringContaining('main/ts1'),
+            expect.stringMatching(/main[\\/]ts1/),
             expect.anything()
           );
         });
