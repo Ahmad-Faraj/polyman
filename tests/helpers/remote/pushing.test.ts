@@ -804,26 +804,46 @@ describe('pushing.ts', () => {
       expect(result).toBe(1);
     });
 
-    it('should swallow malformed checker tests JSON', async () => {
-      const { sdk, mocks } = buildSdk();
-      mockedExistsSync.mockReturnValue(true);
-      mockReadFileSyncWith(p => {
-        if (String(p).includes('tests.json')) return 'not json';
-        return 'code';
-      });
-
-      const cfg = asConfig({
-        checker: {
-          name: 'c',
-          source: 'check.cpp',
-          testsFilePath: 'tests.json',
+    it.each([
+      ['malformed', () => 'not json'],
+      [
+        'unreadable',
+        () => {
+          throw new Error('EACCES');
         },
-      });
+      ],
+    ])(
+      'should record a checker tests file that is %s and keep the checker',
+      async (_kind, readTests) => {
+        const { sdk, mocks } = buildSdk();
+        mockedExistsSync.mockReturnValue(true);
+        mockReadFileSyncWith(p => {
+          if (String(p).includes('tests.json')) return readTests();
+          return 'code';
+        });
 
-      const result = await pushing.uploadChecker(sdk, 1, 'dir', cfg);
-      expect(result).toBe(1);
-      expect(mocks.saveCheckerTest).not.toHaveBeenCalled();
-    });
+        const cfg = asConfig({
+          checker: {
+            name: 'c',
+            source: 'check.cpp',
+            testsFilePath: 'tests.json',
+          },
+        });
+
+        const failures: string[] = [];
+        const result = await pushing.uploadChecker(
+          sdk,
+          1,
+          'dir',
+          cfg,
+          failures
+        );
+        expect(result).toBe(1);
+        expect(mocks.saveCheckerTest).not.toHaveBeenCalled();
+        expect(failures).toHaveLength(1);
+        expect(failures[0]).toMatch(/^checker tests: /);
+      }
+    );
 
     it('should skip incomplete checker tests', async () => {
       const { sdk, mocks } = buildSdk();
@@ -1158,26 +1178,46 @@ describe('pushing.ts', () => {
       );
     });
 
-    it('should ignore malformed validator tests JSON', async () => {
-      const { sdk, mocks } = buildSdk();
-      mockedExistsSync.mockReturnValue(true);
-      mockReadFileSyncWith(p => {
-        if (String(p).includes('tests.json')) return 'not json';
-        return 'code';
-      });
-
-      const cfg = asConfig({
-        validator: {
-          name: 'v',
-          source: 'val.cpp',
-          testsFilePath: 'tests.json',
+    it.each([
+      ['malformed', () => 'not json'],
+      [
+        'unreadable',
+        () => {
+          throw new Error('EACCES');
         },
-      });
+      ],
+    ])(
+      'should record a validator tests file that is %s and keep the validator',
+      async (_kind, readTests) => {
+        const { sdk, mocks } = buildSdk();
+        mockedExistsSync.mockReturnValue(true);
+        mockReadFileSyncWith(p => {
+          if (String(p).includes('tests.json')) return readTests();
+          return 'code';
+        });
 
-      const result = await pushing.uploadValidator(sdk, 1, 'dir', cfg);
-      expect(result).toBe(1);
-      expect(mocks.saveValidatorTest).not.toHaveBeenCalled();
-    });
+        const cfg = asConfig({
+          validator: {
+            name: 'v',
+            source: 'val.cpp',
+            testsFilePath: 'tests.json',
+          },
+        });
+
+        const failures: string[] = [];
+        const result = await pushing.uploadValidator(
+          sdk,
+          1,
+          'dir',
+          cfg,
+          failures
+        );
+        expect(result).toBe(1);
+        expect(mocks.saveValidatorTest).not.toHaveBeenCalled();
+        expect(failures).toHaveLength(1);
+        expect(failures[0]).toMatch(/^validator tests: /);
+      }
+    );
 
     it('should swallow sdk failure and return 0', async () => {
       const { sdk, mocks } = buildSdk();
