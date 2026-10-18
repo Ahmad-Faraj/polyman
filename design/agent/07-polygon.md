@@ -49,6 +49,7 @@ Until `remote diff` (#10) exists, the approval shows only the command and the li
 Building a package on Polygon takes time. Today `remote package` starts the build. We add `--wait`:
 
 ```mermaid
+%%{init: {"flowchart": {"htmlLabels": false}} }%%
 flowchart LR
   s["start build"] --> p["poll package list every 10s"]
   p --> st{"state"}

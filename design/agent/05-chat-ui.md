@@ -1,132 +1,197 @@
-# 05: Chat UI (M2 first version, M5 polish)
+# 05: Terminal chat UI (M2 first version, M5 polish)
 
-## Why a local web page
+`polyman chat` runs in the terminal, like Claude Code or Codex. No browser, no server.
 
-Problem setting needs to show many things at once: the chat, the files, the diff of an edit, the verify table, the checklist. A browser does this well. A terminal UI would need a lot of work for less. (Decision D3. A terminal client can come later, it would read the same events.)
-
-## How it starts
+## How it looks
 
 ```
-polyman chat [dir] [--port 0] [--no-open] [--provider p --model m] [--resume <id>]
+$ polyman chat ./pairs-sum
+
+ polyman chat  ·  pairs-sum  ·  deepseek/deepseek-chat  ·  /help for commands
+
+> I have an idea: count pairs with sum k, n up to 2e5
+
+● Nice. Before we build anything, let us fix the task:
+  1. Are the pairs ordered (i < j)?
+  2. Can values repeat?
+  ...
+
+> yes i < j, values can repeat. go ahead and build it
+
+● update_notes(Constraints)
+  ⎿ notes updated
+
+● write_file(validator/val.cpp)
+
+ ┌ Write validator/val.cpp? ───────────────────────────────────────────┐
+ │ + #include "testlib.h"                                              │
+ │ + int main(int argc, char* argv[]) {                                │
+ │ +     registerValidation(argc, argv);                               │
+ │ ...                                                                 │
+ │ ❯ 1. Yes                                                            │
+ │   2. Yes, and do not ask again for writes in this session           │
+ │   3. No, and tell the agent what to do differently                  │
+ └─────────────────────────────────────────────────────────────────────┘
+
+● verify
+  ⎿ Running wa-overflow.cpp on tests ... (12/24)
+
+────────────────────────────────────────────────────────────────────────
+> _
+────────────────────────────────────────────────────────────────────────
+ pairs-sum · deepseek-chat · ask mode (shift+tab) · 12.3k tok · $0.02 · esc to interrupt
 ```
+
+## Main ideas
+
+- **Normal terminal scrollback.** Finished messages are printed once and stay in the terminal history, so the user can scroll and copy with the terminal itself. Only the bottom part (the message being streamed, running tools, the prompt) is redrawn. This is how Claude Code works, and it is the main reason to use Ink's `<Static>`.
+- **Everything is in-process.** The TUI subscribes to the `EventBus` of the `AgentSession` and calls its methods directly. No HTTP, no ports, no token.
+- **Tool calls are short by default.** One line for the call, one line for the result. `ctrl+o` expands the last tool output.
+- **Approvals are inline prompts** with a diff for file writes, chosen with the arrow keys or the number keys.
+
+## Tech choice: Ink
+
+We use [Ink](https://github.com/vadimdemedes/ink) (React for the terminal). Claude Code and Gemini CLI are built with it.
+
+| Option | Good | Bad |
+| --- | --- | --- |
+| Ink + React (chosen) | Components, state and re-render are solved. Used by the tools users compare us with. | New runtime dependencies (`ink`, `react`), about 23 MB installed. ESM-only. |
+| Our own renderer with `readline` + ANSI | No dependencies | Streaming, redraw, input editing, approvals and resize are a lot of work and easy to get wrong |
+| Blessed / neo-blessed | Full-screen widgets | Full-screen breaks the normal scrollback, and the projects are not active |
+
+This changes our "3 runtime deps" rule, so it is a conscious decision: `ink` and `react` become runtime dependencies, but they are only loaded by `polyman chat`. Other commands do not load them, so `polyman verify` does not get slower.
+
+### ESM loading
+
+`require('ink')` fails with `ERR_REQUIRE_ASYNC_MODULE` (Ink uses top-level await), and `import('ink')` works. So:
+
+- `src/agent/` has its own `package.json` with `{ "type": "module" }`. TypeScript (`module: nodenext`) then compiles everything under it to ESM, also `.tsx` files.
+- The build copies `src/agent/package.json` to `dist/agent/package.json`.
+- `cli.ts` (CommonJS) loads the agent with `await import('./agent/index.js')`, which works from CommonJS.
+- `tsconfig.json` gets `"jsx": "react-jsx"`, and ESLint gets the `.tsx` files.
+
+## Components
+
+```mermaid
+%%{init: {"flowchart": {"htmlLabels": false}} }%%
+flowchart TD
+  app["App"] --> header["Header"]
+  app --> transcript["Transcript: Static, printed once"]
+  app --> live["LiveArea: redrawn"]
+  app --> composer["Composer"]
+  app --> status["StatusLine"]
+  transcript --> msg["MessageView: markdown"]
+  transcript --> toolDone["ToolBlock: finished"]
+  live --> streaming["Streaming message"]
+  live --> toolRun["ToolBlock: running + progress"]
+  live --> approval["ApprovalPrompt + DiffView"]
+  composer --> slash["SlashMenu"]
+  composer --> mention["FileMention: @path"]
+  store["useAgentStore: reducer over AgentEvent"] --> app
+  bus["EventBus of AgentSession"] --> store
+  keys["useKeybindings"] --> app
+```
+
+```
+src/agent/tui/
+  index.tsx              startTui(session): render(<App/>), handle exit
+  App.tsx
+  store.ts               reducer over AgentEvent (no Ink inside, tested alone)
+  keybindings.ts
+  components/
+    Header.tsx
+    Transcript.tsx       <Static> list of finished items
+    MessageView.tsx
+    Markdown.tsx         small terminal markdown: headings, bold, lists, code blocks
+    ToolBlock.tsx
+    ApprovalPrompt.tsx
+    DiffView.tsx
+    Composer.tsx         multi-line input, history, paste
+    SlashMenu.tsx
+    StatusLine.tsx
+    views/
+      PlanView.tsx       /plan: notes.md checklist
+      VerifyView.tsx     /verify: last verify report as a table
+      FilesView.tsx      /files: files changed in this session
+```
+
+Markdown: we parse with the `marked` lexer (small, no dependencies) and draw the tokens with Ink. No syntax highlighting in the first version, only a different color for code blocks.
+
+## Keys
+
+| Key | Action |
+| --- | --- |
+| `enter` | send |
+| `shift+enter` or `ctrl+j` | new line (`\` + `enter` also works, for terminals that do not send shift+enter) |
+| `esc` | interrupt the current turn (the session stays) |
+| `esc` `esc` | edit the last message again |
+| `ctrl+c` | clear the input; twice to exit |
+| `shift+tab` | switch permission mode: `ask` / `auto-edit` |
+| `ctrl+o` | expand or collapse the last tool output |
+| `up` / `down` | input history (when the input is empty) |
+| `/` | open the slash command menu |
+| `@` | file name completion, the file is added to the message |
+
+## Slash commands
+
+| Command | What it does | Milestone |
+| --- | --- | --- |
+| `/help` | keys and commands | M2 |
+| `/model [provider/model]` | pick the model (a list when no argument) | M2 |
+| `/mode [ask, auto-edit]` | permission mode | M2 |
+| `/clear` | start a new session in the same folder | M5 |
+| `/resume` | list sessions and pick one | M5 |
+| `/plan` | show notes.md and the checklist | M5 |
+| `/verify` | show the last verify report as a table | M5 |
+| `/files` | files changed in this session | M5 |
+| `/cost` | tokens and cost of this session | M5 |
+| `/compact` | compact the context now | M5 |
+
+## Start and exit
 
 ```mermaid
 sequenceDiagram
-  participant U as User terminal
-  participant P as polyman chat
-  participant B as Browser
+  participant U as User
+  participant C as cli.ts
+  participant A as AgentSession
+  participant T as TUI
 
-  U->>P: polyman chat ./my-problem
-  P->>P: load settings, check a provider key exists (else explain polyman ai login)
-  P->>P: create AgentSession, start HTTP server on 127.0.0.1, random port
-  P->>P: token = 32 random bytes (hex)
-  P-->>U: print http://127.0.0.1:PORT/?t=TOKEN
-  P->>B: open the URL
-  B->>P: GET /?t=TOKEN (static UI)
-  B->>P: GET /api/events (SSE, token in header)
-  Note over P,B: the chat runs until Ctrl+C in the terminal
+  U->>C: polyman chat ./my-problem
+  C->>C: stdin and stdout are a TTY? else say: use polyman ask
+  C->>C: import agent (ESM), load settings
+  C->>C: no key? explain polyman ai login and exit with code 2
+  C->>A: create session (or --resume id)
+  C->>T: render App with the session
+  U->>T: types messages
+  T->>A: send / cancel / resolveApproval
+  A-->>T: AgentEvent stream
+  U->>T: ctrl+c twice
+  T->>A: cancel the running turn, save
+  T-->>U: print "Resume with: polyman chat --resume <id>"
 ```
 
-If the folder has no `Config.json`, the chat starts in "no problem yet" mode. This is normal for the "think" step.
-
-## Security
-
-- Listen on `127.0.0.1` only.
-- Every API request must have the token (`Authorization: Bearer <token>`, or `?t=` only for the first page load, then the UI keeps it in memory).
-- Check the `Host` header is `127.0.0.1:<port>` or `localhost:<port>`. This blocks DNS rebinding.
-- No CORS headers, so other sites cannot read the responses.
-- Static files are served from `dist/ui` only, with a fixed list of files.
-
-## HTTP API
-
-| Method and path | Body / query | Returns |
-| --- | --- | --- |
-| `GET /api/state` | | session id, problem dir, model, mode, notes, is a turn running, pending approvals |
-| `GET /api/events` | `Last-Event-ID` header | SSE stream of `AgentEvent` with `id: seq` |
-| `POST /api/messages` | `{ text }` | `202`, or `409` if a turn is running |
-| `POST /api/cancel` | | `202` |
-| `POST /api/approvals/:id` | `{ decision: 'allow' or 'allow_session' or 'deny', reason? }` | `200` |
-| `GET /api/settings` | | providers with keys (masked), models, current model, permission mode |
-| `PUT /api/settings` | `{ provider?, model?, mode? }` | new settings (model change applies to the next turn) |
-| `GET /api/sessions` | | sessions of this problem |
-| `POST /api/sessions/:id/resume` | | `200`, UI reloads state |
-| `GET /api/files` | `?path=` | file tree, or one file content (read-only, through the sandbox) |
-| `GET /api/report/latest` | | last `VerifyReport` |
-
-The types live in `src/agent/server/protocol.ts`, and the UI imports the same file at build time.
-
-## SSE stream
-
 ```
-id: 812
-event: agent
-data: {"type":"tool_call","callId":"c7","name":"verify","args":{},"risk":"run"}
-
-id: 813
-event: agent
-data: {"type":"tool_progress","callId":"c7","line":"Compiling main.cpp"}
+polyman chat [dir] [--provider p --model m] [--resume <id>] [--mode ask|auto-edit]
 ```
 
-- A heartbeat comment every 15 seconds keeps the connection open.
-- On reconnect, the browser sends `Last-Event-ID` and the server replays the missed events from the `EventBus` buffer. If the buffer does not have them anymore, the UI calls `/api/state` and reloads the transcript from the session.
+- If the folder has no `Config.json`, the chat starts in "no problem yet" mode. This is normal for the think step.
+- If stdin or stdout is not a terminal, `polyman chat` exits with code `2` and points to `polyman ask`.
+- On exit, the running tool is cancelled (its process tree is killed) and the session is saved.
 
-## Layout
+## Terminal support
 
-```
-+----------------------------------------------------------------------------+
-| polyman  |  pairs-sum (Polygon #123456)  |  deepseek/deepseek-chat v |  12.3k tok  $0.02  |
-+------------------------------------------+---------------------------------+
-|                                          | [Plan] [Files] [Verify] [Statement]
-|  You: I have an idea about pairs ...     |                                 |
-|                                          |  Plan (notes.md)                |
-|  Agent: Nice, let us fix the constraints |  [x] idea and constraints       |
-|  first. n up to 2e5, a_i up to 1e9 ...   |  [x] statement (english)        |
-|                                          |  [ ] solutions: main, wa-greedy |
-|  > verify                     [running]  |  [ ] validator + tests          |
-|    Compiling main.cpp                    |  [ ] generators + script        |
-|    Running wa-greedy on tests ...        |  [ ] checker                    |
-|                                          |  [ ] verify passes              |
-|  +------------------------------------+  |  [ ] push to Polygon            |
-|  | Allow: write_file validator/val.cpp|  |                                 |
-|  | (diff)                             |  |                                 |
-|  | [Allow] [Allow for session] [Deny] |  |                                 |
-|  +------------------------------------+  |                                 |
-+------------------------------------------+---------------------------------+
-| Type a message ...                                    [Send]  [Stop (Esc)] |
-+----------------------------------------------------------------------------+
-```
-
-Right panel tabs:
-
-- **Plan**: notes.md rendered, with the checklist. Updated on `notes_updated`.
-- **Files**: the file tree and a read-only viewer. Files the agent changed in this session are marked.
-- **Verify**: the last `VerifyReport` as a table: solutions as rows, verdicts per testset, failures in red.
-- **Statement**: a simple preview of the `.tex` files (M5, a basic LaTeX to HTML for the common commands only).
-
-## UI code
-
-```mermaid
-flowchart LR
-  sse["useEventStream()"] --> store["store (reducer over AgentEvent)"]
-  api["api.ts (fetch + token)"] --> store
-  store --> chat["ChatView: messages, tool blocks, approvals"]
-  store --> panel["SidePanel: Plan, Files, Verify, Statement"]
-  store --> top["TopBar: problem, model picker, tokens, cost"]
-  input["Composer: textarea, slash commands, Esc"] --> api
-```
-
-- `ui/` folder at the repo root: Vite + React + TypeScript. All of these are dev dependencies.
-- `npm run build` runs `tsc` and then `vite build --outDir dist/ui`. `package.json` `files` adds `dist/ui/**`.
-- Markdown rendering and code highlighting are bundled into the UI build, so they add nothing to the runtime install.
-- The store is one reducer over `AgentEvent`. The same reducer can be tested in Vitest without a browser.
+- Linux and macOS terminals, Windows Terminal and the VS Code terminal must work. Old `cmd.exe` may have broken box characters, so we fall back to ASCII when `TERM` or the platform says so.
+- Resize redraws only the live area.
+- `NO_COLOR` turns colors off.
+- Testing: the reducer is tested alone in Vitest, and components with `ink-testing-library` (dev dependency).
 
 ## First version (M2) vs polish (M5)
 
 | M2 (first usable chat) | M5 (polish) |
 | --- | --- |
-| Transcript with streamed markdown | Slash commands: `/model`, `/mode`, `/clear`, `/resume`, `/cost`, `/help` |
-| Tool blocks (collapsed), progress lines | Diff view for `write_file` / `edit_file` approvals and results |
-| Approval card with exact command | Verify tab as a table, Statement preview tab |
-| Stop button and Esc | Token and cost in the top bar, per turn and total |
-| Model picker | Files tab with "changed in this session" marks |
-| Plan tab (notes.md as markdown) | Keyboard shortcuts, input history |
+| Header, transcript in scrollback, streamed markdown | Slash commands with a menu: `/clear`, `/resume`, `/plan`, `/verify`, `/files`, `/cost`, `/compact` |
+| Tool blocks (one line + result), progress lines while running | Colored diff view for `write_file` / `edit_file` in approvals and results |
+| Inline approval prompt with the exact command | `/verify` table and `/plan` checklist views |
+| `esc` to interrupt, `ctrl+c` twice to exit | Tokens and cost in the status line, per turn and total |
+| Status line: problem, model, mode | `@` file completion, `esc esc` to edit the last message, `ctrl+o` expand |
+| `/help`, `/model`, `/mode`, `shift+tab` | ASCII fallback for old terminals |

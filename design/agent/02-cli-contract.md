@@ -94,6 +94,7 @@ chalk 5 is ESM-only and `dist/` is CommonJS, so polyman needs `require(esm)`. Th
 ## How the runner uses this
 
 ```mermaid
+%%{init: {"flowchart": {"htmlLabels": false}} }%%
 flowchart LR
   tool["CLI tool, e.g. verify"] --> args["build args + --json"]
   args --> spawn["CliRunner.run()"]

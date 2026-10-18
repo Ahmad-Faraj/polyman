@@ -42,6 +42,7 @@ Kinds:
 ## Runner
 
 ```mermaid
+%%{init: {"flowchart": {"htmlLabels": false}} }%%
 flowchart LR
   c["case"] --> tmp["temp folder (+ fixture)"]
   tmp --> ask["polyman ask --json --yes --provider p --model m"]
@@ -67,7 +68,7 @@ A model is "supported" if it passes most `full` cases under the cost limit. The 
 ## Cost display
 
 - `usage` events have tokens. If the model has prices in the presets, we compute `costUsd`.
-- The top bar shows this turn and the session total.
+- The status line shows this turn and the session total, and `/cost` shows the details.
 - Unknown prices show tokens only. Users can add prices in `ai.json` overrides.
 
 ## Docs
@@ -80,4 +81,4 @@ A model is "supported" if it passes most `full` cases under the cost limit. The 
 ## Release
 
 - Version `4.0.0`: new commands and new exit codes are visible changes.
-- Before release: run the evals on at least 3 providers, test `polyman chat` on Linux, macOS and Windows, check the package size with `dist/ui`.
+- Before release: run the evals on at least 3 providers, test `polyman chat` on Linux, macOS and Windows, check the install size with `ink` and `react`.
