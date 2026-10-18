@@ -313,10 +313,17 @@ function bashScript(models: CommandModel[]): string {
     '          else',
     '            case "$c" in',
     "              \"\\\\\"|'\"'|'$'|'`') quoted+=\"\\\\$c\" ;;",
+    // an interactive bash expands ! inside double quotes (history), so close
+    // the quote, add a single-quoted !, and reopen it
+    '              \'!\') quoted+="\\"\'!\'\\"" ;;',
     '              *) quoted+="$c" ;;',
     '            esac',
     '          fi',
     '        done',
+    // readline drops a leading open-quote character from the reply and adds
+    // no closing quote when the reply ends with one: double them so both stay
+    '        [[ ${quoted:0:1} == "$_polyman_q" ]] && quoted="$_polyman_q$quoted"',
+    '        [[ ${quoted: -1} == "$_polyman_q" ]] && quoted+="$_polyman_q"',
     '      fi',
     '      COMPREPLY+=("$quoted")',
     '    fi',
