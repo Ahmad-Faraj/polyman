@@ -89,19 +89,82 @@ release:promote:
     - npm config set -- "//registry.npmjs.org/:_authToken" "$NPM_TOKEN"
     - npm dist-tag add "polyman-cli@$RELEASE_VERSION" latest
 
+# The evidence a judge needs to see why a version was allowed out (#35), kept
+# with the Release: job artifacts expire, so each file goes to this project's
+# generic package registry (polyman-cli-evidence/VERSION) and the Release links
+# it. Runs once a person promoted the version, so nothing is kept for a version
+# that never became latest.
+#   - corpus verdicts on next and on the latest it replaced (release:next-check)
+#   - the Polygon round trip on next, when the Polygon key was there
+#   - the mutation report of this pipeline (corpus:mutation)
+#   - a CycloneDX SBOM of the published package's dependencies
+#   - npm's provenance attestation and its Sigstore transparency log entry
+release:evidence:
+  extends: .npm-release
+  needs:
+    - release:npm-next
+    - { job: release:next-check, artifacts: true }
+    - release:promote
+    - { job: corpus:mutation, artifacts: true, optional: true }
+  variables:
+    EVIDENCE_PACKAGE: polyman-cli-evidence
+  script:
+    - rm -f release-links.jsonl && touch release-links.jsonl
+    - if [ "$RELEASE_VERSION" = none ]; then echo "nothing was published"; exit 0; fi
+    - mkdir -p evidence
+    - cp corpus/out/next/report.html evidence/corpus-verdicts-next.html
+    - cp corpus/out/latest/report.html evidence/corpus-verdicts-latest.html || true
+    - cp corpus/out/next/junit-polygon.xml evidence/polygon-roundtrip-next.xml || echo "no Polygon round trip on next (no Polygon key in this pipeline)"
+    - cp corpus/out/mutation/index.html evidence/mutation-report.html || echo "no mutation report in this pipeline"
+    - npx --yes @cyclonedx/cyclonedx-npm@6.0.1 --omit dev --output-format JSON --output-file evidence/sbom.cdx.json
+    # what npm recorded when release:npm-next published with --provenance
+    - curl -sSf "https://registry.npmjs.org/-/npm/v1/attestations/polyman-cli@$RELEASE_VERSION" -o evidence/npm-attestations.json || { rm -f evidence/npm-attestations.json; echo "npm has no attestations for polyman-cli@$RELEASE_VERSION"; }
+    - |
+      link() { printf '{"name":"%s","url":"%s","link_type":"%s"}\n' "$1" "$2" "$3" >> release-links.jsonl; }
+      base="$CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/generic/$EVIDENCE_PACKAGE/$RELEASE_VERSION"
+      for f in evidence/*; do
+        name="$(basename "$f")"
+        curl -sSf --header "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$f" "$base/$name" > /dev/null
+        echo "kept $name"
+      done
+      label() {
+        case "$1" in
+          corpus-verdicts-next.html) echo "Corpus verdicts: polyman-cli@$RELEASE_VERSION" ;;
+          corpus-verdicts-latest.html) echo "Corpus verdicts: the latest it replaced" ;;
+          polygon-roundtrip-next.xml) echo "Polygon round trip (JUnit)" ;;
+          mutation-report.html) echo "Mutation report (src/helpers/solution.ts)" ;;
+          sbom.cdx.json) echo "SBOM (CycloneDX)" ;;
+          npm-attestations.json) echo "npm provenance attestation" ;;
+          *) echo "$1" ;;
+        esac
+      }
+      for f in evidence/*; do name="$(basename "$f")"; link "$(label "$name")" "$base/$name" package; done
+      link "npm provenance: polyman-cli@$RELEASE_VERSION" "https://www.npmjs.com/package/polyman-cli/v/$RELEASE_VERSION#provenance" other
+    - |
+      LOG_INDEX="$(node -e 'try { const a = require("./evidence/npm-attestations.json").attestations.find(x => /provenance/.test(x.predicateType)); console.log(a.bundle.verificationMaterial.tlogEntries[0].logIndex) } catch {}')"
+      if [ -n "$LOG_INDEX" ]; then printf '{"name":"%s","url":"%s","link_type":"other"}\n' "Sigstore transparency log entry $LOG_INDEX" "https://search.sigstore.dev/?logIndex=$LOG_INDEX" >> release-links.jsonl; fi
+    - cat release-links.jsonl
+  artifacts:
+    expire_in: 1 year
+    paths: [evidence/, release-links.jsonl]
+
 # The GitLab Release vX: the tag, links to the npm package and to the check
-# that judged it, and the release evidence GitLab collects.
+# that judged it, the evidence above, and the release evidence GitLab collects.
 release:gitlab:
   stage: deploy
   image: registry.gitlab.com/gitlab-org/release-cli:latest
-  needs: [release:npm-next, release:next-check, release:promote]
+  needs: [release:npm-next, release:next-check, release:promote, { job: release:evidence, artifacts: true }]
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push" && $NPM_TOKEN
       changes: [package.json]
   script:
     - if [ "$RELEASE_VERSION" = none ]; then echo "nothing was published"; exit 0; fi
-    - >-
-      release-cli create --name "polyman-cli $RELEASE_VERSION" --tag-name "v$RELEASE_VERSION" --ref "$CI_COMMIT_SHA"
-      --description "Published to npm from pipeline $CI_PIPELINE_URL with provenance, judged against the previous latest before promotion."
-      --assets-link "{\"name\":\"npm: polyman-cli@$RELEASE_VERSION\",\"url\":\"https://www.npmjs.com/package/polyman-cli/v/$RELEASE_VERSION\"}"
-      --assets-link "{\"name\":\"Release check: next vs latest\",\"url\":\"$CI_PIPELINE_URL\"}"
+    # one --assets-link per evidence file release:evidence kept
+    - |
+      set --
+      while IFS= read -r l; do [ -n "$l" ] && set -- "$@" --assets-link "$l"; done < release-links.jsonl
+      release-cli create --name "polyman-cli $RELEASE_VERSION" --tag-name "v$RELEASE_VERSION" --ref "$CI_COMMIT_SHA" \
+        --description "Published to npm from pipeline $CI_PIPELINE_URL with provenance, judged against the previous latest before promotion. The links below are the evidence it was judged on." \
+        --assets-link "{\"name\":\"npm: polyman-cli@$RELEASE_VERSION\",\"url\":\"https://www.npmjs.com/package/polyman-cli/v/$RELEASE_VERSION\"}" \
+        --assets-link "{\"name\":\"Release check: next vs latest\",\"url\":\"$CI_PIPELINE_URL\"}" \
+        "$@"
