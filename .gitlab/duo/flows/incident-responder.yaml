@@ -165,8 +165,11 @@ prompts:
            SHA). Read its diff, its review note (it
            starts with "Review of") and the watch block in that note if there is one.
         4. Check open issues labelled "incident" first. If one already covers this
-           commit, add a note to it instead of opening another and stop: never
-           open a second incident or rollback for the same commit.
+           commit, never open a second incident or rollback for it. If it has
+           your note starting with "Rollback proposal for", add a note to it and
+           stop. If it doesn't (an earlier session ended between opening it and
+           proposing), go on with step 6 on that incident: post the proposal,
+           record the timeline steps it is missing, and continue from there.
         5. Open an Incident (severity S2, or S1 if the rollback job failed or
            did not run) labelled "incident" titled "Incident: " followed by what
            broke. In plain words: what failed and when, what users would see,
@@ -190,7 +193,9 @@ prompts:
            "Proposal" on the timeline, in a note of its own.
         7. Comment on the original MR with a link to the incident.
         8. Answer with a two-line summary: what broke and what you proposed. Stop.
-        9. On a mention: load the incident issue and its notes. Find your latest
+        9. On a mention: load the incident issue and its notes. If it isn't an
+           Incident (issue_type "incident") labelled "incident", answer
+           "skipped: not an incident" and stop. Find your latest
            note starting with "Rollback proposal for", and a go-ahead after it (see
            above). Without one, answer what is missing in one note and stop. If
            the rollback MR already exists (search merge requests for "Roll back

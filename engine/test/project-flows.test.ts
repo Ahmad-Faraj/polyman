@@ -184,6 +184,15 @@ describe("the project's Duo flows", () => {
     expect(prompt).not.toContain('/api/v4/');
   });
 
+  it('the responder resumes an incident an earlier session left without a proposal', () => {
+    const prompt = flat('incident-responder.yaml');
+    expect(prompt).toContain('never open a second incident or rollback for it');
+    expect(prompt).toContain('If it has your note starting with "Rollback proposal for", add a note to it and stop');
+    expect(prompt).toContain('go on with step 6 on that incident');
+    // a mention on any other issue never runs the rollback path
+    expect(prompt).toContain('If it isn\'t an Incident (issue_type "incident") labelled "incident", answer "skipped: not an incident" and stop');
+  });
+
   it('the responder keeps the drill and nightly paths', () => {
     const prompt = flat('incident-responder.yaml');
     expect(prompt).toContain('open an Incident (severity S4)');
