@@ -4,6 +4,7 @@ import {
   freshnessCheck,
   freshnessMarker,
   inputCountCheck,
+  isInside,
   nonEmpty,
   outcomeOf,
   pushChecks,
@@ -280,5 +281,18 @@ describe('round-trip checks', () => {
     expect(scriptLines('<#list 1..3 as i>gen ${i} > $</#list>', files)).toBe(
       null
     );
+  });
+});
+
+describe('isInside: the path guard', () => {
+  it('accepts files under the folder', () => {
+    expect(isInside('/repo', '/repo/corpus/out/m.json')).toBe(true);
+    expect(isInside('/repo', '/repo/..notes')).toBe(true);
+  });
+  it('refuses the folder itself, parents and siblings', () => {
+    expect(isInside('/repo', '/repo')).toBe(false);
+    expect(isInside('/repo', '/')).toBe(false);
+    expect(isInside('/repo', '/repo-evil/m.json')).toBe(false);
+    expect(isInside('/repo', '/tmp/m.json')).toBe(false);
   });
 });
