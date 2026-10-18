@@ -256,6 +256,7 @@ export async function uploadChecker(
                 fmt.warning(
                   `  ⚠️  Failed to upload checker test #${position + 1}: ${describeError(error)}`
                 );
+                recordFailure(failures, `checker test #${position + 1}`, error);
               }
             }
           }

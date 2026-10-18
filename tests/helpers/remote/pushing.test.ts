@@ -400,25 +400,30 @@ describe('pushing.ts', () => {
       expect(failures).toEqual(["solution sol: Unknown file type 'java.11'"]);
     });
 
-    it('should record a failed checker test upload', async () => {
+    it('should record each failed checker test upload and keep going', async () => {
       const { sdk, mocks } = buildSdk();
       mockedExistsSync.mockReturnValue(true);
+      const test = {
+        input: 'in',
+        output: 'out',
+        answer: 'ans',
+        expectedVerdict: 'OK',
+      };
       mockReadFileSyncWith(p =>
         String(p).includes('tests.json')
           ? JSON.stringify({
               tests: [
-                {
-                  index: 1,
-                  input: 'in',
-                  output: 'out',
-                  answer: 'ans',
-                  expectedVerdict: 'OK',
-                },
+                { index: 1, ...test },
+                { index: 2, ...test },
+                { index: 3, ...test },
               ],
             })
           : 'code'
       );
-      mocks.saveCheckerTest.mockRejectedValue(new Error('bad test'));
+      mocks.saveCheckerTest
+        .mockRejectedValueOnce(new Error('bad test'))
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(new Error('worse test'));
       const failures: string[] = [];
       const cfg = asConfig({
         checker: {
@@ -428,7 +433,11 @@ describe('pushing.ts', () => {
         },
       });
       await pushing.uploadChecker(sdk, 1, 'dir', cfg, failures);
-      expect(failures).toEqual(['checker tests: bad test']);
+      expect(mocks.saveCheckerTest).toHaveBeenCalledTimes(3);
+      expect(failures).toEqual([
+        'checker test #1: bad test',
+        'checker test #3: worse test',
+      ]);
     });
 
     it('should record a failed validator test upload', async () => {
