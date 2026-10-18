@@ -49,7 +49,13 @@ service:image:
   extends: .service:changes
   stage: build
   image: docker:27.5.1
-  services: [docker:27.5.1-dind]
+  # The runners' network has an MTU of 1460 and Docker-in-Docker's bridge
+  # defaults to 1500, so large packets stall: apt-get inside the build fetched
+  # the small index files and then hung until the job timed out (since about
+  # 18:00 UTC on Oct 18). Plain jobs on the same runners weren't affected.
+  services:
+    - name: docker:27.5.1-dind
+      command: ['--mtu=1460']
   variables:
     DOCKER_TLS_CERTDIR: /certs
   needs: []
