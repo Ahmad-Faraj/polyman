@@ -119,6 +119,7 @@ Why a tool call is emitted only when complete: providers stream the arguments in
 ## OpenAI-compatible adapter
 
 ```mermaid
+%%{init: {"flowchart": {"htmlLabels": false}} }%%
 flowchart TD
   req["ChatRequest"] --> map["map messages: tool_call parts to assistant.tool_calls, tool_result parts to role tool"]
   map --> body["body: model, messages, tools, stream: true, stream_options.include_usage"]
@@ -243,6 +244,7 @@ Commands:
 ## Retries
 
 ```mermaid
+%%{init: {"flowchart": {"htmlLabels": false}} }%%
 flowchart LR
   callp["call provider"] --> ok{"ok?"}
   ok -->|"yes"| done["return stream"]

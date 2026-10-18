@@ -101,6 +101,7 @@ Before `create_problem` there is no folder, so the notes live inside the session
 The skill files already exist in `template/instructions/`. The agent sees only the index in its system prompt and loads a file when it starts a step.
 
 ```mermaid
+%%{init: {"flowchart": {"htmlLabels": false}} }%%
 flowchart LR
   idx["System prompt: skills index (name + one line)"] --> model["Model"]
   model -->|"load_skill('validator')"| tool["skill tool"]
@@ -151,6 +152,7 @@ A reasoning model is better for this step. The UI can let the user pick a model 
 ## The verify-and-fix loop
 
 ```mermaid
+%%{init: {"flowchart": {"htmlLabels": false}} }%%
 flowchart TD
   v["verify --json"] --> ok{"passed?"}
   ok -->|"yes"| done["update checklist, tell the user"]

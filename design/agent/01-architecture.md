@@ -5,16 +5,12 @@ This file is the map. The other files go deeper into each part.
 ## Components
 
 ```mermaid
+%%{init: {"flowchart": {"htmlLabels": false}} }%%
 flowchart TB
   subgraph clients["Clients"]
-    webui["Chat UI (browser, ui/)"]
+    tui["Terminal UI: polyman chat"]
     ask["polyman ask (headless)"]
     evals["Eval runner"]
-  end
-
-  subgraph server["src/agent/server"]
-    http["HTTP routes"]
-    sse["SSE event stream"]
   end
 
   subgraph core["src/agent/core"]
@@ -50,10 +46,7 @@ flowchart TB
 
   cli["polyman CLI (child process)"]
 
-  webui <--> http
-  webui <--> sse
-  http --> session
-  sse --> session
+  tui <--> session
   ask --> session
   evals --> ask
   session --> ctx
@@ -83,9 +76,10 @@ flowchart TB
 Each layer may only import from the layers under it. This keeps the parts testable on their own.
 
 ```mermaid
+%%{init: {"flowchart": {"htmlLabels": false}} }%%
 flowchart TD
   L5["cli.ts commands: chat, ask, ai (dynamic import only)"]
-  L4["server + headless renderer"]
+  L4["TUI + headless renderer"]
   L3["core: AgentSession, ContextManager, PromptBuilder, stores"]
   L2["tools + providers"]
   L1["runner + shared types + small utils"]
@@ -102,7 +96,7 @@ Rules:
 ## Source layout
 
 ```
-src/agent/
+src/agent/                 ESM: has its own package.json with "type": "module"
   index.ts                 startChat(), runAsk(), aiCommands()
   core/
     session.ts             AgentSession: the loop, turns, steps, cancel
@@ -138,14 +132,12 @@ src/agent/
   runner/
     cli-runner.ts          spawn polyman, collect output, timeout, cancel
     kill-tree.ts           kill a process tree on POSIX and Windows
-  server/
-    http.ts                routes, static files, auth token, Host check
-    sse.ts                 event stream with Last-Event-ID replay
-    protocol.ts            request/response types shared with ui/
+  tui/                     terminal UI with Ink (see 05-chat-ui.md)
+    index.tsx              startTui(session)
+    App.tsx, store.ts, keybindings.ts
+    components/            Transcript, ToolBlock, ApprovalPrompt, Composer, StatusLine, ...
   headless/
     ask.ts                 polyman ask: text or --json renderer
-ui/                        web UI source (Vite + React, dev dependencies only)
-dist/ui/                   built UI, shipped in the npm package
 evals/                     eval cases and runner (not shipped)
 ```
 
@@ -156,16 +148,14 @@ evals/                     eval cases and runner (not shipped)
 ```mermaid
 sequenceDiagram
   autonumber
-  participant U as Chat UI
-  participant S as Server
+  participant U as Terminal UI
   participant A as AgentSession
   participant P as Provider
   participant T as ToolRegistry
   participant R as CliRunner
   participant C as polyman CLI
 
-  U->>S: POST /api/messages {text}
-  S->>A: send(text)
+  U->>A: send(text) after enter
   A->>A: PromptBuilder + ContextManager build request
   A->>P: stream(request, signal)
   P-->>A: text_delta ... tool_call(verify)
@@ -188,7 +178,7 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-  participant U as Chat UI
+  participant U as Terminal UI
   participant A as AgentSession
   participant G as PermissionGate
   participant T as remote_push tool
@@ -197,7 +187,7 @@ sequenceDiagram
   G-->>A: needs approval
   A-->>U: event: approval_needed {id, command, preview}
   Note over U: user reads the exact command and the preview
-  U->>A: POST /api/approvals/:id {decision}
+  U->>A: resolveApproval(id, decision)
   alt allow
     A->>T: run(args)
     T-->>A: ToolOutput
@@ -211,12 +201,12 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-  participant U as Chat UI
+  participant U as Terminal UI
   participant A as AgentSession
   participant P as Provider
   participant R as CliRunner
 
-  U->>A: POST /api/cancel (or Esc)
+  U->>A: cancel() after esc
   A->>A: turnController.abort()
   par the model call
     A->>P: fetch is aborted
@@ -246,6 +236,7 @@ The agent never reads `credentials.json` or `ai.json` through its tools. The san
 ## Error model
 
 ```mermaid
+%%{init: {"flowchart": {"htmlLabels": false}} }%%
 flowchart LR
   E["Error happens"] --> Q{"Where?"}
   Q -->|"provider (401, 429, 5xx, network)"| PE["ProviderError: retry if retryable, else show to user, turn ends"]
@@ -262,7 +253,6 @@ The rule: a failed tool is information for the model, not a crash. Only provider
 
 | Risk | What we do |
 | --- | --- |
-| Another website talks to the local server | Bind to `127.0.0.1` only, a random token in the URL and in every request, check the `Host` header (blocks DNS rebinding). |
 | The model writes outside the problem | All file tools go through `sandbox.ts`: resolve the real path and refuse anything outside the problem folder, and refuse `.polyman/cache`. |
 | The model changes Polygon by mistake | Remote tools are risk `remote` and always need approval. The UI shows the exact command. |
 | Prompt injection from pulled statements or files | Content from files is data. Dangerous actions still need approval, so injected text cannot push or commit. |
@@ -278,6 +268,6 @@ The rule: a failed tool is information for the model, not a crash. Only provider
 | CliRunner | A tiny fake CLI script that prints, sleeps, exits with codes, or spawns children (to test `killTree`). |
 | Tools | Temp problem folders made from `template/`, with the runner mocked or real. |
 | AgentSession | `MockProvider` with a script of replies and tool calls. Check the events and the saved session. |
-| Server | Start on a random port, call the HTTP API, read SSE. |
+| Terminal UI | The reducer over `AgentEvent` alone in Vitest, components with `ink-testing-library`. |
 | End to end | `polyman ask --provider mock` on a temp copy of the template problem. |
 | Quality of the agent | The eval suite with real models, not in CI (see [08-evals-release.md](08-evals-release.md)). |

@@ -7,6 +7,7 @@ Some users will not want to get a key. The idea: we run a server, and they log i
 For the chat, the server is just one more provider (decision D6). It speaks the OpenAI Chat Completions format. Nothing in the agent changes.
 
 ```mermaid
+%%{init: {"flowchart": {"htmlLabels": false}} }%%
 flowchart LR
   subgraph user["User machine"]
     chat["polyman chat"]
@@ -36,7 +37,7 @@ sequenceDiagram
   participant U as User
   participant C as polyman CLI
   participant S as Polyman cloud
-  participant B as Browser
+  participant B as Browser (login page only)
 
   U->>C: polyman ai login polyman
   C->>S: start device login

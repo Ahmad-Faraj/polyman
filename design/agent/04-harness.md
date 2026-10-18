@@ -66,7 +66,7 @@ Tool calls run one at a time, even if the model asks for several in one step. Ru
 
 ## Events
 
-All output of the core is events. The web UI, `polyman ask` and the evals all read the same events.
+All output of the core is events. The terminal UI, `polyman ask` and the evals all read the same events.
 
 ```ts
 type AgentEvent =
@@ -85,7 +85,7 @@ type AgentEvent =
   | { type: 'turn_end'; turnId: string; reason: 'done' | 'cancelled' | 'max_steps' | 'error'; error?: string };
 ```
 
-`EventBus` gives each event a growing `seq` number, keeps the last 2000 in memory, and lets a client ask for "everything after seq N". This is how the browser reconnects without losing anything.
+`EventBus` is a simple typed emitter. Each event gets a growing `seq` number, which makes the session file and the eval logs easy to read in order.
 
 ## Tools
 
@@ -122,6 +122,7 @@ interface ToolOutput {
 `ToolRegistry.run()` does the same steps for every tool:
 
 ```mermaid
+%%{init: {"flowchart": {"htmlLabels": false}} }%%
 flowchart TD
   call["tool call from the model"] --> known{"tool exists?"}
   known -->|"no"| e1["isError: unknown tool, list of tools"]
@@ -157,6 +158,7 @@ flowchart TD
 ## PermissionGate
 
 ```mermaid
+%%{init: {"flowchart": {"htmlLabels": false}} }%%
 flowchart TD
   c["check(tool, args)"] --> m{"mode"}
   m -->|"remote risk"| ask["always ask (unless --allow-remote in headless)"]
@@ -261,6 +263,7 @@ One JSONL file per session. Each line is one record, appended right away, so a c
 Problem setting makes long sessions: many files and many verify reports. The context must stay under the model limit.
 
 ```mermaid
+%%{init: {"flowchart": {"htmlLabels": false}} }%%
 flowchart TD
   start["build(request)"] --> est["estimate tokens: provider usage when known, else chars / 4"]
   est --> fit{"under 70% of the context window?"}
@@ -296,6 +299,6 @@ polyman ask "write a validator for the constraints in the statement" [--dir <pro
            [--yes] [--allow-remote] [--json] [--resume <sessionId>] [--max-steps 40]
 ```
 
-- Same `AgentSession`, with a text renderer instead of the server.
+- Same `AgentSession`, with a plain text renderer instead of the Ink UI.
 - Without `--yes`, an approval prints the question and reads y/n from the terminal. When stdin is not a terminal, approvals are denied and the agent is told why.
 - `--json` prints all events as JSON lines. This is what the evals use.
