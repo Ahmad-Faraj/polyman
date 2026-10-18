@@ -239,7 +239,7 @@ describe('go_ahead in .autonomy.yml', () => {
 
   it("reads this project's maintainers and tiers", () => {
     expect(loadConfig('../.autonomy.yml').goAhead).toEqual({
-      maintainers: ['HamzaHassanain'],
+      maintainers: ['HamzaHassanain', 'Mazen-Ghanaym'],
       people: ['HamzaHassanain', 'Ahmad-Faraj', 'Mazen-Ghanaym'],
       byTier: { low: 'anyone', medium: 'anyone', high: 'maintainers' },
     });
