@@ -86,9 +86,38 @@ function credentials() {
 
 /**
  * One signed Polygon API call (https://codeforces.github.io/polygon-misc/API);
- * `raw` for methods that return file content.
+ * `raw` for methods that return file content. Polygon sometimes answers with an
+ * HTML page (maintenance, rate limiting) or a 5xx instead of JSON (the nightly
+ * #45): such an answer is retried twice, then reported with its HTTP status and
+ * the start of the page instead of a bare JSON parse error. Every method this
+ * script calls is a read or an idempotent save, so a retry is safe.
  */
 async function polygon(creds, method, params, raw = false) {
+  for (let attempt = 1; ; attempt++) {
+    const { status, body } = await polygonOnce(creds, method, params);
+    const unusable =
+      status >= 500 || (!raw && !body.trimStart().startsWith('{'));
+    if (unusable && attempt < 3) {
+      console.warn(
+        `${method}: HTTP ${status}, not an API answer; retrying in ${20 * attempt} s`
+      );
+      await new Promise(resolve => setTimeout(resolve, 20_000 * attempt));
+      continue;
+    }
+    if (unusable) {
+      throw new Error(
+        `${method}: Polygon answered HTTP ${status} with something other than the API's JSON, ${attempt} times: ${body.slice(0, 120).replace(/\s+/g, ' ')}`
+      );
+    }
+    if (raw && !body.startsWith('{"status"')) return body;
+    const data = JSON.parse(body);
+    if (data.status !== 'OK') throw new Error(`${method}: ${data.comment}`);
+    return data.result;
+  }
+}
+
+/** One signed request, signed afresh (time and nonce) on every attempt. */
+async function polygonOnce(creds, method, params) {
   const all = {
     ...params,
     apiKey: creds.key,
@@ -109,11 +138,7 @@ async function polygon(creds, method, params, raw = false) {
     method: 'POST',
     body: new URLSearchParams([...pairs, ['apiSig', rand + hash]]),
   });
-  const body = await response.text();
-  if (raw && !body.startsWith('{"status"')) return body;
-  const data = JSON.parse(body);
-  if (data.status !== 'OK') throw new Error(`${method}: ${data.comment}`);
-  return data.result;
+  return { status: response.status, body: await response.text() };
 }
 
 const base = p => path.basename(p);
