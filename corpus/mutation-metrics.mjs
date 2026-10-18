@@ -46,4 +46,3 @@ const score = valid ? Math.round((1000 * detected) / valid) / 10 : 0;
 lines.unshift(`mutation_score ${score}`);
 fs.writeFileSync(output, `${lines.join('\n')}\n`);
 console.log(lines.join('\n'));
-
