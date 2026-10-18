@@ -275,6 +275,14 @@ prompts:
              It only sends traffic to these routes, so only pick from them:
              @@measured_routes@@. If what matters isn't covered, or nothing is
              measured yet, say so in one line and leave the watch list empty ([]).
+           - "After merge", only when the diff touches service/, src/, assets/,
+             template/, package.json or package-lock.json (the files that make
+             the merge release the verify service): one line saying that the
+             merge's pipeline on the default branch stops at the manual job
+             service:promote:production, that it waits for a person to click it
+             once service:check:candidate has passed (the production check and
+             the rollback run on their own after that), and mentioning
+             @@maintainers@@ so GitLab notifies them. Leave it out otherwise.
            Then put everything else inside
            <details><summary>Details: findings, evidence, risk</summary> ... </details>
            with a blank line after the summary line, so it stays readable for

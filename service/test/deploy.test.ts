@@ -16,8 +16,10 @@ afterEach(() => {
 interface Cloud {
   /** revisions and their traffic, as `gcloud run services describe --format=json` gives them */
   traffic: { revisionName?: string; percent?: number; tag?: string }[];
-  /** what `git ls-remote` says main points at */
+  /** what main points at once fetched; empty when the fetch fails */
   mainHead: string;
+  /** what `git diff` of the service files between this commit and main says */
+  serviceDiff?: 'same' | 'changed' | 'error';
 }
 
 function run(mode: string, cloud: Cloud, env: Record<string, string> = {}) {
@@ -39,7 +41,15 @@ function run(mode: string, cloud: Cloud, env: Record<string, string> = {}) {
   *"services describe"*) echo polyman-verify ;;
 esac`,
   );
-  stub('git', `printf '%s\\trefs/heads/main\\n' "${cloud.mainHead}"`);
+  const diffStatus = { same: 0, changed: 1, error: 128 }[cloud.serviceDiff ?? 'same'];
+  stub(
+    'git',
+    `case "$1" in
+  fetch) [ -n "${cloud.mainHead}" ] ;;
+  rev-parse) echo "${cloud.mainHead}" ;;
+  diff) exit ${diffStatus} ;;
+esac`,
+  );
   const res = spawnSync('sh', [SCRIPT, mode], {
     cwd: work,
     encoding: 'utf8',
@@ -73,10 +83,33 @@ describe('cloudrun.sh promote', () => {
     expect(r.switches[1]).not.toContain('c-abc1234');
   });
 
-  it('refuses when main has moved on to a newer commit', () => {
-    const r = run('promote', { traffic: serving('rev-1'), mainHead: 'newer' }, { CANDIDATE_REVISION: 'rev-2' });
+  it('still promotes when main moved on with a change outside the service (a README, the corpus)', () => {
+    const r = run('promote', { traffic: serving('rev-1'), mainHead: 'newer', serviceDiff: 'same' }, { CANDIDATE_REVISION: 'rev-2' });
+    expect(r.status).toBe(0);
+    expect(r.calls).toContain('git diff --quiet abc1234full newer -- service src assets template package.json package-lock.json');
+    expect(r.switches[0]).toContain('--to-revisions rev-2=100');
+  });
+
+  it('ends without a switch, and without failing, when a newer commit changed the service again', () => {
+    const r = run('promote', { traffic: serving('rev-1'), mainHead: 'newer', serviceDiff: 'changed' }, { CANDIDATE_REVISION: 'rev-2' });
+    expect(r.status).toBe(0);
+    expect(r.out).toContain('nothing to promote');
+    expect(r.switches).toEqual([]);
+    // the production check runs on what serves now; the rollback has nothing to go back to
+    expect(r.dotenv).toBe('SERVICE_URL=https://polyman-verify-x.run.app\nPREVIOUS_REVISION=\n');
+  });
+
+  it('refuses when it cannot compare this commit with main', () => {
+    const r = run('promote', { traffic: serving('rev-1'), mainHead: 'newer', serviceDiff: 'error' }, { CANDIDATE_REVISION: 'rev-2' });
     expect(r.status).toBe(1);
-    expect(r.out).toContain('has moved on');
+    expect(r.out).toContain('could not compare');
+    expect(r.switches).toEqual([]);
+  });
+
+  it('refuses when it cannot read the head of main', () => {
+    const r = run('promote', { traffic: serving('rev-1'), mainHead: '' }, { CANDIDATE_REVISION: 'rev-2' });
+    expect(r.status).toBe(1);
+    expect(r.out).toContain('could not read the head of main');
     expect(r.switches).toEqual([]);
   });
 

@@ -2,14 +2,16 @@
 # default branch can go to npm `next`, be judged there as users install it, and
 # only then become `latest`. Assisted: publishing and promoting are a person's
 # go-ahead, manual jobs on the merge's pipeline. Nothing here runs until a
-# person adds NPM_TOKEN (granular, publish rights on polyman-cli only, masked
-# and protected).
+# person sets NPM_RELEASE=1 and adds NPM_TOKEN (granular, publish rights on
+# polyman-cli only, masked, protected, environment scope npm-*). The rules check
+# NPM_RELEASE, not the token, so the token can be scoped to the npm-*
+# environments: only release:npm-next and release:promote get it.
 
 .npm-release:
   extends: .node
   stage: deploy
   rules:
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push" && $NPM_TOKEN
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push" && $NPM_RELEASE == "1"
       changes: [package.json]
 
 # Publishes package.json's version to npm under the `next` tag, with
@@ -20,7 +22,7 @@
 release:npm-next:
   extends: .npm-release
   rules:
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push" && $NPM_TOKEN
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push" && $NPM_RELEASE == "1"
       changes: [package.json]
       when: manual
   environment:
@@ -77,7 +79,7 @@ release:promote:
   extends: .npm-release
   needs: [release:npm-next, release:next-check]
   rules:
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push" && $NPM_TOKEN
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push" && $NPM_RELEASE == "1"
       changes: [package.json]
       when: manual
   environment:
@@ -106,9 +108,15 @@ release:evidence:
     - { job: release:next-check, artifacts: true }
     - release:promote
     - { job: corpus:mutation, artifacts: true, optional: true }
+  # Best effort: latest has already moved, so a failed evidence step must not
+  # stop the GitLab Release. release:gitlab still runs and links what was kept.
+  allow_failure: true
   variables:
     EVIDENCE_PACKAGE: polyman-cli-evidence
   script:
+    # this job only needs CI_JOB_TOKEN; keep the publish token away from npx
+    # (a job-level variable can't override a project variable, so unset it)
+    - unset NPM_TOKEN
     - rm -f release-links.jsonl && touch release-links.jsonl
     - if [ "$RELEASE_VERSION" = none ]; then echo "nothing was published"; exit 0; fi
     - mkdir -p evidence
@@ -145,6 +153,7 @@ release:evidence:
       if [ -n "$LOG_INDEX" ]; then printf '{"name":"%s","url":"%s","link_type":"other"}\n' "Sigstore transparency log entry $LOG_INDEX" "https://search.sigstore.dev/?logIndex=$LOG_INDEX" >> release-links.jsonl; fi
     - cat release-links.jsonl
   artifacts:
+    when: always
     expire_in: 1 year
     paths: [evidence/, release-links.jsonl]
 
@@ -155,12 +164,13 @@ release:gitlab:
   image: registry.gitlab.com/gitlab-org/release-cli:latest
   needs: [release:npm-next, release:next-check, release:promote, { job: release:evidence, artifacts: true }]
   rules:
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push" && $NPM_TOKEN
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push" && $NPM_RELEASE == "1"
       changes: [package.json]
   script:
     - if [ "$RELEASE_VERSION" = none ]; then echo "nothing was published"; exit 0; fi
     # one --assets-link per evidence file release:evidence kept
     - |
+      touch release-links.jsonl
       set --
       while IFS= read -r l; do [ -n "$l" ] && set -- "$@" --assets-link "$l"; done < release-links.jsonl
       release-cli create --name "polyman-cli $RELEASE_VERSION" --tag-name "v$RELEASE_VERSION" --ref "$CI_COMMIT_SHA" \

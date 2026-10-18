@@ -3,6 +3,7 @@ import {
   compare,
   freshnessCheck,
   freshnessMarker,
+  inputCountCheck,
   nonEmpty,
   outcomeOf,
   pushChecks,
@@ -250,6 +251,17 @@ describe('round-trip checks', () => {
       false
     );
     expect(freshnessCheck(undefined, marker).ok).toBe(false);
+  });
+
+  it('needs as many generated tests as Polygon has', () => {
+    expect(inputCountCheck('tests', 5, 5)).toEqual(
+      expect.objectContaining({ name: 'inputs tests count', ok: true })
+    );
+    expect(inputCountCheck('tests', 3, 5)).toEqual({
+      name: 'inputs tests count',
+      ok: false,
+      detail: 'polyman generated 3 tests, Polygon has 5',
+    });
   });
 
   it('turns a check group that produced nothing into a failure', () => {
