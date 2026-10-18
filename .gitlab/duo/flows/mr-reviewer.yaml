@@ -23,6 +23,8 @@ components:
     inputs:
       - from: "context:project_id"
         as: "project_id"
+      - from: "context:goal"
+        as: "goal"
     toolset:
       - "get_merge_request"
       - "list_merge_request_diffs"
@@ -45,6 +47,8 @@ components:
     inputs:
       - from: "context:project_id"
         as: "project_id"
+      - from: "context:goal"
+        as: "goal"
     toolset:
       - "get_merge_request"
       - "list_merge_request_diffs"
@@ -68,6 +72,8 @@ components:
     inputs:
       - from: "context:project_id"
         as: "project_id"
+      - from: "context:goal"
+        as: "goal"
     toolset:
       - "get_merge_request"
       - "list_merge_request_diffs"
@@ -355,9 +361,10 @@ prompts:
       user: |
         Project ID: {{project_id}}
 
-        The lead reviewer's instructions for you are in the conversation: the
-        MR, the head commit and what to focus on. (The pipeline event isn't
-        repeated here: it's long, and it would be sent again with every step.)
+        The lead reviewer's instructions for you are in the conversation. The
+        event that started the review (it names the MR and the head commit)
+        is below; read the MR IID and SHA from it if the instructions don't:
+        {{goal}}
     params:
       timeout: 600
 
@@ -401,9 +408,10 @@ prompts:
       user: |
         Project ID: {{project_id}}
 
-        The lead reviewer's instructions for you are in the conversation: the
-        MR, the head commit and what to focus on. (The pipeline event isn't
-        repeated here: it's long, and it would be sent again with every step.)
+        The lead reviewer's instructions for you are in the conversation. The
+        event that started the review (it names the MR and the head commit)
+        is below; read the MR IID and SHA from it if the instructions don't:
+        {{goal}}
     params:
       timeout: 600
 
@@ -438,9 +446,10 @@ prompts:
       user: |
         Project ID: {{project_id}}
 
-        The lead reviewer's instructions for you are in the conversation: the
-        MR, the head commit and what to focus on. (The pipeline event isn't
-        repeated here: it's long, and it would be sent again with every step.)
+        The lead reviewer's instructions for you are in the conversation. The
+        event that started the review (it names the MR and the head commit)
+        is below; read the MR IID and SHA from it if the instructions don't:
+        {{goal}}
     params:
       timeout: 600
 
