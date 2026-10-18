@@ -6,7 +6,7 @@
 
 **CLI tool for Codeforces problem setters** to automate the complete workflow for creating, testing, and verifying competitive programming problems.
 
-[![npm version](https://img.shields.io/npm/v/polyman.svg?style=flat-square)](https://www.npmjs.com/package/polyman-cli)
+[![npm version](https://img.shields.io/npm/v/polyman-cli.svg?style=flat-square)](https://www.npmjs.com/package/polyman-cli)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Node.js](https://img.shields.io/badge/Node.js-43853D?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org/)
@@ -15,7 +15,7 @@
 
 ---
 
-**Quick Links** | [Why?](#why-polyman) • [Installation](#installation) • [Quick Start](#quick-start) • [Commands](#commands) • [Tags](#solution-tags) • [Checkers](#standard-checkers) • [Structure](#project-structure) • [Config](#configuration) • [Docs](#documentation) • [Workflow](#workflow-summary) • [Issues](#common-issues) • [Support](#support) • [Contributing](#contributing) • [License](#license)
+**Quick Links** | [**GitLab Transcend: for judges**](JUDGES.md) • [Why?](#why-polyman) • [Installation](#installation) • [Quick Start](#quick-start) • [Commands](#commands) • [Tags](#solution-tags) • [Checkers](#standard-checkers) • [Structure](#project-structure) • [Config](#configuration) • [Docs](#documentation) • [Workflow](#workflow-summary) • [Issues](#common-issues) • [Support](#support) • [Contributing](#contributing) • [License](#license)
 
 </div>
 
@@ -25,7 +25,8 @@
 
 <!-- Video (under 3 minutes): put its link here, first in this list, once it is published. -->
 
-- **Live service:** [polyman-verify on Cloud Run](https://polyman-verify-ncvkutguda-ue.a.run.app) (`/health` answers `{"ok":true}`)
+- **For judges:** [JUDGES.md](JUDGES.md), the evidence by judging criterion, the rules and where each is met, and what the agents cost.
+- **Live service:** [polyman-verify on Cloud Run](https://polyman-verify-ncvkutguda-ue.a.run.app) (`/health` answers `{"ok":true}`; it scales to zero, so the first request after idle takes about 20 s)
 - **Release:** [`polyman-cli` 3.0.1 on npm](https://www.npmjs.com/package/polyman-cli/v/3.0.1), with provenance. It shipped through the judged release jobs ([!47][mr47]): npm `next`, [judged as installed against 3.0.0](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17267989872), then `latest`. The [GitLab Release v3.0.1](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/releases/v3.0.1) carries the evidence. The publish and promote jobs are manual on purpose: a person clicks each one, so a "blocked" deployment on the environments page is a step nobody chose to take.
 - **Original repository:** [HamzaHassanain/polyman](https://github.com/HamzaHassanain/polyman), imported at [`dcb5779`](https://github.com/HamzaHassanain/polyman/commit/dcb5779705da91bc898cc456a0d96bd5d311cf41) ("release: 3.0.0", 2026-09-25), tagged `hackathon-start` here.
 
@@ -154,11 +155,15 @@ Why some loops have two MRs: when an agent pushes without a go-ahead, the guard 
 [mr92]: https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/92
 [mr95]: https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/95
 
+### What the agents cost
+
+Agents are compute too, so we count every model call each Duo session makes, from its checkpoints, and turn it into carbon with SCI and SCI for AI ([SUSTAINABILITY.md](SUSTAINABILITY.md), 232 sessions). Inference is 76-97% of a review's estimated footprint, so a number from CI minutes alone misses most of it. The reviewer is 94% of all agent tokens, so that's where we cut: review depth follows the risk score (a low-risk review costs 1/6 to 1/8 of a high one), re-reviews only look at what changed, and on the same frozen MRs the leaner reviewer used 55% fewer tokens for about the same findings ([#61](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues/61), three MRs, so read it as a direction). Recompute the per-review numbers with `npx -y -p @grnsft/if@1.1.1 if-run -m sustainability/agent-reviews.yml`.
+
 ### Who it's for, and why trust matters
 
 polyman was announced to problem setters on [Codeforces in November 2025](https://codeforces.com/blog/entry/148803) (+332, 52 comments). The first thing the community asked was whether they could trust it: "Has anybody used this tool and can recommend it?", and another reply pointed out a tool that's brand new has no history and no user base yet. This project is our answer to that question: polyman is now checked by judges that are neither an LLM nor its authors, on every change and every night.
 
-What we can say today, all public: about 1,950 npm downloads since September 2025 (downloads, not users: CI runs and mirrors count too), 12 versions, 41 stars and 4 forks on GitHub with five outside reporters or contributors, and two independent open-source projects that build on polyman's problem format.
+What we can say today, all public: about 1,950 npm downloads since September 2025 (downloads, not users: CI runs and mirrors count too), 13 versions, 41 stars and 4 forks on GitHub with five outside reporters or contributors, and two independent open-source projects that build on polyman's problem format.
 
 Team: Hamza Hassanain (polyman's author), Mazen Ghanayem, Ahmed Faraj.
 
