@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import * as actions from '../src/actions';
 import * as help from '../src/help';
 import { setCacheEnabled } from '../src/helpers/compile-cache';
@@ -224,6 +227,84 @@ describe('cli.ts', () => {
     expect(actions.fullVerificationAction).toHaveBeenCalledWith({
       json: true,
     });
+  });
+
+  it('should print a completion script for the given shell', async () => {
+    const write = vi
+      .spyOn(process.stdout, 'write')
+      .mockImplementation(() => true);
+    try {
+      await loadCli(['completion', 'bash']);
+      const output = write.mock.calls.map(call => String(call[0])).join('');
+      expect(output).toContain('complete -o default -F _polyman_complete');
+      expect(output).toContain('generate');
+      expect(output).toContain('--testset');
+      expect(output).toContain('--solutions');
+      expect(output).not.toContain("'__complete'");
+    } finally {
+      write.mockRestore();
+    }
+  });
+
+  it('should reject an unsupported shell for completion', async () => {
+    const write = vi
+      .spyOn(process.stderr, 'write')
+      .mockImplementation(() => true);
+    const exitSpy = vi
+      .spyOn(process, 'exit')
+      .mockImplementation((() => undefined) as never);
+    try {
+      try {
+        await loadCli(['completion', 'tcsh']);
+      } catch {
+        // commander may throw when exit is stubbed
+      }
+      expect(exitSpy).toHaveBeenCalledWith(1);
+      expect(write.mock.calls.map(call => String(call[0])).join('')).toContain(
+        'tcsh'
+      );
+    } finally {
+      write.mockRestore();
+      exitSpy.mockRestore();
+    }
+  });
+
+  it('should print names from Config.json for __complete', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'polyman-cli-complete-'));
+    writeFileSync(
+      join(dir, 'Config.json'),
+      JSON.stringify({ solutions: [{ name: 'main' }, { name: 'wa' }] })
+    );
+    const cwd = vi.spyOn(process, 'cwd').mockReturnValue(dir);
+    const write = vi
+      .spyOn(process.stdout, 'write')
+      .mockImplementation(() => true);
+    try {
+      await loadCli(['__complete', 'solutions']);
+      expect(write.mock.calls.map(call => String(call[0])).join('')).toBe(
+        'main\nwa\n'
+      );
+    } finally {
+      write.mockRestore();
+      cwd.mockRestore();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('should print nothing for __complete without a Config.json', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'polyman-cli-complete-'));
+    const cwd = vi.spyOn(process, 'cwd').mockReturnValue(dir);
+    const write = vi
+      .spyOn(process.stdout, 'write')
+      .mockImplementation(() => true);
+    try {
+      await loadCli(['__complete', 'testsets']);
+      expect(write).not.toHaveBeenCalled();
+    } finally {
+      write.mockRestore();
+      cwd.mockRestore();
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('should register remote register command', async () => {
