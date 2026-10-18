@@ -266,8 +266,28 @@ describe("the project's Duo flows", () => {
 
   it('the fixer posts one proposal per head, even when a retry or a question starts it again', () => {
     const prompt = flat('pipeline-fixer.yaml');
-    expect(prompt).toContain('If your latest proposal is for the current head and no go-ahead follows it, don\'t post another');
-    expect(prompt).toContain('answer "skipped: proposal already posted for SHA" and stop');
+    expect(prompt).toContain('If your latest proposal is for the current head and nothing like a go-ahead follows it, don\'t post another');
+    expect(prompt).toContain('answer "skipped: proposal already posted for SHORT_SHA" (the first 8 characters) and stop');
     expect(prompt).toContain('A go-ahead after a proposal for an older head is spent');
+    expect(prompt).toContain('compare the full 40-character SHA');
+    expect(prompt).toContain('One proposal per head');
+  });
+
+  // review of !81: a go-ahead that doesn't count must not vanish without a word
+  it('the fixer says why a go-ahead does not count, once per comment, without quick actions', () => {
+    const prompt = flat('pipeline-fixer.yaml');
+    expect(prompt).toContain('a comment after it looks like a go-ahead but doesn\'t count');
+    expect(prompt).toContain('post one short note that says why it doesn\'t count and who may give it');
+    expect(prompt).toContain('Once per such comment');
+    expect(prompt).toContain('The note doesn\'t start with "Pipeline fix" and holds no quick actions');
+  });
+
+  // review of !81: the rule must not block a revision on the same head
+  it('the fixer proposes again on the same head when the failing jobs change or a person asks for another fix', () => {
+    const prompt = flat('pipeline-fixer.yaml');
+    expect(prompt).toContain('unless the failing jobs of the latest pipeline are not the ones that proposal names');
+    expect(prompt).toContain('or a person\'s comment after it asks for a different fix');
+    expect(prompt).toContain('the failing jobs by name');
+    expect(prompt).toContain('the one-proposal-per-head rule doesn\'t block that, since the proposal is for an older head');
   });
 });
