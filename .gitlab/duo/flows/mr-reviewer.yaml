@@ -63,6 +63,11 @@ components:
 
   - name: "test_reviewer"
     type: AgentComponent
+    # GitLab bills each model call, and a call on the small model costs about
+    # half as much. The test reviewer checks coverage and runs the suite; the
+    # lead, the code reviewer (which also applies fixes) and security stay on
+    # the default model.
+    model_tags: ["small"]
     description: >-
       Test reviewer. Checks whether the changed behaviour is covered by tests,
       writes the missing tests on the MR branch and runs the suite.
