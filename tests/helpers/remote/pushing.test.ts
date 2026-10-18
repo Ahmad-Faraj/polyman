@@ -524,6 +524,73 @@ describe('pushing.ts', () => {
       expect(failures).toEqual(['testset tests clear: c']);
     });
 
+    it('should record a failed enableGroups call', async () => {
+      const { sdk, mocks } = buildSdk();
+      mocks.enableGroups.mockImplementation(
+        (_id: number, _name: string, on: boolean) =>
+          on ? Promise.reject(new Error('g')) : Promise.resolve(undefined)
+      );
+      const failures: string[] = [];
+      const cfg = asConfig({
+        generators: [{ name: 'gen', source: './gen.cpp' }],
+        testsets: [
+          {
+            name: 'tests',
+            groupsEnabled: true,
+            generatorScript: { script: 'gen 1 > $' },
+          },
+        ],
+      });
+      await pushing.uploadTestsets(sdk, 1, 'dir', cfg, failures);
+      expect(failures).toEqual(['testset tests groups: g']);
+    });
+
+    it('should record failed manual test uploads', async () => {
+      const { sdk, mocks } = buildSdk();
+      mockedExistsSync.mockReturnValue(true);
+      mockedReadFileSync.mockReturnValue('m');
+      mocks.saveTest.mockRejectedValue(new Error('m'));
+      const failures: string[] = [];
+      const cfg = asConfig({
+        testsets: [
+          { name: 'tests', manualTests: [{ input: 'm.txt', index: 1 }] },
+        ],
+      });
+      await pushing.uploadTestsets(sdk, 1, 'dir', cfg, failures);
+      expect(failures).toEqual(['testset tests manual tests: m']);
+    });
+
+    it('should record a failure when the tests cannot be resolved', async () => {
+      const { sdk } = buildSdk();
+      const failures: string[] = [];
+      const cfg = asConfig({
+        generators: [{ name: 'gen', source: './gen.cpp' }],
+        testsets: [
+          { name: 'tests', generatorScript: { script: 'unknown 1 > $' } },
+        ],
+      });
+      await pushing.uploadTestsets(sdk, 1, 'dir', cfg, failures);
+      expect(failures).toHaveLength(1);
+      expect(failures[0]).toMatch(/^testset tests tests: /);
+    });
+
+    it('should record a failed setTestGroup call', async () => {
+      const { sdk, mocks } = buildSdk();
+      mocks.setTestGroup.mockRejectedValue(new Error('sg'));
+      const failures: string[] = [];
+      const cfg = asConfig({
+        generators: [{ name: 'gen', source: './gen.cpp' }],
+        testsets: [
+          {
+            name: 'tests',
+            generatorScript: { script: '<#-- @group g1 -->\ngen 1 > $' },
+          },
+        ],
+      });
+      await pushing.uploadTestsets(sdk, 1, 'dir', cfg, failures);
+      expect(failures).toEqual(['testset tests group g1: sg']);
+    });
+
     it('should leave failures empty when everything uploads', async () => {
       const { sdk } = buildSdk();
       mockedExistsSync.mockReturnValue(true);
