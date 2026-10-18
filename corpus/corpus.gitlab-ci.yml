@@ -22,9 +22,10 @@ corpus:
     - npm run build
     - node corpus/run.mjs
   # The judge rules as Requirements (Plan > Requirements, #50): each one is
-  # marked satisfied or failed from this run.
+  # marked satisfied or failed from this run. GitLab reads the report from any
+  # pipeline, so only the default branch writes one.
   after_script:
-    - node corpus/requirements.mjs corpus
+    - 'if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then node corpus/requirements.mjs corpus; else echo "Requirements are judged on $CI_DEFAULT_BRANCH only"; fi'
   artifacts:
     # The verdict matrix, linked from the merge request widget.
     expose_as: 'Corpus verdicts'
