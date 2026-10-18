@@ -154,11 +154,27 @@ export async function uploadChecker(
             tests?: Array<Partial<CheckerTest>>;
           };
           if (testsData.tests) {
-            // Tests without an index get the next number that no test
+            // Tests without a valid index get the next number that no test
             // declares explicitly, so they can't overwrite one another.
+            const indexes = testsData.tests.map((test, position) => {
+              const raw: unknown = test.index;
+              if (raw === undefined || raw === null) return undefined;
+              const value = Number(raw);
+              if (Number.isInteger(value) && value > 0) return value;
+              fmt.warning(
+                `  ⚠️  Checker test #${position + 1} has an invalid index (${JSON.stringify(raw)}); it will be numbered automatically`
+              );
+              return undefined;
+            });
             const declared = new Set<number>();
-            for (const test of testsData.tests) {
-              if (test.index) declared.add(test.index);
+            for (const [position, value] of indexes.entries()) {
+              if (value === undefined) continue;
+              if (declared.has(value)) {
+                fmt.warning(
+                  `  ⚠️  Checker test #${position + 1} repeats index ${value}; it overwrites the earlier test with that index`
+                );
+              }
+              declared.add(value);
             }
             let nextIndex = 1;
             const takeNextIndex = (): number => {
@@ -183,7 +199,7 @@ export async function uploadChecker(
                 continue;
               }
 
-              const index = test.index ? test.index : takeNextIndex();
+              const index = indexes[position] ?? takeNextIndex();
               try {
                 await sdk.saveCheckerTest(
                   problemId,

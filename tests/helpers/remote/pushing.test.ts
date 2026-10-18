@@ -554,6 +554,61 @@ describe('pushing.ts', () => {
       expect(indexes).toEqual([2, 1, 4, 3]);
     });
 
+    it('should treat a string index as declared and send it as a number', async () => {
+      const { sdk, mocks } = buildSdk();
+      const t = { input: 'i', output: 'o', answer: 'a', expectedVerdict: 'OK' };
+      const cfg = checkerCfgWithTests([t, t, { ...t, index: '2' }]);
+
+      await pushing.uploadChecker(sdk, 1, 'dir', cfg);
+
+      const indexes = mocks.saveCheckerTest.mock.calls.map(c => c[1] as number);
+      expect(indexes).toEqual([1, 3, 2]);
+    });
+
+    it.each([0, -1, 1.5, 'abc', ''])(
+      'should warn and renumber a checker test with invalid index %j',
+      async bad => {
+        const { sdk, mocks } = buildSdk();
+        const t = {
+          input: 'i',
+          output: 'o',
+          answer: 'a',
+          expectedVerdict: 'OK',
+        };
+        const cfg = checkerCfgWithTests([{ ...t, index: bad }, t]);
+
+        await pushing.uploadChecker(sdk, 1, 'dir', cfg);
+
+        const indexes = mocks.saveCheckerTest.mock.calls.map(
+          c => c[1] as number
+        );
+        expect(indexes).toEqual([1, 2]);
+        // eslint-disable-next-line @typescript-eslint/unbound-method
+        expect(fmt.warning).toHaveBeenCalledWith(
+          expect.stringContaining('Checker test #1 has an invalid index')
+        );
+      }
+    );
+
+    it('should warn when two checker tests declare the same index', async () => {
+      const { sdk, mocks } = buildSdk();
+      const t = { input: 'i', output: 'o', answer: 'a', expectedVerdict: 'OK' };
+      const cfg = checkerCfgWithTests([
+        { ...t, index: 2 },
+        { ...t, index: 2 },
+        t,
+      ]);
+
+      await pushing.uploadChecker(sdk, 1, 'dir', cfg);
+
+      const indexes = mocks.saveCheckerTest.mock.calls.map(c => c[1] as number);
+      expect(indexes).toEqual([2, 2, 1]);
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(fmt.warning).toHaveBeenCalledWith(
+        expect.stringContaining('Checker test #2 repeats index 2')
+      );
+    });
+
     it('should warn and continue when one checker test fails to upload', async () => {
       const { sdk, mocks } = buildSdk();
       mocks.saveCheckerTest
