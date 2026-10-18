@@ -527,7 +527,7 @@ export async function uploadTestsets(
       // not cwd, so push works from any directory.
       const scriptText = readScriptText(testset, problemDir);
 
-      await clearTestset(sdk, problemId, testset.name);
+      await clearTestset(sdk, problemId, testset.name, failures);
 
       if (testset.groupsEnabled) {
         try {
@@ -643,7 +643,8 @@ export async function updateProblemInfo(
 async function clearTestset(
   sdk: PolygonSDK,
   problemId: number,
-  testsetName: string
+  testsetName: string,
+  failures: string[]
 ): Promise<void> {
   const allPromises = [
     sdk.enableGroups(problemId, testsetName, false),
@@ -656,6 +657,7 @@ async function clearTestset(
     fmt.warning(
       `  ⚠️  Failed to clear testset: ${testsetName}: ${describeError(error)}`
     );
+    recordFailure(failures, `testset ${testsetName} clear`, error);
   }
 }
 
