@@ -440,17 +440,24 @@ describe('pushing.ts', () => {
       ]);
     });
 
-    it('should record a failed validator test upload', async () => {
+    it('should record each failed validator test upload and keep going', async () => {
       const { sdk, mocks } = buildSdk();
       mockedExistsSync.mockReturnValue(true);
       mockReadFileSyncWith(p =>
         String(p).includes('tests.json')
           ? JSON.stringify({
-              tests: [{ input: '1', expectedVerdict: 'VALID' }],
+              tests: [
+                { input: '1', expectedVerdict: 'VALID' },
+                { input: '2', expectedVerdict: 'VALID' },
+                { input: '-1', expectedVerdict: 'INVALID' },
+              ],
             })
           : 'code'
       );
-      mocks.saveValidatorTest.mockRejectedValue(new Error('bad test'));
+      mocks.saveValidatorTest
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(new Error('bad test'))
+        .mockResolvedValueOnce(undefined);
       const failures: string[] = [];
       const cfg = asConfig({
         validator: {
@@ -467,7 +474,14 @@ describe('pushing.ts', () => {
         failures
       );
       expect(result).toBe(1);
-      expect(failures).toEqual(['validator tests: bad test']);
+      expect(mocks.saveValidatorTest).toHaveBeenCalledTimes(3);
+      expect(mocks.saveValidatorTest).toHaveBeenLastCalledWith(
+        1,
+        3,
+        '-1',
+        'INVALID'
+      );
+      expect(failures).toEqual(['validator test #2: bad test']);
     });
 
     it('should record a failed validator upload', async () => {

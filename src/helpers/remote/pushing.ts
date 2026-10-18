@@ -329,17 +329,29 @@ export async function uploadValidator(
 
           if (testsData.tests) {
             let index: number = 1;
-            for (const test of testsData.tests) {
+            for (const [position, test] of testsData.tests.entries()) {
               if (test.input && test.expectedVerdict) {
                 const validatorVerdict = test.expectedVerdict as
                   | 'VALID'
                   | 'INVALID';
-                await sdk.saveValidatorTest(
-                  problemId,
-                  test.index ? test.index : index++,
-                  normalizeLineEndingsFromSystemToRemote(test.input),
-                  validatorVerdict
-                );
+                // One rejected test must not stop the rest from uploading.
+                try {
+                  await sdk.saveValidatorTest(
+                    problemId,
+                    test.index ? test.index : index++,
+                    normalizeLineEndingsFromSystemToRemote(test.input),
+                    validatorVerdict
+                  );
+                } catch (error) {
+                  fmt.warning(
+                    `  ⚠️  Failed to upload validator test #${position + 1}: ${describeError(error)}`
+                  );
+                  recordFailure(
+                    failures,
+                    `validator test #${position + 1}`,
+                    error
+                  );
+                }
               }
             }
           }
