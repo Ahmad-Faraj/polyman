@@ -481,6 +481,97 @@ describe('pushing.ts', () => {
       const result = await pushing.uploadChecker(sdk, 1, 'dir', cfg);
       expect(result).toBe(1);
       expect(mocks.saveCheckerTest).not.toHaveBeenCalled();
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(fmt.warning).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'Skipped checker test #1: missing output, answer, expectedVerdict'
+        )
+      );
+    });
+
+    function checkerCfgWithTests(tests: unknown[]): ConfigFile {
+      mockedExistsSync.mockReturnValue(true);
+      mockReadFileSyncWith(p =>
+        String(p).includes('tests.json') ? JSON.stringify({ tests }) : 'code'
+      );
+      return asConfig({
+        checker: {
+          name: 'c',
+          source: 'check.cpp',
+          testsFilePath: 'tests.json',
+        },
+      });
+    }
+
+    it('should number checker tests without an index (template format)', async () => {
+      const { sdk, mocks } = buildSdk();
+      const cfg = checkerCfgWithTests([
+        {
+          input: 'MY BE INGNORED',
+          output: 'YeS',
+          answer: 'YES',
+          expectedVerdict: 'OK',
+        },
+      ]);
+
+      await pushing.uploadChecker(sdk, 1, 'dir', cfg);
+
+      expect(mocks.saveCheckerTest).toHaveBeenCalledTimes(1);
+      expect(mocks.saveCheckerTest).toHaveBeenCalledWith(
+        1,
+        1,
+        'MY BE INGNORED',
+        'YeS',
+        'YES',
+        'OK'
+      );
+    });
+
+    it('should number several checker tests without an index as 1, 2, 3', async () => {
+      const { sdk, mocks } = buildSdk();
+      const t = { input: 'i', output: 'o', answer: 'a', expectedVerdict: 'OK' };
+      const cfg = checkerCfgWithTests([t, t, t]);
+
+      await pushing.uploadChecker(sdk, 1, 'dir', cfg);
+
+      const indexes = mocks.saveCheckerTest.mock.calls.map(c => c[1] as number);
+      expect(indexes).toEqual([1, 2, 3]);
+    });
+
+    it('should not reuse an index that another checker test declares', async () => {
+      const { sdk, mocks } = buildSdk();
+      const t = { input: 'i', output: 'o', answer: 'a', expectedVerdict: 'OK' };
+      const cfg = checkerCfgWithTests([
+        t,
+        { ...t, index: 1 },
+        t,
+        { ...t, index: 3 },
+      ]);
+
+      await pushing.uploadChecker(sdk, 1, 'dir', cfg);
+
+      const indexes = mocks.saveCheckerTest.mock.calls.map(c => c[1] as number);
+      expect(indexes).toEqual([2, 1, 4, 3]);
+    });
+
+    it('should warn and continue when one checker test fails to upload', async () => {
+      const { sdk, mocks } = buildSdk();
+      mocks.saveCheckerTest
+        .mockRejectedValueOnce(new Error('boom'))
+        .mockResolvedValue(undefined);
+      const t = { input: 'i', output: 'o', answer: 'a', expectedVerdict: 'OK' };
+      const cfg = checkerCfgWithTests([t, t]);
+
+      const result = await pushing.uploadChecker(sdk, 1, 'dir', cfg);
+
+      expect(result).toBe(1);
+      expect(mocks.saveCheckerTest).toHaveBeenCalledTimes(2);
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(fmt.warning).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to upload checker test #1')
+      );
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(fmt.warning).toHaveBeenCalledWith(expect.stringContaining('boom'));
     });
 
     it('should skip tests upload when testsFilePath does not exist on disk', async () => {

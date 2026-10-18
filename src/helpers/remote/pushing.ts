@@ -151,25 +151,51 @@ export async function uploadChecker(
         try {
           const testsContent = fs.readFileSync(testsPath, 'utf-8');
           const testsData = JSON.parse(testsContent) as {
-            tests?: Array<CheckerTest>;
+            tests?: Array<Partial<CheckerTest>>;
           };
           if (testsData.tests) {
+            // Tests without an index get the next number that no test
+            // declares explicitly, so they can't overwrite one another.
+            const declared = new Set<number>();
             for (const test of testsData.tests) {
+              if (test.index) declared.add(test.index);
+            }
+            let nextIndex = 1;
+            const takeNextIndex = (): number => {
+              while (declared.has(nextIndex)) nextIndex++;
+              return nextIndex++;
+            };
+
+            for (const [position, test] of testsData.tests.entries()) {
+              const missing = (
+                ['input', 'output', 'answer', 'expectedVerdict'] as const
+              ).filter(field => !test[field]);
               if (
-                test.index &&
-                test.input &&
-                test.output &&
-                test.answer &&
-                test.expectedVerdict
+                missing.length > 0 ||
+                !test.input ||
+                !test.output ||
+                !test.answer ||
+                !test.expectedVerdict
               ) {
-                const checkerVerdict = test.expectedVerdict;
+                fmt.warning(
+                  `  ⚠️  Skipped checker test #${position + 1}: missing ${missing.join(', ')}`
+                );
+                continue;
+              }
+
+              const index = test.index ? test.index : takeNextIndex();
+              try {
                 await sdk.saveCheckerTest(
                   problemId,
-                  test.index,
+                  index,
                   normalizeLineEndingsFromSystemToRemote(test.input),
                   normalizeLineEndingsFromSystemToRemote(test.output),
                   normalizeLineEndingsFromSystemToRemote(test.answer),
-                  checkerVerdict
+                  test.expectedVerdict
+                );
+              } catch (error) {
+                fmt.warning(
+                  `  ⚠️  Failed to upload checker test #${position + 1}: ${describeError(error)}`
                 );
               }
             }
