@@ -33,7 +33,8 @@ export function outcomeOf(report) {
  * That rule needs two or more expected OK tests; with one, a single slow test
  * stays a warning. polyman stops a solution at its first TLE, so a report cut
  * short right after an expected OK that came back TLE is judged on the tests
- * that ran, and the rest are a warning.
+ * that ran, and the rest are a warning, if an earlier expected OK still came
+ * back OK.
  */
 export function compare(expected, actual) {
   const diffs = [];
@@ -91,7 +92,16 @@ export function compare(expected, actual) {
       }
     });
     const notRun = want.verdicts.length - wantVerdicts.length;
-    if (notRun)
+    // the excuse needs an expected OK that still came back OK: a solution cut
+    // short with none may be a broken limit, not a slow runner
+    if (
+      notRun &&
+      !wantVerdicts.some((v, i) => v.endsWith(':OK') && got.verdicts[i] === v)
+    )
+      fail(
+        `solution ${name}: cut short at ${got.verdicts.at(-1)} with no expected OK test still OK (a broken limit, not a slow runner)`
+      );
+    else if (notRun)
       warn(
         `solution ${name}: ${notRun} tests after ${wantVerdicts.at(-1).replace(/:OK$/, '')} did not run (timing, not judged)`
       );

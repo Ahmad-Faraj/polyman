@@ -107,7 +107,7 @@ describe('compare', () => {
 
   // polyman stops a solution at its first TLE, so a slow test cuts the report
   // short: the tests after it never ran (!4 review, corpus/lib.mjs:55)
-  it.each([1, 2, 3])(
+  it.each([2, 3])(
     'excuses a slow test %i that cut the report short',
     slowTest => {
       const want = expected({ main });
@@ -125,6 +125,18 @@ describe('compare', () => {
       ]);
     }
   );
+
+  // a broken time limit times out every correct solution on its first test:
+  // nothing in the report shows the limit works, so it fails
+  it('fails a report cut short on its first test', () => {
+    const want = expected({ main });
+    const got = structuredClone(want);
+    got.solutions.main.verdicts = ['tests#1:TLE'];
+    got.solutions.main.matchesTag = false;
+    expect(failures(compare(want, got))).toContain(
+      'solution main: cut short at tests#1:TLE with no expected OK test still OK (a broken limit, not a slow runner)'
+    );
+  });
 
   it('fails a short report that does not end on a slow test', () => {
     const want = expected({ main });
