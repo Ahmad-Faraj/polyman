@@ -38,6 +38,8 @@ variables:
 include:
   - template: Jobs/SAST.gitlab-ci.yml
   - template: Jobs/Secret-Detection.gitlab-ci.yml
+  # known advisories in package-lock.json; autonomy:assess reads its report too
+  - template: Jobs/Dependency-Scanning.gitlab-ci.yml
   # risk score, guard and flow checks on merge requests (engine/README.md)
   - local: engine/ci/autonomy.gitlab-ci.yml
   # the verify web service (#19): its tests, image, sample check and Cloud Run deploy
