@@ -380,6 +380,29 @@ describe('parseGeneratorScript - ${} inside @group comments', () => {
   });
 });
 
+describe('parseGeneratorScript - #{} and square-bracket tags are rejected', () => {
+  it('rejects #{...} numeric interpolation', () => {
+    expect(() =>
+      parser.parseGeneratorScript('gen 1 > $\ngen #{1} > $')
+    ).toThrow('Unsupported FreeMarker construct #{...} on line 2');
+  });
+
+  it('rejects [#list ...] square-bracket directives', () => {
+    expect(() =>
+      parser.parseGeneratorScript('[#list 1..3 as i]\ngen ${i} > $\n[/#list]')
+    ).toThrow('Unsupported FreeMarker construct [#list');
+    expect(() => parser.parseGeneratorScript('gen 1 > $\n[/#list]')).toThrow(
+      /\[\/#list.* on line 2/
+    );
+  });
+
+  it('rejects [@macro] calls', () => {
+    expect(() => parser.parseGeneratorScript('[@m/]\ngen 1 > $')).toThrow(
+      'Unsupported FreeMarker construct [@m (square-bracket syntax) on line 1'
+    );
+  });
+});
+
 describe('validateGeneratorReferences', () => {
   it('passes when all generators exist', () => {
     const lines = parser.parseGeneratorScript('gen 1 > 1\nother 2 > 2');

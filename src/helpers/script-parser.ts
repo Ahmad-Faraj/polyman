@@ -25,8 +25,9 @@
  *                                  minus. Anything else is rejected, never
  *                                  passed through literally.
  *
- * Any other FreeMarker directive (`<#if>`, `<#macro>`, `<@x>`, ...) is
- * rejected with an error that names it.
+ * Any other FreeMarker directive (`<#if>`, `<#macro>`, `<@x>`, ...), the
+ * `#{...}` numeric interpolation and the square-bracket tag syntax (`[#list]`,
+ * `[@x]`) are rejected with an error that names them.
  *
  * Generator names with file extensions (`gen.exe`, `gen.cpp`) are rejected.
  */
@@ -234,7 +235,7 @@ type FmListNode = Extract<FmPiece, { kind: 'list' }>;
 class FmExprError extends Error {}
 
 const FM_TOKEN_RE =
-  /(<#--[\s\S]*?-->)|<(\/?)([#@])([A-Za-z_][\w.]*)([^>]*)>|\$\{([^}]*)\}/g;
+  /(<#--[\s\S]*?-->)|<(\/?)([#@])([A-Za-z_][\w.]*)([^>]*)>|\$\{([^}]*)\}|(#\{)|(\[\/?[#@][\w.]*)/g;
 
 function lineAt(text: string, offset: number): number {
   let line = 1;
@@ -294,6 +295,18 @@ function parseFreeMarker(script: string): FmPiece[] {
       flush();
       target().push({ kind: 'expr', source: m[6], line });
       continue;
+    }
+
+    if (m[7] !== undefined) {
+      throw new Error(
+        `Unsupported FreeMarker construct #{...} on line ${line}`
+      );
+    }
+    if (m[8] !== undefined) {
+      throw new Error(
+        `Unsupported FreeMarker construct ${m[8]} (square-bracket syntax) ` +
+          `on line ${line}`
+      );
     }
 
     const closing = m[2] === '/';
