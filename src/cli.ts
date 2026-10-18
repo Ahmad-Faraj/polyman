@@ -7,7 +7,7 @@
  */
 
 import './node-version-check';
-import { Command } from 'commander';
+import { Argument, Command } from 'commander';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
@@ -33,6 +33,12 @@ import {
   cacheStatusAction,
   cacheClearAction,
 } from './actions';
+import {
+  SHELLS,
+  generateCompletionScript,
+  isCompletionKind,
+  readCompletionNames,
+} from './completion';
 import { printComprehensiveHelp } from './help';
 import { setCacheEnabled } from './helpers/compile-cache';
 
@@ -405,6 +411,41 @@ cache
   .command('clear')
   .description('Delete the compilation cache (forces recompilation)')
   .action(cacheClearAction);
+
+// ============================================================================
+// SHELL COMPLETION COMMANDS
+// ============================================================================
+
+/**
+ * Command: completion <shell>
+ * Prints a completion script for bash, zsh or fish to stdout.
+ *
+ * @example
+ * eval "$(polyman completion bash)"
+ * polyman completion fish > ~/.config/fish/completions/polyman.fish
+ */
+program
+  .command('completion')
+  .description('Print a shell completion script (bash, zsh or fish)')
+  .addArgument(new Argument('<shell>', 'Target shell').choices(SHELLS))
+  .action((shell: string) => {
+    process.stdout.write(generateCompletionScript(program, shell));
+  });
+
+/**
+ * Command: __complete <kind> [testset]
+ * Hidden helper that the completion scripts call to list testset, group,
+ * solution or generator names from Config.json, one per line. It prints
+ * nothing, and never fails, when Config.json is missing or invalid.
+ */
+program
+  .command('__complete <kind> [testset]', { hidden: true })
+  .description('List names from Config.json for shell completion')
+  .action((kind: string, testset: string | undefined) => {
+    if (!isCompletionKind(kind)) return;
+    const names = readCompletionNames(kind, testset);
+    if (names.length > 0) process.stdout.write(`${names.join('\n')}\n`);
+  });
 
 // ============================================================================
 // REMOTE COMMANDS
