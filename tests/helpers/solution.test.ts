@@ -671,6 +671,45 @@ describe('solution.ts', () => {
       ).rejects.toThrow('Error during solution comparison process');
     });
 
+    it('judges every test when the solution is wrong on more than one', async () => {
+      const mainSol: LocalSolution = {
+        name: 'm',
+        source: '',
+        tag: 'MA',
+        sourceType: 'cpp.g++17',
+      };
+      const targetSol: LocalSolution = {
+        name: 'w',
+        source: '',
+        tag: 'WA',
+        sourceType: 'cpp.g++17',
+      };
+      const spy = vi.spyOn(report, 'updateTestVerdict');
+
+      mockedGetTestFiles.mockReturnValue(['t1.txt', 't2.txt', 't3.txt']);
+      mockedRunChecker.mockRejectedValue(new Error('Wrong Answer'));
+
+      await solution.startTheComparisonProcess(
+        { name: 'chk', source: 'chk.cpp' },
+        mainSol,
+        targetSol,
+        [{ name: 'ts1' }]
+      );
+
+      expect(mockedRunChecker).toHaveBeenCalledTimes(3);
+      expect(spy).toHaveBeenCalledTimes(3);
+      for (const index of [1, 2, 3]) {
+        expect(spy).toHaveBeenCalledWith(
+          targetSol,
+          'ts1',
+          index,
+          'WA',
+          'Wrong Answer'
+        );
+      }
+      spy.mockRestore();
+    });
+
     it('should handle skip logic via checkIfShouldSkipRest interception', () => {
       // Placeholder
     });

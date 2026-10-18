@@ -20,6 +20,9 @@
  * Usage:
  *   node corpus/polygon-roundtrip.mjs [--polyman dist/cli.js] [--problem sum-parity]
  *                                     [--problem-id N] [--junit corpus/out/junit-polygon.xml]
+ *   node corpus/polygon-roundtrip.mjs --all [--polyman ...] [--junit ...]
+ *     every problem with a Polygon problem in corpus/polygon.json; the others
+ *     are listed as skipped (CI uses this)
  */
 
 import { spawnSync } from 'node:child_process';
@@ -32,7 +35,9 @@ import { fileURLToPath } from 'node:url';
 import {
   freshnessCheck,
   freshnessMarker,
+  inputCountCheck,
   nonEmpty,
+  polygonTargets,
   pushChecks,
   scriptLines,
   text,
@@ -65,8 +70,13 @@ function parseArgs(argv) {
     else if (arg === '--problem-id') args.problemId = valueOf(argv, ++i, arg);
     else if (arg === '--junit')
       args.junit = path.resolve(valueOf(argv, ++i, arg));
+    else if (arg === '--all') args.all = true;
     else throw new Error(`Unknown argument: ${arg}`);
   }
+  if (args.all && argv.some(a => a === '--problem' || a === '--problem-id'))
+    throw new Error(
+      '--all takes the problems and their IDs from corpus/polygon.json'
+    );
   return args;
 }
 
@@ -318,7 +328,7 @@ async function compare(creds, problemId, dir, config) {
  * endings aside). testlib's random generator is seeded from the generator's
  * arguments, so this holds across platforms when the script expands the same.
  */
-function inputParity(creds, problemId, dir, polyman, testset) {
+async function inputParity(creds, problemId, dir, polyman, testset) {
   const generated = spawnSync(
     process.execPath,
     [polyman, 'generate', '--testset', testset],
@@ -326,19 +336,24 @@ function inputParity(creds, problemId, dir, polyman, testset) {
   );
   const folder = path.join(dir, 'testsets', testset);
   if (generated.status !== 0 || !fs.existsSync(folder)) {
-    return Promise.resolve([
+    return [
       {
         name: `inputs ${testset}`,
         ok: false,
         detail: `polyman generate failed: ${(generated.stderr || generated.stdout || '').slice(-300)}`,
       },
-    ]);
+    ];
   }
   const files = fs
     .readdirSync(folder)
     .filter(f => /^test\d+\.txt$/.test(f))
     .sort((a, b) => parseInt(a.slice(4)) - parseInt(b.slice(4)));
-  return Promise.all(
+  const remoteTests = await polygon(creds, 'problem.tests', {
+    problemId,
+    testset,
+    noInputs: true,
+  });
+  const inputs = await Promise.all(
     files.map(async f => {
       const index = parseInt(f.slice(4));
       const local = text(fs.readFileSync(path.join(folder, f), 'utf8'));
@@ -357,6 +372,10 @@ function inputParity(creds, problemId, dir, polyman, testset) {
       };
     })
   );
+  // no inputs: nonEmpty() reports that, a count check would hide it
+  return inputs.length
+    ? [...inputs, inputCountCheck(testset, files.length, remoteTests.length)]
+    : inputs;
 }
 
 async function scriptParity(creds, problemId, polyman, testset) {
@@ -434,9 +453,62 @@ function junit(file, checks, pushStatus) {
   );
 }
 
+/**
+ * --all: every corpus problem that has a Polygon problem in corpus/polygon.json,
+ * one JUnit file each (junit-polygon-<problem>.xml for the default --junit). A
+ * problem without one is reported as skipped: creating a Polygon problem for it
+ * is a person's decision, not the round trip's.
+ */
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const creds = credentials();
+  if (!args.all) process.exit((await roundTrip(args, creds)) ? 1 : 0);
+
+  const { problems: ids } = JSON.parse(
+    fs.readFileSync(path.join(CORPUS, 'polygon.json'), 'utf8')
+  );
+  const problems = fs
+    .readdirSync(path.join(CORPUS, 'problems'))
+    .filter(name =>
+      fs.statSync(path.join(CORPUS, 'problems', name)).isDirectory()
+    );
+  const { targets, skipped } = polygonTargets(problems, ids);
+  for (const name of skipped)
+    console.log(`SKIPPED ${name}: no Polygon problem in corpus/polygon.json`);
+  junitSkipped(args.junit.replace(/\.xml$/, '-skipped.xml'), skipped);
+  if (!targets.length) {
+    console.error('no corpus problem has a Polygon problem to round-trip');
+    process.exit(1);
+  }
+  let bad = 0;
+  for (const { problem, problemId } of targets) {
+    console.log(`\n=== ${problem}, Polygon problem ${problemId}`);
+    const junitFile = args.junit.replace(/\.xml$/, `-${problem}.xml`);
+    bad += await roundTrip(
+      { ...args, problem, problemId, junit: junitFile },
+      creds
+    );
+  }
+  process.exit(bad ? 1 : 0);
+}
+
+/** The problems --all left out, as skipped cases in the test report. */
+function junitSkipped(file, skipped) {
+  const cases = skipped
+    .map(
+      name =>
+        `  <testcase classname="polygon-roundtrip" name="${name}"><skipped message="no Polygon problem in corpus/polygon.json"/></testcase>`
+    )
+    .join('\n');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(
+    file,
+    `<?xml version="1.0" encoding="UTF-8"?>\n<testsuite name="polygon-roundtrip-skipped" tests="${skipped.length}" skipped="${skipped.length}">\n${cases}\n</testsuite>\n`
+  );
+}
+
+/** One problem's round trip; returns how many checks failed. */
+async function roundTrip(args, creds) {
   const source = path.join(CORPUS, 'problems', args.problem);
   const dir = fs.mkdtempSync(
     path.join(os.tmpdir(), `roundtrip-${args.problem}-`)
@@ -456,7 +528,7 @@ async function main() {
     );
   }
 
-  // Polygon problem 605330 is reused across runs: mark this run's upload so a
+  // The Polygon problem is reused across runs: mark this run's upload so a
   // push that uploads nothing can't pass on what the last run left there. The
   // job ID, not the pipeline ID: a retried job must not reuse the marker.
   const marker = freshnessMarker(
@@ -531,7 +603,7 @@ async function main() {
   console.log(
     `${checks.length - bad}/${checks.length} checks match (Polygon problem ${config.problemId}, push exit ${pushed.status})`
   );
-  process.exit(bad ? 1 : 0);
+  return bad;
 }
 
 main().catch(error => {

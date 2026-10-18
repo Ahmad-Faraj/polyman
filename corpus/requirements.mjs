@@ -6,11 +6,13 @@
  *
  * A rule with no evidence in this run (no pinned test it applies to, or a round
  * trip that stopped before comparing inputs) is left out, so the Requirement
- * keeps its last state instead of passing unseen.
+ * keeps its last state instead of passing unseen. Evidence that can't be
+ * trusted (a failed or stale push, a testset compared only in part) fails it.
  *
  * Usage:
  *   node corpus/requirements.mjs corpus  [corpus/out/summary.json] [out.json]
  *   node corpus/requirements.mjs polygon [corpus/out/junit-polygon.xml] [out.json]
+ *     (without an input: every corpus/out/junit-polygon*.xml the round trip wrote)
  */
 
 import fs from 'node:fs';
@@ -30,6 +32,13 @@ export const REQUIREMENTS = {
 const verdictOf = test => test.split(':').pop();
 const MISMATCH = /^solution (.+?): expected (\S+), got (\S+)$/;
 const TIMING = /^solution (.+?): (\S+) came back (\S+) \(timing, not judged\)$/;
+
+/** True when a pinned solution is rejected on a test after an earlier rejection. */
+const pinsUnjudged = want =>
+  Object.values(want?.solutions ?? {}).some(
+    ({ verdicts }) =>
+      verdicts.filter(test => verdictOf(test) !== 'OK').length > 1
+  );
 
 /**
  * What polyman reported per solution, rebuilt from the pinned verdicts and the
@@ -76,7 +85,7 @@ export function corpusRequirements(summary, expected) {
       // polyman judged nothing here: every rule this problem tests fails
       if (has('PE')) judge('pe', false);
       if (has('WA')) judge('wa', false);
-      judge('unjudged', false);
+      if (pinsUnjudged(want)) judge('unjudged', false);
       continue;
     }
     for (const [name, { verdicts }] of Object.entries(want.solutions)) {
@@ -104,9 +113,13 @@ const unescape = s =>
     (_, e) => ({ lt: '<', gt: '>', quot: '"', amp: '&' })[e]
   );
 
+/** Round-trip checks that fail when Polygon may still hold an earlier upload. */
+const PUSH_CHECKS = new Set(['push succeeded', 'push is fresh']);
+
 /**
- * The platform rule from the Polygon round trip's JUnit report: every
- * generated input matches Polygon's, and at least one was compared.
+ * The platform rule from the Polygon round trip's JUnit report: the push
+ * succeeded and is fresh, every generated input matches Polygon's, and each
+ * compared testset has as many tests as Polygon (`inputs <testset> count`).
  */
 export function polygonRequirements(junitXml) {
   const cases = [
@@ -119,8 +132,18 @@ export function polygonRequirements(junitXml) {
   }));
   const inputs = cases.filter(c => /^inputs? /.test(c.name));
   if (!inputs.length) return {};
+  const pushed = cases.every(c => c.ok || !PUSH_CHECKS.has(c.name));
+  const compared = new Set(
+    inputs.map(c => /^input (.+) #\d+$/.exec(c.name)?.[1]).filter(Boolean)
+  );
+  const counted = new Set(
+    inputs.map(c => /^inputs (.+) count$/.exec(c.name)?.[1]).filter(Boolean)
+  );
   const ok =
-    inputs.every(c => c.ok) && inputs.some(c => /^input /.test(c.name));
+    pushed &&
+    inputs.every(c => c.ok) &&
+    compared.size > 0 &&
+    [...compared].every(testset => counted.has(testset));
   return { [REQUIREMENTS.platform.iid]: ok ? 'passed' : 'failed' };
 }
 
@@ -147,10 +170,23 @@ function main() {
     }
     report = corpusRequirements(summary, expected);
   } else if (mode === 'polygon') {
-    const file = input ?? path.join(CORPUS, 'out', 'junit-polygon.xml');
-    report = fs.existsSync(file)
-      ? polygonRequirements(fs.readFileSync(file, 'utf8'))
-      : {};
+    // by default every problem the round trip pushed (`--all` writes one
+    // junit-polygon-<problem>.xml each), not the list of skipped ones
+    const reports = path.join(CORPUS, 'out');
+    const files = input
+      ? [input]
+      : fs.existsSync(reports)
+        ? fs
+            .readdirSync(reports)
+            .filter(f => /^junit-polygon(-.+)?\.xml$/.test(f))
+            .filter(f => f !== 'junit-polygon-skipped.xml')
+            .map(f => path.join(reports, f))
+        : [];
+    const xml = files
+      .filter(f => fs.existsSync(f))
+      .map(f => fs.readFileSync(f, 'utf8'))
+      .join('\n');
+    report = xml ? polygonRequirements(xml) : {};
   } else {
     throw new Error('usage: requirements.mjs corpus|polygon [input] [output]');
   }

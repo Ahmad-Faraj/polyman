@@ -23,8 +23,6 @@ components:
     inputs:
       - from: "context:project_id"
         as: "project_id"
-      - from: "context:goal"
-        as: "goal"
     toolset:
       - "get_merge_request"
       - "list_merge_request_diffs"
@@ -47,8 +45,6 @@ components:
     inputs:
       - from: "context:project_id"
         as: "project_id"
-      - from: "context:goal"
-        as: "goal"
     toolset:
       - "get_merge_request"
       - "list_merge_request_diffs"
@@ -72,8 +68,6 @@ components:
     inputs:
       - from: "context:project_id"
         as: "project_id"
-      - from: "context:goal"
-        as: "goal"
     toolset:
       - "get_merge_request"
       - "list_merge_request_diffs"
@@ -155,8 +149,12 @@ prompts:
            request IID).
            For a payload, only continue when object_attributes.source is
            "merge_request_event" and the payload has a merge_request; otherwise
-           answer "skipped: not an MR pipeline" and stop. Otherwise load that MR and
-           review its current head. If the MR's source_project_id is not its target_project_id, it comes from a
+           answer "skipped: not an MR pipeline" and stop. If the payload's
+           merge_request title starts with "Draft:", "[Draft]" or "(Draft)",
+           answer "skipped: draft MR, mention me when it's ready" and stop
+           before loading anything: a draft changes often, and each full review
+           costs a session. A mention still reviews a draft. Otherwise load that
+           MR and review its current head. If the MR's source_project_id is not its target_project_id, it comes from a
            fork: answer "skipped: fork MR, a person reviews it" and stop.
            If the comment that mentions you was written by an account that isn't
            in go_ahead.people in .autonomy.yml (an agent, GitLabDuo, someone
@@ -277,6 +275,14 @@ prompts:
              It only sends traffic to these routes, so only pick from them:
              @@measured_routes@@. If what matters isn't covered, or nothing is
              measured yet, say so in one line and leave the watch list empty ([]).
+           - "After merge", only when the diff touches service/, src/, assets/,
+             template/, package.json or package-lock.json (the files that make
+             the merge release the verify service): one line saying that the
+             merge's pipeline on the default branch stops at the manual job
+             service:promote:production, that it waits for a person to click it
+             once service:check:candidate has passed (the production check and
+             the rollback run on their own after that), and mentioning
+             @@maintainers@@ so GitLab notifies them. Leave it out otherwise.
            Then put everything else inside
            <details><summary>Details: findings, evidence, risk</summary> ... </details>
            with a blank line after the summary line, so it stays readable for
@@ -345,9 +351,9 @@ prompts:
       user: |
         Project ID: {{project_id}}
 
-        The lead reviewer's instructions for you are in the conversation. For
-        reference, this is the pipeline event that started the review:
-        {{goal}}
+        The lead reviewer's instructions for you are in the conversation: the
+        MR, the head commit and what to focus on. (The pipeline event isn't
+        repeated here: it's long, and it would be sent again with every step.)
     params:
       timeout: 600
 
@@ -362,6 +368,10 @@ prompts:
         - Read the diff and the surrounding code. Look for real problems: bugs,
           missed edge cases, error handling, confusing code.
           Ignore style nits that a formatter would handle.
+        - Look hard at errors that disappear: a catch that returns a default or
+          only logs, a catch wider than the error it means, a fallback that
+          turns a failure into success. In a check, a gate or a guard, a
+          failure that passes quietly is P1.
         - For each real problem, leave one inline comment on the exact line with
           create_merge_request_diff_note: what's wrong and what to do instead, like a
           colleague would. Skip style nits.
@@ -383,9 +393,9 @@ prompts:
       user: |
         Project ID: {{project_id}}
 
-        The lead reviewer's instructions for you are in the conversation. For
-        reference, this is the pipeline event that started the review:
-        {{goal}}
+        The lead reviewer's instructions for you are in the conversation: the
+        MR, the head commit and what to focus on. (The pipeline event isn't
+        repeated here: it's long, and it would be sent again with every step.)
     params:
       timeout: 600
 
@@ -416,9 +426,9 @@ prompts:
       user: |
         Project ID: {{project_id}}
 
-        The lead reviewer's instructions for you are in the conversation. For
-        reference, this is the pipeline event that started the review:
-        {{goal}}
+        The lead reviewer's instructions for you are in the conversation: the
+        MR, the head commit and what to focus on. (The pipeline event isn't
+        repeated here: it's long, and it would be sent again with every step.)
     params:
       timeout: 600
 

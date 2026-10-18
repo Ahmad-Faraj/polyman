@@ -60,7 +60,7 @@ They are **Assisted**: each one proposes, waits for a person's go-ahead, and
 then acts one step. A go-ahead is a comment that mentions the flow and says
 `go-ahead`, posted after its latest proposal by a person who is not an agent
 and not the requester (the issue's or MR's author); for high and critical risk,
-governance paths and rollbacks, only the maintainer's counts. No flow starts
+governance paths and rollbacks, only a maintainer's counts (`go_ahead.maintainers`). No flow starts
 another flow. Every agent commit ends with a `Go-ahead:` trailer naming the
 note that allowed it.
 

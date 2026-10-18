@@ -127,14 +127,40 @@ describe('pushing.ts', () => {
       expect(
         pushing.resolveSourceType('sol.cpp', 'cpp.gcc14-64-msys2-g++23')
       ).toBe('cpp.gcc14-64-msys2-g++23');
-      expect(pushing.resolveSourceType('Sol.java', 'java.21')).toBe('java.21');
+      expect(pushing.resolveSourceType('Sol.java', 'java21')).toBe('java21');
+      expect(pushing.resolveSourceType('Sol.java', 'java8')).toBe('java8');
+    });
+
+    it('should reject Java types Polygon does not accept', () => {
+      for (const bad of ['java.8', 'java.11', 'java.21', 'java11', 'java17']) {
+        expect(() => pushing.resolveSourceType('Sol.java', bad)).toThrow(
+          /java8, java21/
+        );
+      }
+    });
+
+    it('should trim the declared sourceType before checking and returning it', () => {
+      expect(pushing.resolveSourceType('Sol.java', ' java21')).toBe('java21');
+      expect(pushing.resolveSourceType('Sol.java', 'java21 ')).toBe('java21');
+      expect(pushing.resolveSourceType('sol.cpp', ' cpp.g++20 ')).toBe(
+        'cpp.g++20'
+      );
+      expect(pushing.resolveSourceType('sol.py', '  ')).toBe('python.3');
+    });
+
+    it('should reject Java types that differ only by case or are bare', () => {
+      for (const bad of ['Java21', 'JAVA8', 'java', ' java.11 ']) {
+        expect(() => pushing.resolveSourceType('Sol.java', bad)).toThrow(
+          /java8, java21/
+        );
+      }
     });
 
     it('should infer from the extension when nothing is declared', () => {
       expect(pushing.resolveSourceType('sol.cpp')).toBe('cpp.g++17');
       expect(pushing.resolveSourceType('sol.cc')).toBe('cpp.g++17');
       expect(pushing.resolveSourceType('sol.CXX')).toBe('cpp.g++17');
-      expect(pushing.resolveSourceType('Sol.java')).toBe('java11');
+      expect(pushing.resolveSourceType('Sol.java')).toBe('java21');
       expect(pushing.resolveSourceType('sol.py')).toBe('python.3');
       expect(pushing.resolveSourceType('sol.c')).toBe('c.gcc11');
       expect(pushing.resolveSourceType('sol.unknown')).toBe('cpp.g++17');
@@ -190,6 +216,34 @@ describe('pushing.ts', () => {
       );
     });
 
+    it('should warn and skip a solution with an unsupported Java type, then upload the next', async () => {
+      const { sdk, mocks } = buildSdk();
+      mockedReadFileSync.mockReturnValue('code');
+      mockedExistsSync.mockReturnValue(true);
+      const cfg = asConfig({
+        solutions: [
+          { name: 'bad', source: 'Bad.java', tag: 'OK', sourceType: 'java.11' },
+          { name: 'good', source: 'sol.cpp', tag: 'MA' },
+        ],
+      });
+
+      const result = await pushing.uploadSolutions(sdk, 1, 'dir', cfg);
+
+      expect(result).toBe(1);
+      expect(mocks.saveSolution).toHaveBeenCalledTimes(1);
+      expect(mocks.saveSolution).toHaveBeenCalledWith(
+        1,
+        'sol.cpp',
+        'code',
+        'MA',
+        expect.objectContaining({ sourceType: 'cpp.g++17' })
+      );
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(fmt.warning).toHaveBeenCalledWith(
+        expect.stringContaining("Unsupported Java sourceType 'java.11'")
+      );
+    });
+
     it('should upload .cc solutions as C++', async () => {
       const { sdk, mocks } = buildSdk();
       mockedReadFileSync.mockReturnValue('code');
@@ -240,7 +294,7 @@ describe('pushing.ts', () => {
         'Sol.java',
         'code',
         'OK',
-        expect.objectContaining({ sourceType: 'java11' })
+        expect.objectContaining({ sourceType: 'java21' })
       );
     });
 
@@ -644,6 +698,21 @@ describe('pushing.ts', () => {
       expect(mocks.setChecker).toHaveBeenCalledWith(1, 'check.cc');
     });
 
+    it('should reject an unsupported Java checker type without calling the sdk', async () => {
+      const { sdk, mocks } = buildSdk();
+      mockedReadFileSync.mockReturnValue('code');
+      mockedExistsSync.mockReturnValue(true);
+      const cfg = asConfig({
+        checker: { name: 'check', source: 'Check.java', sourceType: 'java.11' },
+      });
+
+      await expect(pushing.uploadChecker(sdk, 1, 'dir', cfg)).rejects.toThrow(
+        /Unsupported Java sourceType 'java.11'/
+      );
+      expect(mocks.saveFile).not.toHaveBeenCalled();
+      expect(mocks.setChecker).not.toHaveBeenCalled();
+    });
+
     it('should set standard checker without uploading file', async () => {
       const { sdk, mocks } = buildSdk();
       const cfg = asConfig({
@@ -756,6 +825,185 @@ describe('pushing.ts', () => {
       const result = await pushing.uploadChecker(sdk, 1, 'dir', cfg);
       expect(result).toBe(1);
       expect(mocks.saveCheckerTest).not.toHaveBeenCalled();
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(fmt.warning).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'Skipped checker test #1: missing output, answer, expectedVerdict'
+        )
+      );
+    });
+
+    function checkerCfgWithTests(tests: unknown[]): ConfigFile {
+      mockedExistsSync.mockReturnValue(true);
+      mockReadFileSyncWith(p =>
+        String(p).includes('tests.json') ? JSON.stringify({ tests }) : 'code'
+      );
+      return asConfig({
+        checker: {
+          name: 'c',
+          source: 'check.cpp',
+          testsFilePath: 'tests.json',
+        },
+      });
+    }
+
+    it('should number checker tests without an index (template format)', async () => {
+      const { sdk, mocks } = buildSdk();
+      const cfg = checkerCfgWithTests([
+        {
+          input: 'MY BE INGNORED',
+          output: 'YeS',
+          answer: 'YES',
+          expectedVerdict: 'OK',
+        },
+      ]);
+
+      await pushing.uploadChecker(sdk, 1, 'dir', cfg);
+
+      expect(mocks.saveCheckerTest).toHaveBeenCalledTimes(1);
+      expect(mocks.saveCheckerTest).toHaveBeenCalledWith(
+        1,
+        1,
+        'MY BE INGNORED',
+        'YeS',
+        'YES',
+        'OK'
+      );
+    });
+
+    it('should number several checker tests without an index as 1, 2, 3', async () => {
+      const { sdk, mocks } = buildSdk();
+      const t = { input: 'i', output: 'o', answer: 'a', expectedVerdict: 'OK' };
+      const cfg = checkerCfgWithTests([t, t, t]);
+
+      await pushing.uploadChecker(sdk, 1, 'dir', cfg);
+
+      const indexes = mocks.saveCheckerTest.mock.calls.map(c => c[1] as number);
+      expect(indexes).toEqual([1, 2, 3]);
+    });
+
+    it('should not reuse an index that another checker test declares', async () => {
+      const { sdk, mocks } = buildSdk();
+      const t = { input: 'i', output: 'o', answer: 'a', expectedVerdict: 'OK' };
+      const cfg = checkerCfgWithTests([
+        t,
+        { ...t, index: 1 },
+        t,
+        { ...t, index: 3 },
+      ]);
+
+      await pushing.uploadChecker(sdk, 1, 'dir', cfg);
+
+      const indexes = mocks.saveCheckerTest.mock.calls.map(c => c[1] as number);
+      expect(indexes).toEqual([2, 1, 4, 3]);
+    });
+
+    it('should treat a string index as declared and send it as a number', async () => {
+      const { sdk, mocks } = buildSdk();
+      const t = { input: 'i', output: 'o', answer: 'a', expectedVerdict: 'OK' };
+      const cfg = checkerCfgWithTests([t, t, { ...t, index: '2' }]);
+
+      await pushing.uploadChecker(sdk, 1, 'dir', cfg);
+
+      const indexes = mocks.saveCheckerTest.mock.calls.map(c => c[1] as number);
+      expect(indexes).toEqual([1, 3, 2]);
+    });
+
+    it.each([0, -1, 1.5, 'abc', ''])(
+      'should warn and renumber a checker test with invalid index %j',
+      async bad => {
+        const { sdk, mocks } = buildSdk();
+        const t = {
+          input: 'i',
+          output: 'o',
+          answer: 'a',
+          expectedVerdict: 'OK',
+        };
+        const cfg = checkerCfgWithTests([{ ...t, index: bad }, t]);
+
+        await pushing.uploadChecker(sdk, 1, 'dir', cfg);
+
+        const indexes = mocks.saveCheckerTest.mock.calls.map(
+          c => c[1] as number
+        );
+        expect(indexes).toEqual([1, 2]);
+        // eslint-disable-next-line @typescript-eslint/unbound-method
+        expect(fmt.warning).toHaveBeenCalledWith(
+          expect.stringContaining('Checker test #1 has an invalid index')
+        );
+      }
+    );
+
+    it('should warn when two checker tests declare the same index', async () => {
+      const { sdk, mocks } = buildSdk();
+      const t = { input: 'i', output: 'o', answer: 'a', expectedVerdict: 'OK' };
+      const cfg = checkerCfgWithTests([
+        { ...t, index: 2 },
+        { ...t, index: 2 },
+        t,
+      ]);
+
+      await pushing.uploadChecker(sdk, 1, 'dir', cfg);
+
+      const indexes = mocks.saveCheckerTest.mock.calls.map(c => c[1] as number);
+      expect(indexes).toEqual([2, 2, 1]);
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(fmt.warning).toHaveBeenCalledWith(
+        expect.stringContaining('Checker test #2 repeats index 2')
+      );
+    });
+
+    it('should upload a checker test with an empty output', async () => {
+      const { sdk, mocks } = buildSdk();
+      const cfg = checkerCfgWithTests([
+        { input: 'i', output: '', answer: 'a', expectedVerdict: 'WA' },
+      ]);
+
+      await pushing.uploadChecker(sdk, 1, 'dir', cfg);
+
+      expect(mocks.saveCheckerTest).toHaveBeenCalledWith(
+        1,
+        1,
+        'i',
+        '',
+        'a',
+        'WA'
+      );
+    });
+
+    it('should report only the truly absent field as missing', async () => {
+      const { sdk, mocks } = buildSdk();
+      const cfg = checkerCfgWithTests([
+        { input: 'i', output: '', expectedVerdict: 'OK' },
+      ]);
+
+      await pushing.uploadChecker(sdk, 1, 'dir', cfg);
+
+      expect(mocks.saveCheckerTest).not.toHaveBeenCalled();
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(fmt.warning).toHaveBeenCalledWith(
+        expect.stringMatching(/Skipped checker test #1: missing answer$/)
+      );
+    });
+
+    it('should warn and continue when one checker test fails to upload', async () => {
+      const { sdk, mocks } = buildSdk();
+      mocks.saveCheckerTest
+        .mockRejectedValueOnce(new Error('boom'))
+        .mockResolvedValue(undefined);
+      const t = { input: 'i', output: 'o', answer: 'a', expectedVerdict: 'OK' };
+      const cfg = checkerCfgWithTests([t, t]);
+
+      const result = await pushing.uploadChecker(sdk, 1, 'dir', cfg);
+
+      expect(result).toBe(1);
+      expect(mocks.saveCheckerTest).toHaveBeenCalledTimes(2);
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(fmt.warning).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to upload checker test #1')
+      );
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(fmt.warning).toHaveBeenCalledWith(expect.stringContaining('boom'));
     });
 
     it('should skip tests upload when testsFilePath does not exist on disk', async () => {
@@ -818,6 +1066,25 @@ describe('pushing.ts', () => {
         'val.cpp',
         'code',
         { sourceType: 'cpp.gcc13-64-winlibs-g++20', checkExisting: false }
+      );
+    });
+
+    it('should return 0 and not call the sdk for an unsupported Java validator type', async () => {
+      const { sdk, mocks } = buildSdk();
+      mockedReadFileSync.mockReturnValue('code');
+      mockedExistsSync.mockReturnValue(true);
+      const cfg = asConfig({
+        validator: { name: 'val', source: 'Val.java', sourceType: 'java.11' },
+      });
+
+      const result = await pushing.uploadValidator(sdk, 1, 'dir', cfg);
+
+      expect(result).toBe(0);
+      expect(mocks.saveFile).not.toHaveBeenCalled();
+      expect(mocks.setValidator).not.toHaveBeenCalled();
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(fmt.warning).toHaveBeenCalledWith(
+        expect.stringContaining("Unsupported Java sourceType 'java.11'")
       );
     });
 
@@ -956,6 +1223,34 @@ describe('pushing.ts', () => {
       );
     });
 
+    it('should warn and skip a generator with an unsupported Java type, then upload the next', async () => {
+      const { sdk, mocks } = buildSdk();
+      mockedReadFileSync.mockReturnValue('code');
+      mockedExistsSync.mockReturnValue(true);
+      const cfg = asConfig({
+        generators: [
+          { name: 'bad', source: 'Gen.java', sourceType: 'java.21' },
+          { name: 'good', source: 'g1.cpp' },
+        ],
+      });
+
+      const result = await pushing.uploadGenerators(sdk, 1, 'dir', cfg);
+
+      expect(result).toBe(1);
+      expect(mocks.saveFile).toHaveBeenCalledTimes(1);
+      expect(mocks.saveFile).toHaveBeenCalledWith(
+        1,
+        'source',
+        'g1.cpp',
+        'code',
+        expect.objectContaining({ sourceType: 'cpp.g++17' })
+      );
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(fmt.warning).toHaveBeenCalledWith(
+        expect.stringContaining("Unsupported Java sourceType 'java.21'")
+      );
+    });
+
     it('should return 0 when generators undefined', async () => {
       const { sdk } = buildSdk();
       const result = await pushing.uploadGenerators(
@@ -991,7 +1286,7 @@ describe('pushing.ts', () => {
         'source',
         'Gen.java',
         'code',
-        expect.objectContaining({ sourceType: 'java11' })
+        expect.objectContaining({ sourceType: 'java21' })
       );
     });
 

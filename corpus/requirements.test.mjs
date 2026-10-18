@@ -1,4 +1,8 @@
+import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { compare } from './lib.mjs';
 import {
@@ -116,6 +120,36 @@ describe('corpusRequirements: the judge rules from a corpus run', () => {
     const summary = { problems: [{ name: 'easy', failures: [] }] };
     expect(corpusRequirements(summary, { easy: okOnly })).toEqual({});
   });
+
+  it('leaves out the unjudged rule when polyman gave no report on a problem it does not apply to', () => {
+    const okOnly = {
+      steps: {},
+      solutions: { main: { verdicts: ['tests#1:OK', 'tests#2:OK'] } },
+    };
+    const oneWa = {
+      steps: {},
+      solutions: { wa: { verdicts: ['tests#1:OK', 'tests#2:WA'] } },
+    };
+    const summary = {
+      problems: [
+        { name: 'easy', failures: ['polyman produced no JSON report:\nboom'] },
+        {
+          name: 'one-wa',
+          failures: ['polyman produced no JSON report:\nboom'],
+        },
+      ],
+    };
+    expect(
+      corpusRequirements(summary, { easy: okOnly, 'one-wa': oneWa })
+    ).toEqual({ [wa]: 'failed' });
+  });
+
+  it('judges nothing for a problem with no expected file', () => {
+    expect(actualVerdicts(undefined, { failures: [] })).toBeNull();
+    const summary = { problems: [{ name: 'new', failures: [] }] };
+    expect(corpusRequirements(summary, {})).toEqual({});
+    expect(corpusRequirements(undefined, {})).toEqual({});
+  });
 });
 
 describe('polygonRequirements: generated tests against Polygon', () => {
@@ -131,8 +165,48 @@ describe('polygonRequirements: generated tests against Polygon', () => {
       ok('solution main'),
       ok('input tests #1'),
       ok('input tests #2'),
+      ok('inputs tests count'),
     ]);
     expect(polygonRequirements(xml)).toEqual({ [platform]: 'passed' });
+  });
+
+  it('fails when the push failed or left an earlier upload, even if inputs match', () => {
+    const inputs = [
+      ok('input tests #1'),
+      ok('input tests #2'),
+      ok('inputs tests count'),
+    ];
+    for (const push of ['push succeeded', 'push is fresh']) {
+      expect(polygonRequirements(junit([bad(push), ...inputs]))).toEqual({
+        [platform]: 'failed',
+      });
+    }
+    expect(
+      polygonRequirements(
+        junit([
+          bad('push is fresh'),
+          bad('push succeeded'),
+          ok('input tests #1'),
+        ])
+      )
+    ).toEqual({ [platform]: 'failed' });
+  });
+
+  it('fails when polyman generated fewer tests than Polygon has', () => {
+    const xml = junit([ok('input tests #1'), bad('inputs tests count')]);
+    expect(polygonRequirements(xml)).toEqual({ [platform]: 'failed' });
+  });
+
+  it('fails when a testset was compared without its test count', () => {
+    expect(polygonRequirements(junit([ok('input tests #1')]))).toEqual({
+      [platform]: 'failed',
+    });
+    const xml = junit([
+      ok('input tests #1'),
+      ok('inputs tests count'),
+      ok('input extra #1'),
+    ]);
+    expect(polygonRequirements(xml)).toEqual({ [platform]: 'failed' });
   });
 
   it('fails on one input that differs, whatever else failed', () => {
@@ -153,5 +227,62 @@ describe('polygonRequirements: generated tests against Polygon', () => {
   it('leaves the rule out when the round trip never compared inputs', () => {
     expect(polygonRequirements(junit([bad('push succeeded')]))).toEqual({});
     expect(polygonRequirements(undefined)).toEqual({});
+  });
+});
+
+describe('requirements.mjs as a command', () => {
+  const script = fileURLToPath(new URL('./requirements.mjs', import.meta.url));
+  const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'requirements-'));
+  const run = (...args) =>
+    execFileSync(process.execPath, [script, ...args], { encoding: 'utf8' });
+  const read = file => JSON.parse(fs.readFileSync(file, 'utf8'));
+
+  it('writes the corpus rules from a summary', () => {
+    const dir = tmp();
+    const summary = path.join(dir, 'summary.json');
+    const out = path.join(dir, 'out', 'requirements.json');
+    fs.writeFileSync(summary, JSON.stringify(summaryOf(expected)));
+    expect(run('corpus', summary, out)).toContain(`passed #${pe}`);
+    expect(read(out)).toEqual({
+      [pe]: 'passed',
+      [unjudged]: 'passed',
+      [wa]: 'passed',
+    });
+  });
+
+  it('writes nothing when the corpus did not finish', () => {
+    const dir = tmp();
+    const out = path.join(dir, 'requirements.json');
+    expect(run('corpus', path.join(dir, 'missing.json'), out)).toContain(
+      'requirements unchanged'
+    );
+    expect(fs.existsSync(out)).toBe(false);
+  });
+
+  it('writes the platform rule from a JUnit report, or {} without one', () => {
+    const dir = tmp();
+    const xml = path.join(dir, 'junit.xml');
+    const out = path.join(dir, 'requirements.json');
+    fs.writeFileSync(
+      xml,
+      '<testsuite><testcase classname="polygon-roundtrip" name="input tests #1"></testcase></testsuite>'
+    );
+    run('polygon', xml, out);
+    expect(read(out)).toEqual({ [platform]: 'failed' });
+    expect(run('polygon', path.join(dir, 'missing.xml'), out)).toContain(
+      'no rule had evidence'
+    );
+    expect(read(out)).toEqual({});
+  });
+
+  it('exits non-zero on an unknown mode or a broken summary', () => {
+    const dir = tmp();
+    const broken = path.join(dir, 'summary.json');
+    fs.writeFileSync(broken, '{');
+    for (const args of [['nope'], ['corpus', broken, path.join(dir, 'o.json')]])
+      expect(
+        spawnSync(process.execPath, [script, ...args], { encoding: 'utf8' })
+          .status
+      ).not.toBe(0);
   });
 });

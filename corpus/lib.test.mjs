@@ -3,8 +3,11 @@ import {
   compare,
   freshnessCheck,
   freshnessMarker,
+  inputCountCheck,
+  isInside,
   nonEmpty,
   outcomeOf,
+  polygonTargets,
   pushChecks,
   regressions,
   scriptLines,
@@ -101,6 +104,92 @@ describe('compare', () => {
     const diffs = compare(want, got);
     expect(failures(diffs)).toEqual([]);
     expect(warnings(diffs)).toHaveLength(1);
+  });
+
+  // polyman stops a solution at its first TLE, so a slow test cuts the report
+  // short: the tests after it never ran (!4 review, corpus/lib.mjs:55)
+  it.each([2, 3])(
+    'excuses a slow test %i that cut the report short',
+    slowTest => {
+      const want = expected({ main });
+      const got = structuredClone(want);
+      got.solutions.main.verdicts = [
+        ...okTests(slowTest - 1),
+        `tests#${slowTest}:TLE`,
+      ];
+      got.solutions.main.matchesTag = false;
+      const diffs = compare(want, got);
+      expect(failures(diffs)).toEqual([]);
+      expect(warnings(diffs).map(d => d.message)).toEqual([
+        `solution main: tests#${slowTest}:OK came back tests#${slowTest}:TLE (timing, not judged)`,
+        `solution main: ${4 - slowTest} ${slowTest === 3 ? 'test' : 'tests'} after tests#${slowTest} did not run (timing, not judged)`,
+      ]);
+    }
+  );
+
+  // a broken time limit times out every correct solution on its first test:
+  // nothing in the report shows the limit works, so it fails
+  it('fails a report cut short on its first test', () => {
+    const want = expected({ main });
+    const got = structuredClone(want);
+    got.solutions.main.verdicts = ['tests#1:TLE'];
+    got.solutions.main.matchesTag = false;
+    expect(failures(compare(want, got))).toContain(
+      'solution main: cut short at tests#1:TLE with no expected OK test still OK (a broken limit, not a slow runner)'
+    );
+  });
+
+  // the WA this solution is in the corpus for never ran (review of !80)
+  it('fails a short report whose skipped tests expect a non-OK verdict', () => {
+    const wa = {
+      tag: 'WA',
+      matchesTag: true,
+      verdicts: ['tests#1:OK', 'tests#2:OK', 'tests#3:WA'],
+    };
+    const want = expected({ wa });
+    const got = structuredClone(want);
+    got.solutions.wa.verdicts = ['tests#1:OK', 'tests#2:TLE'];
+    got.solutions.wa.matchesTag = false;
+    expect(failures(compare(want, got))).toContain(
+      'solution wa: cut short at tests#2:TLE before tests#3:WA ran, so the expected verdict was never seen'
+    );
+  });
+
+  it('fails a short report that does not end on a slow test', () => {
+    const want = expected({ main });
+    const got = structuredClone(want);
+    got.solutions.main.verdicts = okTests(2);
+    expect(failures(compare(want, got))).toEqual([
+      'solution main: expected 4 tests, got 2',
+    ]);
+  });
+
+  it('fails a short report that ends on a TLE where OK was not expected', () => {
+    const wa = {
+      tag: 'WA',
+      matchesTag: true,
+      verdicts: ['tests#1:OK', 'tests#2:WA', 'tests#3:OK'],
+    };
+    const want = expected({ wa });
+    const got = structuredClone(want);
+    got.solutions.wa.verdicts = ['tests#1:OK', 'tests#2:TLE'];
+    expect(failures(compare(want, got))).toEqual([
+      'solution wa: expected 3 tests, got 2',
+    ]);
+  });
+
+  it('fails a short report whose earlier tests changed verdict', () => {
+    const want = expected({ main });
+    const got = structuredClone(want);
+    got.solutions.main.verdicts = ['tests#1:WA', 'tests#2:TLE'];
+    got.solutions.main.matchesTag = false;
+    const messages = failures(compare(want, got));
+    expect(messages).toContain(
+      'solution main: expected tests#1:OK, got tests#1:WA'
+    );
+    expect(messages).toContain(
+      'solution main: expected matchesTag=true, got false'
+    );
   });
 
   it('fails a reference solution that times out on every test', () => {
@@ -229,6 +318,26 @@ describe('selectProblems', () => {
   });
 });
 
+describe('polygonTargets', () => {
+  it('pushes the problems with a Polygon ID and names the others as skipped', () => {
+    expect(
+      polygonTargets(['sum-parity', 'pair-target', 'mean-deviation'], {
+        'sum-parity': 605330,
+      })
+    ).toEqual({
+      targets: [{ problem: 'sum-parity', problemId: '605330' }],
+      skipped: ['mean-deviation', 'pair-target'],
+    });
+  });
+
+  it('skips an ID that is not a positive integer', () => {
+    expect(polygonTargets(['a', 'b'], { a: '605330', b: 0 })).toEqual({
+      targets: [],
+      skipped: ['a', 'b'],
+    });
+  });
+});
+
 describe('round-trip checks', () => {
   it('fails a push that exited non-zero even when nothing differs', () => {
     expect(pushChecks(1, 0)).toEqual([
@@ -252,6 +361,17 @@ describe('round-trip checks', () => {
     expect(freshnessCheck(undefined, marker).ok).toBe(false);
   });
 
+  it('needs as many generated tests as Polygon has', () => {
+    expect(inputCountCheck('tests', 5, 5)).toEqual(
+      expect.objectContaining({ name: 'inputs tests count', ok: true })
+    );
+    expect(inputCountCheck('tests', 3, 5)).toEqual({
+      name: 'inputs tests count',
+      ok: false,
+      detail: 'polyman generated 3 tests, Polygon has 5',
+    });
+  });
+
   it('turns a check group that produced nothing into a failure', () => {
     expect(nonEmpty('scripts', [], 'no scripts')).toEqual([
       { name: 'scripts', ok: false, detail: 'no checks ran: no scripts' },
@@ -268,5 +388,18 @@ describe('round-trip checks', () => {
     expect(scriptLines('<#list 1..3 as i>gen ${i} > $</#list>', files)).toBe(
       null
     );
+  });
+});
+
+describe('isInside: the path guard', () => {
+  it('accepts files under the folder', () => {
+    expect(isInside('/repo', '/repo/corpus/out/m.json')).toBe(true);
+    expect(isInside('/repo', '/repo/..notes')).toBe(true);
+  });
+  it('refuses the folder itself, parents and siblings', () => {
+    expect(isInside('/repo', '/repo')).toBe(false);
+    expect(isInside('/repo', '/')).toBe(false);
+    expect(isInside('/repo', '/repo-evil/m.json')).toBe(false);
+    expect(isInside('/repo', '/tmp/m.json')).toBe(false);
   });
 });

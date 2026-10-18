@@ -1,0 +1,106 @@
+{
+  "ok": true,
+  "failedStep": null,
+  "steps": {
+    "read-config": true,
+    "compile-generators": true,
+    "generate-tests": true,
+    "compile-validator": true,
+    "test-validator": true,
+    "validate-tests": true,
+    "compile-checker": true,
+    "test-checker": true,
+    "compile-solutions": true,
+    "run-solutions": true,
+    "verify-solutions": true
+  },
+  "solutions": {
+    "main": {
+      "tag": "MA",
+      "matchesTag": true,
+      "verdicts": [
+        "tests#1:OK",
+        "tests#2:OK",
+        "tests#3:OK",
+        "tests#4:OK",
+        "tests#5:OK",
+        "tests#6:OK",
+        "tests#7:OK"
+      ]
+    },
+    "ok_java": {
+      "tag": "OK",
+      "matchesTag": true,
+      "verdicts": [
+        "tests#1:OK",
+        "tests#2:OK",
+        "tests#3:OK",
+        "tests#4:OK",
+        "tests#5:OK",
+        "tests#6:OK",
+        "tests#7:OK"
+      ]
+    },
+    "ok_python": {
+      "tag": "OK",
+      "matchesTag": true,
+      "verdicts": [
+        "tests#1:OK",
+        "tests#2:OK",
+        "tests#3:OK",
+        "tests#4:OK",
+        "tests#5:OK",
+        "tests#6:OK",
+        "tests#7:OK"
+      ]
+    },
+    "tl_java_quadratic": {
+      "tag": "TL",
+      "matchesTag": true,
+      "verdicts": [
+        "tests#1:OK",
+        "tests#2:OK",
+        "tests#3:OK",
+        "tests#4:OK",
+        "tests#5:TLE"
+      ]
+    },
+    "tl_python_quadratic": {
+      "tag": "TL",
+      "matchesTag": true,
+      "verdicts": [
+        "tests#1:OK",
+        "tests#2:OK",
+        "tests#3:OK",
+        "tests#4:OK",
+        "tests#5:TLE"
+      ]
+    },
+    "wa_int_overflow": {
+      "tag": "WA",
+      "matchesTag": true,
+      "verdicts": [
+        "tests#1:OK",
+        "tests#2:OK",
+        "tests#3:OK",
+        "tests#4:OK",
+        "tests#5:OK",
+        "tests#6:WA",
+        "tests#7:OK"
+      ]
+    },
+    "wa_half_residue": {
+      "tag": "WA",
+      "matchesTag": true,
+      "verdicts": [
+        "tests#1:OK",
+        "tests#2:OK",
+        "tests#3:OK",
+        "tests#4:WA",
+        "tests#5:WA",
+        "tests#6:OK",
+        "tests#7:OK"
+      ]
+    }
+  }
+}
