@@ -25,8 +25,10 @@ describe('requests that carry a token', () => {
         .filter((line) => /\bawait fetch\(/.test(line))
         .map((line) => `${f}: ${line.trim()}`),
     );
-    // the anonymous retry in gitlab.ts and the go-ahead check's anonymous GraphQL read of notes
+    // the anonymous retry in gitlab.ts, the go-ahead check's anonymous GraphQL
+    // read of notes, and the ledger's read of the ledger published on Pages
     expect(bare).toEqual([
+      'src/cli/ledger.ts: const res = await fetch(url);',
       'src/gitlab.ts: let anon = await fetch(url);',
       'src/gitlab.ts: anon = await fetch(url);',
       'src/goahead-mr.ts: let res = await fetch(url, post);',

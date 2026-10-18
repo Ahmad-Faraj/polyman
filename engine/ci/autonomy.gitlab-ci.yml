@@ -4,7 +4,8 @@
 #     - local: engine/ci/autonomy.gitlab-ci.yml
 #
 # These are the merge request jobs: risk score, guard, flow lint and the
-# engine's own tests. The release jobs are in autonomy-release.gitlab-ci.yml.
+# engine's own tests, plus the go-ahead ledger, which also runs on the default
+# branch. The release jobs are in autonomy-release.gitlab-ci.yml.
 #
 # The project needs to define:
 #   - stages: test, assess
@@ -119,6 +120,33 @@ autonomy:guard:main:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"
   script:
     - node engine/src/cli/guard.ts "$CI_COMMIT_BEFORE_SHA"
+
+# The go-ahead ledger (#46): one record per agent push the go-ahead guard
+# judged on a merged MR, rebuilt from the GitLab API by the guard's own check
+# and chained by SHA-256. Fails if the ledger published on Pages isn't the
+# start of the rebuilt one, so no record can change after the fact. The pages
+# job copies ledger/ to /ledger/ and only runs when this passed, so a failed
+# check publishes nothing and the last good ledger stays up. In merge requests
+# it runs when the engine or the pipeline changes.
+autonomy:ledger:
+  extends: .autonomy:node
+  stage: assess
+  needs: []
+  variables:
+    GIT_DEPTH: 0
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes: [engine/**/*, .gitlab-ci.yml]
+  script:
+    # every MR's last head, so the commits of MRs whose branch is gone are here
+    - git fetch -q origin '+refs/merge-requests/*/head:refs/ledger/mr/*'
+    - node engine/src/cli/ledger.ts ledger
+  artifacts:
+    when: always
+    expire_in: 30 days
+    expose_as: go-ahead ledger
+    paths: [ledger/]
 
 # Checks the Duo flow files the way GitLab will when they're saved: its JSON
 # schema, its prompt safety rules, and that every prompt variable is an input.
