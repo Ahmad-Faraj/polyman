@@ -73,3 +73,23 @@ export function ifManifest(byTier: Map<string, ManifestRun[]>, c: SciCoefficient
     tree: { children },
   });
 }
+
+/**
+ * agent-footprint's arguments: [project] [--json] [--manifest FILE | --manifest=FILE].
+ * Read before any network call, so a bad option fails at once.
+ */
+export function footprintArgs(argv: string[]): { project?: string; json: boolean; manifest?: string } {
+  const out: { project?: string; json: boolean; manifest?: string } = { json: false };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '--json') out.json = true;
+    else if (a === '--manifest' || a.startsWith('--manifest=')) {
+      const file = a === '--manifest' ? argv[++i] : a.slice('--manifest='.length);
+      if (!file || file.startsWith('--')) throw new Error('--manifest needs a file name');
+      out.manifest = file;
+    } else if (a.startsWith('--')) throw new Error(`unknown option ${a}`);
+    else if (out.project) throw new Error(`one project only, got ${out.project} and ${a}`);
+    else out.project = a;
+  }
+  return out;
+}

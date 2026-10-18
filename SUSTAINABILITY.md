@@ -4,7 +4,7 @@ Our agents run on GitLab: each Duo flow session is a CI job on a runner, and
 its model calls run on GitLab's side. We count both, and say which part is
 measured and which is estimated.
 
-## The numbers (Showcase, 86 agent sessions, 2026-10-16 to 10-18)
+## The numbers (Showcase, 86 agent sessions, 2026-10-16 to 10-17)
 
 Functional unit: **one merge request review**.
 
@@ -42,9 +42,11 @@ SCI (Software Carbon Intensity, ISO/IEC 21031:2024): `(E x I + M) per R`.
   us-east1: `.autonomy.yml` > `sustainability`, `engine/src/sci.ts`.
 - **Model calls (bounded from the log).** The session log writes a checkpoint
   after every step of the agent graph: each model call, each tool step, the
-  start and the finish. The high bound is every checkpoint; the low bound is
-  the checkpoints that came 3 s or more after the one before (a completion
-  takes seconds, tool steps and bookkeeping take less than one).
+  start and the finish. The high end is every checkpoint; the low end is the
+  checkpoints that came 3 s or more after the one before (a completion takes
+  seconds, most tool steps and bookkeeping take less than one). A slow tool
+  step can pass for a model call, so the low end is a typical value, not a
+  strict floor.
 - **Energy per call (estimated, a cited range).** 0.24 Wh (Google's median
   Gemini Apps text prompt, serving overhead included, arXiv:2508.15734) to
   2.5 Wh (Epoch AI's rough estimate for a GPT-4o query with ~10k input
@@ -61,10 +63,12 @@ of the arithmetic are in an [Impact Framework](https://if.greensoftware.foundati
 manifest, [sustainability/agent-reviews.yml](sustainability/agent-reviews.yml)
 (builtin Multiply and Sum only):
 
-    npx @grnsft/if@1.1.1 if-run -m sustainability/agent-reviews.yml
+    npx -y -p @grnsft/if@1.1.1 if-run -m sustainability/agent-reviews.yml
 
-It gives the table above per tier (carbon-low, carbon-high, summed over the
-tier's reviews). To rebuild the manifest from the job logs (read-only, needs a
+`if-run` sums each tier's reviews: for the high tier it prints carbon-low
+340.4 and carbon-high 6088.3 g, which over 43 reviews is the 7.9-141.6 g per
+review in the table (low tier: 6.0 and 130.1 g over 6). It calls
+`lsb_release`, so a minimal container needs that installed. To rebuild the manifest from the job logs (read-only, needs a
 token): `GITLAB_TOKEN=... node engine/src/cli/agent-footprint.ts <project path> --manifest sustainability/agent-reviews.yml`.
 
 ## What's not here yet

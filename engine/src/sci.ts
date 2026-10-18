@@ -82,11 +82,12 @@ export function formatFootprint(f: Footprint): string {
  * Model inference per agent session. It runs on GitLab's side, so its energy
  * can't be measured here. What the session log shows is the agent graph's
  * checkpoints: one after every step (a model call, a tool step, the start and
- * the finish). So the model calls are bounded, not counted:
+ * the finish). So the model calls are given as a range, not counted:
  *   at most  every checkpoint;
- *   at least the checkpoints that came 3 s or more after the one before (a
- *            model completion takes seconds; tool steps and bookkeeping
- *            checkpoints arrive within a second).
+ *   typically the checkpoints that came 3 s or more after the one before (a
+ *            model completion takes seconds; most tool steps and bookkeeping
+ *            checkpoints arrive within a second, but a slow tool step can
+ *            pass for a call, so this isn't a strict floor).
  * Energy per call is a cited range, not a measurement, and neither figure is
  * for the Claude model our flows use:
  *   0.24 Wh: Google's median Gemini Apps text prompt, serving overhead
@@ -100,13 +101,21 @@ export function formatFootprint(f: Footprint): string {
  */
 export const INFERENCE_WH_PER_CALL = { low: 0.24, high: 2.5 } as const;
 
+/**
+ * A checkpoint line as the runner writes it: the job log's own timestamp, the
+ * stream marker, then the executor's log line. Anchored, so text that only
+ * quotes the phrase (a tool result, a diff of this file) isn't counted.
+ */
+const CHECKPOINT = /^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z) \d+[OE]\+? \S+ \[\w+\]: \[DuoWorkflowNodeExecutor\]\[\d+\] Received new checkpoint: \{/;
+
 /** Model calls in a session's job log, bounded from its checkpoints' times. */
 export function modelCalls(log: string): { low: number; high: number } {
   const times = log
-    .split('\n')
-    .filter((line) => line.includes('Received new checkpoint'))
-    .map((line) => Date.parse(line.slice(0, 27)));
-  const spaced = times.slice(1).filter((t, i) => Number.isFinite(t) && Number.isFinite(times[i]) && t - times[i] >= 3000).length;
+    .split(/\r?\n/)
+    .map((line) => CHECKPOINT.exec(line)?.[1])
+    .filter((t): t is string => !!t)
+    .map((t) => Date.parse(t));
+  const spaced = times.slice(1).filter((t, i) => t - times[i] >= 3000).length;
   return { low: spaced, high: times.length };
 }
 
@@ -115,4 +124,21 @@ export function inferenceGrams(calls: { low: number; high: number }, gridGramsPe
     low: (calls.low * INFERENCE_WH_PER_CALL.low * gridGramsPerKwh) / 1000,
     high: (calls.high * INFERENCE_WH_PER_CALL.high * gridGramsPerKwh) / 1000,
   };
+}
+
+export type Calls = { low: number; high: number };
+
+/** The model calls of a group of sessions, divided by `per` (1 for a total, the count for an average). */
+export function callsOf(sessions: { calls: Calls }[], per = 1): Calls {
+  return {
+    low: sessions.reduce((n, s) => n + s.calls.low, 0) / per,
+    high: sessions.reduce((n, s) => n + s.calls.high, 0) / per,
+  };
+}
+
+/** Runner (measured time, modelled energy) plus inference (bounded calls, cited energy), in gCO2e. */
+export function sessionGrams(seconds: number, calls: Calls, c: SciCoefficients): Calls {
+  const runner = footprint([{ name: 'agent', duration: seconds }], c).totalGrams;
+  const model = inferenceGrams(calls, c.gridGramsPerKwh);
+  return { low: runner + model.low, high: runner + model.high };
 }

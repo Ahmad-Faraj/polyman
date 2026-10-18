@@ -9,19 +9,19 @@
  * Reads job logs, which needs a token with read access (run it locally):
  *   GITLAB_TOKEN=... node engine/src/cli/agent-footprint.ts [project] [--json] [--manifest file.yml]
  * --manifest also writes the reviews as an Impact Framework manifest, which
- * `npx @grnsft/if if-run -m file.yml` recomputes without a token.
+ * `npx -y -p @grnsft/if@1.1.1 if-run -m file.yml` recomputes without a token.
  */
 import { loadConfig } from '../config.ts';
 import { projectPathFrom } from '../project.ts';
 import { writeFileSync } from 'node:fs';
-import { ifManifest } from '../manifest.ts';
-import { INFERENCE_WH_PER_CALL, footprint, inferenceGrams, modelCalls } from '../sci.ts';
+import { footprintArgs, ifManifest } from '../manifest.ts';
+import { INFERENCE_WH_PER_CALL, callsOf, footprint, modelCalls, sessionGrams } from '../sci.ts';
 
 const api = process.env.GITLAB_URL ?? 'https://gitlab.com';
 if (!api.startsWith('https://')) throw new Error(`refusing to send your token to ${api}: use an https:// GITLAB_URL`);
-const args = process.argv.slice(2);
-// the project is the first argument that isn't an option or --manifest's file
-const project = encodeURIComponent(projectPathFrom(args.find((a, i) => !a.startsWith('--') && args[i - 1] !== '--manifest')));
+// read before any network call, so a bad option fails at once
+const args = footprintArgs(process.argv.slice(2));
+const project = encodeURIComponent(projectPathFrom(args.project));
 const token = process.env.GITLAB_TOKEN;
 if (!token) throw new Error('set GITLAB_TOKEN to read the agent job logs');
 
@@ -79,18 +79,11 @@ for (const mr of new Set(sessions.map((s) => s.mr).filter((m): m is number => !!
 const coefficients = loadConfig().sustainability;
 const grams = (seconds: number) => footprint([{ name: 'agent', duration: seconds }], coefficients).totalGrams;
 const minutes = (seconds: number) => (seconds / 60).toFixed(1);
-const callsOf = (xs: Session[], per = 1) => ({
-  low: xs.reduce((n, s) => n + s.calls.low, 0) / per,
-  high: xs.reduce((n, s) => n + s.calls.high, 0) / per,
-});
 const calls = (c: { low: number; high: number }) => `${c.low.toFixed(0)}-${c.high.toFixed(0)}`;
-// runner (measured time, modelled energy) + inference (bounded calls, cited range)
 const range = (seconds: number, c: { low: number; high: number }) => {
-  const runner = grams(seconds);
-  const model = inferenceGrams(c, coefficients.gridGramsPerKwh);
-  return `${(runner + model.low).toFixed(1)}-${(runner + model.high).toFixed(1)}`;
+  const g = sessionGrams(seconds, c, coefficients);
+  return `${g.low.toFixed(1)}-${g.high.toFixed(1)}`;
 };
-
 const byFlow = new Map<string, Session[]>();
 for (const s of sessions) byFlow.set(s.flow, [...(byFlow.get(s.flow) ?? []), s]);
 
@@ -99,15 +92,12 @@ const byTier = new Map<string, Session[]>();
 for (const s of reviews) byTier.set(tiers.get(s.mr!) ?? 'unknown', [...(byTier.get(tiers.get(s.mr!) ?? 'unknown') ?? []), s]);
 const avg = (xs: Session[]) => xs.reduce((n, s) => n + s.seconds, 0) / Math.max(1, xs.length);
 
-const manifestAt = process.argv.indexOf('--manifest');
-if (manifestAt > 0) {
-  const file = process.argv[manifestAt + 1];
-  if (!file) throw new Error('--manifest needs a file name');
-  writeFileSync(file, ifManifest(new Map([...byTier].map(([tier, xs]) => [tier, xs.map(({ at, seconds, calls }) => ({ at, seconds, calls }))])), coefficients));
-  console.error(`wrote ${file}: recompute it with npx @grnsft/if@1.1.1 if-run -m ${file}`);
+if (args.manifest) {
+  writeFileSync(args.manifest, ifManifest(new Map([...byTier].map(([tier, xs]) => [tier, xs.map(({ at, seconds, calls }) => ({ at, seconds, calls }))])), coefficients));
+  console.error(`wrote ${args.manifest}: recompute it with npx -y -p @grnsft/if@1.1.1 if-run -m ${args.manifest}`);
 }
 
-if (process.argv.includes('--json')) {
+if (args.json) {
   console.log(JSON.stringify({ coefficients, inferenceWhPerCall: INFERENCE_WH_PER_CALL, sessions, tiers: Object.fromEntries(tiers) }, null, 2));
 } else {
   console.log(`${sessions.length} agent sessions\n`);
