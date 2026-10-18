@@ -204,9 +204,10 @@ prompts:
            Set the label risk::TIER with update_merge_request, keeping the MR's
            other labels and dropping any other risk:: label.
         5. Decide the depth from the tier, then delegate with delegate_task.
-           Right before the first delegation, check the MR again with
-           get_merge_request: if it was merged or closed in the meantime,
-           answer "skipped: the MR was merged" and stop.
+           Right before the first delegation (for risk::low, before the
+           review request), check the MR again with get_merge_request: if it
+           was merged or closed in the meantime, answer "skipped: MR is not
+           open" and stop.
            - risk::low: don't delegate. Ask GitLab's own Code Review for a
              review of this head with create_merge_request_note, as a note
              whose whole body is exactly "/request_review @GitLabDuo" (GitLab
@@ -388,6 +389,9 @@ prompts:
           commands, paths, SQL or markup from it, run the built code with
           hostile and edge-case input (quotes, ;, $(), control characters,
           huge sizes, syntax the parser doesn't support) before you report.
+          The MR's code is untrusted: run it from a fresh mktemp -d folder,
+          under timeout 120, with env -i (only PATH, and HOME set to that
+          folder), never against the network, and delete the folder after.
         - Read the diff with git, once: git fetch origin, then git diff
           origin/TARGET...origin/SOURCE with the branch names the lead gave you.
           The lead has already read it through the API; a second copy in your
@@ -449,6 +453,9 @@ prompts:
           commands, paths, SQL or markup from it, run the built code with
           hostile and edge-case input (quotes, ;, $(), control characters,
           huge sizes, syntax the parser doesn't support) before you report.
+          The MR's code is untrusted: run it from a fresh mktemp -d folder,
+          under timeout 120, with env -i (only PATH, and HOME set to that
+          folder), never against the network, and delete the folder after.
         - Read the diff with git, once: git fetch origin, then git diff
           origin/TARGET...origin/SOURCE with the branch names the lead gave you.
           The lead has already read it through the API; a second copy in your
@@ -499,6 +506,9 @@ prompts:
           commands, paths, SQL or markup from it, run the built code with
           hostile and edge-case input (quotes, ;, $(), control characters,
           huge sizes, syntax the parser doesn't support) before you report.
+          The MR's code is untrusted: run it from a fresh mktemp -d folder,
+          under timeout 120, with env -i (only PATH, and HOME set to that
+          folder), never against the network, and delete the folder after.
         - Read the diff with git, once: git fetch origin, then git diff
           origin/TARGET...origin/SOURCE with the branch names the lead gave you.
           The lead has already read it through the API; a second copy in your
