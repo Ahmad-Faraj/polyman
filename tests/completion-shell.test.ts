@@ -211,6 +211,51 @@ describe.skipIf(!hasBash)('bash completion script (real bash)', () => {
     expect(readdirSync(work)).toEqual([]);
   });
 
+  /**
+   * Like runLine, but the way readline really inserts a reply inside an open
+   * quote: a reply that starts with the open quote loses that character, and
+   * no closing quote is added when the reply already ends with one.
+   */
+  const runReadline = (typed: string): string => {
+    const [reply = ''] = rawReplies('polyman', 'run', typed);
+    const open = typed.slice(0, 1);
+    const body = reply.startsWith(open) ? reply.slice(1) : reply;
+    const closing = reply.endsWith(open) ? '' : open;
+    const result = spawnSync(
+      'bash',
+      ['-c', `printf "<%s>" ${open}${body}${closing}`],
+      { cwd: work, encoding: 'utf8' }
+    );
+    expect(result.stderr).toBe('');
+    return result.stdout;
+  };
+
+  it('keeps a name that starts or ends with the open quote one literal argument', () => {
+    for (const [name, typed] of [
+      ['x"', '"x'],
+      ["x'", "'x"],
+      ["'x", "'"],
+      ["'x'", "'"],
+      ['"x"', '"'],
+      ["x'y", "'x"],
+    ]) {
+      setNames('solutions', [name]);
+      expect(runReadline(typed)).toBe(`<${name}>`);
+    }
+    expect(readdirSync(work)).toEqual([]);
+  });
+
+  it('leaves no ! open to history expansion inside an open double quote', () => {
+    // an interactive bash expands !! inside "..." to the previous command line
+    const name = 'a!!;touch PWNED;:';
+    setNames('solutions', [name]);
+    const [reply = ''] = rawReplies('polyman', 'run', '"a');
+    // every ! sits in a single-quoted '!' between closed and reopened double quotes
+    expect(reply.replace(/"'!'"/g, '')).not.toContain('!');
+    expect(runLine('"a', '"')).toBe(`<${name}>`);
+    expect(readdirSync(work)).toEqual([]);
+  });
+
   it('never evaluates what the user typed', () => {
     setNames('solutions', ['main']);
     setNames('testsets', ['tests']);
