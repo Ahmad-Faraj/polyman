@@ -139,6 +139,23 @@ describe('pushing.ts', () => {
       }
     });
 
+    it('should trim the declared sourceType before checking and returning it', () => {
+      expect(pushing.resolveSourceType('Sol.java', ' java21')).toBe('java21');
+      expect(pushing.resolveSourceType('Sol.java', 'java21 ')).toBe('java21');
+      expect(pushing.resolveSourceType('sol.cpp', ' cpp.g++20 ')).toBe(
+        'cpp.g++20'
+      );
+      expect(pushing.resolveSourceType('sol.py', '  ')).toBe('python.3');
+    });
+
+    it('should reject Java types that differ only by case or are bare', () => {
+      for (const bad of ['Java21', 'JAVA8', 'java', ' java.11 ']) {
+        expect(() => pushing.resolveSourceType('Sol.java', bad)).toThrow(
+          /java8, java21/
+        );
+      }
+    });
+
     it('should infer from the extension when nothing is declared', () => {
       expect(pushing.resolveSourceType('sol.cpp')).toBe('cpp.g++17');
       expect(pushing.resolveSourceType('sol.cc')).toBe('cpp.g++17');
@@ -196,6 +213,34 @@ describe('pushing.ts', () => {
         'code',
         'MA',
         { sourceType: 'cpp.gcc14-64-msys2-g++23', checkExisting: false }
+      );
+    });
+
+    it('should warn and skip a solution with an unsupported Java type, then upload the next', async () => {
+      const { sdk, mocks } = buildSdk();
+      mockedReadFileSync.mockReturnValue('code');
+      mockedExistsSync.mockReturnValue(true);
+      const cfg = asConfig({
+        solutions: [
+          { name: 'bad', source: 'Bad.java', tag: 'OK', sourceType: 'java.11' },
+          { name: 'good', source: 'sol.cpp', tag: 'MA' },
+        ],
+      });
+
+      const result = await pushing.uploadSolutions(sdk, 1, 'dir', cfg);
+
+      expect(result).toBe(1);
+      expect(mocks.saveSolution).toHaveBeenCalledTimes(1);
+      expect(mocks.saveSolution).toHaveBeenCalledWith(
+        1,
+        'sol.cpp',
+        'code',
+        'MA',
+        expect.objectContaining({ sourceType: 'cpp.g++17' })
+      );
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(fmt.warning).toHaveBeenCalledWith(
+        expect.stringContaining("Unsupported Java sourceType 'java.11'")
       );
     });
 
@@ -378,6 +423,21 @@ describe('pushing.ts', () => {
       expect(mocks.setChecker).toHaveBeenCalledWith(1, 'check.cc');
     });
 
+    it('should reject an unsupported Java checker type without calling the sdk', async () => {
+      const { sdk, mocks } = buildSdk();
+      mockedReadFileSync.mockReturnValue('code');
+      mockedExistsSync.mockReturnValue(true);
+      const cfg = asConfig({
+        checker: { name: 'check', source: 'Check.java', sourceType: 'java.11' },
+      });
+
+      await expect(pushing.uploadChecker(sdk, 1, 'dir', cfg)).rejects.toThrow(
+        /Unsupported Java sourceType 'java.11'/
+      );
+      expect(mocks.saveFile).not.toHaveBeenCalled();
+      expect(mocks.setChecker).not.toHaveBeenCalled();
+    });
+
     it('should set standard checker without uploading file', async () => {
       const { sdk, mocks } = buildSdk();
       const cfg = asConfig({
@@ -555,6 +615,25 @@ describe('pushing.ts', () => {
       );
     });
 
+    it('should return 0 and not call the sdk for an unsupported Java validator type', async () => {
+      const { sdk, mocks } = buildSdk();
+      mockedReadFileSync.mockReturnValue('code');
+      mockedExistsSync.mockReturnValue(true);
+      const cfg = asConfig({
+        validator: { name: 'val', source: 'Val.java', sourceType: 'java.11' },
+      });
+
+      const result = await pushing.uploadValidator(sdk, 1, 'dir', cfg);
+
+      expect(result).toBe(0);
+      expect(mocks.saveFile).not.toHaveBeenCalled();
+      expect(mocks.setValidator).not.toHaveBeenCalled();
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(fmt.warning).toHaveBeenCalledWith(
+        expect.stringContaining("Unsupported Java sourceType 'java.11'")
+      );
+    });
+
     it('should return 0 when no validator configured', async () => {
       const { sdk } = buildSdk();
       const result = await pushing.uploadValidator(sdk, 1, 'dir', asConfig({}));
@@ -687,6 +766,34 @@ describe('pushing.ts', () => {
         'g1.cxx',
         'code',
         { sourceType: 'cpp.gcc14-64-msys2-g++23', checkExisting: false }
+      );
+    });
+
+    it('should warn and skip a generator with an unsupported Java type, then upload the next', async () => {
+      const { sdk, mocks } = buildSdk();
+      mockedReadFileSync.mockReturnValue('code');
+      mockedExistsSync.mockReturnValue(true);
+      const cfg = asConfig({
+        generators: [
+          { name: 'bad', source: 'Gen.java', sourceType: 'java.21' },
+          { name: 'good', source: 'g1.cpp' },
+        ],
+      });
+
+      const result = await pushing.uploadGenerators(sdk, 1, 'dir', cfg);
+
+      expect(result).toBe(1);
+      expect(mocks.saveFile).toHaveBeenCalledTimes(1);
+      expect(mocks.saveFile).toHaveBeenCalledWith(
+        1,
+        'source',
+        'g1.cpp',
+        'code',
+        expect.objectContaining({ sourceType: 'cpp.g++17' })
+      );
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(fmt.warning).toHaveBeenCalledWith(
+        expect.stringContaining("Unsupported Java sourceType 'java.21'")
       );
     });
 

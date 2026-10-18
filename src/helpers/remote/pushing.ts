@@ -40,16 +40,17 @@ export const POLYGON_JAVA_SOURCE_TYPES = ['java8', 'java21'] as const;
  * resolveSourceType('Sol.java');                            // 'java21'
  */
 export function resolveSourceType(filename: string, declared?: string): string {
-  if (declared) {
+  const trimmed = declared?.trim();
+  if (trimmed) {
     if (
-      declared.toLowerCase().startsWith('java') &&
-      !(POLYGON_JAVA_SOURCE_TYPES as readonly string[]).includes(declared)
+      trimmed.toLowerCase().startsWith('java') &&
+      !(POLYGON_JAVA_SOURCE_TYPES as readonly string[]).includes(trimmed)
     ) {
       throw new Error(
-        `Unsupported Java sourceType '${declared}'. Polygon accepts: ${POLYGON_JAVA_SOURCE_TYPES.join(', ')}`
+        `Unsupported Java sourceType '${trimmed}'. Polygon accepts: ${POLYGON_JAVA_SOURCE_TYPES.join(', ')}`
       );
     }
-    return declared;
+    return trimmed;
   }
   if (isCppSource(filename)) return DEFAULT_CPP_SOURCE_TYPE;
 
