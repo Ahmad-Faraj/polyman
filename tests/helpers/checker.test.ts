@@ -404,6 +404,96 @@ describe('checker.ts', () => {
       ).rejects.toThrow('Expected WA but got OK');
     });
 
+    describe('expected failure verdicts', () => {
+      function mockCheckerExit(exitCode: number): void {
+        mockedExecute.mockImplementation(
+          (_cmd: string, options: ExecutionOptions) => {
+            const result = makeExecResult({
+              stderr: 'checker said no',
+              exitCode,
+              success: exitCode === 0,
+            });
+            if (exitCode !== 0 && options.onError) {
+              options.onError(result);
+            }
+            return Promise.resolve(result);
+          }
+        );
+      }
+
+      const run = (verdict: string) =>
+        checker.runChecker(
+          mockExecCommand,
+          mockInput,
+          mockOutput,
+          mockAnswer,
+          verdict as CheckerVerdict
+        );
+
+      it.each(['WRONG_ANSWER', 'wrong_answer', 'WA'])(
+        'should fail expected %s when the checker accepts the output',
+        async verdict => {
+          mockCheckerExit(0);
+          await expect(run(verdict)).rejects.toThrow(
+            `Expected ${verdict} but got OK`
+          );
+        }
+      );
+
+      it.each(['PRESENTATION_ERROR', 'PE'])(
+        'should fail expected %s when the checker accepts the output',
+        async verdict => {
+          mockCheckerExit(0);
+          await expect(run(verdict)).rejects.toThrow(
+            `Expected ${verdict} but got OK`
+          );
+        }
+      );
+
+      it.each(['WRONG_ANSWER', 'WA'])(
+        'should pass expected %s when the checker exits with 1',
+        async verdict => {
+          mockCheckerExit(1);
+          await expect(run(verdict)).resolves.toBeUndefined();
+        }
+      );
+
+      it.each(['PRESENTATION_ERROR', 'PE'])(
+        'should pass expected %s when the checker exits with 2',
+        async verdict => {
+          mockCheckerExit(2);
+          await expect(run(verdict)).resolves.toBeUndefined();
+        }
+      );
+
+      it.each(['PRESENTATION_ERROR', 'PE'])(
+        'should fail expected %s when the checker reports a wrong answer',
+        async verdict => {
+          mockCheckerExit(1);
+          await expect(run(verdict)).rejects.toThrow(
+            `Expected ${verdict} but got WA`
+          );
+        }
+      );
+
+      it.each(['WRONG_ANSWER', 'WA'])(
+        'should fail expected %s when the checker reports a presentation error',
+        async verdict => {
+          mockCheckerExit(2);
+          await expect(run(verdict)).rejects.toThrow(
+            `Expected ${verdict} but got PE`
+          );
+        }
+      );
+
+      it('should fail expected WRONG_ANSWER on an unrelated exit code', async () => {
+        mockCheckerExit(3);
+        await expect(run('WRONG_ANSWER')).rejects.toThrow(
+          'Expected WRONG_ANSWER but got exit code 3'
+        );
+      });
+    });
+
     it('should handle timeout callback correctly', async () => {
       const exitSpy = vi
         .spyOn(process, 'exit')
