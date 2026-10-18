@@ -33,7 +33,7 @@
       "name": "ok_java",
       "source": "./solutions/ok_java.java",
       "tag": "OK",
-      "sourceType": "java.11"
+      "sourceType": "java21"
     },
     {
       "name": "ok_python",
@@ -45,7 +45,7 @@
       "name": "tl_java_quadratic",
       "source": "./solutions/tl_java_quadratic.java",
       "tag": "TL",
-      "sourceType": "java.11"
+      "sourceType": "java21"
     },
     {
       "name": "tl_python_quadratic",
@@ -57,7 +57,7 @@
       "name": "wa_int_overflow",
       "source": "./solutions/wa_int_overflow.java",
       "tag": "WA",
-      "sourceType": "java.11"
+      "sourceType": "java21"
     },
     {
       "name": "wa_half_residue",
