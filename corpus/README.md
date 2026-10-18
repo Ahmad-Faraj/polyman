@@ -60,6 +60,11 @@ languages, and mutants whose true verdict is the point of the problem.
 | `mean-deviation` | real-valued output, standard checker `rcmp6` (1e-6): float arithmetic, two decimals, dividing by n - 1 (WA); "mean,deviation" as one token (PE) | 8 |
 | `remainder-pairs` | a 2 s time limit that Java and Python must respect: linear solutions in all three languages pass, quadratic ones in Java and Python must get TLE on the first large test; an `int` answer that overflows (WA) | 7 |
 
+On polyman 3.0.0 the corpus is red on every problem for the same two open bugs and nothing
+else: the tests after a solution's first wrong answer are reported `OK` although the checker
+never judged them (#21), and a presentation error is reported as `WA` (#28). Every `OK`, `TLE`
+and `RTE`, and every solution's match with its tag, is right, Java and Python time limits included.
+
 The verify service's sample problems (`service/samples/`, !8) are the other half: its golden set checks each solution against its tag through the service, including `wrong-tag` (a wrong solution tagged OK, which `verify` must reject). The corpus judges the CLI, test by test.
 
 ## Polygon round trip
