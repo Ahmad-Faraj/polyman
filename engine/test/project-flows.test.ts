@@ -121,6 +121,13 @@ describe("the project's Duo flows", () => {
     for (const file of files) expect(flat(file)).not.toContain("Don't write your own @mention");
   });
 
+  it('the review note tells the maintainers to promote a merge that releases the service', () => {
+    const text = flat('mr-reviewer.yaml');
+    expect(text).toContain('"After merge", only when the diff touches service/, src/, assets/, template/, package.json or package-lock.json');
+    expect(text).toContain('service:promote:production');
+    expect(renderFlow(read('mr-reviewer.yaml'), values).replace(/\s+/g, ' ')).toContain('mentioning @HamzaHassanain so GitLab notifies them');
+  });
+
   it('the fixer reads the tier from the assess job, never from a label', () => {
     expect(flat('pipeline-fixer.yaml')).toContain('never from a label');
     expect(flat('pipeline-fixer.yaml')).toContain('field "name"');
