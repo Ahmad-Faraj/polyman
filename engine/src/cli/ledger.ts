@@ -11,7 +11,10 @@
  * the MR's last pipeline's autonomy:assess computed, the MR's commits, its
  * notes, the notes of the issue it closes and the project's push events.
  * Agent pushes on MRs that aren't merged yet are listed but not chained,
- * since those MRs can still change.
+ * since those MRs can still change. The exception is a closed MR whose
+ * accepted pushes reached the default branch through another MR (a person
+ * moved them there after the guard refused a later push): those are chained
+ * with the merge that brought them (carriedRecords).
  *
  *   node engine/src/cli/ledger.ts [out-dir]   (default: ledger)
  *
@@ -25,7 +28,7 @@ import { loadConfig } from '../config.ts';
 import { GitLab, GitLabError, required } from '../gitlab.ts';
 import { type PushEvent, branchPushes, isPerson, isProjectPerson, tierFrom } from '../goahead.ts';
 import { allPages, checkMr, eventsSince, gitRepo, notesOf } from '../goahead-mr.ts';
-import { type GuardRun, type Ledger, type LedgerRecord, type OpenPush, chain, compare, counters, flowOf, recordsFor, second, verifyChain } from '../ledger.ts';
+import { type Carrier, type GuardRun, type Ledger, type LedgerRecord, type OpenPush, byMerge, carriedRecords, chain, compare, counters, flowOf, recordsFor, second, verifyChain } from '../ledger.ts';
 import { renderLedgerPage } from '../ledger-page.ts';
 
 const env = process.env;
@@ -193,10 +196,19 @@ async function main() {
     const mine = recordsFor(web, { iid: mr.iid, merged_at: mr.merged_at ?? mr.created_at, source_branch: mr.source_branch, closes: closes.map((i) => i.iid), guard }, check, config).filter((r) =>
       fromGuard(r.pushed_at),
     );
-    if (merged) records.push(...mine);
-    else
-      open.push(
-        ...mine.map((r) => ({
+    if (merged) {
+      records.push(...mine);
+      continue;
+    }
+    // a closed MR whose accepted commits a person moved to an MR that merged
+    const carriers = new Map<string, Carrier | null>();
+    if (mr.state === 'closed')
+      for (const r of mine) if (r.accepted && repo.has(r.head) && repo.isAncestor(r.head, chainRef)) carriers.set(r.head, await carrierOf(gl, web, r.head, mr.iid));
+    records.push(...carriedRecords(mine, (head) => carriers.get(head) ?? null));
+    open.push(
+      ...mine
+        .filter((r) => !(r.accepted && carriers.get(r.head)))
+        .map((r) => ({
           mr: r.mr,
           mr_url: r.mr_url,
           state: mr.state,
@@ -207,10 +219,10 @@ async function main() {
           go_ahead: r.go_ahead,
           reasons: r.reasons,
         })),
-      );
+    );
   }
 
-  const ledger = chain(projectPath, since, records);
+  const ledger = chain(projectPath, since, byMerge(records));
   if (published && published.rules !== ledger.rules) {
     // a reviewed change to the rules re-judges history: a new chain, which names the old one
     console.log(`the published ledger was judged by rules ${published.rules} and this one by rules ${ledger.rules}: a new chain starts, replacing ${published.records.length} record(s) ending in ${published.head}`);
@@ -226,7 +238,7 @@ async function main() {
 
   for (const r of ledger.records) {
     console.log(
-      `${r.seq}. !${r.mr} push at ${r.pushed_at} by @${r.agent}: ${r.accepted ? `go-ahead in note ${r.go_ahead!.note} by @${r.go_ahead!.by}` : `refused: ${r.reasons.join('; ')}`} (risk ${r.tier}, asked by ${r.requesters.map((x) => `@${x}`).join(', ') || 'nobody on record'})`,
+      `${r.seq}. !${r.mr}${r.carried_by ? ` (merged in !${r.carried_by.mr})` : ''} push at ${r.pushed_at} by @${r.agent}: ${r.accepted ? `go-ahead in note ${r.go_ahead!.note} by @${r.go_ahead!.by}` : `refused: ${r.reasons.join('; ')}`} (risk ${r.tier}, asked by ${r.requesters.map((x) => `@${x}`).join(', ') || 'nobody on record'})`,
     );
   }
   for (const p of open) console.log(`open !${p.mr} push at ${p.pushed_at} by @${p.agent}: ${p.accepted ? `go-ahead in note ${p.go_ahead!.note} by @${p.go_ahead!.by}` : `refused: ${p.reasons.join('; ')}`}`);
@@ -277,6 +289,15 @@ async function previousLedger(): Promise<Ledger | null> {
   const ledger = (await res.json()) as Ledger;
   if (!Array.isArray(ledger?.records)) throw new Error(`${url} is not a go-ahead ledger`);
   return ledger;
+}
+
+/** The first merged MR into the default branch, other than `iid`, whose commits include `sha`. */
+async function carrierOf(gl: GitLab, web: string, sha: string, iid: number): Promise<Carrier | null> {
+  const mrs = await gl.get<{ iid: number; state: string; merged_at: string | null; target_branch: string }[]>(`/:project/repository/commits/${sha}/merge_requests`);
+  const merged = mrs
+    .filter((m) => m.iid !== iid && m.state === 'merged' && m.merged_at && (!env.CI_DEFAULT_BRANCH || m.target_branch === env.CI_DEFAULT_BRANCH))
+    .sort((a, b) => Date.parse(a.merged_at!) - Date.parse(b.merged_at!));
+  return merged[0] ? { iid: merged[0].iid, mr_url: `${web}/-/merge_requests/${merged[0].iid}`, merged_at: merged[0].merged_at! } : null;
 }
 
 /** Every autonomy:goahead job on this MR's pipelines (the latest attempt of each). */

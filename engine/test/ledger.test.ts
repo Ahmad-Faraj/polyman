@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { loadConfig } from '../src/config.ts';
 import type { Note, PushEvent } from '../src/goahead.ts';
 import { type MrFacts, type Repo, checkMr } from '../src/goahead-mr.ts';
-import { GENESIS, type Ledger, canonical, chain, compare, counters, recordHash, recordsFor, second, sha256, verifyChain } from '../src/ledger.ts';
+import { GENESIS, type Ledger, byMerge, canonical, carriedRecords, chain, compare, counters, recordHash, recordsFor, second, sha256, verifyChain } from '../src/ledger.ts';
 import { renderLedgerPage } from '../src/ledger-page.ts';
 
 // the first Assisted loop, #22 -> !26, as GitLab's API returned it
@@ -173,6 +173,47 @@ describe('comparing the rebuilt ledger with the published one', () => {
     const problems = compare(edited, ledger);
     expect(problems.join()).toMatch(/published ledger: the ledger's head is/);
     expect(problems.join()).toMatch(/requesters was \["HamzaHassanain"\], now \["Ahmad-Faraj"\]/);
+  });
+});
+
+describe('a closed MR whose accepted commits a person moved to a merged MR (!67 -> !83)', () => {
+  const CARRIER = { iid: 83, mr_url: `${WEB}/-/merge_requests/83`, merged_at: '2026-10-18T13:35:37.123Z' };
+  const closed = async () => {
+    const { records } = await build();
+    const accepted = { ...records[0], mr: 67, mr_url: `${WEB}/-/merge_requests/67`, merged_at: '2026-10-18T11:00:00Z', head: 'a'.repeat(40) };
+    const later = { ...accepted, head: 'b'.repeat(40), pushed_at: '2026-10-18T12:37:58Z' };
+    const refused = { ...accepted, head: 'c'.repeat(40), accepted: false, go_ahead: null, approver_not_requester: null, reasons: ['no go-ahead'] };
+    return [accepted, later, refused];
+  };
+
+  it('records each accepted push found on the default branch, with the go-ahead given on the closed MR and the merge that brought it', async () => {
+    const [accepted, later, refused] = await closed();
+    const carried = carriedRecords([accepted, later, refused], (head) => (head === accepted.head ? CARRIER : null));
+    expect(carried).toHaveLength(1);
+    expect(carried[0]).toMatchObject({ mr: 67, merged_at: '2026-10-18T13:35:37Z', carried_by: { mr: 83, mr_url: CARRIER.mr_url }, go_ahead: { by: 'Mazen-Ghanaym' }, accepted: true });
+  });
+
+  it('leaves out a refused push even when its commit reached the default branch', async () => {
+    const [, , refused] = await closed();
+    expect(carriedRecords([refused], () => CARRIER)).toEqual([]);
+  });
+
+  it('counts the carried go-ahead for the person who gave it', async () => {
+    const [accepted] = await closed();
+    const ledger = chain('group/showcase', { commit: '06a116ff', at: '2026-10-17T20:11:08Z' }, carriedRecords([accepted], () => CARRIER));
+    expect(counters(ledger, [], []).byWhom).toEqual({ 'Mazen-Ghanaym': 1 });
+  });
+
+  it('orders records by the merge that brought them, and keeps the order within one merge', () => {
+    const r = (mr: number, merged_at: string) => ({ mr, merged_at });
+    expect(byMerge([r(95, '2026-10-18T15:30:00Z'), r(59, '2026-10-18T13:50:00Z'), r(83, '2026-10-18T13:35:37Z'), r(831, '2026-10-18T13:35:37Z')]).map((x) => x.mr)).toEqual([83, 831, 59, 95]);
+  });
+
+  it('shows on the page where the moved commits merged', async () => {
+    const [accepted] = await closed();
+    const ledger = chain('group/showcase', { commit: '06a116ff', at: '2026-10-17T20:11:08Z' }, carriedRecords([accepted], () => CARRIER));
+    const html = renderLedgerPage({ ledger, open: [], runs: [], counters: counters(ledger, [], []), web: WEB, generatedAt: '2026-10-18T16:00:00Z', commit: 'abcdef12' });
+    expect(html).toContain(`<span class="muted">merged in</span> <a href="${CARRIER.mr_url}">!83</a>`);
   });
 });
 
