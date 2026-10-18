@@ -17,25 +17,45 @@ import { getResolvedTests } from '../testset';
 /** Polygon compiler used for C++ files that do not declare a `sourceType`. */
 export const DEFAULT_CPP_SOURCE_TYPE = 'cpp.g++17';
 
+/** Polygon compiler used for Java files that do not declare a `sourceType`. */
+export const DEFAULT_JAVA_SOURCE_TYPE = 'java21';
+
+/** Java source types Polygon accepts (`java11` and dotted forms are rejected). */
+export const POLYGON_JAVA_SOURCE_TYPES = ['java8', 'java21'] as const;
+
 /**
  * Picks the Polygon `sourceType` for a file: the value declared in
  * `Config.json` wins; otherwise it is inferred from the extension.
+ * A declared Java type that Polygon does not accept (e.g. `java.11`) throws
+ * instead of being sent and refused.
  *
  * @param {string} filename - File name (extension decides the fallback)
  * @param {string} [declared] - `sourceType` from the config entry, if any
  * @returns {string} Polygon compiler identifier (e.g. `cpp.gcc14-64-msys2-g++23`)
+ * @throws {Error} If the declared type is an unsupported Java type
  *
  * @example
  * resolveSourceType('sol.cc');                              // 'cpp.g++17'
  * resolveSourceType('sol.cpp', 'cpp.gcc14-64-msys2-g++23'); // declared wins
- * resolveSourceType('Sol.java');                            // 'java11'
+ * resolveSourceType('Sol.java');                            // 'java21'
  */
 export function resolveSourceType(filename: string, declared?: string): string {
-  if (declared) return declared;
+  const trimmed = declared?.trim();
+  if (trimmed) {
+    if (
+      trimmed.toLowerCase().startsWith('java') &&
+      !(POLYGON_JAVA_SOURCE_TYPES as readonly string[]).includes(trimmed)
+    ) {
+      throw new Error(
+        `Unsupported Java sourceType '${trimmed}'. Polygon accepts: ${POLYGON_JAVA_SOURCE_TYPES.join(', ')}`
+      );
+    }
+    return trimmed;
+  }
   if (isCppSource(filename)) return DEFAULT_CPP_SOURCE_TYPE;
 
   const ext = path.extname(filename).toLowerCase();
-  if (ext === '.java') return 'java11';
+  if (ext === '.java') return DEFAULT_JAVA_SOURCE_TYPE;
   if (ext === '.py') return 'python.3';
   if (ext === '.c') return 'c.gcc11';
   return DEFAULT_CPP_SOURCE_TYPE;

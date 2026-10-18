@@ -33,7 +33,7 @@ Solutions are reference and adversarial implementations of the problem. Every so
 ]
 ```
 
-`sourceType` values: `cpp.g++17` (default), `cpp.g++20`, `cpp.clang++17`, `cpp.clang++20`, `java.11`, `java.17`, `java.21`, `python.3`, `python.pypy3`.
+`sourceType` values: `cpp.g++17` (default), `cpp.g++20`, `cpp.clang++17`, `cpp.clang++20`, `java8`, `java21`, `python.3`, `python.pypy3`.
 
 ## Naming
 

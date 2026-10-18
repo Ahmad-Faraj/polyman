@@ -332,7 +332,7 @@ C++ sources may use the `.cpp`, `.cc` or `.cxx` extension.
 
 **Java Versions:**
 
-- `java.8`, `java.11`, `java.17`, `java.21`
+- `java8`, `java21` (Polygon rejects `java11` and the dotted forms such as `java.11`)
 
 **Python Versions:**
 

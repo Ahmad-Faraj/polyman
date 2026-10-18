@@ -128,7 +128,7 @@ type CppSourceType =
  * Java compiler types supported by Polygon.
  * @typedef JavaSourceType
  */
-type JavaSourceType = 'java.8' | 'java.11' | 'java.17' | 'java.21';
+type JavaSourceType = 'java8' | 'java21';
 
 /**
  * Python interpreter types supported by Polygon.
@@ -157,7 +157,7 @@ type TestlibSourceType = CppSourceType;
 /**
  * Advanced properties for resource files (e.g., IOI-style graders).
  * @interface ResourceAdvancedProperties
- * @property {string} forTypes - File types pattern (e.g., 'cpp.*', 'java.11')
+ * @property {string} forTypes - File types pattern (e.g., 'cpp.*', 'java21')
  * @property {boolean} main - Reserved field, currently always false
  * @property {('COMPILE' | 'RUN')[]} stages - When resource is used
  * @property {('VALIDATOR' | 'INTERACTOR' | 'CHECKER' | 'SOLUTION')[]} assets - What can use this resource
