@@ -32,6 +32,24 @@ Functional unit: **one merge request review**.
   never costs a build, a review and a pipeline. We'll count these once there
   are enough proposals to count.
 
+## Per delivered fix
+
+A review is only part of a fix. Functional unit two: **one judge-found bug fixed by agents on a person's go-ahead**, from the proposal to the merge: issue-builder's sessions (proposal and build), and every review, fix-round and GitLab Code Review session on its MR. Sessions as of 2026-10-18 14:30 UTC; same method as above.
+
+| Issue | MR | Sessions | Runner gCO2e | Total gCO2e, low-high |
+|---|---|---|---|---|
+| #22 Python without `python` | !26 | 4 | 0.9 | 3.3-88 |
+| #4 light theme | !54 | 3 | 1.0 | 3.6-77 |
+| #12 Windows paths in tests | !50 | 4 | 1.5 | 5.0-122 |
+| #13 outdated docs (one fix round) | !51 | 5 | 1.6 | 6.8-177 |
+| #21 judge every test | !73 | 7 | 3.3 | 13-325 |
+| #31 FreeMarker (one fix round) | !67, !83 | 10 | 5.4 | 19-465 |
+| #8 shell completion | !59 | 11 | 25 | 66-865 |
+
+**A merged fix, median: 6.8-177 gCO2e, of which the runner is 1.6 g.** What drives it is the number of review sessions, not the build: #8 had nine. (Session-to-issue matching is by the issue's "started session" notes; a session it can't place isn't counted, so these lean low.)
+
+**The go-ahead decides what runs at all.** Of 13 proposals issue-builder posted, 2 never became a build: one nobody approved (#10), and one a maintainer revised before any code was written (#28, its first proposal would have stopped judging at the first PE). Each avoided build saves a build and its reviews, about one row of the table above. With a person deciding each step, a wrong or unwanted change costs a proposal (a few model calls), not a fix plus its reviews.
+
 ## How it's calculated
 
 SCI (Software Carbon Intensity, ISO/IEC 21031:2024): `(E x I + M) per R`.
