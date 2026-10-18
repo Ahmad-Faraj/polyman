@@ -138,8 +138,10 @@ With Google Cloud set up (below), the default branch also releases it:
    exception: creating the service gives that revision all traffic at once.
 5. `service:promote:production` is manual: the pipeline shows as blocked
    until a person who has read the candidate's check clicks it (the go-ahead
-   for production). It moves all traffic to the candidate, unless the default
-   branch has moved on (that newer pipeline releases instead), and
+   for production). It moves all traffic to the candidate, unless a newer
+   commit on the default branch changed the service again (that newer
+   pipeline has the newer candidate, so this job ends without a switch). A
+   later merge that only touched docs or the corpus does not block it. Then
    `service:check:production` runs the samples again on the public URL.
 6. If production gets them wrong, `service:rollback:production` moves traffic
    back to the revision that served before, and fails loudly if there is

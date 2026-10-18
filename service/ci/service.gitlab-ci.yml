@@ -11,6 +11,7 @@ variables:
   SERVICE_IMAGE: $CI_REGISTRY_IMAGE/verify:$CI_COMMIT_SHORT_SHA
 
 # what the service image is built from: the service itself and polyman
+# (SERVICE_PATHS in service/deploy/cloudrun.conf is the same list)
 .service:changes:
   rules:
     # a pipeline schedule on main (a nightly check, say) counts every file as

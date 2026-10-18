@@ -73,9 +73,10 @@ deploy() {
     "$@"
 }
 
-# The commit at the head of the default branch (the job can read its own repository)
+# The commit at the head of the default branch, fetched so it can be compared
+# with this pipeline's commit (the job can read its own repository)
 main_head() {
-  git ls-remote "$CI_REPOSITORY_URL" "refs/heads/$CI_DEFAULT_BRANCH" | cut -f1
+  git fetch --quiet --depth=1 "$CI_REPOSITORY_URL" "refs/heads/$CI_DEFAULT_BRANCH" && git rev-parse FETCH_HEAD
 }
 
 # Removes revision tags (their URLs): all c-* tags except the one given
@@ -106,12 +107,24 @@ case "$MODE" in
       "$(echo "$BASE" | sed "s#https://#https://$TAG---#")" "$REVISION" "$FIRST" > deploy.env
     ;;
   promote)
-    # two pipelines close together: only the newest commit may take production
-    HEAD=$(main_head)
+    # two pipelines close together: only the newest service release may take
+    # production. A later merge that changed none of SERVICE_PATHS (a README,
+    # the corpus) has no candidate of its own, so this one is still the newest.
+    HEAD=$(main_head) || HEAD=
     [ -n "$HEAD" ] || { echo "could not read the head of $CI_DEFAULT_BRANCH; not promoting without knowing this is the newest release" >&2; exit 1; }
     if [ "$HEAD" != "$CI_COMMIT_SHA" ]; then
-      echo "not promoting: $CI_DEFAULT_BRANCH has moved on to $HEAD, whose pipeline releases it" >&2
-      exit 1
+      CHANGED=0; git diff --quiet "$CI_COMMIT_SHA" "$HEAD" -- $SERVICE_PATHS || CHANGED=$?
+      if [ "$CHANGED" = 1 ]; then
+        # not a failure: nothing changed in production, so nothing for the
+        # rollback or the incident responder to do. The production check
+        # still runs, on what production serves now.
+        echo "nothing to promote: $HEAD on $CI_DEFAULT_BRANCH changed the service again, and its pipeline has the newer candidate"
+        printf 'SERVICE_URL=%s\nPREVIOUS_REVISION=\n' "$(describe 'value(status.url)')" > deploy.env
+        exit 0
+      elif [ "$CHANGED" != 0 ]; then
+        echo "could not compare $CI_COMMIT_SHA with $HEAD; not promoting without knowing this is the newest release" >&2
+        exit 1
+      fi
     fi
     PREVIOUS=$(serving)
     if [ -z "$PREVIOUS" ] && [ "${FIRST_RELEASE:-false}" != true ]; then
