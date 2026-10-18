@@ -1261,6 +1261,23 @@ export async function stepUpdateProblemInfo(
 }
 
 /**
+ * Ends an upload step. A step that added entries to `failures` ends with a
+ * warning instead of the "uploaded" check mark.
+ */
+function completeUploadStep(
+  label: string,
+  failures: string[],
+  failuresBefore: number
+): void {
+  const failed = failures.length - failuresBefore;
+  if (failed > 0) {
+    fmt.warning(`  ${label} with ${failed} failure(s)`);
+    return;
+  }
+  fmt.stepComplete(label);
+}
+
+/**
  * Step: Upload solutions to Polygon
  */
 export async function stepUploadSolutions(
@@ -1268,16 +1285,24 @@ export async function stepUploadSolutions(
   sdk: PolygonSDK,
   problemId: number,
   problemDir: string,
-  config: ConfigFile
+  config: ConfigFile,
+  failures: string[] = []
 ): Promise<void> {
   fmt.step(stepNum, 'Uploading Solutions');
+  const failuresBefore = failures.length;
 
-  const count = await uploadSolutions(sdk, problemId, problemDir, config);
+  const count = await uploadSolutions(
+    sdk,
+    problemId,
+    problemDir,
+    config,
+    failures
+  );
 
   fmt.info(
     `  ${fmt.infoIcon()} Uploaded ${fmt.highlight(count.toString())} solution(s)`
   );
-  fmt.stepComplete('Solutions uploaded');
+  completeUploadStep('Solutions uploaded', failures, failuresBefore);
 }
 
 /**
@@ -1288,19 +1313,29 @@ export async function stepUploadChecker(
   sdk: PolygonSDK,
   problemId: number,
   problemDir: string,
-  config: ConfigFile
+  config: ConfigFile,
+  failures: string[] = []
 ): Promise<void> {
   fmt.step(stepNum, 'Uploading Checker');
+  const failuresBefore = failures.length;
 
-  const count = await uploadChecker(sdk, problemId, problemDir, config);
+  const count = await uploadChecker(
+    sdk,
+    problemId,
+    problemDir,
+    config,
+    failures
+  );
 
   if (count > 0) {
     fmt.info(
       `  ${fmt.infoIcon()} Checker: ${fmt.highlight(config.checker?.name || 'N/A')}`
     );
   }
-  fmt.stepComplete(
-    config.checker.isStandard ? 'Standard Checker Updated' : 'Checker uploaded'
+  completeUploadStep(
+    config.checker.isStandard ? 'Standard Checker Updated' : 'Checker uploaded',
+    failures,
+    failuresBefore
   );
 }
 
@@ -1312,18 +1347,30 @@ export async function stepUploadValidator(
   sdk: PolygonSDK,
   problemId: number,
   problemDir: string,
-  config: ConfigFile
+  config: ConfigFile,
+  failures: string[] = []
 ): Promise<void> {
   fmt.step(stepNum, 'Uploading Validator');
+  const failuresBefore = failures.length;
 
-  const count = await uploadValidator(sdk, problemId, problemDir, config);
+  const count = await uploadValidator(
+    sdk,
+    problemId,
+    problemDir,
+    config,
+    failures
+  );
 
   if (count > 0) {
     fmt.info(
       `  ${fmt.infoIcon()} Validator: ${fmt.highlight(config.validator?.name || 'N/A')}`
     );
   }
-  fmt.stepComplete(count > 0 ? 'Validator uploaded' : 'No validator to upload');
+  completeUploadStep(
+    count > 0 ? 'Validator uploaded' : 'No validator to upload',
+    failures,
+    failuresBefore
+  );
 }
 
 /**
@@ -1334,16 +1381,24 @@ export async function stepUploadGenerators(
   sdk: PolygonSDK,
   problemId: number,
   problemDir: string,
-  config: ConfigFile
+  config: ConfigFile,
+  failures: string[] = []
 ): Promise<void> {
   fmt.step(stepNum, 'Uploading Generators');
+  const failuresBefore = failures.length;
 
-  const count = await uploadGenerators(sdk, problemId, problemDir, config);
+  const count = await uploadGenerators(
+    sdk,
+    problemId,
+    problemDir,
+    config,
+    failures
+  );
 
   fmt.info(
     `  ${fmt.infoIcon()} Uploaded ${fmt.highlight(count.toString())} generator(s)`
   );
-  fmt.stepComplete('Generators uploaded');
+  completeUploadStep('Generators uploaded', failures, failuresBefore);
 }
 
 /**
@@ -1354,16 +1409,24 @@ export async function stepUploadStatements(
   sdk: PolygonSDK,
   problemId: number,
   problemDir: string,
-  config: ConfigFile
+  config: ConfigFile,
+  failures: string[] = []
 ): Promise<void> {
   fmt.step(stepNum, 'Uploading Statements');
+  const failuresBefore = failures.length;
 
-  const count = await uploadStatements(sdk, problemId, problemDir, config);
+  const count = await uploadStatements(
+    sdk,
+    problemId,
+    problemDir,
+    config,
+    failures
+  );
 
   fmt.info(
     `  ${fmt.infoIcon()} Uploaded ${fmt.highlight(count.toString())} statement(s)`
   );
-  fmt.stepComplete('Statements uploaded');
+  completeUploadStep('Statements uploaded', failures, failuresBefore);
 }
 
 /**
@@ -1373,11 +1436,13 @@ export async function stepUploadMetadata(
   stepNum: number,
   sdk: PolygonSDK,
   problemId: number,
-  config: ConfigFile
+  config: ConfigFile,
+  failures: string[] = []
 ): Promise<void> {
   fmt.step(stepNum, 'Uploading Metadata');
+  const failuresBefore = failures.length;
 
-  await uploadMetadata(sdk, problemId, config);
+  await uploadMetadata(sdk, problemId, config, failures);
 
   if (config.description) {
     const preview = config.description.substring(0, 50);
@@ -1386,7 +1451,7 @@ export async function stepUploadMetadata(
   if (config.tags && config.tags.length > 0) {
     fmt.info(`  ${fmt.infoIcon()} Tags: ${config.tags.join(', ')}`);
   }
-  fmt.stepComplete('Metadata uploaded');
+  completeUploadStep('Metadata uploaded', failures, failuresBefore);
 }
 
 /**
@@ -1397,15 +1462,18 @@ export async function stepUploadTestsets(
   sdk: PolygonSDK,
   problemId: number,
   problemDir: string,
-  config: ConfigFile
+  config: ConfigFile,
+  failures: string[] = []
 ): Promise<void> {
   fmt.step(stepNum, 'Uploading Testsets and Tests');
+  const failuresBefore = failures.length;
 
   const { testsCount, manualsCount } = await uploadTestsets(
     sdk,
     problemId,
     problemDir,
-    config
+    config,
+    failures
   );
 
   fmt.info(
@@ -1414,7 +1482,7 @@ export async function stepUploadTestsets(
   fmt.info(
     `  ${fmt.infoIcon()} Total tests configured: ${fmt.highlight(testsCount.toString())}`
   );
-  fmt.stepComplete('Testsets uploaded');
+  completeUploadStep('Testsets uploaded', failures, failuresBefore);
 }
 
 /**

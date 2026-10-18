@@ -1455,6 +1455,7 @@ export const remotePushProblemAction = async (
 
   try {
     let stepNum = 1;
+    const failures: string[] = [];
 
     // Determine what to push
     const hasSpecificOptions =
@@ -1539,7 +1540,8 @@ export const remotePushProblemAction = async (
           sdk,
           problemId,
           problemDir,
-          config
+          config,
+          failures
         );
       } else if (!pushAll) {
         fmt.error(`   ${fmt.cross()} Solutions not found in Config.json`);
@@ -1551,7 +1553,14 @@ export const remotePushProblemAction = async (
     // step 7: Upload checker
     if (pushChecker) {
       if (config.checker) {
-        await stepUploadChecker(stepNum++, sdk, problemId, problemDir, config);
+        await stepUploadChecker(
+          stepNum++,
+          sdk,
+          problemId,
+          problemDir,
+          config,
+          failures
+        );
       } else if (!pushAll) {
         fmt.error(`   ${fmt.cross()} Checker not found in Config.json`);
       } else {
@@ -1567,7 +1576,8 @@ export const remotePushProblemAction = async (
           sdk,
           problemId,
           problemDir,
-          config
+          config,
+          failures
         );
       } else if (!pushAll) {
         fmt.error(`   ${fmt.cross()} Validator not found in Config.json`);
@@ -1584,7 +1594,8 @@ export const remotePushProblemAction = async (
           sdk,
           problemId,
           problemDir,
-          config
+          config,
+          failures
         );
       } else if (!pushAll) {
         fmt.error(`   ${fmt.cross()}  Generators not found in Config.json`);
@@ -1601,7 +1612,8 @@ export const remotePushProblemAction = async (
           sdk,
           problemId,
           problemDir,
-          config
+          config,
+          failures
         );
       } else if (!pushAll) {
         fmt.error(`   ${fmt.cross()}  Statements not found in Config.json`);
@@ -1612,13 +1624,20 @@ export const remotePushProblemAction = async (
 
     // step 11: Upload metadata
     if (pushMetadata) {
-      await stepUploadMetadata(stepNum++, sdk, problemId, config);
+      await stepUploadMetadata(stepNum++, sdk, problemId, config, failures);
     }
 
     // step 12: Upload testsets and tests
     if (pushTests) {
       if (config.testsets && config.testsets.length > 0) {
-        await stepUploadTestsets(stepNum++, sdk, problemId, problemDir, config);
+        await stepUploadTestsets(
+          stepNum++,
+          sdk,
+          problemId,
+          problemDir,
+          config,
+          failures
+        );
       } else if (!pushAll) {
         fmt.error(`${fmt.cross()}  Testsets not found in Config.json`);
       } else {
@@ -1627,6 +1646,20 @@ export const remotePushProblemAction = async (
     }
 
     fmt.newLine();
+    if (failures.length > 0) {
+      fmt.errorBox('PUSH COMPLETED WITH ERRORS');
+      fmt.error(`  ${failures.length} item(s) failed to upload:`);
+      for (const failure of failures) {
+        fmt.error(`   ${fmt.cross()} ${failure}`);
+      }
+      fmt.info(
+        `  ${fmt.infoIcon()} Problem ID: ${fmt.highlight(problemId.toString())}`
+      );
+      fmt.newLine();
+      process.exit(1);
+      return;
+    }
+
     fmt.successBox('PROBLEM PUSHED SUCCESSFULLY!');
     fmt.info(
       `  ${fmt.infoIcon()} Problem ID: ${fmt.highlight(problemId.toString())}`

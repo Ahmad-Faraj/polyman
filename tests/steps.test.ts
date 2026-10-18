@@ -1170,6 +1170,194 @@ describe('steps.ts', () => {
     });
   });
 
+  describe('failed uploads', () => {
+    it('should not report solutions as uploaded when a solution failed', async () => {
+      vi.mocked(pushing.uploadSolutions).mockImplementation(((
+        ..._args: unknown[]
+      ) => {
+        (_args[4] as string[]).push('solution java-sol: boom');
+        return Promise.resolve(0);
+      }) as any);
+      const failures: string[] = [];
+      await steps.stepUploadSolutions(
+        1,
+        {} as any,
+        7,
+        '/dir',
+        baseConfig(),
+        failures
+      );
+      expect(failures).toEqual(['solution java-sol: boom']);
+      expect(formatter.fmt.stepComplete).not.toHaveBeenCalled();
+      expect(formatter.fmt.warning).toHaveBeenCalledWith(
+        expect.stringContaining('Solutions uploaded with 1 failure(s)')
+      );
+    });
+
+    it('should not report the checker as uploaded when a checker test failed', async () => {
+      vi.mocked(pushing.uploadChecker).mockImplementation(((
+        ..._args: unknown[]
+      ) => {
+        (_args[4] as string[]).push('checker tests: boom');
+        return Promise.resolve(1);
+      }) as any);
+      const failures: string[] = [];
+      await steps.stepUploadChecker(
+        1,
+        {} as any,
+        7,
+        '/dir',
+        baseConfig(),
+        failures
+      );
+      expect(formatter.fmt.stepComplete).not.toHaveBeenCalled();
+      expect(formatter.fmt.warning).toHaveBeenCalledWith(
+        expect.stringContaining('with 1 failure(s)')
+      );
+    });
+
+    it('should not report the validator as uploaded when it recorded a failure', async () => {
+      vi.mocked(pushing.uploadValidator).mockImplementation(((
+        ..._args: unknown[]
+      ) => {
+        (_args[4] as string[]).push('x: boom');
+        return Promise.resolve(1);
+      }) as any);
+      const failures: string[] = [];
+      await steps.stepUploadValidator(
+        1,
+        {} as any,
+        7,
+        '/dir',
+        baseConfig(),
+        failures
+      );
+      expect(failures).toEqual(['x: boom']);
+      expect(formatter.fmt.stepComplete).not.toHaveBeenCalled();
+      expect(formatter.fmt.warning).toHaveBeenCalledWith(
+        expect.stringContaining('Validator uploaded with 1 failure(s)')
+      );
+    });
+
+    it('should not report the missing validator as uploaded when it recorded a failure', async () => {
+      vi.mocked(pushing.uploadValidator).mockImplementation(((
+        ..._args: unknown[]
+      ) => {
+        (_args[4] as string[]).push('x: boom');
+        return Promise.resolve(0);
+      }) as any);
+      const failures: string[] = [];
+      await steps.stepUploadValidator(
+        1,
+        {} as any,
+        7,
+        '/dir',
+        baseConfig(),
+        failures
+      );
+      expect(failures).toEqual(['x: boom']);
+      expect(formatter.fmt.stepComplete).not.toHaveBeenCalled();
+      expect(formatter.fmt.warning).toHaveBeenCalledWith(
+        expect.stringContaining('No validator to upload with 1 failure(s)')
+      );
+    });
+
+    it('should not report statements as uploaded when it recorded a failure', async () => {
+      vi.mocked(pushing.uploadStatements).mockImplementation(((
+        ..._args: unknown[]
+      ) => {
+        (_args[4] as string[]).push('x: boom');
+        return Promise.resolve(0);
+      }) as any);
+      const failures: string[] = [];
+      await steps.stepUploadStatements(
+        1,
+        {} as any,
+        7,
+        '/dir',
+        baseConfig(),
+        failures
+      );
+      expect(failures).toEqual(['x: boom']);
+      expect(formatter.fmt.stepComplete).not.toHaveBeenCalled();
+      expect(formatter.fmt.warning).toHaveBeenCalledWith(
+        expect.stringContaining('Statements uploaded with 1 failure(s)')
+      );
+    });
+
+    it('should not report generators as uploaded when it recorded a failure', async () => {
+      vi.mocked(pushing.uploadGenerators).mockImplementation(((
+        ..._args: unknown[]
+      ) => {
+        (_args[4] as string[]).push('x: boom');
+        return Promise.resolve(0);
+      }) as any);
+      const failures: string[] = [];
+      await steps.stepUploadGenerators(
+        1,
+        {} as any,
+        7,
+        '/dir',
+        baseConfig(),
+        failures
+      );
+      expect(failures).toEqual(['x: boom']);
+      expect(formatter.fmt.stepComplete).not.toHaveBeenCalled();
+      expect(formatter.fmt.warning).toHaveBeenCalledWith(
+        expect.stringContaining('Generators uploaded with 1 failure(s)')
+      );
+    });
+
+    it('should not report metadata as uploaded when it recorded a failure', async () => {
+      vi.mocked(pushing.uploadMetadata).mockImplementation(((
+        ..._args: unknown[]
+      ) => {
+        (_args[3] as string[]).push('x: boom');
+        return Promise.resolve(undefined);
+      }) as any);
+      const failures: string[] = [];
+      await steps.stepUploadMetadata(1, {} as any, 7, baseConfig(), failures);
+      expect(failures).toEqual(['x: boom']);
+      expect(formatter.fmt.stepComplete).not.toHaveBeenCalled();
+      expect(formatter.fmt.warning).toHaveBeenCalledWith(
+        expect.stringContaining('Metadata uploaded with 1 failure(s)')
+      );
+    });
+
+    it('should not report testsets as uploaded when it recorded a failure', async () => {
+      vi.mocked(pushing.uploadTestsets).mockImplementation(((
+        ..._args: unknown[]
+      ) => {
+        (_args[4] as string[]).push('x: boom');
+        return Promise.resolve({ testsCount: 0, manualsCount: 0 });
+      }) as any);
+      const failures: string[] = [];
+      await steps.stepUploadTestsets(
+        1,
+        {} as any,
+        7,
+        '/dir',
+        baseConfig(),
+        failures
+      );
+      expect(failures).toEqual(['x: boom']);
+      expect(formatter.fmt.stepComplete).not.toHaveBeenCalled();
+      expect(formatter.fmt.warning).toHaveBeenCalledWith(
+        expect.stringContaining('Testsets uploaded with 1 failure(s)')
+      );
+    });
+
+    it('should only count failures added by the step itself', async () => {
+      vi.mocked(pushing.uploadGenerators).mockResolvedValue(1);
+      await steps.stepUploadGenerators(1, {} as any, 7, '/dir', baseConfig(), [
+        'solution x: earlier failure',
+      ]);
+      expect(formatter.fmt.stepComplete).toHaveBeenCalledWith(
+        'Generators uploaded'
+      );
+    });
+  });
+
   describe('stepUploadChecker', () => {
     it('should report standard checker uploaded', async () => {
       vi.mocked(pushing.uploadChecker).mockResolvedValue(1);
