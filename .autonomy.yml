@@ -80,8 +80,9 @@ monitor:
   measured_routes: []
   # failing one of these means production is affected (the incident responder
   # opens an incident). Only jobs that run once production serves the new
-  # release: a failed candidate deploy or check never got traffic, and promote
-  # also fails on purpose when main has moved on, so those are ordinary bugs.
+  # release: a failed candidate deploy or check never got traffic, so those
+  # are ordinary bugs. A promote superseded by a newer service change ends
+  # without a switch and does not fail.
   production_jobs:
     - service:check:production
     - service:rollback:production
