@@ -43,6 +43,13 @@ import fs from 'fs';
 import path from 'path';
 
 const COMMENT_RE = /<#--([\s\S]*?)-->/g;
+
+/**
+ * Maximum number of `<#list>` iterations a script may expand to, summed over
+ * all lists (nested lists multiply). Guards against `1..1000000000` exhausting
+ * memory.
+ */
+export const MAX_LIST_ITEMS = 10000;
 const GROUP_DIRECTIVE_RE = /^@group\s+(\S+)\s*$/;
 
 /**
@@ -453,6 +460,7 @@ function expandFreeMarker(script: string): string {
     }
   };
 
+  let expandedItems = 0;
   const render = (nodes: FmPiece[]): string => {
     let out = '';
     for (const node of nodes) {
@@ -481,6 +489,11 @@ function expandFreeMarker(script: string): string {
   const renderList = (node: FmListNode): string => {
     const shown = `<#list ${node.header} as ${node.name}>`;
     const values: number[] = [];
+    const tooLarge = (): Error =>
+      new Error(
+        `${shown} on line ${node.line} expands to more than ` +
+          `${MAX_LIST_ITEMS} items in total (limit ${MAX_LIST_ITEMS})`
+      );
     const seq = /^\[([\s\S]*)\]$/.exec(node.header.trim());
     if (seq) {
       if (seq[1].trim().length > 0) {
@@ -496,6 +509,10 @@ function expandFreeMarker(script: string): string {
       const from = evaluate(node.header.slice(0, dots), node.line, shown);
       const to = evaluate(node.header.slice(dots + 2), node.line, shown);
       const step = from <= to ? 1 : -1;
+      // Check the size up front so a huge range never gets materialized.
+      if (Math.abs(to - from) + 1 > MAX_LIST_ITEMS) {
+        throw tooLarge();
+      }
       for (let i = from; step === 1 ? i <= to : i >= to; i += step) {
         values.push(i);
       }
@@ -503,6 +520,8 @@ function expandFreeMarker(script: string): string {
 
     const parts: string[] = [];
     for (const v of values) {
+      expandedItems++;
+      if (expandedItems > MAX_LIST_ITEMS) throw tooLarge();
       locals.push(new Map([[node.name, v]]));
       try {
         parts.push(render(node.body));

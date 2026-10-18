@@ -312,6 +312,52 @@ describe('parseGeneratorScript - unsupported FreeMarker is rejected', () => {
   });
 });
 
+describe('parseGeneratorScript - list size limit', () => {
+  it('exports the limit as a named constant', () => {
+    expect(parser.MAX_LIST_ITEMS).toBe(10000);
+  });
+
+  it('rejects a huge range quickly, naming the list and line', () => {
+    const start = Date.now();
+    expect(() =>
+      parser.parseGeneratorScript(
+        'gen 1 > $\n<#list 1..1000000000 as i>\ngen ${i} > $\n</#list>'
+      )
+    ).toThrow(/<#list 1\.\.1000000000 as i> on line 2 expands to more than/);
+    expect(Date.now() - start).toBeLessThan(1000);
+  });
+
+  it('rejects nested lists whose product exceeds the limit', () => {
+    const start = Date.now();
+    expect(() =>
+      parser.parseGeneratorScript(
+        '<#list 1..100000 as i>\n<#list 1..100000 as j>\ngen ${i} ${j} > $\n</#list>\n</#list>'
+      )
+    ).toThrow(/expands to more than 10000 items/);
+    expect(() =>
+      parser.parseGeneratorScript(
+        '<#list 1..1000 as i>\n<#list 1..1000 as j>\ngen ${i} > $\n</#list>\n</#list>'
+      )
+    ).toThrow(/<#list 1\.\.1000 as j> on line 2 expands to more than/);
+    expect(Date.now() - start).toBeLessThan(2000);
+  });
+
+  it('rejects a huge descending range', () => {
+    expect(() =>
+      parser.parseGeneratorScript(
+        '<#list 1000000000..1 as i>\ngen 1 > $\n</#list>'
+      )
+    ).toThrow(/on line 1 expands to more than/);
+  });
+
+  it('still allows a list of exactly the limit', () => {
+    const out = parser.parseGeneratorScript(
+      `<#list 1..${parser.MAX_LIST_ITEMS} as i>\ngen ${'${i}'} > $\n</#list>`
+    );
+    expect(out).toHaveLength(parser.MAX_LIST_ITEMS);
+  });
+});
+
 describe('validateGeneratorReferences', () => {
   it('passes when all generators exist', () => {
     const lines = parser.parseGeneratorScript('gen 1 > 1\nother 2 > 2');
