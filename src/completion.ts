@@ -347,7 +347,7 @@ function bashScript(models: CommandModel[]): string {
     '  if [[ -n $pending ]]; then',
     '    case $pending in',
     '      testset) _polyman_reply_names testsets ;;',
-    '      group) _polyman_reply_names groups "$testset" ;;',
+    '      group) _polyman_reply_names groups -- "$testset" ;;',
     '    esac',
     '    return 0',
     '  fi',
@@ -446,7 +446,7 @@ function zshScript(models: CommandModel[]): string {
     '  done',
     '  case $pending in',
     '    testset) names=(${(f)"$(_polyman_names testsets)"}); compadd -a names; return 0 ;;',
-    '    group) names=(${(f)"$(_polyman_names groups "$testset")"}); compadd -a names; return 0 ;;',
+    '    group) names=(${(f)"$(_polyman_names groups -- "$testset")"}); compadd -a names; return 0 ;;',
     '    value) _files; return 0 ;;',
     '  esac',
     '  case "$cmd" in'
@@ -600,7 +600,7 @@ function fishScript(models: CommandModel[]): string {
         } else if (option.kind === 'groups') {
           parts.push(
             '-f',
-            `-a ${fishQuote('(__polyman_names groups (__polyman_scan testset))')}`
+            `-a ${fishQuote('(__polyman_names groups -- (__polyman_scan testset))')}`
           );
         }
       }

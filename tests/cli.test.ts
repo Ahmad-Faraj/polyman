@@ -291,6 +291,39 @@ describe('cli.ts', () => {
     }
   });
 
+  it.each([
+    [['groups', 'tests'], 'samples\nmain\n'],
+    [['groups', '--', 'tests'], 'samples\nmain\n'],
+    [['groups', '--', '-t'], 'dash\n'],
+    [['groups', '--', '--help'], 'help-group\n'],
+  ])('should print the groups for __complete %j', async (argv, expected) => {
+    const dir = mkdtempSync(join(tmpdir(), 'polyman-cli-complete-'));
+    writeFileSync(
+      join(dir, 'Config.json'),
+      JSON.stringify({
+        testsets: [
+          { name: 'tests', groups: [{ name: 'samples' }, { name: 'main' }] },
+          { name: '-t', groups: [{ name: 'dash' }] },
+          { name: '--help', groups: [{ name: 'help-group' }] },
+        ],
+      })
+    );
+    const cwd = vi.spyOn(process, 'cwd').mockReturnValue(dir);
+    const write = vi
+      .spyOn(process.stdout, 'write')
+      .mockImplementation(() => true);
+    try {
+      await loadCli(['__complete', ...argv]);
+      expect(write.mock.calls.map(call => String(call[0])).join('')).toBe(
+        expected
+      );
+    } finally {
+      write.mockRestore();
+      cwd.mockRestore();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('should print nothing for __complete without a Config.json', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'polyman-cli-complete-'));
     const cwd = vi.spyOn(process, 'cwd').mockReturnValue(dir);

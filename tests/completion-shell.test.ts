@@ -45,13 +45,14 @@ const NASTY_NAMES = [
   'back\\slash',
 ];
 
-// A fake `polyman` that answers `__complete <kind> [-- ] [testset]` from
-// files in $FAKE_NAMES: <kind> for names, groups.<testset> for groups.
+// A fake `polyman` that answers `__complete <kind> [--] [testset]` from files
+// in $FAKE_NAMES: <kind> for names, groups.<testset> for groups. Like the real
+// CLI, it reads a dash-leading testset as an option unless `--` comes first.
 const FAKE_POLYMAN = `#!/bin/sh
 [ "$1" = "__complete" ] || exit 0
 kind="$2"
 shift 2
-[ "$1" = "--" ] && shift
+if [ "$1" = "--" ]; then shift; else case "$1" in -*) exit 0 ;; esac; fi
 if [ "$kind" = "groups" ]; then
   cat "$FAKE_NAMES/groups.$1" 2>/dev/null
 else
@@ -196,5 +197,16 @@ describe.skipIf(!hasBash)('bash completion script (real bash)', () => {
       complete('polyman', 'generate', '--testset', 't\\;touch\\ X', '-g', '')
     ).toEqual(['g;touch Y', '$(touch Z)']);
     expect(readdirSync(work)).toEqual([]);
+  });
+
+  it('reads a testset named like an option as a name, not an option', () => {
+    setNames('groups.-t', ['dash']);
+    setNames('groups.--help', ['help-group']);
+    expect(
+      complete('polyman', 'generate', '--testset', '-t', '--group', '')
+    ).toEqual(['dash']);
+    expect(complete('polyman', 'generate', '-t', '--help', '-g', '')).toEqual([
+      'help-group',
+    ]);
   });
 });
