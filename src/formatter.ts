@@ -4,7 +4,7 @@
  * All methods use explicit icon placement for better indentation control.
  */
 
-import chalk from 'chalk';
+import chalk, { type ChalkInstance } from 'chalk';
 
 /**
  * Stream that human-readable output is written to.
@@ -17,6 +17,102 @@ export type OutputTarget = 'stdout' | 'stderr';
  * @typedef ErrorSink
  */
 export type ErrorSink = (message: string) => void;
+
+/**
+ * Name of a theme known to a formatter (built-in or registered).
+ * @typedef ThemeName
+ */
+export type ThemeName = string;
+
+/**
+ * Names of the themes that ship with polyman.
+ * @typedef BuiltInThemeName
+ */
+export type BuiltInThemeName = 'dark' | 'light';
+
+/**
+ * Colour palette used by the formatter. Each entry is a chalk style, so a
+ * theme can combine colours with modifiers (for example `chalk.bold.blue`).
+ * @interface Theme
+ */
+export interface Theme {
+  /** Success text, the checkmark icon and step completion lines. */
+  success: ChalkInstance;
+  /** Error text and the cross icon. */
+  error: ChalkInstance;
+  /** Warning text and the warning icon. */
+  warning: ChalkInstance;
+  /** Plain informational text. */
+  info: ChalkInstance;
+  /** De-emphasised log text. */
+  log: ChalkInstance;
+  /** The info icon. */
+  infoIcon: ChalkInstance;
+  /** Section headers and the "Step N:" prefix. */
+  heading: ChalkInstance;
+  /** The title that follows "Step N:". */
+  stepTitle: ChalkInstance;
+  /** Text returned by `highlight()`. */
+  highlight: ChalkInstance;
+  /** Text returned by `accent()`. */
+  accent: ChalkInstance;
+  /** Text returned by `primary()`. */
+  primary: ChalkInstance;
+  /** Border and text of the success box. */
+  successBox: ChalkInstance;
+  /** Border and text of the error box. */
+  errorBox: ChalkInstance;
+}
+
+/**
+ * The default theme: Codeforces-style colours for dark terminals.
+ * @constant
+ */
+const darkTheme: Theme = {
+  success: chalk.green,
+  error: chalk.red,
+  warning: chalk.yellow,
+  info: chalk.white,
+  log: chalk.gray,
+  infoIcon: chalk.blue,
+  heading: chalk.bold.blue,
+  stepTitle: chalk.bold.white,
+  highlight: chalk.bold.blue,
+  accent: chalk.hex('#FF6B6B'), // Codeforces red accent
+  primary: chalk.hex('#1E88E5'), // Codeforces blue
+  successBox: chalk.bold.green,
+  errorBox: chalk.bold.red,
+};
+
+/**
+ * A theme for light terminals: no white or light gray text, and darker
+ * shades of yellow, green, red and blue that stay readable on white.
+ * @constant
+ */
+const lightTheme: Theme = {
+  success: chalk.hex('#15803D'),
+  error: chalk.hex('#B91C1C'),
+  warning: chalk.hex('#B45309'),
+  info: chalk.black,
+  log: chalk.hex('#555555'),
+  infoIcon: chalk.hex('#1565C0'),
+  heading: chalk.bold.hex('#1565C0'),
+  stepTitle: chalk.bold.black,
+  highlight: chalk.bold.hex('#1565C0'),
+  accent: chalk.hex('#C62828'),
+  primary: chalk.hex('#1565C0'),
+  successBox: chalk.bold.hex('#15803D'),
+  errorBox: chalk.bold.hex('#B91C1C'),
+};
+
+/**
+ * The built-in themes, by name.
+ * @constant
+ */
+export const themes: Readonly<Record<BuiltInThemeName, Theme>> = {
+  dark: darkTheme,
+  light: lightTheme,
+};
 
 /**
  * Formatter class for creating styled terminal output with Codeforces theme.
@@ -34,6 +130,51 @@ export type ErrorSink = (message: string) => void;
 export class Formatter {
   private target: OutputTarget = 'stdout';
   private errorSink: ErrorSink | null = null;
+  private theme: Theme = themes.dark;
+  private registry = new Map<ThemeName, Theme>(Object.entries(themes));
+
+  /**
+   * Selects the colour theme. Accepts the name of a built-in or registered
+   * theme, or a theme object. The default is `dark`.
+   * @param {ThemeName | Theme} theme - Theme name or palette
+   * @throws {Error} If the name is not a known theme
+   * @example
+   * fmt.setTheme('light');
+   */
+  setTheme(theme: ThemeName | Theme): void {
+    if (typeof theme !== 'string') {
+      this.theme = theme;
+      return;
+    }
+    const found = this.registry.get(theme);
+    if (!found) {
+      const known = [...this.registry.keys()].join(', ');
+      throw new Error(`Unknown theme "${theme}". Available themes: ${known}`);
+    }
+    this.theme = found;
+  }
+
+  /**
+   * Returns the active theme.
+   * @returns {Theme} The palette in use
+   */
+  getTheme(): Theme {
+    return this.theme;
+  }
+
+  /**
+   * Registers a named theme on this formatter so `setTheme(name)` can select
+   * it. The built-in `dark` and `light` themes can't be replaced.
+   * @param {ThemeName} name - Name to register the theme under
+   * @param {Theme} theme - The palette
+   * @throws {Error} If the name belongs to a built-in theme
+   */
+  registerTheme(name: ThemeName, theme: Theme): void {
+    if (Object.hasOwn(themes, name)) {
+      throw new Error(`Cannot replace built-in theme "${name}"`);
+    }
+    this.registry.set(name, theme);
+  }
 
   /**
    * Routes all printed output to stdout (default) or stderr.
@@ -76,7 +217,7 @@ export class Formatter {
    * fmt.success('Template created successfully!');
    */
   success(message: string) {
-    this.print(chalk.green(message));
+    this.print(this.theme.success(message));
   }
 
   /**
@@ -86,7 +227,7 @@ export class Formatter {
    * fmt.error('Failed to compile validator');
    */
   error(message: string) {
-    this.print(chalk.red(message));
+    this.print(this.theme.error(message));
     this.errorSink?.(message);
   }
 
@@ -97,7 +238,7 @@ export class Formatter {
    * fmt.warning('testlib.h already exists');
    */
   warning(message: string) {
-    this.print(chalk.yellow(message));
+    this.print(this.theme.warning(message));
   }
 
   /**
@@ -107,7 +248,7 @@ export class Formatter {
    * fmt.info(`Target: ${generatorName}`);
    */
   info(message: string) {
-    this.print(chalk.white(message));
+    this.print(this.theme.info(message));
   }
 
   /**
@@ -118,7 +259,7 @@ export class Formatter {
    * fmt.log('Additional details...');
    */
   log(message: string) {
-    this.print(chalk.gray(message));
+    this.print(this.theme.log(message));
   }
 
   /**
@@ -129,7 +270,7 @@ export class Formatter {
    * fmt.success(`${fmt.checkmark()} Test passed`);
    */
   checkmark(): string {
-    return chalk.green('✓');
+    return this.theme.success('✓');
   }
 
   /**
@@ -140,7 +281,7 @@ export class Formatter {
    * fmt.error(`${fmt.cross()} Test failed`);
    */
   cross(): string {
-    return chalk.red('✖');
+    return this.theme.error('✖');
   }
 
   /**
@@ -151,7 +292,7 @@ export class Formatter {
    * fmt.warning(`${fmt.warningIcon()} Memory limit not supported on Windows`);
    */
   warningIcon(): string {
-    return chalk.yellow('⚠');
+    return this.theme.warning('⚠');
   }
 
   /**
@@ -162,7 +303,7 @@ export class Formatter {
    * fmt.info(`${fmt.infoIcon()} Found 5 generators`);
    */
   infoIcon(): string {
-    return chalk.blue('ℹ');
+    return this.theme.infoIcon('ℹ');
   }
 
   /**
@@ -174,9 +315,9 @@ export class Formatter {
    */
   section(title: string) {
     this.print();
-    this.print(chalk.bold.blue(`${'═'.repeat(50)}`));
-    this.print(chalk.bold.blue(`  ${title}`));
-    this.print(chalk.bold.blue(`${'═'.repeat(50)}`));
+    this.print(this.theme.heading(`${'═'.repeat(50)}`));
+    this.print(this.theme.heading(`  ${title}`));
+    this.print(this.theme.heading(`${'═'.repeat(50)}`));
     this.print();
   }
 
@@ -190,7 +331,8 @@ export class Formatter {
   step(stepNumber: number, title: string) {
     this.print();
     this.print(
-      chalk.bold.blue(`┌─ Step ${stepNumber}: `) + chalk.bold.white(title)
+      this.theme.heading(`┌─ Step ${stepNumber}: `) +
+        this.theme.stepTitle(title)
     );
   }
   /**
@@ -210,9 +352,9 @@ export class Formatter {
    */
   stepComplete(message?: string) {
     if (message) {
-      this.print(chalk.green(`└─ ✓ ${message}`));
+      this.print(this.theme.success(`└─ ✓ ${message}`));
     } else {
-      this.print(chalk.green(`└─ ✓ Complete`));
+      this.print(this.theme.success(`└─ ✓ Complete`));
     }
   }
 
@@ -224,7 +366,7 @@ export class Formatter {
    * fmt.info(`Target: ${fmt.highlight('all')}`);
    */
   highlight(text: string): string {
-    return chalk.bold.blue(text);
+    return this.theme.highlight(text);
   }
 
   /**
@@ -257,7 +399,7 @@ export class Formatter {
    * fmt.log(`Error: ${fmt.accent('Failed')}`);
    */
   accent(text: string): string {
-    return chalk.hex('#FF6B6B')(text); // Codeforces red accent
+    return this.theme.accent(text);
   }
 
   /**
@@ -268,7 +410,7 @@ export class Formatter {
    * fmt.info(`Main solution: ${fmt.primary(mainSolution.name)}`);
    */
   primary(text: string): string {
-    return chalk.hex('#1E88E5')(text); // Codeforces blue
+    return this.theme.primary(text);
   }
 
   /**
@@ -281,11 +423,15 @@ export class Formatter {
   successBox(message: string) {
     this.print();
     this.print(
-      chalk.bold.green('  ╔═══════════════════════════════════════════════╗')
+      this.theme.successBox(
+        '  ╔═══════════════════════════════════════════════╗'
+      )
     );
-    this.print(chalk.bold.green(`    🎉  ${message.padEnd(41)}  `));
+    this.print(this.theme.successBox(`    🎉  ${message.padEnd(41)}  `));
     this.print(
-      chalk.bold.green('  ╚═══════════════════════════════════════════════╝')
+      this.theme.successBox(
+        '  ╚═══════════════════════════════════════════════╝'
+      )
     );
     this.print();
   }
@@ -300,11 +446,11 @@ export class Formatter {
   errorBox(message: string) {
     this.print();
     this.print(
-      chalk.bold.red('  ╔═══════════════════════════════════════════╗')
+      this.theme.errorBox('  ╔═══════════════════════════════════════════╗')
     );
-    this.print(chalk.bold.red(`   ❌  ${message.padEnd(35)}  `));
+    this.print(this.theme.errorBox(`   ❌  ${message.padEnd(35)}  `));
     this.print(
-      chalk.bold.red('  ╚═══════════════════════════════════════════╝')
+      this.theme.errorBox('  ╚═══════════════════════════════════════════╝')
     );
     this.print();
   }
