@@ -1,3 +1,5 @@
+import { tokenFetch } from './project.ts';
+
 /**
  * Tiny GitLab REST client for CI jobs. Uses only the Node standard library.
  *
@@ -24,7 +26,7 @@ export class GitLab {
 
   async request<T = unknown>(method: string, path: string, body?: unknown): Promise<T> {
     const url = `${this.baseUrl}${path.replace(':project', `projects/${this.projectId}`)}`;
-    const res = await fetch(url, {
+    const res = await tokenFetch(url, {
       method,
       headers: { ...this.auth, 'Content-Type': 'application/json' },
       body: body === undefined ? undefined : JSON.stringify(body),

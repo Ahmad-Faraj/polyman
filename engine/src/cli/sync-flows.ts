@@ -15,7 +15,7 @@
 import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import { projectPathFrom } from '../project.ts';
+import { gitlabUrl, projectPathFrom, tokenFetch } from '../project.ts';
 import { loadConfig } from '../config.ts';
 import { checkFlow } from '../flows.ts';
 import { flowValues, renderFlow } from '../render.ts';
@@ -26,8 +26,7 @@ const dryRun = args.includes('--dry-run') || !!printName;
 const projectPath = projectPathFrom(args.find((a, i) => !a.startsWith('--') && args[i - 1] !== '--print'));
 const token = process.env.GITLAB_TOKEN;
 if (!token) throw new Error('set GITLAB_TOKEN (a token with the api scope) to sync flows');
-const api = process.env.GITLAB_URL ?? 'https://gitlab.com';
-if (!api.startsWith('https://')) throw new Error(`refusing to send your token to ${api}: use an https:// GITLAB_URL`);
+const api = gitlabUrl(process.env.GITLAB_URL);
 
 // Publish what is committed, not whatever happens to be on disk.
 if (!dryRun && !args.includes('--allow-dirty')) {
@@ -36,7 +35,7 @@ if (!dryRun && !args.includes('--allow-dirty')) {
 }
 
 async function graphql<T>(query: string, variables: Record<string, unknown> = {}): Promise<T> {
-  const res = await fetch(`${api}/api/graphql`, {
+  const res = await tokenFetch(`${api}/api/graphql`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ query, variables }),

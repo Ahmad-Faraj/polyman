@@ -12,13 +12,12 @@
  * `npx -y -p @grnsft/if@1.1.1 if-run -m file.yml` recomputes without a token.
  */
 import { loadConfig } from '../config.ts';
-import { projectPathFrom } from '../project.ts';
+import { gitlabUrl, projectPathFrom, tokenFetch } from '../project.ts';
 import { writeFileSync } from 'node:fs';
 import { footprintArgs, ifManifest } from '../manifest.ts';
-import { INFERENCE_WH_PER_CALL, callsOf, footprint, modelCalls, sessionGrams } from '../sci.ts';
+import { INFERENCE_WH_PER_CALL, callsOf, checkpointsMissing, footprint, modelCalls, sessionGrams } from '../sci.ts';
 
-const api = process.env.GITLAB_URL ?? 'https://gitlab.com';
-if (!api.startsWith('https://')) throw new Error(`refusing to send your token to ${api}: use an https:// GITLAB_URL`);
+const api = gitlabUrl(process.env.GITLAB_URL);
 // read before any network call, so a bad option fails at once
 const args = footprintArgs(process.argv.slice(2));
 const project = encodeURIComponent(projectPathFrom(args.project));
@@ -26,7 +25,7 @@ const token = process.env.GITLAB_TOKEN;
 if (!token) throw new Error('set GITLAB_TOKEN to read the agent job logs');
 
 async function get<T>(path: string, raw = false): Promise<T> {
-  const res = await fetch(`${api}/api/v4/projects/${project}${path}`, { headers: { 'PRIVATE-TOKEN': token! } });
+  const res = await tokenFetch(`${api}/api/v4/projects/${project}${path}`, { headers: { 'PRIVATE-TOKEN': token! } });
   if (!res.ok) throw new Error(`GET ${path} -> ${res.status}`);
   return (raw ? await res.text() : await res.json()) as T;
 }
@@ -62,7 +61,9 @@ for (let page = 1; ; page++) {
     const mr =
       Number(log.match(/"merge_request":\{"id":\d+,"iid":(\d+)/)?.[1] ?? log.match(/MergeRequest IID: (\d+)/)?.[1] ?? log.match(/merge request !(\d+)/i)?.[1]) || null;
     const skipped = /skipped: /.test(log.split('Starting Workflow').pop() ?? '');
-    sessions.push({ pipeline: p.id, at: p.created_at, flow, mr, skipped, seconds: job.duration, calls: modelCalls(log) });
+    const calls = modelCalls(log);
+    if (checkpointsMissing(job.duration, calls)) console.error(`warning: no checkpoint lines in pipeline ${p.id}'s log; its model calls count as 0`);
+    sessions.push({ pipeline: p.id, at: p.created_at, flow, mr, skipped, seconds: job.duration, calls });
   }
 }
 

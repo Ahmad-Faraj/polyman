@@ -24,7 +24,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { type AutonomyConfig } from '../config.ts';
 import { loadConfig } from '../config.ts';
 import { checkFlow } from '../flows.ts';
-import { projectPathFrom } from '../project.ts';
+import { gitlabUrl, projectPathFrom, tokenFetch } from '../project.ts';
 import { flowValues, renderFlow } from '../render.ts';
 
 const MENTION = 0;
@@ -148,10 +148,7 @@ export type Gql = <T>(query: string, variables?: Record<string, unknown>) => Pro
 export type Rest = <T>(path: string) => Promise<T | null>;
 
 /** Where to send the token: only over https. */
-export function gitlabUrl(value = 'https://gitlab.com'): string {
-  if (!value.startsWith('https://')) throw new Error(`refusing to send your token to ${value}: use an https:// GITLAB_URL`);
-  return value.replace(/\/+$/, '');
-}
+export { gitlabUrl } from '../project.ts';
 
 interface PushLevel {
   access_level: number;
@@ -393,7 +390,7 @@ if (import.meta.main ?? isEntry(process.argv[1], fileURLToPath(import.meta.url))
   const api = gitlabUrl(process.env.GITLAB_URL);
 
   const gql: Gql = async <T>(query: string, variables: Record<string, unknown> = {}): Promise<T> => {
-    const res = await fetch(`${api}/api/graphql`, {
+    const res = await tokenFetch(`${api}/api/graphql`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ query, variables }),
@@ -403,7 +400,7 @@ if (import.meta.main ?? isEntry(process.argv[1], fileURLToPath(import.meta.url))
     return body.data;
   };
   const rest: Rest = async <T>(path: string): Promise<T | null> => {
-    const res = await fetch(`${api}/api/v4${path}`, { headers: { Authorization: `Bearer ${token}` } });
+    const res = await tokenFetch(`${api}/api/v4${path}`, { headers: { Authorization: `Bearer ${token}` } });
     return res.ok ? ((await res.json()) as T) : null;
   };
 
