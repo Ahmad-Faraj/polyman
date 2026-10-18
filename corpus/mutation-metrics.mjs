@@ -12,21 +12,22 @@ import path from 'node:path';
 const [input = 'corpus/out/mutation/mutation.json', output = 'metrics.txt'] =
   process.argv.slice(2);
 
+// Both paths must stay inside the working directory: `path.relative` catches
+// `..` and sibling folders such as `/repo-other`, which `startsWith` lets through.
 const basePath = process.cwd();
+const inside = file => {
+  const resolved = path.resolve(basePath, file);
+  const rel = path.relative(basePath, resolved);
+  if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) {
+    console.error(`path outside the working directory: ${file}`);
+    process.exit(1);
+  }
+  return resolved;
+};
+const inputPath = inside(input);
+const outputPath = inside(output);
 
-const normalizedInput = path.normalize(path.resolve(input));
-if (!normalizedInput.startsWith(basePath)) {
-  console.error('Invalid input path specified!');
-  process.exit(1);
-}
-
-const normalizedOutput = path.normalize(path.resolve(output));
-if (!normalizedOutput.startsWith(basePath)) {
-  console.error('Invalid output path specified!');
-  process.exit(1);
-}
-
-const report = JSON.parse(fs.readFileSync(normalizedInput, 'utf8'));
+const report = JSON.parse(fs.readFileSync(inputPath, 'utf8'));
 
 const lines = [];
 let detected = 0;
@@ -44,5 +45,5 @@ for (const [file, { mutants }] of Object.entries(report.files)) {
 }
 const score = valid ? Math.round((1000 * detected) / valid) / 10 : 0;
 lines.unshift(`mutation_score ${score}`);
-fs.writeFileSync(output, `${lines.join('\n')}\n`);
+fs.writeFileSync(outputPath, `${lines.join('\n')}\n`);
 console.log(lines.join('\n'));
