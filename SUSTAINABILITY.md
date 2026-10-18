@@ -50,6 +50,38 @@ A review is only part of a fix. Functional unit two: **one judge-found bug fixed
 
 **The go-ahead decides what runs at all.** Of 13 proposals issue-builder posted, 2 never became a build: one nobody approved (#10), and one a maintainer revised before any code was written (#28, its first proposal would have stopped judging at the first PE). Each avoided build saves a build and its reviews, about one row of the table above. With a person deciding each step, a wrong or unwanted change costs a proposal (a few model calls), not a fix plus its reviews.
 
+## Per token, with the calls counted (SCI for AI)
+
+[SCI for AI](https://github.com/Green-Software-Foundation/sci-ai/blob/dev/SPEC.md) (Green Software Foundation) draws the consumer's boundary around inference and orchestration. It takes a language model's functional unit per token and an agentic workload's per workflow execution: here, one review. Each session's checkpoint holds every model reply with its usage, so this section counts the calls instead of bounding them from the log, and splits the tokens into four classes: uncached input, cache writes, cache reads and output.
+
+232 sessions, from Oct 16 18:58 to Oct 18 17:39 UTC (2 more had no checkpoint):
+
+| Flow | Sessions | Model calls | Tokens | Cache reads | Output |
+|---|---|---|---|---|---|
+| mr-reviewer | 176 (27 skipped) | 5,573 | 283.8M | 82% | 3.4% |
+| issue-builder | 28 | 286 | 12.0M | 83% | 2.4% |
+| pipeline-fixer | 12 | 82 | 3.6M | 78% | 0.9% |
+| incident-responder | 5 | 28 | 1.5M | 75% | 1.1% |
+| GitLab's own flows (Developer and others) | 11 | 59 | 0.9M | 29% | 4.0% |
+
+Reviews by risk tier, median per review:
+
+| Tier | Reviews | Model calls | Tokens | of which cache reads | gCO2e per review, low-high | gCO2e per 1M tokens, low-high |
+|---|---|---|---|---|---|---|
+| high | 105 | 38 | 1.62M | 1.28M | 6.5-54.4 | 3.4-27.7 |
+| medium | 26 | 30 | 1.23M | 0.91M | 4.9-43.3 | 4.2-33.2 |
+| low | 16 | 7 | 0.35M | 0.27M | 1.2-10.0 | 2.6-22.6 |
+
+- **The reviewer is 94% of every token our agents used.** Builds, fixes and incidents together are 6%. Review depth, and which reviews run at all, is where savings are.
+- **Counted calls narrow the range.** A high review averages 43.7 counted calls (7.7-63.1 g). The log bound in the first table is 41-99 calls (7.9-141.6 g): its low end holds, and its high end counted every checkpoint as a call.
+- **Most input is a cache read.** That's 79% of a high review's tokens, and its uncached input is under 100 tokens. Output is about 3%. A per-token energy figure that assumes every input token is computed afresh would overstate this workload, so the energy stays per call (below), and none of the figures is measured for this model.
+- **The security reviewer carries 38% of a high review's tokens with 27% of its calls.** It has the largest input per call: the scanner findings it pulled for the whole branch. Since !98 it gets only the findings on the lines the MR wrote.
+- **The test reviewer is on the small model since !99.** `claude-haiku-4-5` shows up in 4 sessions so far; the next high reviews show what it changes.
+
+The data per session (pipeline, workflow, MR, tier, runner seconds, tokens by class and by role) is in [sustainability/agent-tokens.json](sustainability/agent-tokens.json). To rebuild it (read-only, needs a token that can read job logs and agent sessions):
+
+    GITLAB_TOKEN=... node engine/src/cli/agent-tokens.ts <project path> --json sustainability/agent-tokens.json
+
 ## How it's calculated
 
 SCI (Software Carbon Intensity, ISO/IEC 21031:2024): `(E x I + M) per R`.
