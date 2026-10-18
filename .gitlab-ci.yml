@@ -46,6 +46,8 @@ include:
   - local: corpus/corpus.gitlab-ci.yml
   # canary channel: every merge published to this project's npm registry and judged
   - local: .gitlab/ci/canary.gitlab-ci.yml
+  # npm next → judged against latest → latest, each publish step a person's go-ahead
+  - local: .gitlab/ci/release.gitlab-ci.yml
 
 # Shared Node setup, kept out of `default:` so it doesn't leak into the scanner jobs.
 .node:

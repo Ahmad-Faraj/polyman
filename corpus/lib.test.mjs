@@ -6,9 +6,69 @@ import {
   nonEmpty,
   outcomeOf,
   pushChecks,
+  regressions,
   scriptLines,
   selectProblems,
 } from './lib.mjs';
+
+describe('regressions: the release gate', () => {
+  const summary = problems => ({ polyman: 'x', problems });
+  const latest = summary([
+    {
+      name: 'sum-parity',
+      failures: [
+        'solution pe: expected tests#1:PE, got tests#1:WA',
+        'solution wa: expected tests#3:WA, got tests#3:OK',
+      ],
+    },
+    { name: 'mistagged', failures: [] },
+  ]);
+
+  it('passes a candidate that only fixes things, and lists the fixes', () => {
+    const next = summary([
+      {
+        name: 'sum-parity',
+        failures: ['solution wa: expected tests#3:WA, got tests#3:OK'],
+      },
+      { name: 'mistagged', failures: [] },
+    ]);
+    const { added, fixed } = regressions(latest, next);
+    expect(added).toEqual([]);
+    expect(fixed).toEqual([
+      {
+        problem: 'sum-parity',
+        message: 'solution pe: expected tests#1:PE, got tests#1:WA',
+      },
+    ]);
+  });
+
+  it('fails on a failure the baseline did not have, even next to old ones', () => {
+    const next = summary([
+      { name: 'sum-parity', failures: latest.problems[0].failures },
+      { name: 'mistagged', failures: ['solution x: expected OK, got WA'] },
+    ]);
+    expect(regressions(latest, next).added).toEqual([
+      { problem: 'mistagged', message: 'solution x: expected OK, got WA' },
+    ]);
+  });
+
+  it('counts a problem the candidate did not judge at all as a regression', () => {
+    const next = summary([{ name: 'sum-parity', failures: [] }]);
+    expect(regressions(latest, next).added).toEqual([
+      { problem: 'mistagged', message: 'not judged by the candidate' },
+    ]);
+  });
+
+  it("counts a new problem's failures, since the baseline never had it", () => {
+    const next = summary([
+      ...latest.problems,
+      { name: 'new-one', failures: ['solution y: wrong'] },
+    ]);
+    expect(regressions(latest, next).added).toEqual([
+      { problem: 'new-one', message: 'solution y: wrong' },
+    ]);
+  });
+});
 
 const okTests = n => Array.from({ length: n }, (_, i) => `tests#${i + 1}:OK`);
 

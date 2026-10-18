@@ -1,0 +1,107 @@
+# npm release channels (wiki: Release-design): a version bump merged to the
+# default branch can go to npm `next`, be judged there as users install it, and
+# only then become `latest`. Assisted: publishing and promoting are a person's
+# go-ahead, manual jobs on the merge's pipeline. Nothing here runs until a
+# person adds NPM_TOKEN (granular, publish rights on polyman-cli only, masked
+# and protected).
+
+.npm-release:
+  extends: .node
+  stage: deploy
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push" && $NPM_TOKEN
+      changes: [package.json]
+
+# Publishes package.json's version to npm under the `next` tag, with
+# provenance: npmjs.com links the package to this pipeline. npm refuses
+# provenance when repository.url names another repository (it points at
+# GitHub, polyman's home), so the job sets it to this project for the
+# published package only; nothing changes in git.
+release:npm-next:
+  extends: .npm-release
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push" && $NPM_TOKEN
+      changes: [package.json]
+      when: manual
+  environment:
+    name: npm-next
+    deployment_tier: staging
+    url: https://www.npmjs.com/package/polyman-cli?activeTab=versions
+  id_tokens:
+    SIGSTORE_ID_TOKEN:
+      aud: sigstore
+  script:
+    - VERSION="$(node -p "require('./package.json').version")"
+    - |
+      if npm view "polyman-cli@$VERSION" version >/dev/null 2>&1; then
+        echo "polyman-cli@$VERSION is already on npm: nothing to publish"
+        echo "RELEASE_VERSION=none" > release.env
+        exit 0
+      fi
+    - npm run build
+    - npm pkg set repository.url="git+$CI_PROJECT_URL.git"
+    - npm config set -- "//registry.npmjs.org/:_authToken" "$NPM_TOKEN"
+    - npm publish --provenance --access public --tag next
+    - echo "RELEASE_VERSION=$VERSION" > release.env
+  artifacts:
+    reports:
+      dotenv: release.env
+
+# Judges `next` as users install it, against `latest` on the same machine:
+# the gate is no regression (corpus/regressions.mjs), since the corpus can't
+# be all green while judge bugs are open. The Polygon round trip on `next` is
+# kept as evidence; it gates too once the push bugs (#24, #25, #26) are fixed.
+release:next-check:
+  extends: .npm-release
+  needs: [release:npm-next]
+  script:
+    - if [ "$RELEASE_VERSION" = none ]; then echo "nothing was published"; exit 0; fi
+    - apt-get update -qq && apt-get install -y -qq default-jdk-headless python-is-python3 >/dev/null
+    # npm's CDN can take a moment to serve a new version
+    - for i in $(seq 1 30); do npm i --prefix /tmp/next --no-audit --no-fund "polyman-cli@$RELEASE_VERSION" && break; sleep 10; done
+    - npm i --prefix /tmp/latest --no-audit --no-fund polyman-cli@latest
+    - node corpus/run.mjs --polyman /tmp/latest/node_modules/polyman-cli/dist/cli.js --junit corpus/out/latest/junit.xml || true
+    - node corpus/run.mjs --polyman /tmp/next/node_modules/polyman-cli/dist/cli.js --junit corpus/out/next/junit.xml || true
+    - 'if [ -n "$POLYGON_API_KEY" ]; then node corpus/polygon-roundtrip.mjs --polyman /tmp/next/node_modules/polyman-cli/dist/cli.js --junit corpus/out/next/junit-polygon.xml || echo "the round trip on next failed: see its report (evidence, not yet a gate)"; fi'
+    - node corpus/regressions.mjs corpus/out/latest/summary.json corpus/out/next/summary.json
+  artifacts:
+    when: always
+    expire_in: 1 year
+    expose_as: 'Release check: next vs latest'
+    paths: [corpus/out/]
+    reports:
+      junit: corpus/out/next/junit*.xml
+
+# Moves `latest` to the judged version. Offered only after the check passed.
+release:promote:
+  extends: .npm-release
+  needs: [release:npm-next, release:next-check]
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push" && $NPM_TOKEN
+      changes: [package.json]
+      when: manual
+  environment:
+    name: npm-latest
+    deployment_tier: production
+    url: https://www.npmjs.com/package/polyman-cli
+  script:
+    - if [ "$RELEASE_VERSION" = none ]; then echo "nothing was published"; exit 0; fi
+    - npm config set -- "//registry.npmjs.org/:_authToken" "$NPM_TOKEN"
+    - npm dist-tag add "polyman-cli@$RELEASE_VERSION" latest
+
+# The GitLab Release vX: the tag, links to the npm package and to the check
+# that judged it, and the release evidence GitLab collects.
+release:gitlab:
+  stage: deploy
+  image: registry.gitlab.com/gitlab-org/release-cli:latest
+  needs: [release:npm-next, release:next-check, release:promote]
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push" && $NPM_TOKEN
+      changes: [package.json]
+  script:
+    - if [ "$RELEASE_VERSION" = none ]; then echo "nothing was published"; exit 0; fi
+    - >-
+      release-cli create --name "polyman-cli $RELEASE_VERSION" --tag-name "v$RELEASE_VERSION" --ref "$CI_COMMIT_SHA"
+      --description "Published to npm from pipeline $CI_PIPELINE_URL with provenance, judged against the previous latest before promotion."
+      --assets-link "{\"name\":\"npm: polyman-cli@$RELEASE_VERSION\",\"url\":\"https://www.npmjs.com/package/polyman-cli/v/$RELEASE_VERSION\"}"
+      --assets-link "{\"name\":\"Release check: next vs latest\",\"url\":\"$CI_PIPELINE_URL\"}"

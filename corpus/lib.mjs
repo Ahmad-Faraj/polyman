@@ -177,3 +177,37 @@ export function nonEmpty(name, checks, reason) {
     ? checks
     : [{ name, ok: false, detail: `no checks ran: ${reason}` }];
 }
+
+/**
+ * What a release candidate judges worse or better than the version users have,
+ * from two corpus summaries (summary.json). While judge bugs are open the
+ * corpus can't be all green, so the release gate is "no regression": nothing
+ * the baseline got right may go wrong. A problem the candidate didn't run at
+ * all counts as a regression, so a broken install can't pass as "nothing new".
+ */
+export function regressions(baseline, candidate) {
+  const failuresOf = summary =>
+    new Map(
+      (summary?.problems ?? []).map(p => [p.name, new Set(p.failures ?? [])])
+    );
+  const before = failuresOf(baseline);
+  const after = failuresOf(candidate);
+  const added = [];
+  const fixed = [];
+  for (const [name, was] of before) {
+    const now = after.get(name);
+    if (!now) {
+      added.push({ problem: name, message: 'not judged by the candidate' });
+      continue;
+    }
+    for (const m of now)
+      if (!was.has(m)) added.push({ problem: name, message: m });
+    for (const m of was)
+      if (!now.has(m)) fixed.push({ problem: name, message: m });
+  }
+  for (const [name, now] of after) {
+    if (before.has(name)) continue;
+    for (const m of now) added.push({ problem: name, message: m });
+  }
+  return { added, fixed };
+}
