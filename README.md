@@ -122,6 +122,10 @@ For detailed usage, see [GUIDE.md](GUIDE.md#cli-commands-reference).
 
 C++ builds are cached in `.polyman/cache/` inside the problem directory. A source is recompiled only when it, a local header it includes (such as `testlib.h`), `cppStandard`, or the compiler version changes; otherwise the cached binary is reused and `verify` reports the time saved. Pass `--no-cache` to `generate`, `validate`, `run`, `test` or `verify` to force recompilation. See [GUIDE.md](GUIDE.md#compilation-cache).
 
+### Terminal colors
+
+Output colors are tuned for dark terminals by default. On a light background, set `POLYMAN_THEME=light`; any other value falls back to the dark theme. Set `NO_COLOR=1` (see [no-color.org](https://no-color.org)) to turn colors off.
+
 ### Scripting and AI agents
 
 `run` and `verify` accept `--json`: stdout then carries exactly one JSON document and all human-readable output moves to stderr, so `polyman verify --json > verify.json` is safe to parse. The exit code is unchanged. `remote push` accepts `--yes` and `--name <slug>` so a new problem can be created without a terminal; without a TTY the command fails fast instead of waiting on a prompt. See [GUIDE.md](GUIDE.md#full-verification) for the report shape.

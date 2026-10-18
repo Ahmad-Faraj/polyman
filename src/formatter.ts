@@ -1,10 +1,10 @@
 /**
  * @fileoverview Terminal output formatter with Codeforces-themed styling.
- * Provides consistent, colorful CLI output using chalk library.
+ * Provides consistent, colorful CLI output; colors come from the active theme.
  * All methods use explicit icon placement for better indentation control.
  */
 
-import chalk from 'chalk';
+import { getTheme, type Theme } from './theme';
 
 /**
  * Stream that human-readable output is written to.
@@ -20,7 +20,8 @@ export type ErrorSink = (message: string) => void;
 
 /**
  * Formatter class for creating styled terminal output with Codeforces theme.
- * Uses chalk library for coloring with custom hex colors (#1E88E5 blue, #FF6B6B red).
+ * Colors come from a {@link Theme} (dark by default, POLYMAN_THEME=light for
+ * light terminals, no colors when NO_COLOR is set).
  *
  * @class Formatter
  * @example
@@ -34,6 +35,11 @@ export type ErrorSink = (message: string) => void;
 export class Formatter {
   private target: OutputTarget = 'stdout';
   private errorSink: ErrorSink | null = null;
+
+  /**
+   * @param {Theme} [theme=getTheme()] - Color theme to style output with
+   */
+  constructor(private readonly theme: Theme = getTheme()) {}
 
   /**
    * Routes all printed output to stdout (default) or stderr.
@@ -76,7 +82,7 @@ export class Formatter {
    * fmt.success('Template created successfully!');
    */
   success(message: string) {
-    this.print(chalk.green(message));
+    this.print(this.theme.success(message));
   }
 
   /**
@@ -86,7 +92,7 @@ export class Formatter {
    * fmt.error('Failed to compile validator');
    */
   error(message: string) {
-    this.print(chalk.red(message));
+    this.print(this.theme.error(message));
     this.errorSink?.(message);
   }
 
@@ -97,7 +103,7 @@ export class Formatter {
    * fmt.warning('testlib.h already exists');
    */
   warning(message: string) {
-    this.print(chalk.yellow(message));
+    this.print(this.theme.warning(message));
   }
 
   /**
@@ -107,7 +113,7 @@ export class Formatter {
    * fmt.info(`Target: ${generatorName}`);
    */
   info(message: string) {
-    this.print(chalk.white(message));
+    this.print(this.theme.info(message));
   }
 
   /**
@@ -118,7 +124,7 @@ export class Formatter {
    * fmt.log('Additional details...');
    */
   log(message: string) {
-    this.print(chalk.gray(message));
+    this.print(this.theme.muted(message));
   }
 
   /**
@@ -129,7 +135,7 @@ export class Formatter {
    * fmt.success(`${fmt.checkmark()} Test passed`);
    */
   checkmark(): string {
-    return chalk.green('✓');
+    return this.theme.success('✓');
   }
 
   /**
@@ -140,7 +146,7 @@ export class Formatter {
    * fmt.error(`${fmt.cross()} Test failed`);
    */
   cross(): string {
-    return chalk.red('✖');
+    return this.theme.error('✖');
   }
 
   /**
@@ -151,7 +157,7 @@ export class Formatter {
    * fmt.warning(`${fmt.warningIcon()} Memory limit not supported on Windows`);
    */
   warningIcon(): string {
-    return chalk.yellow('⚠');
+    return this.theme.warning('⚠');
   }
 
   /**
@@ -162,7 +168,7 @@ export class Formatter {
    * fmt.info(`${fmt.infoIcon()} Found 5 generators`);
    */
   infoIcon(): string {
-    return chalk.blue('ℹ');
+    return this.theme.infoIcon('ℹ');
   }
 
   /**
@@ -174,9 +180,9 @@ export class Formatter {
    */
   section(title: string) {
     this.print();
-    this.print(chalk.bold.blue(`${'═'.repeat(50)}`));
-    this.print(chalk.bold.blue(`  ${title}`));
-    this.print(chalk.bold.blue(`${'═'.repeat(50)}`));
+    this.print(this.theme.heading(`${'═'.repeat(50)}`));
+    this.print(this.theme.heading(`  ${title}`));
+    this.print(this.theme.heading(`${'═'.repeat(50)}`));
     this.print();
   }
 
@@ -190,7 +196,8 @@ export class Formatter {
   step(stepNumber: number, title: string) {
     this.print();
     this.print(
-      chalk.bold.blue(`┌─ Step ${stepNumber}: `) + chalk.bold.white(title)
+      this.theme.heading(`┌─ Step ${stepNumber}: `) +
+        this.theme.stepTitle(title)
     );
   }
   /**
@@ -210,9 +217,9 @@ export class Formatter {
    */
   stepComplete(message?: string) {
     if (message) {
-      this.print(chalk.green(`└─ ✓ ${message}`));
+      this.print(this.theme.success(`└─ ✓ ${message}`));
     } else {
-      this.print(chalk.green(`└─ ✓ Complete`));
+      this.print(this.theme.success(`└─ ✓ Complete`));
     }
   }
 
@@ -224,7 +231,7 @@ export class Formatter {
    * fmt.info(`Target: ${fmt.highlight('all')}`);
    */
   highlight(text: string): string {
-    return chalk.bold.blue(text);
+    return this.theme.heading(text);
   }
 
   /**
@@ -235,7 +242,7 @@ export class Formatter {
    * fmt.info(`${fmt.dim('(optional)')}`);
    */
   dim(text: string): string {
-    return chalk.dim(text);
+    return this.theme.dim(text);
   }
 
   /**
@@ -246,7 +253,7 @@ export class Formatter {
    * this.print(fmt.bold('Important:'));
    */
   bold(text: string): string {
-    return chalk.bold(text);
+    return this.theme.bold(text);
   }
 
   /**
@@ -257,7 +264,7 @@ export class Formatter {
    * fmt.log(`Error: ${fmt.accent('Failed')}`);
    */
   accent(text: string): string {
-    return chalk.hex('#FF6B6B')(text); // Codeforces red accent
+    return this.theme.accent(text);
   }
 
   /**
@@ -268,7 +275,7 @@ export class Formatter {
    * fmt.info(`Main solution: ${fmt.primary(mainSolution.name)}`);
    */
   primary(text: string): string {
-    return chalk.hex('#1E88E5')(text); // Codeforces blue
+    return this.theme.primary(text);
   }
 
   /**
@@ -281,11 +288,15 @@ export class Formatter {
   successBox(message: string) {
     this.print();
     this.print(
-      chalk.bold.green('  ╔═══════════════════════════════════════════════╗')
+      this.theme.successBold(
+        '  ╔═══════════════════════════════════════════════╗'
+      )
     );
-    this.print(chalk.bold.green(`    🎉  ${message.padEnd(41)}  `));
+    this.print(this.theme.successBold(`    🎉  ${message.padEnd(41)}  `));
     this.print(
-      chalk.bold.green('  ╚═══════════════════════════════════════════════╝')
+      this.theme.successBold(
+        '  ╚═══════════════════════════════════════════════╝'
+      )
     );
     this.print();
   }
@@ -300,11 +311,11 @@ export class Formatter {
   errorBox(message: string) {
     this.print();
     this.print(
-      chalk.bold.red('  ╔═══════════════════════════════════════════╗')
+      this.theme.errorBold('  ╔═══════════════════════════════════════════╗')
     );
-    this.print(chalk.bold.red(`   ❌  ${message.padEnd(35)}  `));
+    this.print(this.theme.errorBold(`   ❌  ${message.padEnd(35)}  `));
     this.print(
-      chalk.bold.red('  ╚═══════════════════════════════════════════╝')
+      this.theme.errorBold('  ╚═══════════════════════════════════════════╝')
     );
     this.print();
   }
