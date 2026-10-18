@@ -134,6 +134,11 @@ describe("the project's Duo flows", () => {
     expect(renderFlow(read('mr-reviewer.yaml'), values).replace(/\s+/g, ' ')).toContain('mentioning @HamzaHassanain, @Mazen-Ghanaym so GitLab notifies them');
   });
 
+  it('the code reviewer looks for errors that disappear, and a quiet pass in a gate is P1', () => {
+    expect(flat('mr-reviewer.yaml')).toContain('Look hard at errors that disappear');
+    expect(flat('mr-reviewer.yaml')).toContain('In a check, a gate or a guard, a failure that passes quietly is P1.');
+  });
+
   it('the fixer reads the tier from the assess job, never from a label', () => {
     expect(flat('pipeline-fixer.yaml')).toContain('never from a label');
     expect(flat('pipeline-fixer.yaml')).toContain('field "name"');

@@ -368,6 +368,10 @@ prompts:
         - Read the diff and the surrounding code. Look for real problems: bugs,
           missed edge cases, error handling, confusing code.
           Ignore style nits that a formatter would handle.
+        - Look hard at errors that disappear: a catch that returns a default or
+          only logs, a catch wider than the error it means, a fallback that
+          turns a failure into success. In a check, a gate or a guard, a
+          failure that passes quietly is P1.
         - For each real problem, leave one inline comment on the exact line with
           create_merge_request_diff_note: what's wrong and what to do instead, like a
           colleague would. Skip style nits.
