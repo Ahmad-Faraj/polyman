@@ -25,7 +25,7 @@ import {
 } from './utils';
 import { fmt } from '../formatter';
 import { report } from '../report';
-import { ensureCheckerExists, runChecker } from './checker';
+import { ensureCheckerExists, PresentationError, runChecker } from './checker';
 import type { LocalChecker } from '../types';
 import { getTestIndicesForGroup } from './testset';
 
@@ -771,14 +771,19 @@ export async function startTheComparisonProcess(
         } catch (error) {
           const msg = error instanceof Error ? error.message : String(error);
           logError(`${testFile} in testset ${testset.name}: ${msg}`, 4);
+          const isPE = error instanceof PresentationError;
           report.updateTestVerdict(
             targetSolution,
             testset.name,
             parseTestIndex(testFile),
-            'WA',
+            isPE ? 'PE' : 'WA',
             msg
           );
-          verdictTracker.didWA = true;
+          if (isPE) {
+            verdictTracker.didPE = true;
+          } else {
+            verdictTracker.didWA = true;
+          }
         }
       }
     }
@@ -1008,7 +1013,7 @@ function shouldSkipCheckerComparison(firstLine: string): boolean {
  * @throws {Error} If TLE observed but solution not marked with TL/TO tag
  * @throws {Error} If MLE observed but solution not marked with ML tag
  * @throws {Error} If RTE observed but solution not marked with RE/RJ tag
- * @throws {Error} If WA observed but solution not marked with WA/RJ tag
+ * @throws {Error} If WA or PE observed but solution not marked with WA/PE/RJ tag
  * @throws {Error} If no errors but solution marked as RJ
  * @throws {Error} If TL solution didn't timeout on any test
  * @throws {Error} If ML solution didn't exceed memory on any test
@@ -1048,6 +1053,14 @@ function validateExpectedVerdicts(
     }
   }
 
+  if (verdictTracker.didPE) {
+    if (!isWATag(targetSolution.tag)) {
+      throw new Error(
+        `Solution ${fmt.highlight(targetSolution.name)} marked as ${fmt.highlight(targetSolution.tag)} but got ${fmt.bold('Presentation Error')} on some tests`
+      );
+    }
+  }
+
   if (verdictTracker.didWA) {
     if (!isWATag(targetSolution.tag)) {
       throw new Error(
@@ -1067,7 +1080,11 @@ function validateExpectedVerdicts(
     );
   }
 
-  if (targetSolution.tag === 'WA' && !verdictTracker.didWA) {
+  if (
+    targetSolution.tag === 'WA' &&
+    !verdictTracker.didWA &&
+    !verdictTracker.didPE
+  ) {
     throw new Error(
       `Solution ${fmt.highlight(targetSolution.name)} marked as ${fmt.highlight(targetSolution.tag)} but did not get ${fmt.bold('Wrong Answer')} on any test`
     );
@@ -1077,7 +1094,8 @@ function validateExpectedVerdicts(
     !verdictTracker.didTLE &&
     !verdictTracker.didMLE &&
     !verdictTracker.didRTE &&
-    !verdictTracker.didWA
+    !verdictTracker.didWA &&
+    !verdictTracker.didPE
   ) {
     throw new Error(
       `Solution ${fmt.highlight(targetSolution.name)} marked as ${fmt.highlight(targetSolution.tag)} but passed all tests correctly`
