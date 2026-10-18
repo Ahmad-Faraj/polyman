@@ -13,6 +13,8 @@ const files = readdirSync(dir).filter((f) => /\.ya?ml$/.test(f));
 const read = (file: string) => readFileSync(join(dir, file), 'utf8');
 // a prompt with its line breaks and indentation folded, so a phrase can be checked wherever it wraps
 const flat = (file: string) => read(file).replace(/\s+/g, ' ');
+/** The prompt text only: a rule that is just in the header comment doesn't reach the agent. */
+const promptOf = (file: string) => flat(file).slice(flat(file).indexOf('prompts:'));
 const config = loadConfig('../.autonomy.yml');
 // stand-ins: the real account names and flow IDs exist only once the flows are enabled
 const values = flowValues(
@@ -270,7 +272,19 @@ describe("the project's Duo flows", () => {
     expect(prompt).toContain('answer "skipped: proposal already posted for SHORT_SHA" (the first 8 characters) and stop');
     expect(prompt).toContain('A go-ahead after a proposal for an older head is spent');
     expect(prompt).toContain('compare the full 40-character SHA');
-    expect(prompt).toContain('One proposal per head');
+    // review of 459fc65 on !81: these have to be in the prompt, not only in the header comment
+    const body = promptOf('pipeline-fixer.yaml');
+    expect(body).toContain("the head commit's full SHA");
+    expect(body).toContain('A proposal for an older head never blocks one for the current head');
+    expect(body).toContain('the one-proposal-per-head rule');
+  });
+
+  // review of 459fc65 on !81: step 1 skips agents and outsiders without a note (it can loop), and step 4 agrees
+  it('the fixer answers a go-ahead that does not count only for requesters and split lines, never for agents or outsiders', () => {
+    const body = promptOf('pipeline-fixer.yaml');
+    expect(body).toContain('(from a requester, or the mention and the word are not on one line)');
+    expect(body).not.toContain('requester, an agent or someone outside go_ahead.people');
+    expect(body).toContain('A go-ahead from an agent or someone outside go_ahead.people gets no note: step 1 skips their mention without one');
   });
 
   // review of !81: a go-ahead that doesn't count must not vanish without a word
