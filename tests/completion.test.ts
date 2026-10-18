@@ -92,6 +92,26 @@ describe('completion.ts', () => {
       }
     );
 
+    it.each(['bash', 'zsh', 'fish'])(
+      'reads --testset=value and --group=value in the %s script',
+      shell => {
+        const script = generateCompletionScript(buildProgram(), shell);
+        expect(script).toContain('--*=*');
+        expect(script).toMatch(/hasval/);
+      }
+    );
+
+    it.each(['bash', 'zsh', 'fish'])(
+      'ends options before the testset in the %s groups call',
+      shell => {
+        const script = generateCompletionScript(buildProgram(), shell);
+        expect(script).toMatch(/groups -- /);
+        expect(script).not.toMatch(
+          /groups "?\$testset|groups \(__polyman_scan/
+        );
+      }
+    );
+
     it('follows the program: a command added later shows up', () => {
       const program = buildProgram();
       program.command('frobnicate').description('A new command');

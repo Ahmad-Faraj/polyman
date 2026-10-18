@@ -209,4 +209,82 @@ describe.skipIf(!hasBash)('bash completion script (real bash)', () => {
       'help-group',
     ]);
   });
+
+  describe('options written with =', () => {
+    beforeEach(() => {
+      setNames('testsets', ['tests', 'pretests']);
+      setNames('groups.tests', ['samples', 'main']);
+      setNames('groups.pretests', ['pre']);
+    });
+
+    // bash splits --testset=tests into three words: --testset, = and tests.
+    it('offers the groups of --testset=tests for -g', () => {
+      expect(
+        complete('polyman', 'generate', '--testset', '=', 'tests', '-g', '')
+      ).toEqual(['samples', 'main']);
+    });
+
+    it('offers the groups for --group= after --testset=tests', () => {
+      expect(
+        complete(
+          'polyman',
+          'generate',
+          '--testset',
+          '=',
+          'tests',
+          '--group',
+          '=',
+          ''
+        )
+      ).toEqual(['samples', 'main']);
+      expect(
+        complete(
+          'polyman',
+          'generate',
+          '--testset',
+          '=',
+          'pretests',
+          '--group',
+          '=',
+          'p'
+        )
+      ).toEqual(['pre']);
+    });
+
+    it('offers testset names after --testset=', () => {
+      expect(complete('polyman', 'generate', '--testset', '=', 'pre')).toEqual([
+        'pretests',
+      ]);
+      expect(complete('polyman', 'generate', '--testset', '=', '')).toEqual([
+        'tests',
+        'pretests',
+      ]);
+      expect(complete('polyman', 'generate', '--testset', '=')).toEqual([
+        'tests',
+        'pretests',
+      ]);
+    });
+
+    it('still reads --testset=tests when the shell does not split it', () => {
+      expect(
+        complete('polyman', 'generate', '--testset=tests', '-g', '')
+      ).toEqual(['samples', 'main']);
+      expect(
+        complete(
+          'polyman',
+          'generate',
+          '--testset=pretests',
+          '--group=pre',
+          '--testset',
+          ''
+        )
+      ).toEqual(['tests', 'pretests']);
+    });
+
+    it('does not take the word after --testset=tests as its value', () => {
+      expect(
+        complete('polyman', 'generate', '--testset', '=', 'tests', 'x', '-')
+      ).toEqual(expect.arrayContaining(['--all', '--group']));
+    });
+  });
 });

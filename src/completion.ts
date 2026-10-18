@@ -306,11 +306,13 @@ function bashScript(models: CommandModel[]): string {
     '}',
     '_polyman_complete() {',
     '  local cur="${COMP_WORDS[COMP_CWORD]}" cmd="" testset="" pending="" npos=0 w i',
-    '  local subs="" opts="" dyn="" extra=""',
+    '  local flag val hasval subs="" opts="" dyn="" extra=""',
     '  COMPREPLY=()',
     '  for (( i = 1; i < COMP_CWORD; i++ )); do',
     '    w="${COMP_WORDS[i]}"',
     '    if [[ -n $pending ]]; then',
+    '      # bash splits --testset=tests into --testset, = and tests',
+    '      [[ $w == = && ${COMP_WORDS[i-1]} == --* ]] && continue',
     '      if [[ $pending == testset ]]; then',
     '        _polyman_unquote "$w"',
     '        testset="$_polyman_unq"',
@@ -324,8 +326,12 @@ function bashScript(models: CommandModel[]): string {
   const pendingCases = (['testset', 'group', 'value'] as const).filter(
     kind => keys[kind].length > 0
   );
+  lines.push(
+    '      flag="$w" val="" hasval=0',
+    '      if [[ $w == --*=* ]]; then flag="${w%%=*}" val="${w#*=}" hasval=1; fi'
+  );
   if (pendingCases.length > 0) {
-    lines.push('      case "$cmd|$w" in');
+    lines.push('      case "$cmd|$flag" in');
     for (const kind of pendingCases) {
       lines.push(
         `        ${keys[kind].map(shellQuote).join('|')}) pending=${kind} ;;`
@@ -335,6 +341,15 @@ function bashScript(models: CommandModel[]): string {
   } else {
     lines.push('      :');
   }
+  lines.push(
+    '      if (( hasval )) && [[ -n $pending ]]; then',
+    '        if [[ $pending == testset ]]; then',
+    '          _polyman_unquote "$val"',
+    '          testset="$_polyman_unq"',
+    '        fi',
+    '        pending=""',
+    '      fi'
+  );
 
   lines.push(
     '    else',
@@ -345,6 +360,7 @@ function bashScript(models: CommandModel[]): string {
     '    fi',
     '  done',
     '  if [[ -n $pending ]]; then',
+    '    [[ $cur == = ]] && cur=""',
     '    case $pending in',
     '      testset) _polyman_reply_names testsets ;;',
     '      group) _polyman_reply_names groups -- "$testset" ;;',
@@ -410,7 +426,7 @@ function zshScript(models: CommandModel[]): string {
     '  "${words[1]}" __complete "$@" 2>/dev/null',
     '}',
     '_polyman() {',
-    '  local cur="${words[CURRENT]}" cmd="" testset="" pending="" npos=0 w dyn="" files=0',
+    '  local cur="${words[CURRENT]}" cmd="" testset="" pending="" npos=0 w dyn="" files=0 flag val hasval',
     '  local -a opts subs extra names',
     '  for w in "${(@)words[2,CURRENT-1]}"; do',
     '    if [[ -n $pending ]]; then',
@@ -424,8 +440,12 @@ function zshScript(models: CommandModel[]): string {
   const pendingCases = (['testset', 'group', 'value'] as const).filter(
     kind => keys[kind].length > 0
   );
+  lines.push(
+    '      flag="$w" val="" hasval=0',
+    '      if [[ $w == --*=* ]]; then flag="${w%%=*}" val="${w#*=}" hasval=1; fi'
+  );
   if (pendingCases.length > 0) {
-    lines.push('      case "$cmd|$w" in');
+    lines.push('      case "$cmd|$flag" in');
     for (const kind of pendingCases) {
       lines.push(
         `        ${keys[kind].map(shellQuote).join('|')}) pending=${kind} ;;`
@@ -435,6 +455,12 @@ function zshScript(models: CommandModel[]): string {
   } else {
     lines.push('      :');
   }
+  lines.push(
+    '      if (( hasval )) && [[ -n $pending ]]; then',
+    '        [[ $pending == testset ]] && testset="$val"',
+    '        pending=""',
+    '      fi'
+  );
 
   lines.push(
     '    else',
@@ -535,14 +561,30 @@ function fishScript(models: CommandModel[]): string {
     kind => keys[kind].length > 0
   );
   if (pendingCases.length > 0) {
-    lines.push('        switch "$cmd|$w"');
+    lines.push(
+      '        set -l flag $w',
+      "        set -l val ''",
+      '        set -l hasval 0',
+      "        if string match -q -- '--*=*' $w",
+      "          set flag (string replace -r '=.*' '' -- $w)",
+      "          set val (string replace -r '^[^=]*=' '' -- $w)",
+      '          set hasval 1',
+      '        end',
+      '        switch "$cmd|$flag"'
+    );
     for (const kind of pendingCases) {
       lines.push(
         `          case ${keys[kind].map(fishQuote).join(' ')}`,
         `            set pending ${kind}`
       );
     }
-    lines.push('        end');
+    lines.push(
+      '        end',
+      '        if test $hasval -eq 1; and test -n "$pending"',
+      '          test "$pending" = testset; and set testset $val',
+      "          set pending ''",
+      '        end'
+    );
   }
 
   lines.push(
