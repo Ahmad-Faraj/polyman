@@ -32,7 +32,7 @@
       "name": "correct2",
       "source": "./solutions/acc2.java",
       "tag": "OK",
-      "sourceType": "java.11"
+      "sourceType": "java21"
     },
     {
       "name": "tle_solution",

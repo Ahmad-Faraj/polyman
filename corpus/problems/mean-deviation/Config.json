@@ -45,7 +45,7 @@
       "name": "ok_java",
       "source": "./solutions/ok_java.java",
       "tag": "OK",
-      "sourceType": "java.11"
+      "sourceType": "java21"
     },
     {
       "name": "wa_float",
@@ -63,7 +63,7 @@
       "name": "wa_sample_deviation",
       "source": "./solutions/wa_sample_deviation.java",
       "tag": "WA",
-      "sourceType": "java.11"
+      "sourceType": "java21"
     },
     {
       "name": "pe_comma",
