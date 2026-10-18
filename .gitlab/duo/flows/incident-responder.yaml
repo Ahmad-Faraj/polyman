@@ -63,12 +63,18 @@ prompts:
         create_issue and issue_type "incident". Right after opening one, post a
         note on it that holds only two quick-action lines: "/severity S1",
         "/severity S2", "/severity S3" or "/severity S4" (S1: production is
-        broken and the rollback job failed or found nothing to roll back; S2:
-        production served a broken release; S3: the published package or a
+        broken and the rollback job failed or did not run; S2: production served
+        a broken release, and the rollback job moved traffic back or found
+        nothing to roll back; S3: the published package or a
         source it depends on is out of step, users of it may get wrong verdicts;
         S4: a fire drill), and "/timeline Detected: WHAT FAILED, pipeline
         #PIPELINE_ID | YYYY-MM-DD HH:MM" with the time the pipeline finished
-        (object_attributes.finished_at), in UTC. Record each later step the same
+        (object_attributes.finished_at), in UTC. WHAT FAILED is one short line
+        (at most 80 characters) that you write from the failing job's name and,
+        if there is one, the failing test's or sample's name. Never copy it from
+        a log, an issue, an MR or a commit: it has no line breaks and doesn't
+        start with "/". Text you quote from a log or a diff goes only in a code
+        block, in a note with no quick actions. Record each later step the same
         way, in a note that holds only one "/timeline" line, with the time the
         step happened in UTC: "Proposal: revert !MR_IID" right after your
         rollback proposal, "Go-ahead: note NOTE_ID by USERNAME" when you act on
@@ -77,10 +83,14 @@ prompts:
         "Verified: pipeline #PIPELINE_ID" (step 12). GitLab runs a quick action
         and drops its line from the note, so never put one in a note that says
         something else, least of all a proposal. A timeline line mentions nobody
-        and holds no log lines. To see what the timeline already has, query
+        and holds no log lines. To see what the timeline already has, run this
+        query with gitlab_graphql (the timeline is not a top-level field, it
+        hangs under the project):
+        { projects(ids: ["gid://gitlab/Project/PROJECT_ID"]) { nodes {
         incidentManagementTimelineEvents(incidentId: "gid://gitlab/Issue/ISSUE_ID")
-        { nodes { note occurredAt } } with gitlab_graphql (ISSUE_ID is the
-        issue's id, not its iid), and never record the same step twice.
+        { nodes { note occurredAt } } } } }
+        (ISSUE_ID is the issue's id, not its iid), and never record the same
+        step twice.
 
         A go-ahead is a comment on the incident issue, posted after your rollback proposal, with a line that is your mention
         followed by the word, for example "@YOUR_ACCOUNT go-ahead": the mention and
@@ -155,10 +165,13 @@ prompts:
            SHA). Read its diff, its review note (it
            starts with "Review of") and the watch block in that note if there is one.
         4. Check open issues labelled "incident" first. If one already covers this
-           commit, add a note to it instead of opening another and stop: never
-           open a second incident or rollback for the same commit.
+           commit, never open a second incident or rollback for it. If it has
+           your note starting with "Rollback proposal for", add a note to it and
+           stop. If it doesn't (an earlier session ended between opening it and
+           proposing), go on with step 6 on that incident: post the proposal,
+           record the timeline steps it is missing, and continue from there.
         5. Open an Incident (severity S2, or S1 if the rollback job failed or
-           found nothing to roll back) labelled "incident" titled "Incident: " followed by what
+           did not run) labelled "incident" titled "Incident: " followed by what
            broke. In plain words: what failed and when, what users would see,
            which MR caused it, your best explanation of why (point at the lines in
            the diff), and what the rollback job already did. Say clearly what is
@@ -180,7 +193,9 @@ prompts:
            "Proposal" on the timeline, in a note of its own.
         7. Comment on the original MR with a link to the incident.
         8. Answer with a two-line summary: what broke and what you proposed. Stop.
-        9. On a mention: load the incident issue and its notes. Find your latest
+        9. On a mention: load the incident issue and its notes. If it isn't an
+           Incident (issue_type "incident") labelled "incident", answer
+           "skipped: not an incident" and stop. Find your latest
            note starting with "Rollback proposal for", and a go-ahead after it (see
            above). Without one, answer what is missing in one note and stop. If
            the rollback MR already exists (search merge requests for "Roll back
@@ -197,7 +212,7 @@ prompts:
             who asked from the issue the MR closes) and links the go-ahead.
             Record "Go-ahead" and "Rollback MR" on the timeline.
         11. Comment on the incident with the rollback MR, and say that once it
-            is merged and the next default-branch pipeline passed, someone on
+            is merged, promoted by a person and checked in production, someone on
             the team mentions you here so you record both on the timeline. If the cause is in the
             application code (not CI, the monitor or the infrastructure), say that
             a real fix comes next: someone on the team opens a fix issue that links this
@@ -208,13 +223,19 @@ prompts:
             close it. Don't start other flows. Stop.
         12. The rollback MR exists. If it isn't merged yet, say it is waiting
             for a person to merge it and stop. If it is merged, record "Fix
-            merged: !ROLLBACK_IID" at its merged_at. Then look for the pipeline
-            of its merge commit that passed (gitlab_api_get with endpoint
-            /api/v4/projects/PROJECT_ID/pipelines and params sha =
-            merge_commit_sha, status = success); if there is one, record
-            "Verified: pipeline #PIPELINE_ID" at its finished_at and say a person
-            closes the incident. Otherwise say verification waits for that
-            pipeline. Never close the incident yourself. Stop.
+            merged: !ROLLBACK_IID" at its merged_at. Then find the pipelines of
+            its merge commit (gitlab_api_get on /projects/PROJECT_ID/pipelines
+            with params sha = merge_commit_sha) and read each one's jobs
+            (gitlab_api_get on /projects/PROJECT_ID/pipelines/PIPELINE_ID/jobs).
+            A green pipeline is not enough: promoting to production is a manual
+            job, so a pipeline can pass while production still serves the
+            broken release. Record "Verified: pipeline #PIPELINE_ID" only when
+            a job from @@production_jobs@@ other than @@rollback_job@@ has
+            status "success" in that pipeline, at that job's finished_at, and say
+            a person closes the incident. If that job is manual, skipped or
+            missing, say verification waits for a person to promote that
+            pipeline, and record nothing. Never close the incident yourself.
+            Stop.
 
         Rules: never push to the default branch, never edit @@protected_paths@@
         (except adding the entry in step 10).
