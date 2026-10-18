@@ -183,16 +183,22 @@ export async function uploadChecker(
             };
 
             for (const [position, test] of testsData.tests.entries()) {
-              const missing = (
-                ['input', 'output', 'answer', 'expectedVerdict'] as const
-              ).filter(field => !test[field]);
+              // Empty input, output and answer are valid checker tests (an
+              // empty contestant output, say); only absence is an error.
+              const { input, output, answer, expectedVerdict } = test;
               if (
-                missing.length > 0 ||
-                !test.input ||
-                !test.output ||
-                !test.answer ||
-                !test.expectedVerdict
+                typeof input !== 'string' ||
+                typeof output !== 'string' ||
+                typeof answer !== 'string' ||
+                !expectedVerdict
               ) {
+                const missing = (
+                  ['input', 'output', 'answer', 'expectedVerdict'] as const
+                ).filter(field =>
+                  field === 'expectedVerdict'
+                    ? !test[field]
+                    : typeof test[field] !== 'string'
+                );
                 fmt.warning(
                   `  ⚠️  Skipped checker test #${position + 1}: missing ${missing.join(', ')}`
                 );
@@ -204,10 +210,10 @@ export async function uploadChecker(
                 await sdk.saveCheckerTest(
                   problemId,
                   index,
-                  normalizeLineEndingsFromSystemToRemote(test.input),
-                  normalizeLineEndingsFromSystemToRemote(test.output),
-                  normalizeLineEndingsFromSystemToRemote(test.answer),
-                  test.expectedVerdict
+                  normalizeLineEndingsFromSystemToRemote(input),
+                  normalizeLineEndingsFromSystemToRemote(output),
+                  normalizeLineEndingsFromSystemToRemote(answer),
+                  expectedVerdict
                 );
               } catch (error) {
                 fmt.warning(

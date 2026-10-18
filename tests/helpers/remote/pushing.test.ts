@@ -609,6 +609,39 @@ describe('pushing.ts', () => {
       );
     });
 
+    it('should upload a checker test with an empty output', async () => {
+      const { sdk, mocks } = buildSdk();
+      const cfg = checkerCfgWithTests([
+        { input: 'i', output: '', answer: 'a', expectedVerdict: 'WA' },
+      ]);
+
+      await pushing.uploadChecker(sdk, 1, 'dir', cfg);
+
+      expect(mocks.saveCheckerTest).toHaveBeenCalledWith(
+        1,
+        1,
+        'i',
+        '',
+        'a',
+        'WA'
+      );
+    });
+
+    it('should report only the truly absent field as missing', async () => {
+      const { sdk, mocks } = buildSdk();
+      const cfg = checkerCfgWithTests([
+        { input: 'i', output: '', expectedVerdict: 'OK' },
+      ]);
+
+      await pushing.uploadChecker(sdk, 1, 'dir', cfg);
+
+      expect(mocks.saveCheckerTest).not.toHaveBeenCalled();
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(fmt.warning).toHaveBeenCalledWith(
+        expect.stringMatching(/Skipped checker test #1: missing answer$/)
+      );
+    });
+
     it('should warn and continue when one checker test fails to upload', async () => {
       const { sdk, mocks } = buildSdk();
       mocks.saveCheckerTest
