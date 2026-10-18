@@ -64,14 +64,23 @@ exit 0
 // Runs the completion function for the given words (the last one is the word
 // being completed) and prints every reply after eval, NUL-terminated, the way
 // the shell would read the line once the user accepts the completion: a reply
-// goes inside the quote the user left open, and the quote is closed after it.
+// goes inside the quote the user left open, as readline puts it there (a
+// leading open-quote character is dropped, and no closing quote is added when
+// the reply already ends with one), and otherwise the quote is closed after it.
 const DRIVER = `
 source "$GEN"
 COMP_WORDS=("$@")
 COMP_CWORD=$(( $# - 1 ))
 _polyman_complete
 _polyman_unquote "\${COMP_WORDS[COMP_CWORD]}"
-for r in "\${COMPREPLY[@]}"; do eval "printf '%s\\\\0' $_polyman_q$r$_polyman_q"; done
+for r in "\${COMPREPLY[@]}"; do
+  c=""
+  if [[ -n $_polyman_q ]]; then
+    [[ \${r:0:1} == "$_polyman_q" ]] && r="\${r:1}"
+    [[ \${r: -1} == "$_polyman_q" ]] || c="$_polyman_q"
+  fi
+  eval "printf '%s\\\\0' $_polyman_q$r$c"
+done
 `;
 
 describe.skipIf(!hasBash)('bash completion script (real bash)', () => {
