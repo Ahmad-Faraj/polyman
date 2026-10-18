@@ -171,6 +171,18 @@ export function freshnessCheck(statement, marker) {
   };
 }
 
+/**
+ * polyman must generate as many tests as Polygon holds for the testset, or a
+ * run that stopped early would pass on the inputs it did write.
+ */
+export function inputCountCheck(testset, local, remote) {
+  return {
+    name: `inputs ${testset} count`,
+    ok: local === remote,
+    detail: `polyman generated ${local} tests, Polygon has ${remote}`,
+  };
+}
+
 /** A check group that produced nothing must fail, or it passes unseen. */
 export function nonEmpty(name, checks, reason) {
   return checks.length

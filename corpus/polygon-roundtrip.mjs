@@ -32,6 +32,7 @@ import { fileURLToPath } from 'node:url';
 import {
   freshnessCheck,
   freshnessMarker,
+  inputCountCheck,
   nonEmpty,
   pushChecks,
   scriptLines,
@@ -318,7 +319,7 @@ async function compare(creds, problemId, dir, config) {
  * endings aside). testlib's random generator is seeded from the generator's
  * arguments, so this holds across platforms when the script expands the same.
  */
-function inputParity(creds, problemId, dir, polyman, testset) {
+async function inputParity(creds, problemId, dir, polyman, testset) {
   const generated = spawnSync(
     process.execPath,
     [polyman, 'generate', '--testset', testset],
@@ -326,19 +327,24 @@ function inputParity(creds, problemId, dir, polyman, testset) {
   );
   const folder = path.join(dir, 'testsets', testset);
   if (generated.status !== 0 || !fs.existsSync(folder)) {
-    return Promise.resolve([
+    return [
       {
         name: `inputs ${testset}`,
         ok: false,
         detail: `polyman generate failed: ${(generated.stderr || generated.stdout || '').slice(-300)}`,
       },
-    ]);
+    ];
   }
   const files = fs
     .readdirSync(folder)
     .filter(f => /^test\d+\.txt$/.test(f))
     .sort((a, b) => parseInt(a.slice(4)) - parseInt(b.slice(4)));
-  return Promise.all(
+  const remoteTests = await polygon(creds, 'problem.tests', {
+    problemId,
+    testset,
+    noInputs: true,
+  });
+  const inputs = await Promise.all(
     files.map(async f => {
       const index = parseInt(f.slice(4));
       const local = text(fs.readFileSync(path.join(folder, f), 'utf8'));
@@ -357,6 +363,10 @@ function inputParity(creds, problemId, dir, polyman, testset) {
       };
     })
   );
+  // no inputs: nonEmpty() reports that, a count check would hide it
+  return inputs.length
+    ? [...inputs, inputCountCheck(testset, files.length, remoteTests.length)]
+    : inputs;
 }
 
 async function scriptParity(creds, problemId, polyman, testset) {
