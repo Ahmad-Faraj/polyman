@@ -1,7 +1,8 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
-import { ifManifest } from '../src/manifest.ts';
-import { DEFAULT_SCI } from '../src/sci.ts';
+import { footprintArgs, ifManifest } from '../src/manifest.ts';
+import { DEFAULT_SCI, sessionGrams } from '../src/sci.ts';
 
 describe('Impact Framework manifest', () => {
   const runs = new Map([
@@ -31,5 +32,46 @@ describe('Impact Framework manifest', () => {
     expect(new Set(plugins.map((p) => `${p.path}:${p.method}`))).toEqual(new Set(['builtin:Multiply', 'builtin:Sum']));
     expect(m.tree.children['high-risk-reviews'].pipeline.compute.slice(-2)).toEqual(['carbon-low', 'carbon-high']);
     expect(m.aggregation).toEqual({ metrics: ['carbon-low', 'carbon-high'], type: 'horizontal' });
+  });
+
+  it("gives, run through its own Multiply and Sum steps, the same grams as sessionGrams", () => {
+    const child = m.tree.children['high-risk-reviews'];
+    const plugins = m.initialize.plugins as Record<string, { method: string; config: { 'input-parameters': string[]; 'output-parameter': string } }>;
+    const row: Record<string, number> = { ...child.defaults, ...child.inputs[0] };
+    for (const step of child.pipeline.compute as string[]) {
+      const { method, config } = plugins[step];
+      const xs = config['input-parameters'].map((k) => row[k]);
+      row[config['output-parameter']] = method === 'Multiply' ? xs.reduce((a, b) => a * b, 1) : xs.reduce((a, b) => a + b, 0);
+    }
+    const g = sessionGrams(1152, { low: 41, high: 99 }, DEFAULT_SCI);
+    expect(row['carbon-low']).toBeCloseTo(g.low, 9);
+    expect(row['carbon-high']).toBeCloseTo(g.high, 9);
+  });
+
+  it('writes nothing for no reviews, and keeps an unknown tier as its own child', () => {
+    expect(parse(ifManifest(new Map(), DEFAULT_SCI)).tree.children).toEqual({});
+    expect(Object.keys(parse(ifManifest(new Map([['unknown', []]]), DEFAULT_SCI)).tree.children)).toEqual(['unknown-risk-reviews']);
+  });
+
+  it('the committed manifest has the reviews the table in SUSTAINABILITY.md counts', () => {
+    const committed = parse(readFileSync('../sustainability/agent-reviews.yml', 'utf8'));
+    expect(committed.tree.children['high-risk-reviews'].inputs).toHaveLength(43);
+    expect(committed.tree.children['low-risk-reviews'].inputs).toHaveLength(6);
+  });
+});
+
+describe("agent-footprint's arguments", () => {
+  it('takes a project, --json, and --manifest as FILE or =FILE', () => {
+    expect(footprintArgs(['group/p', '--json', '--manifest', 'm.yml'])).toEqual({ project: 'group/p', json: true, manifest: 'm.yml' });
+    expect(footprintArgs(['--manifest=m.yml'])).toEqual({ json: false, manifest: 'm.yml' });
+    expect(footprintArgs([])).toEqual({ json: false });
+  });
+
+  it('refuses a missing manifest file, an option where the file should be, and unknown options', () => {
+    expect(() => footprintArgs(['--manifest'])).toThrow('--manifest needs a file name');
+    expect(() => footprintArgs(['--manifest', '--json'])).toThrow('--manifest needs a file name');
+    expect(() => footprintArgs(['--manifest='])).toThrow('--manifest needs a file name');
+    expect(() => footprintArgs(['--jsn'])).toThrow('unknown option --jsn');
+    expect(() => footprintArgs(['a/b', 'c/d'])).toThrow('one project only');
   });
 });
