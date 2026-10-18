@@ -127,14 +127,23 @@ describe('pushing.ts', () => {
       expect(
         pushing.resolveSourceType('sol.cpp', 'cpp.gcc14-64-msys2-g++23')
       ).toBe('cpp.gcc14-64-msys2-g++23');
-      expect(pushing.resolveSourceType('Sol.java', 'java.21')).toBe('java.21');
+      expect(pushing.resolveSourceType('Sol.java', 'java21')).toBe('java21');
+      expect(pushing.resolveSourceType('Sol.java', 'java8')).toBe('java8');
+    });
+
+    it('should reject Java types Polygon does not accept', () => {
+      for (const bad of ['java.8', 'java.11', 'java.21', 'java11', 'java17']) {
+        expect(() => pushing.resolveSourceType('Sol.java', bad)).toThrow(
+          /java8, java21/
+        );
+      }
     });
 
     it('should infer from the extension when nothing is declared', () => {
       expect(pushing.resolveSourceType('sol.cpp')).toBe('cpp.g++17');
       expect(pushing.resolveSourceType('sol.cc')).toBe('cpp.g++17');
       expect(pushing.resolveSourceType('sol.CXX')).toBe('cpp.g++17');
-      expect(pushing.resolveSourceType('Sol.java')).toBe('java11');
+      expect(pushing.resolveSourceType('Sol.java')).toBe('java21');
       expect(pushing.resolveSourceType('sol.py')).toBe('python.3');
       expect(pushing.resolveSourceType('sol.c')).toBe('c.gcc11');
       expect(pushing.resolveSourceType('sol.unknown')).toBe('cpp.g++17');
@@ -240,7 +249,7 @@ describe('pushing.ts', () => {
         'Sol.java',
         'code',
         'OK',
-        expect.objectContaining({ sourceType: 'java11' })
+        expect.objectContaining({ sourceType: 'java21' })
       );
     });
 
@@ -716,7 +725,7 @@ describe('pushing.ts', () => {
         'source',
         'Gen.java',
         'code',
-        expect.objectContaining({ sourceType: 'java11' })
+        expect.objectContaining({ sourceType: 'java21' })
       );
     });
 
