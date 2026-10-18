@@ -403,6 +403,48 @@ describe('parseGeneratorScript - #{} and square-bracket tags are rejected', () =
   });
 });
 
+describe('parseGeneratorScript - expression edge cases', () => {
+  const argsOf = (script: string) =>
+    parser.parseGeneratorScript(script).map(l => l.args.join(' '));
+
+  it('reports integer overflow', () => {
+    expect(() =>
+      parser.parseGeneratorScript('gen ${99999999999*99999999999} > $')
+    ).toThrow(/Integer overflow/);
+  });
+
+  it('handles unary plus and stacked signs', () => {
+    expect(argsOf('gen ${+3} ${+-3} ${-+3} ${- -3} > $')).toEqual([
+      '3 -3 -3 3',
+    ]);
+  });
+
+  it('rejects malformed expressions', () => {
+    for (const expr of ['(1+2', '', '1+']) {
+      expect(() => parser.parseGeneratorScript(`gen \${${expr}} > $`)).toThrow(
+        /Unsupported expression/
+      );
+    }
+  });
+
+  it('rejects a stray </#assign>', () => {
+    expect(() =>
+      parser.parseGeneratorScript('<#assign n = 1>\n</#assign>\ngen 1 > $')
+    ).toThrow('Unsupported FreeMarker directive </#assign> on line 2');
+  });
+
+  it('expands a CRLF script with a list and reports ${} on the right line', () => {
+    expect(argsOf('<#list 1..2 as i>\r\ngen ${i} > $\r\n</#list>\r\n')).toEqual(
+      ['1', '2']
+    );
+    expect(() =>
+      parser.parseGeneratorScript(
+        '<#list 1..2 as i>\r\ngen 1 > $\r\n</#list>\r\ngen ${} > $\r\n'
+      )
+    ).toThrow(/Unsupported expression \${} on line 4/);
+  });
+});
+
 describe('validateGeneratorReferences', () => {
   it('passes when all generators exist', () => {
     const lines = parser.parseGeneratorScript('gen 1 > 1\nother 2 > 2');
