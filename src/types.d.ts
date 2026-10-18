@@ -738,7 +738,7 @@ interface VerdictTracker {
  * after the checker has judged its output).
  * @typedef TestVerdict
  */
-type TestVerdict = 'OK' | 'WA' | 'TLE' | 'MLE' | 'RTE';
+type TestVerdict = 'OK' | 'WA' | 'PE' | 'TLE' | 'MLE' | 'RTE';
 
 /**
  * One executed test inside a JSON report.
