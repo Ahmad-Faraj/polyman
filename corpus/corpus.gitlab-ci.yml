@@ -36,10 +36,12 @@ corpus:toolchain:
   extends: .corpus
   parallel:
     matrix:
-      # chalk@5 is ESM-only, which `require` can load only from Node 20.19 on;
-      # the README promises older Node versions work.
-      - LANE: node-20.18
-        NODE_IMAGE: node:20.18
+      # The oldest Node polyman supports. This lane found #23 on 20.18 (chalk@5
+      # is ESM-only, which `require` loads only from 20.19 on); since !11 the
+      # package declares ^20.19.0 || >=22.12.0 and refuses 20.18 with a clear
+      # message, so the lane judges the oldest version it promises instead.
+      - LANE: node-20.19
+        NODE_IMAGE: node:20.19
         PYTHON_ALIAS: 'yes'
       # Stock Debian/Ubuntu: python3 only, no `python` command.
       - LANE: no-python-alias
