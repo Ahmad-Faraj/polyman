@@ -1170,6 +1170,63 @@ describe('steps.ts', () => {
     });
   });
 
+  describe('failed uploads', () => {
+    it('should not report solutions as uploaded when a solution failed', async () => {
+      vi.mocked(pushing.uploadSolutions).mockImplementation(((
+        ..._args: unknown[]
+      ) => {
+        (_args[4] as string[]).push('solution java-sol: boom');
+        return Promise.resolve(0);
+      }) as any);
+      const failures: string[] = [];
+      await steps.stepUploadSolutions(
+        1,
+        {} as any,
+        7,
+        '/dir',
+        baseConfig(),
+        failures
+      );
+      expect(failures).toEqual(['solution java-sol: boom']);
+      expect(formatter.fmt.stepComplete).not.toHaveBeenCalled();
+      expect(formatter.fmt.warning).toHaveBeenCalledWith(
+        expect.stringContaining('Solutions uploaded with 1 failure(s)')
+      );
+    });
+
+    it('should not report the checker as uploaded when a checker test failed', async () => {
+      vi.mocked(pushing.uploadChecker).mockImplementation(((
+        ..._args: unknown[]
+      ) => {
+        (_args[4] as string[]).push('checker tests: boom');
+        return Promise.resolve(1);
+      }) as any);
+      const failures: string[] = [];
+      await steps.stepUploadChecker(
+        1,
+        {} as any,
+        7,
+        '/dir',
+        baseConfig(),
+        failures
+      );
+      expect(formatter.fmt.stepComplete).not.toHaveBeenCalled();
+      expect(formatter.fmt.warning).toHaveBeenCalledWith(
+        expect.stringContaining('with 1 failure(s)')
+      );
+    });
+
+    it('should only count failures added by the step itself', async () => {
+      vi.mocked(pushing.uploadGenerators).mockResolvedValue(1);
+      await steps.stepUploadGenerators(1, {} as any, 7, '/dir', baseConfig(), [
+        'solution x: earlier failure',
+      ]);
+      expect(formatter.fmt.stepComplete).toHaveBeenCalledWith(
+        'Generators uploaded'
+      );
+    });
+  });
+
   describe('stepUploadChecker', () => {
     it('should report standard checker uploaded', async () => {
       vi.mocked(pushing.uploadChecker).mockResolvedValue(1);

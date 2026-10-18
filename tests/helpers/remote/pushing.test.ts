@@ -326,6 +326,185 @@ describe('pushing.ts', () => {
     });
   });
 
+  describe('failure recording', () => {
+    it('should record a failed solution upload', async () => {
+      const { sdk, mocks } = buildSdk();
+      mockedReadFileSync.mockReturnValue('code');
+      mockedExistsSync.mockReturnValue(true);
+      mocks.saveSolution.mockRejectedValue(
+        new Error("Unknown file type 'java.11'")
+      );
+      const failures: string[] = [];
+      const result = await pushing.uploadSolutions(
+        sdk,
+        1,
+        'dir',
+        mockConfig,
+        failures
+      );
+      expect(result).toBe(0);
+      expect(failures).toEqual(["solution sol: Unknown file type 'java.11'"]);
+    });
+
+    it('should record a failed checker test upload', async () => {
+      const { sdk, mocks } = buildSdk();
+      mockedExistsSync.mockReturnValue(true);
+      mockReadFileSyncWith(p =>
+        String(p).includes('tests.json')
+          ? JSON.stringify({
+              tests: [
+                {
+                  index: 1,
+                  input: 'in',
+                  output: 'out',
+                  answer: 'ans',
+                  expectedVerdict: 'OK',
+                },
+              ],
+            })
+          : 'code'
+      );
+      mocks.saveCheckerTest.mockRejectedValue(new Error('bad test'));
+      const failures: string[] = [];
+      const cfg = asConfig({
+        checker: {
+          name: 'c',
+          source: 'check.cpp',
+          testsFilePath: 'tests.json',
+        },
+      });
+      await pushing.uploadChecker(sdk, 1, 'dir', cfg, failures);
+      expect(failures).toEqual(['checker tests: bad test']);
+    });
+
+    it('should record a failed validator test upload', async () => {
+      const { sdk, mocks } = buildSdk();
+      mockedExistsSync.mockReturnValue(true);
+      mockReadFileSyncWith(p =>
+        String(p).includes('tests.json')
+          ? JSON.stringify({
+              tests: [{ input: '1', expectedVerdict: 'VALID' }],
+            })
+          : 'code'
+      );
+      mocks.saveValidatorTest.mockRejectedValue(new Error('bad test'));
+      const failures: string[] = [];
+      const cfg = asConfig({
+        validator: {
+          name: 'v',
+          source: 'val.cpp',
+          testsFilePath: 'tests.json',
+        },
+      });
+      const result = await pushing.uploadValidator(
+        sdk,
+        1,
+        'dir',
+        cfg,
+        failures
+      );
+      expect(result).toBe(1);
+      expect(failures).toEqual(['validator tests: bad test']);
+    });
+
+    it('should record a failed validator upload', async () => {
+      const { sdk, mocks } = buildSdk();
+      mockedExistsSync.mockReturnValue(true);
+      mockedReadFileSync.mockReturnValue('code');
+      mocks.setValidator.mockRejectedValue(new Error('nope'));
+      const failures: string[] = [];
+      const result = await pushing.uploadValidator(
+        sdk,
+        1,
+        'dir',
+        mockConfig,
+        failures
+      );
+      expect(result).toBe(0);
+      expect(failures).toEqual(['validator: nope']);
+    });
+
+    it('should record a failed generator upload', async () => {
+      const { sdk, mocks } = buildSdk();
+      mockedExistsSync.mockReturnValue(true);
+      mockedReadFileSync.mockReturnValue('code');
+      mocks.saveFile.mockRejectedValue(new Error('nope'));
+      const failures: string[] = [];
+      const cfg = asConfig({
+        generators: [{ name: 'gen', source: 'gen.cpp' }],
+      });
+      await pushing.uploadGenerators(sdk, 1, 'dir', cfg, failures);
+      expect(failures).toEqual(['generator gen: nope']);
+    });
+
+    it('should record a failed statement upload', async () => {
+      const { sdk, mocks } = buildSdk();
+      mocks.saveStatement.mockRejectedValue(new Error('nope'));
+      const failures: string[] = [];
+      await pushing.uploadStatements(sdk, 1, 'dir', mockConfig, failures);
+      expect(failures).toEqual(['statement english: nope']);
+    });
+
+    it('should record failed description and tags uploads', async () => {
+      const { sdk, mocks } = buildSdk();
+      mocks.saveGeneralDescription.mockRejectedValue(new Error('d'));
+      mocks.saveTags.mockRejectedValue(new Error('t'));
+      const failures: string[] = [];
+      await pushing.uploadMetadata(
+        sdk,
+        1,
+        asConfig({ description: 'x', tags: ['dp'] }),
+        failures
+      );
+      expect(failures).toEqual(['description: d', 'tags: t']);
+    });
+
+    it('should record a testset with a missing manual test file', async () => {
+      const { sdk } = buildSdk();
+      mockedExistsSync.mockReturnValue(false);
+      const failures: string[] = [];
+      const cfg = asConfig({
+        testsets: [
+          {
+            name: 'tests',
+            manualTests: [{ input: 'missing.txt', index: 1 }],
+          },
+        ],
+      });
+      await pushing.uploadTestsets(sdk, 1, 'dir', cfg, failures);
+      expect(failures).toEqual([
+        'testset tests: Manual test file not found: missing.txt',
+      ]);
+    });
+
+    it('should record a failed generator script upload', async () => {
+      const { sdk, mocks } = buildSdk();
+      mockedExistsSync.mockReturnValue(true);
+      mocks.saveScript.mockImplementation(
+        (_id: number, _n: string, script: string) =>
+          script === ' '
+            ? Promise.resolve(undefined)
+            : Promise.reject(new Error('s'))
+      );
+      const failures: string[] = [];
+      const cfg = asConfig({
+        generators: [{ name: 'gen', source: './gen.cpp' }],
+        testsets: [{ name: 'tests', generatorScript: { script: 'gen 1 > $' } }],
+      });
+      await pushing.uploadTestsets(sdk, 1, 'dir', cfg, failures);
+      expect(failures).toEqual(['testset tests script: s']);
+    });
+
+    it('should leave failures empty when everything uploads', async () => {
+      const { sdk } = buildSdk();
+      mockedExistsSync.mockReturnValue(true);
+      mockedReadFileSync.mockReturnValue('code');
+      const failures: string[] = [];
+      await pushing.uploadSolutions(sdk, 1, 'dir', mockConfig, failures);
+      expect(failures).toEqual([]);
+    });
+  });
+
   describe('uploadChecker', () => {
     it('should upload custom checker successfully', async () => {
       const { sdk, mocks } = buildSdk();

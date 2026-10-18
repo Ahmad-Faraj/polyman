@@ -907,6 +907,46 @@ describe('actions.ts', () => {
       expect(formatter.fmt.successBox).toHaveBeenCalled();
     });
 
+    it('should list failures, exit 1 and skip the success box when a step fails', async () => {
+      vi.mocked(steps.stepReadConfig).mockReturnValue({
+        problemId: 42,
+        name: 'p',
+        solutions: [{ name: 'main' }],
+      } as any);
+      vi.mocked(steps.stepUploadSolutions).mockImplementation(((
+        ..._args: unknown[]
+      ) => {
+        const failures = _args[5] as string[];
+        failures.push("solution java-sol: Unknown file type 'java.11'");
+        return Promise.resolve();
+      }) as any);
+      await actions.remotePushProblemAction('./prob');
+      expect(formatter.fmt.errorBox).toHaveBeenCalledWith(
+        'PUSH COMPLETED WITH ERRORS'
+      );
+      expect(formatter.fmt.error).toHaveBeenCalledWith(
+        expect.stringContaining(
+          "solution java-sol: Unknown file type 'java.11'"
+        )
+      );
+      expect(process.exit).toHaveBeenCalledWith(1);
+      expect(formatter.fmt.successBox).not.toHaveBeenCalled();
+    });
+
+    it('should print the success box and not exit when nothing failed', async () => {
+      vi.mocked(steps.stepReadConfig).mockReturnValue({
+        problemId: 42,
+        name: 'p',
+        solutions: [{ name: 'main' }],
+      } as any);
+      vi.mocked(steps.stepUploadSolutions).mockResolvedValue(undefined);
+      await actions.remotePushProblemAction('./prob');
+      expect(formatter.fmt.successBox).toHaveBeenCalledWith(
+        'PROBLEM PUSHED SUCCESSFULLY!'
+      );
+      expect(process.exit).not.toHaveBeenCalled();
+    });
+
     it('should warn for missing components on pushAll', async () => {
       vi.mocked(steps.stepReadConfig).mockReturnValue({
         problemId: 42,

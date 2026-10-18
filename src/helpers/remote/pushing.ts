@@ -49,19 +49,33 @@ function describeError(error: unknown): string {
 }
 
 /**
+ * Adds a one-line failure to the caller's list, so the push summary can
+ * list what did not reach Polygon and set a non-zero exit code.
+ */
+function recordFailure(
+  failures: string[],
+  label: string,
+  error: unknown
+): void {
+  failures.push(`${label}: ${describeError(error)}`);
+}
+
+/**
  * Uploads all solutions to Polygon.
  *
  * @param {PolygonSDK} sdk - Polygon SDK instance
  * @param {number} problemId - Problem ID
  * @param {string} problemDir - Problem directory path
  * @param {ConfigFile} config - Configuration file
+ * @param {string[]} [failures] - Collects one line per item that failed to upload
  * @returns {Promise<number>} Number of solutions uploaded
  */
 export async function uploadSolutions(
   sdk: PolygonSDK,
   problemId: number,
   problemDir: string,
-  config: ConfigFile
+  config: ConfigFile,
+  failures: string[] = []
 ): Promise<number> {
   let count = 0;
 
@@ -92,6 +106,7 @@ export async function uploadSolutions(
       fmt.warning(
         `  ⚠️  Failed to upload solution: ${solution.name}: ${describeError(error)}`
       );
+      recordFailure(failures, `solution ${solution.name}`, error);
     }
   }
 
@@ -105,13 +120,15 @@ export async function uploadSolutions(
  * @param {number} problemId - Problem ID
  * @param {string} problemDir - Problem directory path
  * @param {ConfigFile} config - Configuration file
+ * @param {string[]} [failures] - Collects one line per item that failed to upload
  * @returns {Promise<number>} Number of files uploaded (0 or 1)
  */
 export async function uploadChecker(
   sdk: PolygonSDK,
   problemId: number,
   problemDir: string,
-  config: ConfigFile
+  config: ConfigFile,
+  failures: string[] = []
 ): Promise<number> {
   if (!config.checker) {
     return 0;
@@ -178,6 +195,7 @@ export async function uploadChecker(
           fmt.warning(
             `  ⚠️  Failed to upload checker tests: ${describeError(error)}`
           );
+          recordFailure(failures, 'checker tests', error);
         }
       }
     }
@@ -195,13 +213,15 @@ export async function uploadChecker(
  * @param {number} problemId - Problem ID
  * @param {string} problemDir - Problem directory path
  * @param {ConfigFile} config - Configuration file
+ * @param {string[]} [failures] - Collects one line per item that failed to upload
  * @returns {Promise<number>} Number of files uploaded (0 or 1)
  */
 export async function uploadValidator(
   sdk: PolygonSDK,
   problemId: number,
   problemDir: string,
-  config: ConfigFile
+  config: ConfigFile,
+  failures: string[] = []
 ): Promise<number> {
   if (!config.validator) {
     return 0;
@@ -258,6 +278,7 @@ export async function uploadValidator(
           fmt.warning(
             `  ⚠️  Failed to upload validator tests: ${describeError(error)}`
           );
+          recordFailure(failures, 'validator tests', error);
         }
       }
     }
@@ -265,6 +286,7 @@ export async function uploadValidator(
     return 1;
   } catch (error) {
     fmt.warning(`  ⚠️  Failed to upload validator: ${describeError(error)}`);
+    recordFailure(failures, 'validator', error);
     return 0;
   }
 }
@@ -276,13 +298,15 @@ export async function uploadValidator(
  * @param {number} problemId - Problem ID
  * @param {string} problemDir - Problem directory path
  * @param {ConfigFile} config - Configuration file
+ * @param {string[]} [failures] - Collects one line per item that failed to upload
  * @returns {Promise<number>} Number of generators uploaded
  */
 export async function uploadGenerators(
   sdk: PolygonSDK,
   problemId: number,
   problemDir: string,
-  config: ConfigFile
+  config: ConfigFile,
+  failures: string[] = []
 ): Promise<number> {
   let count = 0;
 
@@ -313,6 +337,7 @@ export async function uploadGenerators(
       fmt.warning(
         `  ⚠️  Failed to upload generator: ${generator.name}: ${describeError(error)}`
       );
+      recordFailure(failures, `generator ${generator.name}`, error);
     }
   }
 
@@ -326,13 +351,15 @@ export async function uploadGenerators(
  * @param {number} problemId - Problem ID
  * @param {string} problemDir - Problem directory path
  * @param {ConfigFile} config - Configuration file
+ * @param {string[]} [failures] - Collects one line per item that failed to upload
  * @returns {Promise<number>} Number of statement files uploaded
  */
 export async function uploadStatements(
   sdk: PolygonSDK,
   problemId: number,
   problemDir: string,
-  config: ConfigFile
+  config: ConfigFile,
+  failures: string[] = []
 ): Promise<number> {
   let count = 0;
 
@@ -418,6 +445,7 @@ export async function uploadStatements(
       fmt.warning(
         `  ⚠️  Failed to upload statement for language: ${lang}: ${describeError(error)}`
       );
+      recordFailure(failures, `statement ${lang}`, error);
     }
   }
 
@@ -430,12 +458,14 @@ export async function uploadStatements(
  * @param {PolygonSDK} sdk - Polygon SDK instance
  * @param {number} problemId - Problem ID
  * @param {ConfigFile} config - Configuration file
+ * @param {string[]} [failures] - Collects one line per item that failed to upload
  * @returns {Promise<number>} Number of metadata items uploaded (0-2)
  */
 export async function uploadMetadata(
   sdk: PolygonSDK,
   problemId: number,
-  config: ConfigFile
+  config: ConfigFile,
+  failures: string[] = []
 ): Promise<number> {
   let count = 0;
 
@@ -448,6 +478,7 @@ export async function uploadMetadata(
       fmt.warning(
         `  ⚠️  Failed to upload description: ${describeError(error)}`
       );
+      recordFailure(failures, 'description', error);
     }
   }
 
@@ -458,6 +489,7 @@ export async function uploadMetadata(
       count++;
     } catch (error) {
       fmt.warning(`  ⚠️  Failed to upload tags: ${describeError(error)}`);
+      recordFailure(failures, 'tags', error);
     }
   }
 
@@ -471,13 +503,15 @@ export async function uploadMetadata(
  * @param {number} problemId - Problem ID
  * @param {string} problemDir - Problem directory path
  * @param {ConfigFile} config - Configuration file
+ * @param {string[]} [failures] - Collects one line per item that failed to upload
  * @returns {Promise<{ testsCount: number; manualsCount: number }>}
  */
 export async function uploadTestsets(
   sdk: PolygonSDK,
   problemId: number,
   problemDir: string,
-  config: ConfigFile
+  config: ConfigFile,
+  failures: string[] = []
 ): Promise<{ testsCount: number; manualsCount: number }> {
   let testsCount = 0;
   let manualsCount = 0;
@@ -500,6 +534,7 @@ export async function uploadTestsets(
           await sdk.enableGroups(problemId, testset.name, true);
         } catch (error) {
           logError(error);
+          recordFailure(failures, `testset ${testset.name} groups`, error);
         }
       }
 
@@ -515,6 +550,7 @@ export async function uploadTestsets(
         manualsCount += testset.manualTests?.length ?? 0;
       } catch (error) {
         logError(error);
+        recordFailure(failures, `testset ${testset.name} manual tests`, error);
       }
 
       // Upload the generator script — Polygon parses it itself, but it
@@ -529,6 +565,7 @@ export async function uploadTestsets(
         );
       } catch (error) {
         logError(error);
+        recordFailure(failures, `testset ${testset.name} script`, error);
       }
 
       // Apply per-test metadata on tests produced by the script. Manuals
@@ -538,6 +575,7 @@ export async function uploadTestsets(
           return getResolvedTests(testset, generators, problemDir);
         } catch (error) {
           logError(error);
+          recordFailure(failures, `testset ${testset.name} tests`, error);
           return [];
         }
       })();
@@ -558,12 +596,18 @@ export async function uploadTestsets(
           await sdk.setTestGroup(problemId, testset.name, group, indices);
         } catch (error) {
           logError(error);
+          recordFailure(
+            failures,
+            `testset ${testset.name} group ${group}`,
+            error
+          );
         }
       }
 
       testsCount += allTests.length;
     } catch (error) {
       logError(error);
+      recordFailure(failures, `testset ${testset.name}`, error);
     }
   }
 
@@ -576,6 +620,7 @@ export async function uploadTestsets(
  * @param {PolygonSDK} sdk - Polygon SDK instance
  * @param {number} problemId - Problem ID
  * @param {ConfigFile} config - Configuration file
+ * @param {string[]} [failures] - Collects one line per item that failed to upload
  * @returns {Promise<void>}
  */
 export async function updateProblemInfo(
