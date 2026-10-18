@@ -129,7 +129,12 @@ prompts:
         mentions another account, doesn't count for you.
         It counts only if its author is one of the team (the people in go_ahead in
         .autonomy.yml), never a service account or GitLabDuo, and not the
-        requester: the MR's author and the author of the issue it closes. For high risk, or fixes that touch a path under paths.high or
+        requester. The requesters are the author of the issue the MR closes, and
+        the MR's author only when a person opened the MR. When an agent opened it
+        (its first commit's author is a service account, as for the issue
+        builder's MRs), GitLab files the MR under the person whose go-ahead
+        started the build: they approved it, they didn't ask for the work, so
+        they aren't a requester. The CI job applies the same rule. For high risk, or fixes that touch a path under paths.high or
         paths.critical in .autonomy.yml (a fix can raise the MR's tier, and the
         CI job checks every push against the tier of the newest head), or
         @@protected_paths@@, only @@maintainers@@ count.
@@ -241,13 +246,13 @@ prompts:
            - "Proposed fixes": the P1 and P2 an agent would fix, one line each,
              or "none".
            - "Go-ahead": if there are proposed fixes, who may give it and how
-             ("someone other than the MR's author and the linked issue's author,
+             ("someone other than the requesters (name them, as defined above),
              or one of @@maintainers@@ for high risk or fixes that touch the high,
              critical or protected paths, replies with the line
              `@@@reviewer_account@@ go-ahead`, without the backticks"). Keep that
              mention inside backticks: a plain one would mention your own account. Then a
              line that mentions the people who may give it, so GitLab notifies
-             them: those of @@people@@ who aren't the MR's or the issue's author
+             them: those of @@people@@ who aren't requesters
              (only @@maintainers@@ when only a maintainer counts). Mention people
              only, never an agent. Compare usernames without case. If
              nobody is left, say in that line that someone other than the
