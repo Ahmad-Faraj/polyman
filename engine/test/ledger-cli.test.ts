@@ -4,7 +4,7 @@ import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } fro
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import type { Ledger } from '../src/ledger.ts';
+import { LEDGER_RULES, type Ledger } from '../src/ledger.ts';
 
 const CLI = resolve('src/cli/ledger.ts');
 const CONFIG = resolve('../.autonomy.yml');
@@ -77,7 +77,10 @@ function gitlab(routes: Record<string, unknown>) {
   );
 }
 
-async function run(r: ReturnType<typeof repo>, opts: { issueNotes?: unknown[]; published?: Ledger } = {}) {
+async function run(
+  r: ReturnType<typeof repo>,
+  opts: { issueNotes?: unknown[]; published?: Ledger; routes?: Record<string, unknown>; env?: Record<string, string> } = {},
+) {
   const p = '/api/v4/projects/1';
   const api = await gitlab({
     [`${p}/merge_requests`]: [{ iid: 7, source_branch: 'fix' }],
@@ -112,6 +115,7 @@ async function run(r: ReturnType<typeof repo>, opts: { issueNotes?: unknown[]; p
     [`${p}/merge_requests/7/closes_issues`]: [{ iid: 22, author: { username: 'Ahmad-Faraj' } }],
     [`${p}/issues/22/notes`]: opts.issueNotes ?? [proposal, goAhead()],
     ...(opts.published ? { '/pages/ledger/ledger.json': opts.published } : {}),
+    ...Object.fromEntries(Object.entries(opts.routes ?? {}).map(([k, v]) => [`${p}${k}`, v])),
   });
   const out = join(r.dir, 'out');
   const child = spawn('node', [CLI, out], {
@@ -127,6 +131,7 @@ async function run(r: ReturnType<typeof repo>, opts: { issueNotes?: unknown[]; p
       CI_JOB_TOKEN: 'job',
       CI_COMMIT_SHA: r.merge,
       AUTONOMY_CONFIG: '.autonomy.yml',
+      ...opts.env,
     },
   });
   let text = '';
@@ -190,12 +195,57 @@ describe('autonomy:ledger against a git repo and a stand-in for GitLab', () => {
     expect(code).toBe(1);
   });
 
+  it("starts the chain at the guard's merge on the default branch, not at a later merge of main into this branch", async () => {
+    const r = repo();
+    const git = (...args: string[]) =>
+      execFileSync('git', ['-c', 'user.name=Mazen', '-c', 'user.email=mazen@example.com', ...args], {
+        cwd: r.dir,
+        encoding: 'utf8',
+        env: { ...process.env, GIT_AUTHOR_DATE: '2026-10-18T08:00:00Z', GIT_COMMITTER_DATE: '2026-10-18T08:00:00Z' },
+      }).trim();
+    // what an MR pipeline has: main as origin/main, and a branch cut before the guard that merged main in
+    git('update-ref', 'refs/remotes/origin/main', 'main');
+    git('checkout', '-qb', 'old', 'main~2');
+    git('merge', '-q', '--no-ff', '-m', 'Merge main into old', 'main');
+    const { code, ledger } = await run(r, { env: { CI_DEFAULT_BRANCH: 'main' } });
+    expect(code).toBe(0);
+    expect(ledger().since.at).toBe('2026-10-17T20:11:08Z');
+  });
+
+  it("takes a merged MR's tier from the published ledger once its risk-report.json expired", async () => {
+    const r = repo();
+    const first = (await run(r)).ledger();
+    const expired = { '/jobs/5/artifacts/risk-report.json': undefined };
+    const { code, ledger } = await run(r, { published: first, routes: expired });
+    expect(code).toBe(0);
+    expect(ledger().records[0].tier).toBe('low');
+    const none = await run(r, { routes: expired });
+    expect(none.text).toMatch(/can't read the risk tier of !7/);
+    expect(none.code).toBe(1);
+  });
+
+  it('records a merged agent MR the guard never ran on as refused, instead of leaving it out', async () => {
+    const r = repo();
+    const { code, ledger, text } = await run(r, { routes: { '/pipelines/100/jobs': [{ id: 5, name: 'autonomy:assess', status: 'success' }] } });
+    expect(code).toBe(0);
+    expect(ledger().records[0]).toMatchObject({ mr: 7, accepted: false, guard: { pipeline: 100, job: null, status: 'none' } });
+    expect(text).toMatch(/refused: autonomy:goahead never ran on this MR/);
+  });
+
+  it('records a merged agent MR with no pipeline at all as refused', async () => {
+    const r = repo();
+    const mr = { iid: 7, state: 'merged', author: { username: 'Mazen-Ghanaym' }, created_at: '2026-10-17T22:13:10.000Z', merged_at: '2026-10-17T23:00:52.000Z', source_branch: 'fix', sha: r.head, merge_commit_sha: r.merge, squash_commit_sha: null, diff_refs: { base_sha: r.base, head_sha: r.head, start_sha: r.base }, head_pipeline: null };
+    const { code, ledger } = await run(r, { routes: { '/merge_requests/7': mr } });
+    expect(code).toBe(0);
+    expect(ledger().records[0]).toMatchObject({ mr: 7, accepted: false, tier: 'high', guard: { pipeline: null, job: null, status: 'none' } });
+  });
+
   it('starts a new chain, naming the old head, when the published one was judged by other rules', async () => {
     const r = repo();
     const first = (await run(r)).ledger();
     const old = { ...first, rules: 0, records: [{ ...first.records[0], tier: 'high' as const }] };
     const { code, text, ledger } = await run(r, { published: old });
-    expect(text).toMatch(/judged by rules 0 and this one by rules 1: a new chain starts/);
+    expect(text).toMatch(new RegExp(`judged by rules 0 and this one by rules ${LEDGER_RULES}: a new chain starts`));
     expect(ledger().replaces).toEqual({ rules: 0, head: first.head, records: 1 });
     expect(code).toBe(0);
   });

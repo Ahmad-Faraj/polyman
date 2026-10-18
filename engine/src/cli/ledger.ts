@@ -69,8 +69,11 @@ async function main() {
   // The chain starts where the guard reached the default branch: the merge
   // that added it (--first-parent: the merge, not the commit on the MR's
   // branch). Agent pushes before it weren't asked to wait for a go-ahead.
-  const [commit, at] = git('log', '--first-parent', '--diff-filter=A', '--format=%H %cI', '--', GUARD).split('\n').pop()!.split(' ');
-  if (!commit || !at) throw new Error(`no commit on this branch adds ${GUARD}, so there is no guard to rebuild a ledger from`);
+  // Read on the default branch, not HEAD: an MR branch that merged the default
+  // branch in would put the start at that later merge.
+  const chainRef = defaultBranchRef(git);
+  const [commit, at] = git('log', '--first-parent', '--diff-filter=A', '--format=%H %cI', chainRef, '--', GUARD).split('\n').pop()!.split(' ');
+  if (!commit || !at) throw new Error(`no commit on ${chainRef} adds ${GUARD}, so there is no guard to rebuild a ledger from`);
   const since = { commit, at: second(at) };
   const fromGuard = (iso: string) => Date.parse(iso) >= Date.parse(since.at);
   const listed = await allPages<{ iid: number; source_branch: string }>(gl, `/:project/merge_requests?state=all&updated_after=${encodeURIComponent(since.at)}&order_by=created_at&sort=asc`);
@@ -96,6 +99,11 @@ async function main() {
   const earliest = [...windows.values()].sort()[0];
   if (earliest && earliest < from) events = await pushedSince((from = earliest));
 
+  // the published ledger, read before judging: a merged MR's risk-report.json
+  // expires, and its record there keeps the tier the guard used
+  let published = await previousLedger();
+  const publishedTier = new Map((published?.records ?? []).map((r) => [r.mr, r.tier]));
+
   const records: Omit<LedgerRecord, 'seq' | 'prev'>[] = [];
   const open: OpenPush[] = [];
   const runs: GuardRun[] = [];
@@ -115,24 +123,25 @@ async function main() {
     try {
       policy = git('show', `${policyRef}:${env.AUTONOMY_CONFIG ?? '.autonomy.yml'}`);
     } catch {
-      continue; // no policy then, so no guard either
+      skipped.push(`!${mr.iid}: no ${env.AUTONOMY_CONFIG ?? '.autonomy.yml'} at ${policyRef}, so no guard either`);
+      continue;
     }
     const configPath = join(mkdtempSync(join(tmpdir(), 'ledger-')), '.autonomy.yml');
     writeFileSync(configPath, policy);
     const config = loadConfig(configPath);
-    if (!config.goAhead.people.length) continue;
+    if (!config.goAhead.people.length) {
+      skipped.push(`!${mr.iid}: its policy names no go_ahead.people, so no guard either`);
+      continue;
+    }
     // only MRs an agent pushed to once the guard was there
     if (!branchPushes(seen, mr.source_branch).some((p) => !isProjectPerson(p.pusher, config) && fromGuard(p.at))) continue;
-    if (!mr.head_pipeline || !mr.diff_refs) {
-      skipped.push(`!${mr.iid}: no pipeline`);
+    if (!mr.diff_refs) {
+      skipped.push(`!${mr.iid}: GitLab gives no diff refs, so its commits can't be read`);
       continue;
     }
-    const jobs = await allPages<Job>(gl, `/:project/pipelines/${mr.head_pipeline.id}/jobs`);
+    // no pipeline, or no guard job on it: still judged and recorded, refused (recordsFor)
+    const jobs = mr.head_pipeline ? await allPages<Job>(gl, `/:project/pipelines/${mr.head_pipeline.id}/jobs`) : [];
     const guardJob = jobs.find((j) => j.name === 'autonomy:goahead');
-    if (!guardJob) {
-      skipped.push(`!${mr.iid}: its last pipeline (${mr.head_pipeline.id}) ran no autonomy:goahead`);
-      continue;
-    }
     for (const r of await guardRuns(gl, web, mr.iid)) if (fromGuard(r.at)) runs.push(r);
 
     const assess = jobs.find((j) => j.name === 'autonomy:assess');
@@ -142,9 +151,10 @@ async function main() {
     } catch (err) {
       if (!(err instanceof GitLabError) || err.status !== 404) throw err;
     }
+    if (!tierText && merged) tierText = publishedTier.get(mr.iid);
     if (!tierText) {
-      if (merged) throw new Error(`can't read the risk tier of !${mr.iid}: pipeline ${mr.head_pipeline.id} has no autonomy:assess risk-report.json (expired?)`);
-      console.warn(`warning: !${mr.iid} has no risk tier yet; judged as high, as the guard does`);
+      if (merged && guardJob) throw new Error(`can't read the risk tier of !${mr.iid}: pipeline ${mr.head_pipeline!.id} has no autonomy:assess risk-report.json (expired?), and no published record has it`);
+      console.warn(`warning: !${mr.iid} has no risk tier${guardJob ? ' yet' : ''}; judged as high, as the guard does`);
     }
     const tier = tierFrom(tierText);
     const closes = await gl.get<{ iid: number; author: { username: string } }[]>(`/:project/merge_requests/${mr.iid}/closes_issues`);
@@ -163,7 +173,7 @@ async function main() {
       repo,
       (issue) => notesOf(gl, 'issue', issue),
     );
-    const guard = { pipeline: mr.head_pipeline.id, job: guardJob.id, status: guardJob.status };
+    const guard = { pipeline: mr.head_pipeline?.id ?? null, job: guardJob?.id ?? null, status: guardJob?.status ?? 'none' };
     const mine = recordsFor(web, { iid: mr.iid, merged_at: mr.merged_at ?? mr.created_at, source_branch: mr.source_branch, closes: closes.map((i) => i.iid), guard }, check, config).filter((r) =>
       fromGuard(r.pushed_at),
     );
@@ -185,7 +195,6 @@ async function main() {
   }
 
   const ledger = chain(projectPath, since, records);
-  let published = await previousLedger();
   if (published && published.rules !== ledger.rules) {
     // a reviewed change to the rules re-judges history: a new chain, which names the old one
     console.log(`the published ledger was judged by rules ${published.rules} and this one by rules ${ledger.rules}: a new chain starts, replacing ${published.records.length} record(s) ending in ${published.head}`);
@@ -217,6 +226,18 @@ async function main() {
   for (const p of problems) console.error(p);
   console.error(`The published go-ahead ledger doesn't match what GitLab says now, so this job fails and Pages keeps the published one. A person has to find out why before anything is published.`);
   process.exit(1);
+}
+
+/** The default branch as fetched (origin/<branch>), or HEAD where there is none (a run on the default branch itself). */
+function defaultBranchRef(git: (...args: string[]) => string): string {
+  const branch = env.CI_DEFAULT_BRANCH;
+  if (!branch) return 'HEAD';
+  try {
+    git('rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}`);
+    return `origin/${branch}`;
+  } catch {
+    return 'HEAD';
+  }
 }
 
 /** The ledger on Pages, or null if none was published yet (that run starts the chain). */

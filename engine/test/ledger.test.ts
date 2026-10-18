@@ -89,6 +89,20 @@ describe('a ledger record, from the guard\'s own check of #22 -> !26', () => {
     expect(records[0].reasons.join()).toMatch(/not a maintainer; high risk needs @HamzaHassanain/);
   });
 
+  it('refuses every push of an MR the guard fails for a reason about the whole MR (a commit no push brought)', async () => {
+    const { check, records } = await build({ commits: [MERGE_MAIN, AGENT_COMMIT, 'deadbeef'.padEnd(40, '0')] });
+    expect(check.problems.some((p) => !p.push)).toBe(true);
+    expect(records[0].accepted).toBe(false);
+    expect(records[0].reasons.join()).toMatch(/commit deadbeef is in no push GitLab recorded/);
+  });
+
+  it('refuses the pushes of an MR the guard never ran on', async () => {
+    const check = await checkMr(facts(), config, repo, async () => loop.issue_notes);
+    const records = recordsFor(WEB, { iid: 26, merged_at: loop.mr.merged_at, source_branch: loop.mr.source_branch, closes: [22], guard: { pipeline: null, job: null, status: 'none' } }, check, config);
+    expect(records[0]).toMatchObject({ accepted: false, guard: { pipeline: null, job: null, status: 'none' } });
+    expect(records[0].reasons.join()).toMatch(/autonomy:goahead never ran on this MR/);
+  });
+
   it('times are kept to the second, so REST (milliseconds) and GraphQL (seconds) give the same record', async () => {
     const graphql = loop.issue_notes.map((n) => ({ ...n, created_at: second(n.created_at), updated_at: n.updated_at && second(n.updated_at) }));
     const rest = await build();

@@ -141,6 +141,8 @@ autonomy:ledger:
   script:
     # every MR's last head, so the commits of MRs whose branch is gone are here
     - git fetch -q origin '+refs/merge-requests/*/head:refs/ledger/mr/*'
+    # the chain starts on the default branch, whatever branch this pipeline is for
+    - git fetch -q origin "+refs/heads/$CI_DEFAULT_BRANCH:refs/remotes/origin/$CI_DEFAULT_BRANCH"
     - node engine/src/cli/ledger.ts ledger
   artifacts:
     when: always

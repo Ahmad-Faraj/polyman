@@ -55,8 +55,8 @@ export interface LedgerRecord {
   accepted: boolean;
   /** why not, in the guard's words */
   reasons: string[];
-  /** the autonomy:goahead job on the MR's last pipeline, as GitLab recorded it */
-  guard: { pipeline: number; job: number | null; status: string };
+  /** the autonomy:goahead job on the MR's last pipeline, as GitLab recorded it (job null, status 'none': it never ran) */
+  guard: { pipeline: number | null; job: number | null; status: string };
   /** SHA-256 of the previous record's canonical JSON (GENESIS for the first) */
   prev: string;
 }
@@ -67,8 +67,12 @@ export interface LedgerRecord {
  * every rebuild differ from the published ledger, so it bumps this number in
  * the same MR (a person's MR: engine/ is a governance path). The next ledger
  * then starts a new chain and names the head of the one it replaces.
+ *
+ * 2: a problem the guard finds with the whole MR (a commit no push brought,
+ * an agent's MR with no issue a person wrote) refuses every push of that MR,
+ * and so does a merged MR the guard never ran on.
  */
-export const LEDGER_RULES = 1;
+export const LEDGER_RULES = 2;
 
 export interface Ledger {
   version: 1;
@@ -115,6 +119,9 @@ export interface MergedMr {
 /** The records for one MR's agent pushes, without seq and prev (chain() sets those). */
 export function recordsFor(web: string, mr: MergedMr, check: MrCheck, config: AutonomyConfig): Omit<LedgerRecord, 'seq' | 'prev'>[] {
   const mrUrl = `${web}/-/merge_requests/${mr.iid}`;
+  // the guard fails the MR for these whichever push it looks at
+  const mrProblems = check.problems.filter((p) => !p.push).map((p) => p.text);
+  if (mr.guard.job === null) mrProblems.push(`autonomy:goahead never ran on this MR (${mr.guard.pipeline === null ? 'no pipeline' : `pipeline ${mr.guard.pipeline}`}), so no guard judged its pushes`);
   return check.agentPushes.map((c: PushCheck) => {
     const thread = c.issue ? { kind: 'issue' as const, iid: c.issue } : { kind: 'merge_request' as const, iid: mr.iid };
     const link = (n: Note): NoteRef => ({
@@ -124,7 +131,7 @@ export function recordsFor(web: string, mr: MergedMr, check: MrCheck, config: Au
       at: second(n.created_at),
     });
     const goAhead = c.verdict.ok ? link(c.verdict.note) : null;
-    const reasons = check.problems.filter((p) => p.push === c.push).map((p) => p.text);
+    const reasons = [...check.problems.filter((p) => p.push === c.push).map((p) => p.text), ...mrProblems];
     const allowed = allowedApprovers(c.step, config);
     return {
       mr: mr.iid,

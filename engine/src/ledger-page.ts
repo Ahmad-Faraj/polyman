@@ -45,7 +45,7 @@ export function renderLedgerPage({ ledger, open, runs, counters: c, web, generat
 <td>${r.requesters.map(user).join('<br>') || '<span class="muted">nobody on record</span>'}</td>
 <td>${r.approver_not_requester === null ? '<span class="muted">n/a</span>' : r.approver_not_requester ? '<span class="ok">holds</span>' : '<span class="bad">broken</span>'}</td>
 <td>${esc(r.tier)}${r.rollback ? ' (rollback)' : ''}<br><span class="muted">${esc(r.allowed)}: ${r.allowed_approvers.map(esc).join(', ') || 'nobody'}</span></td>
-<td>${r.accepted ? '<span class="ok">let through</span>' : `<span class="bad">refused</span><br><span class="muted">${r.reasons.map(esc).join('<br>')}</span>`}<br><a class="muted" href="${esc(web)}/-/pipelines/${r.guard.pipeline}">guard: ${esc(r.guard.status)}</a></td>
+<td>${r.accepted ? '<span class="ok">let through</span>' : `<span class="bad">refused</span><br><span class="muted">${r.reasons.map(esc).join('<br>')}</span>`}<br>${r.guard.pipeline === null ? `<span class="muted">guard: ${esc(r.guard.status)}</span>` : `<a class="muted" href="${esc(web)}/-/pipelines/${r.guard.pipeline}">guard: ${esc(r.guard.status)}</a>`}</td>
 <td><code title="SHA-256 of record ${r.seq - 1}">${esc(r.prev.slice(0, 12))}</code></td>
 </tr>`,
     )
