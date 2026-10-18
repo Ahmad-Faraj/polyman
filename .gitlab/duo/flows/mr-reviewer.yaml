@@ -27,7 +27,6 @@ components:
         as: "goal"
     toolset:
       - "get_merge_request"
-      - "list_merge_request_diffs"
       - "read_file"
       - "read_files"
       - "find_files"
@@ -49,7 +48,6 @@ components:
         as: "goal"
     toolset:
       - "get_merge_request"
-      - "list_merge_request_diffs"
       - "create_merge_request_diff_note"
       - "list_mr_discussions"
       - "reply_to_discussion"
@@ -79,7 +77,6 @@ components:
         as: "goal"
     toolset:
       - "get_merge_request"
-      - "list_merge_request_diffs"
       - "read_file"
       - "read_files"
       - "find_files"
@@ -215,7 +212,7 @@ prompts:
              comments will appear on the MR, or the request didn't go through.
            - risk::medium: code_reviewer and test_reviewer.
            - risk::high: security_reviewer, code_reviewer and test_reviewer.
-           Always give each specialist the project ID, the MR IID, the source branch,
+           Always give each specialist the project ID, the MR IID, the source and target branches,
            the head commit SHA, the changed files and what to focus on, so it
            doesn't have to look them up again. Give the security reviewer the
            "Findings on the lines this change wrote" list from the risk summary,
@@ -368,6 +365,10 @@ prompts:
           calls: put several reads (git diff, sed -n, grep) in one run_command,
           and don't look up what the lead already gave you (MR, branch, head,
           changed files) or the repository's state again.
+        - Read the diff with git, once: git fetch origin, then git diff
+          origin/TARGET...origin/SOURCE with the branch names the lead gave you.
+          The lead has already read it through the API; a second copy in your
+          context is paid again on every call after it.
         - Finish with a short plain-text report: what you checked, what you found,
           what you changed.
       user: |
@@ -420,6 +421,10 @@ prompts:
           calls: put several reads (git diff, sed -n, grep) in one run_command,
           and don't look up what the lead already gave you (MR, branch, head,
           changed files) or the repository's state again.
+        - Read the diff with git, once: git fetch origin, then git diff
+          origin/TARGET...origin/SOURCE with the branch names the lead gave you.
+          The lead has already read it through the API; a second copy in your
+          context is paid again on every call after it.
         - Finish with a short plain-text report of what you found and changed.
       user: |
         Project ID: {{project_id}}
@@ -461,6 +466,10 @@ prompts:
           calls: put several reads (git diff, sed -n, grep) in one run_command,
           and don't look up what the lead already gave you (MR, branch, head,
           changed files) or the repository's state again.
+        - Read the diff with git, once: git fetch origin, then git diff
+          origin/TARGET...origin/SOURCE with the branch names the lead gave you.
+          The lead has already read it through the API; a second copy in your
+          context is paid again on every call after it.
         - Finish with a short plain-text report of what was covered, what you added
           and anything still untested.
       user: |
