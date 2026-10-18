@@ -1,0 +1,13 @@
+{
+  "tests": [
+    { "input": "5 9\n4 7 1 5 2\n", "output": "1 4\n", "answer": "1 4\n", "expectedVerdict": "OK" },
+    { "input": "5 9\n4 7 1 5 2\n", "output": "5 2\n", "answer": "1 4\n", "expectedVerdict": "OK" },
+    { "input": "3 4\n2 5 7\n", "output": "-1\n", "answer": "-1\n", "expectedVerdict": "OK" },
+    { "input": "3 4\n2 5 7\n", "output": "1 1\n", "answer": "-1\n", "expectedVerdict": "WRONG_ANSWER" },
+    { "input": "5 9\n4 7 1 5 2\n", "output": "-1\n", "answer": "1 4\n", "expectedVerdict": "WRONG_ANSWER" },
+    { "input": "5 9\n4 7 1 5 2\n", "output": "1 2\n", "answer": "1 4\n", "expectedVerdict": "WRONG_ANSWER" },
+    { "input": "5 9\n4 7 1 5 2\n", "output": "1 6\n", "answer": "1 4\n", "expectedVerdict": "WRONG_ANSWER" },
+    { "input": "5 9\n4 7 1 5 2\n", "output": "4\n", "answer": "1 4\n", "expectedVerdict": "PRESENTATION_ERROR" },
+    { "input": "5 9\n4 7 1 5 2\n", "output": "first fourth\n", "answer": "1 4\n", "expectedVerdict": "PRESENTATION_ERROR" }
+  ]
+}

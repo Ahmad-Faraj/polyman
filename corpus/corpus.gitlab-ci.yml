@@ -59,27 +59,38 @@ corpus:toolchain:
       junit: corpus/out/junit-${LANE}.xml
   allow_failure: true
 
-# Polygon round trip: push the corpus problem with polyman, read it back from
-# Polygon and compare it with the folder (corpus/polygon-roundtrip.mjs). Only on
-# the default branch (including scheduled pipelines), where the Polygon key is
-# available as a masked, protected variable; never on MR branches, which agents
-# write to. One run at a time, because every run writes the same problem.
+# The pinned verdicts judged again without polyman (corpus/truth.mjs): g++,
+# javac and Python run every solution and the checker directly. A difference
+# means a pinned verdict is wrong (or this runner judges differently), not that
+# polyman is; so this job is the check on the corpus itself.
+corpus:truth:
+  extends: .corpus
+  before_script: []
+  script:
+    - apt-get update -qq && apt-get install -y -qq default-jdk-headless >/dev/null
+    - node corpus/truth.mjs --check
+
+# Polygon round trip: push the corpus problems with polyman, read them back from
+# Polygon and compare them with their folders (corpus/polygon-roundtrip.mjs).
+# Each problem needs a Polygon problem of its own, listed in corpus/polygon.json;
+# the others are reported as skipped. Only on the default branch (including
+# scheduled pipelines), where the Polygon key is available as a masked,
+# protected variable; never on MR branches, which agents write to. One run at a
+# time, because every run writes the same problems.
 corpus:polygon:
   extends: .node
   stage: test
   resource_group: polygon
-  variables:
-    POLYGON_PROBLEM_ID: "605330"
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $POLYGON_API_KEY && $POLYGON_API_SECRET
   script:
     - npm run build
-    - node corpus/polygon-roundtrip.mjs
+    - node corpus/polygon-roundtrip.mjs --all
   artifacts:
     when: always
     expire_in: 30 days
     reports:
-      junit: corpus/out/junit-polygon.xml
+      junit: corpus/out/junit-polygon*.xml
   # Red on polyman 3.0.0 (#24, #25, #26). Becomes blocking once they're fixed.
   allow_failure: true
 
@@ -119,7 +130,6 @@ corpus:production:
   resource_group: polygon
   variables:
     POLYMAN_VERSION: latest
-    POLYGON_PROBLEM_ID: "605330"
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
   script:
@@ -130,7 +140,7 @@ corpus:production:
     - status=0
     - node corpus/run.mjs --polyman "$PUBLISHED" --junit corpus/out/junit-production.xml || status=1
     # without credentials the Polygon half would pass unseen: say so and fail
-    - 'if [ -n "$POLYGON_API_KEY" ]; then node corpus/polygon-roundtrip.mjs --polyman "$PUBLISHED" --junit corpus/out/junit-production-polygon.xml || status=1; else echo "SKIPPED: no Polygon credentials, the round trip did not run"; status=1; fi'
+    - 'if [ -n "$POLYGON_API_KEY" ]; then node corpus/polygon-roundtrip.mjs --all --polyman "$PUBLISHED" --junit corpus/out/junit-production-polygon.xml || status=1; else echo "SKIPPED: no Polygon credentials, the round trip did not run"; status=1; fi'
     - exit $status
   artifacts:
     when: always

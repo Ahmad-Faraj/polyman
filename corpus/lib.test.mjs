@@ -5,6 +5,7 @@ import {
   freshnessMarker,
   nonEmpty,
   outcomeOf,
+  polygonTargets,
   pushChecks,
   regressions,
   scriptLines,
@@ -225,6 +226,26 @@ describe('selectProblems', () => {
     expect(selectProblems(['b', 'a'], null)).toEqual({
       names: ['a', 'b'],
       unknown: [],
+    });
+  });
+});
+
+describe('polygonTargets', () => {
+  it('pushes the problems with a Polygon ID and names the others as skipped', () => {
+    expect(
+      polygonTargets(['sum-parity', 'pair-target', 'mean-deviation'], {
+        'sum-parity': 605330,
+      })
+    ).toEqual({
+      targets: [{ problem: 'sum-parity', problemId: '605330' }],
+      skipped: ['mean-deviation', 'pair-target'],
+    });
+  });
+
+  it('skips an ID that is not a positive integer', () => {
+    expect(polygonTargets(['a', 'b'], { a: '605330', b: 0 })).toEqual({
+      targets: [],
+      skipped: ['a', 'b'],
     });
   });
 });

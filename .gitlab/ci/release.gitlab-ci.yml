@@ -62,7 +62,7 @@ release:next-check:
     - npm i --prefix /tmp/latest --no-audit --no-fund polyman-cli@latest
     - node corpus/run.mjs --polyman /tmp/latest/node_modules/polyman-cli/dist/cli.js --junit corpus/out/latest/junit.xml || true
     - node corpus/run.mjs --polyman /tmp/next/node_modules/polyman-cli/dist/cli.js --junit corpus/out/next/junit.xml || true
-    - 'if [ -n "$POLYGON_API_KEY" ]; then node corpus/polygon-roundtrip.mjs --polyman /tmp/next/node_modules/polyman-cli/dist/cli.js --junit corpus/out/next/junit-polygon.xml || echo "the round trip on next failed: see its report (evidence, not yet a gate)"; fi'
+    - 'if [ -n "$POLYGON_API_KEY" ]; then node corpus/polygon-roundtrip.mjs --all --polyman /tmp/next/node_modules/polyman-cli/dist/cli.js --junit corpus/out/next/junit-polygon.xml || echo "the round trip on next failed: see its report (evidence, not yet a gate)"; fi'
     - node corpus/regressions.mjs corpus/out/latest/summary.json corpus/out/next/summary.json
   artifacts:
     when: always

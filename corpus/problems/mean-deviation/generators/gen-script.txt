@@ -1,0 +1,11 @@
+<#-- Polygon-format generator script. -->
+<#-- gen n maxAbs mode. mode: spread (values in [-maxAbs, maxAbs]) or -->
+<#-- cluster (values in [10^6 - 6, 10^6]: a large mean and a small deviation) -->
+
+<#-- @group main -->
+gen 2 10 spread > $
+gen 10 1000 spread > $
+gen 1000 1000000 spread > $
+gen 100000 1000000 spread > $
+gen 100000 1000000 cluster > $
+gen 50000 5 spread > $
