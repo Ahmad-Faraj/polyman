@@ -23,8 +23,6 @@ components:
     inputs:
       - from: "context:project_id"
         as: "project_id"
-      - from: "context:goal"
-        as: "goal"
     toolset:
       - "get_merge_request"
       - "list_merge_request_diffs"
@@ -47,8 +45,6 @@ components:
     inputs:
       - from: "context:project_id"
         as: "project_id"
-      - from: "context:goal"
-        as: "goal"
     toolset:
       - "get_merge_request"
       - "list_merge_request_diffs"
@@ -72,8 +68,6 @@ components:
     inputs:
       - from: "context:project_id"
         as: "project_id"
-      - from: "context:goal"
-        as: "goal"
     toolset:
       - "get_merge_request"
       - "list_merge_request_diffs"
@@ -345,9 +339,9 @@ prompts:
       user: |
         Project ID: {{project_id}}
 
-        The lead reviewer's instructions for you are in the conversation. For
-        reference, this is the pipeline event that started the review:
-        {{goal}}
+        The lead reviewer's instructions for you are in the conversation: the
+        MR, the head commit and what to focus on. (The pipeline event isn't
+        repeated here: it's long, and it would be sent again with every step.)
     params:
       timeout: 600
 
@@ -383,9 +377,9 @@ prompts:
       user: |
         Project ID: {{project_id}}
 
-        The lead reviewer's instructions for you are in the conversation. For
-        reference, this is the pipeline event that started the review:
-        {{goal}}
+        The lead reviewer's instructions for you are in the conversation: the
+        MR, the head commit and what to focus on. (The pipeline event isn't
+        repeated here: it's long, and it would be sent again with every step.)
     params:
       timeout: 600
 
@@ -416,9 +410,9 @@ prompts:
       user: |
         Project ID: {{project_id}}
 
-        The lead reviewer's instructions for you are in the conversation. For
-        reference, this is the pipeline event that started the review:
-        {{goal}}
+        The lead reviewer's instructions for you are in the conversation: the
+        MR, the head commit and what to focus on. (The pipeline event isn't
+        repeated here: it's long, and it would be sent again with every step.)
     params:
       timeout: 600
 
