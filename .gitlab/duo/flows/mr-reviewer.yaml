@@ -337,7 +337,11 @@ prompts:
         - List the security findings for the MR source branch with
           list_security_findings and decide for each one: real, or false positive
           (and why).
-        - If you are allowed to push and you find a real problem: check out the
+        - Push only when the lead's instructions say this is a fix round and
+          name the go-ahead note it runs on. In a review you report findings
+          and the fix you would make, and never commit or push, even a test;
+          the CI guard refuses any agent push without a go-ahead, and the MR
+          is then stuck. If you are allowed to push and you find a real problem: check out the
           source branch, fix it with the smallest change, add a test that would have
           caught it, run "@@checks@@",
           then commit with a short plain message and push.
@@ -375,7 +379,11 @@ prompts:
         - For each real problem, leave one inline comment on the exact line with
           create_merge_request_diff_note: what's wrong and what to do instead, like a
           colleague would. Skip style nits.
-        - If you are allowed to push, fix what you can: on the source branch, run
+        - Push only when the lead's instructions say this is a fix round and
+          name the go-ahead note it runs on. In a review you report findings
+          and the fix you would make, and never commit or push, even a test;
+          the CI guard refuses any agent push without a go-ahead, and the MR
+          is then stuck. If you are allowed to push, fix what you can: on the source branch, run
           "@@checks@@",
           commit with a short plain message and push. Then reply on that comment's
           thread with "Fixed in SHA" and resolve it with set_discussion_resolved, so
@@ -410,7 +418,11 @@ prompts:
 
         - Work out which behaviour the MR changes and whether tests cover it,
           including failure cases (bad input, missing files, errors from outside).
-        - If you are allowed to push and coverage is missing: check out the source
+        - Push only when the lead's instructions say this is a fix round and
+          name the go-ahead note it runs on. In a review you report findings
+          and the fix you would make, and never commit or push, even a test;
+          the CI guard refuses any agent push without a go-ahead, and the MR
+          is then stuck. If you are allowed to push and coverage is missing: check out the source
           branch, add focused tests next to the existing ones, run
           "@@checks@@", and if they pass,
           commit with a short plain message and push.

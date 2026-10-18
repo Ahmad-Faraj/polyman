@@ -132,6 +132,13 @@ describe('assessRisk', () => {
     expect(assessRisk(changed, [{ ...across, line: 506, endLine: 1 }], config).stats.findings.Medium).toBe(1);
   });
 
+  it('a critical path forces high, even when the score stays under the threshold', () => {
+    const report = assessRisk([file('src/routes/auth.ts', 3, 1), file('tests/api.test.ts')], [], config);
+    expect(report.score).toBeLessThan(60);
+    expect(report.tier).toBe('high');
+    expect(report.forcedBy).toMatch(/critical path/);
+  });
+
   it('high severity findings raise the score', () => {
     const vuln: Finding = { scanner: 'sast', severity: 'High', name: 'SQL injection', file: 'src/routes/orders.ts' };
     const clean = assessRisk([file('src/routes/orders.ts'), file('tests/api.test.ts')], [], config);

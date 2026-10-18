@@ -139,6 +139,12 @@ describe("the project's Duo flows", () => {
     expect(flat('mr-reviewer.yaml')).toContain('In a check, a gate or a guard, a failure that passes quietly is P1.');
   });
 
+  it('a reviewer specialist never pushes in a review, only in a fix round with a named go-ahead', () => {
+    const text = flat('mr-reviewer.yaml');
+    expect(text.split("Push only when the lead's instructions say this is a fix round and name the go-ahead note it runs on.").length - 1).toBe(3);
+    expect(text).toContain('never commit or push, even a test');
+  });
+
   it('the fixer reads the tier from the assess job, never from a label', () => {
     expect(flat('pipeline-fixer.yaml')).toContain('never from a label');
     expect(flat('pipeline-fixer.yaml')).toContain('field "name"');
