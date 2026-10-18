@@ -15,7 +15,7 @@
 import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import { gitlabUrl, projectPathFrom } from '../project.ts';
+import { gitlabUrl, projectPathFrom, tokenFetch } from '../project.ts';
 import { loadConfig } from '../config.ts';
 import { checkFlow } from '../flows.ts';
 import { flowValues, renderFlow } from '../render.ts';
@@ -35,8 +35,7 @@ if (!dryRun && !args.includes('--allow-dirty')) {
 }
 
 async function graphql<T>(query: string, variables: Record<string, unknown> = {}): Promise<T> {
-  const res = await fetch(`${api}/api/graphql`, {
-    redirect: 'error',
+  const res = await tokenFetch(`${api}/api/graphql`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ query, variables }),

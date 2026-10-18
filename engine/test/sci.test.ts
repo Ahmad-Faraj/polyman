@@ -90,5 +90,8 @@ describe('a session whose log shows no checkpoints', () => {
     expect(checkpointsMissing(120, { low: 0, high: 0 })).toBe(true);
     expect(checkpointsMissing(5, { low: 0, high: 0 })).toBe(false);
     expect(checkpointsMissing(120, { low: 0, high: 3 })).toBe(false);
+    // the line is at more than 10 s of runner time
+    expect(checkpointsMissing(10, { low: 0, high: 0 })).toBe(false);
+    expect(checkpointsMissing(11, { low: 0, high: 0 })).toBe(true);
   });
 });

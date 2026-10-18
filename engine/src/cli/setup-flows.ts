@@ -24,7 +24,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { type AutonomyConfig } from '../config.ts';
 import { loadConfig } from '../config.ts';
 import { checkFlow } from '../flows.ts';
-import { gitlabUrl, projectPathFrom } from '../project.ts';
+import { gitlabUrl, projectPathFrom, tokenFetch } from '../project.ts';
 import { flowValues, renderFlow } from '../render.ts';
 
 const MENTION = 0;
@@ -390,8 +390,7 @@ if (import.meta.main ?? isEntry(process.argv[1], fileURLToPath(import.meta.url))
   const api = gitlabUrl(process.env.GITLAB_URL);
 
   const gql: Gql = async <T>(query: string, variables: Record<string, unknown> = {}): Promise<T> => {
-    const res = await fetch(`${api}/api/graphql`, {
-      redirect: 'error',
+    const res = await tokenFetch(`${api}/api/graphql`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ query, variables }),
@@ -401,7 +400,7 @@ if (import.meta.main ?? isEntry(process.argv[1], fileURLToPath(import.meta.url))
     return body.data;
   };
   const rest: Rest = async <T>(path: string): Promise<T | null> => {
-    const res = await fetch(`${api}/api/v4${path}`, { redirect: 'error', headers: { Authorization: `Bearer ${token}` } });
+    const res = await tokenFetch(`${api}/api/v4${path}`, { headers: { Authorization: `Bearer ${token}` } });
     return res.ok ? ((await res.json()) as T) : null;
   };
 

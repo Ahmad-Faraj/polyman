@@ -12,7 +12,7 @@
  * `npx -y -p @grnsft/if@1.1.1 if-run -m file.yml` recomputes without a token.
  */
 import { loadConfig } from '../config.ts';
-import { gitlabUrl, projectPathFrom } from '../project.ts';
+import { gitlabUrl, projectPathFrom, tokenFetch } from '../project.ts';
 import { writeFileSync } from 'node:fs';
 import { footprintArgs, ifManifest } from '../manifest.ts';
 import { INFERENCE_WH_PER_CALL, callsOf, checkpointsMissing, footprint, modelCalls, sessionGrams } from '../sci.ts';
@@ -25,8 +25,7 @@ const token = process.env.GITLAB_TOKEN;
 if (!token) throw new Error('set GITLAB_TOKEN to read the agent job logs');
 
 async function get<T>(path: string, raw = false): Promise<T> {
-  // a redirect would carry the token to another host: refuse it
-  const res = await fetch(`${api}/api/v4/projects/${project}${path}`, { redirect: 'error', headers: { 'PRIVATE-TOKEN': token! } });
+  const res = await tokenFetch(`${api}/api/v4/projects/${project}${path}`, { headers: { 'PRIVATE-TOKEN': token! } });
   if (!res.ok) throw new Error(`GET ${path} -> ${res.status}`);
   return (raw ? await res.text() : await res.json()) as T;
 }

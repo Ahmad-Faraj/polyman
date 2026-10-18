@@ -25,6 +25,21 @@ export function projectPathFrom(arg: string | undefined, opts: { remoteOnly?: bo
  * and only over https, so a token never goes out in the clear.
  */
 export function gitlabUrl(value = 'https://gitlab.com'): string {
-  if (!value.startsWith('https://')) throw new Error(`refusing to send your token to ${value}: use an https:// GITLAB_URL`);
+  let host = '';
+  try {
+    host = new URL(value).hostname;
+  } catch {
+    // not a URL: refused below
+  }
+  if (!value.startsWith('https://') || !host) throw new Error(`refusing to send your token to ${value}: use an https:// GITLAB_URL with a host`);
   return value.replace(/\/+$/, '');
+}
+
+/**
+ * fetch for a request that carries a token. It refuses redirects: Node's fetch
+ * follows them and keeps custom headers, so a redirect would hand the token
+ * to whatever host it points at.
+ */
+export function tokenFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  return fetch(url, { ...init, redirect: 'error' });
 }
