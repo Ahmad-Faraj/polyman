@@ -76,7 +76,20 @@ Reviews by risk tier, median per review:
 - **Counted calls narrow the range.** A high review averages 43.7 counted calls (7.7-63.1 g). The log bound in the first table is 41-99 calls (7.9-141.6 g): its low end holds, and its high end counted every checkpoint as a call.
 - **Most input is a cache read.** That's 79% of a high review's tokens, and its uncached input is under 100 tokens. Output is about 3%. A per-token energy figure that assumes every input token is computed afresh would overstate this workload, so the energy stays per call (below), and none of the figures is measured for this model.
 - **The security reviewer carries 38% of a high review's tokens with 27% of its calls.** It has the largest input per call: the scanner findings it pulled for the whole branch. Since !98 it gets only the findings on the lines the MR wrote.
-- **The test reviewer is on the small model since !99.** `claude-haiku-4-5` shows up in 4 sessions so far; the next high reviews show what it changes.
+- **The small model made the test reviewer dearer, so it went back.** !99 moved it to `claude-haiku-4-5`; in the 4 full reviews that followed it made 18 to 93 calls where it had made a median of 9, and edited files during reviews it was told only to report on. !107 put it back on the default model.
+
+### What the cuts did (Oct 18)
+
+The reviewer changed in two releases of the flow, at 16:41 and 17:47 UTC: !98 (only the scanner findings on the lines the MR wrote), !100 (the specialists chain their reads into fewer calls), !102 (the diff is read once, with git), !106 (the lead reads the tier and the assess job from the pipeline event) and !107 (above). Counted the same way as the table above, a full review:
+
+| | Reviews | Model calls | Input tokens | GitLab credits |
+|---|---|---|---|---|
+| before !98 (median) | 72 | 40 | 1.69M | about 11 |
+| after the cuts | 4 | 15-20 | 473k-618k | about 4.2-5.5 |
+
+Credits are model calls divided by 3.6: that's what the calls of the sessions Mazen started came to on Mazen's GitLab credits usage on Oct 17 and 18 (3.58 and 3.62 calls per credit), against the 3.2 the price list gives.
+
+Four reviews are few, and three of them were medium tier. The cuts also cost depth: on frozen copies of earlier MRs, re-reviewed with the new flow, the reviews found 4 of the 7 findings the earlier reviews of the same heads had found, and missed a command injection. !116 asks the specialists to save calls on lookups, never on testing; it is measured on the same frozen copies before any saving here counts as kept.
 
 The data per session (pipeline, workflow, MR, tier, runner seconds, tokens by class and by role) is in [sustainability/agent-tokens.json](sustainability/agent-tokens.json). To rebuild it (read-only, needs a token that can read job logs and agent sessions):
 
