@@ -8,6 +8,7 @@ const base = (over: Partial<RiskReport> = {}): RiskReport => ({
   forcedBy: null,
   factors: [{ id: 'paths.medium', points: 12, detail: 'medium path touched: src/routes/orders.ts' }],
   stats: { files: 2, linesChanged: 18, findings: { Critical: 0, High: 0, Medium: 0, Low: 0, Info: 0, Unknown: 0 } },
+  counted: [],
   ...over,
 });
 
@@ -64,5 +65,21 @@ describe('renderRiskSummary', () => {
     const text = renderRiskSummary(base({ stats: { files: 5, linesChanged: 99, findings } }), ['r.json']);
     expect(text).toContain('Security scans: 1 critical, 2 high, 3 medium. 5 files, 99 lines.');
     expect(text).not.toContain('High risk because');
+  });
+
+  it('lists the findings on the lines the change wrote, worst first', () => {
+    const text = renderRiskSummary(
+      base({
+        counted: [
+          { scanner: 'sast', severity: 'Low', name: 'Weak  hash', file: 'src/a.ts', line: 4 },
+          { scanner: 'secret_detection', severity: 'Critical', name: 'API key', file: 'src/b.ts' },
+        ],
+      }),
+    );
+    expect(text).toMatch(/Findings on the lines this change wrote:\n- Critical: API key \(secret_detection\) at src\/b.ts\n- Low: Weak hash \(sast\) at src\/a.ts:4/);
+  });
+
+  it('says so when no finding is on a written line', () => {
+    expect(renderRiskSummary(base())).toMatch(/Findings on the lines this change wrote: none\./);
   });
 });

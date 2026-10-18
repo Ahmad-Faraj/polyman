@@ -43,6 +43,8 @@ export interface RiskReport {
   forcedBy: string | null;
   factors: Factor[];
   stats: { files: number; linesChanged: number; findings: Record<Severity, number> };
+  /** The scanner findings that counted: on lines this change wrote, or secrets in a touched file. */
+  counted: Finding[];
 }
 
 const TIER_POINTS = { critical: 45, high: 30, medium: 12, low: 0 } as const;
@@ -152,7 +154,7 @@ export function assessRisk(
   const score = Math.min(100, factors.reduce((n, f) => n + f.points, 0));
   const tier: Tier = forcedBy || score >= config.thresholds.high ? 'high' : score >= config.thresholds.medium ? 'medium' : 'low';
 
-  return { score, tier, forcedBy, factors, stats: { files: files.length, linesChanged, findings: counts } };
+  return { score, tier, forcedBy, factors, stats: { files: files.length, linesChanged, findings: counts }, counted: findings };
 }
 
 function summarizeFindings(findings: Finding[]): string {

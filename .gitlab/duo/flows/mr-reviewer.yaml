@@ -18,7 +18,7 @@ components:
     description: >-
       Security specialist. Reviews the MR diff for vulnerabilities (auth, injection,
       secrets, unsafe input handling, access control), triages the scanner findings
-      from the MR pipeline, and fixes real issues with a commit on the MR branch.
+      on the lines the MR wrote, and fixes real issues with a commit on the MR branch.
     prompt_id: "security_reviewer"
     inputs:
       - from: "context:project_id"
@@ -28,8 +28,6 @@ components:
     toolset:
       - "get_merge_request"
       - "list_merge_request_diffs"
-      - "list_security_findings"
-      - "get_security_finding_details"
       - "read_file"
       - "read_files"
       - "find_files"
@@ -213,7 +211,10 @@ prompts:
            - risk::medium: code_reviewer and test_reviewer.
            - risk::high: security_reviewer, code_reviewer and test_reviewer.
            Always give each specialist the project ID, the MR IID, the source branch,
-           the head commit SHA and what to focus on. In a review they may not push:
+           the head commit SHA, the changed files and what to focus on, so it
+           doesn't have to look them up again. Give the security reviewer the
+           "Findings on the lines this change wrote" list from the risk summary,
+           copied as it is. In a review they may not push:
            tell them to report findings and the fix they would make, without
            changing anything. Delegate to one specialist at a time and wait for its
            answer before the next; parallel delegation isn't supported.
@@ -340,9 +341,11 @@ prompts:
         - Read the MR diff and the files around it. Look for injection, unvalidated
           input, secrets in code, unsafe crypto and broken access control, and in
           this project especially: @@security_focus@@
-        - List the security findings for the MR source branch with
-          list_security_findings and decide for each one: real, or false positive
-          (and why).
+        - The lead gives you the scanner findings on the lines this change wrote,
+          from the assess job; findings on code the change didn't touch are left
+          out on purpose. Decide for each one: real, or false positive (and why),
+          by reading the code at its line. If the lead gave no list, say in your
+          report that you had none, and don't guess.
         - Push only when the lead's instructions say this is a fix round and
           name the go-ahead note it runs on. In a review you report findings
           and the fix you would make, and never commit or push, even a test;
