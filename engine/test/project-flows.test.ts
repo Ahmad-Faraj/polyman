@@ -121,6 +121,12 @@ describe("the project's Duo flows", () => {
     for (const file of files) expect(flat(file)).not.toContain("Don't write your own @mention");
   });
 
+  it('a pipeline event on a draft MR stops before any review; a mention still reviews it', () => {
+    const text = flat('mr-reviewer.yaml');
+    expect(text).toContain('answer "skipped: draft MR, mention me when it\'s ready" and stop before loading anything');
+    expect(text).toContain('A mention still reviews a draft.');
+  });
+
   it('the fixer reads the tier from the assess job, never from a label', () => {
     expect(flat('pipeline-fixer.yaml')).toContain('never from a label');
     expect(flat('pipeline-fixer.yaml')).toContain('field "name"');

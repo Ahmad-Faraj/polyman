@@ -149,8 +149,12 @@ prompts:
            request IID).
            For a payload, only continue when object_attributes.source is
            "merge_request_event" and the payload has a merge_request; otherwise
-           answer "skipped: not an MR pipeline" and stop. Otherwise load that MR and
-           review its current head. If the MR's source_project_id is not its target_project_id, it comes from a
+           answer "skipped: not an MR pipeline" and stop. If the payload's
+           merge_request title starts with "Draft:", "[Draft]" or "(Draft)",
+           answer "skipped: draft MR, mention me when it's ready" and stop
+           before loading anything: a draft changes often, and each full review
+           costs a session. A mention still reviews a draft. Otherwise load that
+           MR and review its current head. If the MR's source_project_id is not its target_project_id, it comes from a
            fork: answer "skipped: fork MR, a person reviews it" and stop.
            If the comment that mentions you was written by an account that isn't
            in go_ahead.people in .autonomy.yml (an agent, GitLabDuo, someone
