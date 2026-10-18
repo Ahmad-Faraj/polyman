@@ -26,7 +26,7 @@ describe('projectPathFrom', () => {
     ['https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase.git', 'gitlab-ai-hackathon/transcend-october-2026/30770856/showcase'],
     ['https://gitlab.com/group/sub/project', 'group/sub/project'],
     ['git@gitlab.com:group/sub/project.git', 'group/sub/project'],
-    ['https://oauth2:secret@gitlab.com/group/project.git/', 'group/project'],
+    ['https://oauth2:secret@gitlab.com/group/project.git/', 'group/project'], // gitleaks:allow (placeholder)
   ])('reads the path from the origin remote %s', (url, path) => {
     git.url = url;
     expect(projectPathFrom(undefined)).toBe(path);

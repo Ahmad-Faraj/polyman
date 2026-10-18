@@ -32,6 +32,9 @@ workflow:
 variables:
   # run the scanners in merge request pipelines too; the risk score reads them
   AST_ENABLE_MR_PIPELINES: "true"
+  # GitLab's defaults plus the C++ test-data generators of the corpus problems
+  # and the service samples: fixtures, never shipped (#20)
+  SAST_EXCLUDED_PATHS: "spec, test, tests, tmp, corpus/problems/*/generators, service/samples"
   # read by service:check:production, which also requires a pipeline started from the UI
   DRILL: $[[ inputs.drill ]]
 
