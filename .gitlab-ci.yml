@@ -124,3 +124,12 @@ pages:
     paths: [public]
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+# The template keeps only the SBOMs as files; autonomy:assess reads the
+# advisories from gl-dependency-scanning-report.json, so keep it as a file
+# too. The template's reports: block still applies (hashes merge).
+gemnasium-dependency_scanning:
+  artifacts:
+    paths:
+      - "**/gl-sbom-*.cdx.json"
+      - gl-dependency-scanning-report.json

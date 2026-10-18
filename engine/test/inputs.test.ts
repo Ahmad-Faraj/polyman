@@ -120,4 +120,19 @@ describe('securityFindings', () => {
     );
     expect(securityFindings(dir).findings).toEqual([{ scanner: 'sast', severity: 'Medium', name: 'Path Traversal', file: 'src/a.ts', line: 500, endLine: 506 }]);
   });
+
+  it('reads a dependency scanning report, whose findings name the lockfile and no line', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'report-'));
+    writeFileSync(
+      join(dir, 'gl-dependency-scanning-report.json'),
+      JSON.stringify({
+        scan: { type: 'dependency_scanning' },
+        vulnerabilities: [{ name: 'Prototype pollution in minimist', severity: 'High', location: { file: 'package-lock.json', dependency: { package: { name: 'minimist' }, version: '1.2.5' } } }],
+      }),
+    );
+    const { findings, reports } = securityFindings(dir);
+    expect(reports).toEqual(['gl-dependency-scanning-report.json']);
+    expect(findings).toMatchObject([{ scanner: 'dependency_scanning', severity: 'High', name: 'Prototype pollution in minimist', file: 'package-lock.json' }]);
+    expect(findings[0].line).toBeUndefined();
+  });
 });

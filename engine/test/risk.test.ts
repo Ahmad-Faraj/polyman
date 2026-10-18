@@ -112,6 +112,12 @@ describe('assessRisk', () => {
     expect(assessRisk(changed, [secret], config).tier).toBe('high');
   });
 
+  it('counts a dependency advisory only when the change touches its lockfile', () => {
+    const advisory: Finding = { scanner: 'dependency_scanning', severity: 'High', name: 'Prototype pollution in minimist', file: 'package-lock.json' };
+    expect(assessRisk([file('package-lock.json')], [advisory], config).stats.findings.High).toBe(1);
+    expect(assessRisk([file('src/routes/orders.ts')], [advisory], config).stats.findings.High).toBe(0);
+  });
+
   it('matches a scanner path written "./src/x.ts" to the changed file', () => {
     const changed = [{ ...file('src/routes/orders.ts'), addedLines: [[10, 12]] as [number, number][] }, file('tests/api.test.ts')];
     const dotted: Finding = { scanner: 'sast', severity: 'Medium', name: 'x', file: './src/routes/orders.ts', line: 11 };
