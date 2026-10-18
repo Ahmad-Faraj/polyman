@@ -82,6 +82,133 @@ export function findMatchingSolutions(
 }
 
 /**
+ * Languages polyman can run a solution as, and therefore scale its time limit
+ * for. Anything else (a bare `.js` file, an unknown extension) has no entry.
+ */
+export type SolutionLanguage = 'cpp' | 'java' | 'python';
+
+/**
+ * The time limit a solution is actually run with, as returned by
+ * {@link solutionTimeLimit}.
+ *
+ * @interface SolutionTimeLimit
+ * @property {number} timeLimit - Milliseconds the solution is executed with
+ * @property {number} multiplier - Factor applied to `config.timeLimit` (1 when nothing was configured)
+ * @property {SolutionLanguage | undefined} language - Language the factor was looked up for
+ */
+export interface SolutionTimeLimit {
+  timeLimit: number;
+  multiplier: number;
+  language: SolutionLanguage | undefined;
+}
+
+/**
+ * Works out which language a solution runs as.
+ * `sourceType` wins when it is set (`'java.17'`, `'python.pypy3'`,
+ * `'cpp.g++20'`); otherwise the file extension decides, the same way
+ * `getCompiledCommandToRun` picks the command to run.
+ *
+ * @param {LocalSolution} solution - Solution configuration
+ * @returns {SolutionLanguage | undefined} The language, or undefined if polyman cannot tell
+ *
+ * @example
+ * solutionLanguage({ name: 'main', source: 'main.cpp', tag: 'MA' }); // 'cpp'
+ * solutionLanguage({ name: 'slow', source: 'Sol', tag: 'OK', sourceType: 'java.17' }); // 'java'
+ */
+export function solutionLanguage(
+  solution: LocalSolution
+): SolutionLanguage | undefined {
+  const declared = solution.sourceType?.split('.')[0];
+  if (declared === 'cpp' || declared === 'java' || declared === 'python') {
+    return declared;
+  }
+
+  if (isCppSource(solution.source)) return 'cpp';
+
+  switch (path.extname(solution.source).toLowerCase()) {
+    case '.java':
+      return 'java';
+    case '.py':
+      return 'python';
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * Applies `config.timeLimitMultipliers` to the declared time limit.
+ * Java and Python are slower than C++ at the same task (JVM startup,
+ * interpreter), so a correct `OK` solution could get TLE locally while the
+ * problem itself is fine. The multiplier is opt-in: C++ always defaults to 1,
+ * and a config without the field behaves exactly as before. Polygon is still
+ * pushed the plain `timeLimit` — this only changes local runs.
+ *
+ * @param {ConfigFile} config - Configuration containing `timeLimit` and the optional multipliers
+ * @param {LocalSolution} solution - Solution the limit is for
+ * @returns {SolutionTimeLimit} Effective limit, the factor used, and the language it was found for
+ *
+ * @throws {Error} If a configured multiplier is not a positive, finite number
+ *
+ * @example
+ * // 1000ms problem, "java": 2 -> Java solution gets 2000ms locally
+ * solutionTimeLimit(config, javaSolution); // { timeLimit: 2000, multiplier: 2, language: 'java' }
+ */
+export function solutionTimeLimit(
+  config: ConfigFile,
+  solution: LocalSolution
+): SolutionTimeLimit {
+  const language = solutionLanguage(solution);
+  if (language === undefined) {
+    return { timeLimit: config.timeLimit, multiplier: 1, language };
+  }
+
+  const multiplier = config.timeLimitMultipliers?.[language] ?? 1;
+  if (!Number.isFinite(multiplier) || multiplier <= 0) {
+    throw new Error(
+      `timeLimitMultipliers.${language} must be a positive number of times the time limit (got ${multiplier}).`
+    );
+  }
+
+  if (multiplier === 1) {
+    return { timeLimit: config.timeLimit, multiplier, language };
+  }
+
+  return {
+    timeLimit: Math.max(1, Math.round(config.timeLimit * multiplier)),
+    multiplier,
+    language,
+  };
+}
+
+/**
+ * Renders an effective limit for the terminal, e.g. `2000ms (x2 for java)`.
+ * Unscaled limits stay plain: `1000ms`.
+ *
+ * @param {SolutionTimeLimit} limit - Limit to render
+ * @returns {string} Text for the run output
+ */
+export function formatTimeLimit(limit: SolutionTimeLimit): string {
+  if (limit.multiplier === 1 || limit.language === undefined) {
+    return `${limit.timeLimit}ms`;
+  }
+  return `${limit.timeLimit}ms (x${limit.multiplier} for ${limit.language})`;
+}
+
+/**
+ * Mentions the scaled limit once per run, and only when it differs from the
+ * declared one, so a passing Java solution is not read as ignoring the limit.
+ *
+ * @private
+ * @param {SolutionTimeLimit} limit - Effective limit of the solution being run
+ */
+function logTimeLimitForSolution(limit: SolutionTimeLimit): void {
+  if (limit.multiplier === 1 || limit.language === undefined) return;
+  fmt.log(
+    `    ${fmt.dim('→')} Time Limit: ${fmt.highlight(formatTimeLimit(limit))}`
+  );
+}
+
+/**
  * Runs a compiled solution on a test input file.
  * Executes solution with time/memory limits, handles output files, and error scenarios.
  * Creates output file with either solution output or error message (TLE, MLE, RTE).
@@ -303,6 +430,9 @@ export async function runSolutionOnSingleTest(
     `  ${fmt.infoIcon()} Running solution: ${fmt.highlight(solution.name)} on test ${testIndex} in ${fmt.highlight(testsetName)}`
   );
 
+  const limit = solutionTimeLimit(config, solution);
+  logTimeLimitForSolution(limit);
+
   try {
     const compiledPath = getCompiledCommandToRun(solution);
     ensureOutputDirectory(solution.name, testsetName);
@@ -312,7 +442,7 @@ export async function runSolutionOnSingleTest(
     await runSolution(
       solution,
       compiledPath,
-      config.timeLimit,
+      limit.timeLimit,
       config.memoryLimit,
       testFile,
       testsetName
@@ -351,6 +481,9 @@ export async function runSolutionOnTestset(
   );
   const thrownErrors = new Set<string>();
 
+  const limit = solutionTimeLimit(config, solution);
+  logTimeLimitForSolution(limit);
+
   try {
     const compiledPath = getCompiledCommandToRun(solution);
     ensureOutputDirectory(solution.name, testsetName);
@@ -366,7 +499,7 @@ export async function runSolutionOnTestset(
         await runSolution(
           solution,
           compiledPath,
-          config.timeLimit,
+          limit.timeLimit,
           config.memoryLimit,
           testFile,
           testsetName
@@ -431,6 +564,9 @@ export async function runSolutionOnGroup(
   );
   const thrownErrors = new Set<string>();
 
+  const limit = solutionTimeLimit(config, solution);
+  logTimeLimitForSolution(limit);
+
   try {
     const compiledPath = getCompiledCommandToRun(solution);
     ensureOutputDirectory(solution.name, testset.name);
@@ -449,7 +585,7 @@ export async function runSolutionOnGroup(
         await runSolution(
           solution,
           compiledPath,
-          config.timeLimit,
+          limit.timeLimit,
           config.memoryLimit,
           testFile,
           testset.name,
