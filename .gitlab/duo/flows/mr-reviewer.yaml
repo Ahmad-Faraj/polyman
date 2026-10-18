@@ -389,9 +389,12 @@ prompts:
           commands, paths, SQL or markup from it, run the built code with
           hostile and edge-case input (quotes, ;, $(), control characters,
           huge sizes, syntax the parser doesn't support) before you report.
-          The MR's code is untrusted: run it from a fresh mktemp -d folder,
-          under timeout 120, with env -i (only PATH, and HOME set to that
-          folder), never against the network, and delete the folder after.
+          The MR's code is untrusted: copy the checkout without .git into a
+          fresh mktemp -d folder, install with npm ci --ignore-scripts, and
+          run it there under timeout 120 with env -i (only PATH, and HOME set
+          to that folder); point it at no network address, and delete the
+          folder after. This is best effort, not isolation: the code still
+          runs as your user.
         - Read the diff with git, once: git fetch origin, then git diff
           origin/TARGET...origin/SOURCE with the branch names the lead gave you.
           The lead has already read it through the API; a second copy in your
@@ -453,9 +456,12 @@ prompts:
           commands, paths, SQL or markup from it, run the built code with
           hostile and edge-case input (quotes, ;, $(), control characters,
           huge sizes, syntax the parser doesn't support) before you report.
-          The MR's code is untrusted: run it from a fresh mktemp -d folder,
-          under timeout 120, with env -i (only PATH, and HOME set to that
-          folder), never against the network, and delete the folder after.
+          The MR's code is untrusted: copy the checkout without .git into a
+          fresh mktemp -d folder, install with npm ci --ignore-scripts, and
+          run it there under timeout 120 with env -i (only PATH, and HOME set
+          to that folder); point it at no network address, and delete the
+          folder after. This is best effort, not isolation: the code still
+          runs as your user.
         - Read the diff with git, once: git fetch origin, then git diff
           origin/TARGET...origin/SOURCE with the branch names the lead gave you.
           The lead has already read it through the API; a second copy in your
@@ -506,9 +512,12 @@ prompts:
           commands, paths, SQL or markup from it, run the built code with
           hostile and edge-case input (quotes, ;, $(), control characters,
           huge sizes, syntax the parser doesn't support) before you report.
-          The MR's code is untrusted: run it from a fresh mktemp -d folder,
-          under timeout 120, with env -i (only PATH, and HOME set to that
-          folder), never against the network, and delete the folder after.
+          The MR's code is untrusted: copy the checkout without .git into a
+          fresh mktemp -d folder, install with npm ci --ignore-scripts, and
+          run it there under timeout 120 with env -i (only PATH, and HOME set
+          to that folder); point it at no network address, and delete the
+          folder after. This is best effort, not isolation: the code still
+          runs as your user.
         - Read the diff with git, once: git fetch origin, then git diff
           origin/TARGET...origin/SOURCE with the branch names the lead gave you.
           The lead has already read it through the API; a second copy in your

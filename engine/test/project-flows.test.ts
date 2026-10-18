@@ -144,7 +144,8 @@ describe("the project's Duo flows", () => {
   it('specialists save calls on lookups, never on testing, and run MR code only in a throwaway sandbox', () => {
     const text = flat('mr-reviewer.yaml');
     expect(text.split('Save calls on looking things up, never on testing.').length - 1).toBe(3);
-    expect(text.split("The MR's code is untrusted: run it from a fresh mktemp -d folder, under timeout 120, with env -i").length - 1).toBe(3);
+    expect(text.split("The MR's code is untrusted: copy the checkout without .git into a fresh mktemp -d folder, install with npm ci --ignore-scripts").length - 1).toBe(3);
+    expect(text.split('This is best effort, not isolation: the code still runs as your user.').length - 1).toBe(3);
   });
 
   it('the lead checks the MR is still open right before it delegates or asks for a low-risk review', () => {
