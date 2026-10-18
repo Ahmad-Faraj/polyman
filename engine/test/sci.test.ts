@@ -55,6 +55,14 @@ describe('model inference per session', () => {
     expect(modelCalls(log)).toEqual({ low: 1, high: 2 });
   });
 
+  it('matches only at the start of a line and with the runner\'s stream marker', () => {
+    // the same text after a prefix, or with a different marker, isn't a checkpoint line
+    expect(modelCalls(`x ${at('00.000')}`)).toEqual({ low: 0, high: 0 });
+    expect(modelCalls(at('00.000').replace(' 01E ', ' xx '))).toEqual({ low: 0, high: 0 });
+    // a CRLF line still counts (the \\r is not part of the match)
+    expect(modelCalls(`${at('00.000')}\r\n${at('05.000')}\r\n`)).toEqual({ low: 1, high: 2 });
+  });
+
   it('pairs the fewest calls with the lower energy figure and the most with the higher', () => {
     // 50 x 0.24 Wh = 12 Wh, 100 x 2.5 Wh = 250 Wh; at 560 g/kWh: 6.72 and 140 g
     const g = inferenceGrams({ low: 50, high: 100 }, 560);

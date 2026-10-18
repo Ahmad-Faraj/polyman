@@ -37,6 +37,7 @@ if (!dryRun && !args.includes('--allow-dirty')) {
 
 async function graphql<T>(query: string, variables: Record<string, unknown> = {}): Promise<T> {
   const res = await fetch(`${api}/api/graphql`, {
+    redirect: 'error',
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ query, variables }),

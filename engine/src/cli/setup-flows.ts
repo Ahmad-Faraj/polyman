@@ -394,6 +394,7 @@ if (import.meta.main ?? isEntry(process.argv[1], fileURLToPath(import.meta.url))
 
   const gql: Gql = async <T>(query: string, variables: Record<string, unknown> = {}): Promise<T> => {
     const res = await fetch(`${api}/api/graphql`, {
+      redirect: 'error',
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ query, variables }),
@@ -403,7 +404,7 @@ if (import.meta.main ?? isEntry(process.argv[1], fileURLToPath(import.meta.url))
     return body.data;
   };
   const rest: Rest = async <T>(path: string): Promise<T | null> => {
-    const res = await fetch(`${api}/api/v4${path}`, { headers: { Authorization: `Bearer ${token}` } });
+    const res = await fetch(`${api}/api/v4${path}`, { redirect: 'error', headers: { Authorization: `Bearer ${token}` } });
     return res.ok ? ((await res.json()) as T) : null;
   };
 

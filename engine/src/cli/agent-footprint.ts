@@ -26,7 +26,8 @@ const token = process.env.GITLAB_TOKEN;
 if (!token) throw new Error('set GITLAB_TOKEN to read the agent job logs');
 
 async function get<T>(path: string, raw = false): Promise<T> {
-  const res = await fetch(`${api}/api/v4/projects/${project}${path}`, { headers: { 'PRIVATE-TOKEN': token! } });
+  // a redirect would carry the token to another host: refuse it
+  const res = await fetch(`${api}/api/v4/projects/${project}${path}`, { redirect: 'error', headers: { 'PRIVATE-TOKEN': token! } });
   if (!res.ok) throw new Error(`GET ${path} -> ${res.status}`);
   return (raw ? await res.text() : await res.json()) as T;
 }
@@ -62,7 +63,10 @@ for (let page = 1; ; page++) {
     const mr =
       Number(log.match(/"merge_request":\{"id":\d+,"iid":(\d+)/)?.[1] ?? log.match(/MergeRequest IID: (\d+)/)?.[1] ?? log.match(/merge request !(\d+)/i)?.[1]) || null;
     const skipped = /skipped: /.test(log.split('Starting Workflow').pop() ?? '');
-    sessions.push({ pipeline: p.id, at: p.created_at, flow, mr, skipped, seconds: job.duration, calls: modelCalls(log) });
+    const calls = modelCalls(log);
+    // a session that ran but shows no checkpoint: the runner's log layout changed, and the count would be silently 0
+    if (job.duration > 10 && calls.high === 0) console.error(`warning: no checkpoint lines in pipeline ${p.id}'s log; its model calls count as 0`);
+    sessions.push({ pipeline: p.id, at: p.created_at, flow, mr, skipped, seconds: job.duration, calls });
   }
 }
 

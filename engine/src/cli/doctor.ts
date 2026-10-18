@@ -30,13 +30,14 @@ const api = process.env.GITLAB_URL ?? 'https://gitlab.com';
 if (!api.startsWith('https://')) throw new Error(`refusing to send your token to ${api}: use an https:// GITLAB_URL`);
 
 async function rest<T>(path: string): Promise<T> {
-  const res = await fetch(`${api}/api/v4${path}`, { headers: { Authorization: `Bearer ${token}` } });
+  const res = await fetch(`${api}/api/v4${path}`, { redirect: 'error', headers: { Authorization: `Bearer ${token}` } });
   if (!res.ok) throw new Error(`GET ${path}: HTTP ${res.status}`);
   return (await res.json()) as T;
 }
 
 async function graphql<T>(query: string, variables: Record<string, unknown>): Promise<T> {
   const res = await fetch(`${api}/api/graphql`, {
+    redirect: 'error',
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ query, variables }),
