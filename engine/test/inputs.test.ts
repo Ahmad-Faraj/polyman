@@ -130,6 +130,18 @@ describe('loadIncidents', () => {
     expect(loadIncidents(join(dir, 'incidents.json'))).toEqual([good]);
   });
 
+  it('reads null or a non-list as no lessons, and still filters a wrapped list', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'incidents-'));
+    const good = { paths: ['a.ts'], weight: 25, reason: 'r' };
+    const read = (value: unknown) => {
+      writeFileSync(join(dir, 'incidents.json'), JSON.stringify(value));
+      return loadIncidents(join(dir, 'incidents.json'));
+    };
+    expect(read(null)).toEqual([]);
+    expect(read({ incidents: {} })).toEqual([]);
+    expect(read({ incidents: [good, { files: ['b.ts'] }] })).toEqual([good]);
+  });
+
   it('reads an empty list and a missing file as no lessons', () => {
     const dir = mkdtempSync(join(tmpdir(), 'incidents-'));
     writeFileSync(join(dir, 'incidents.json'), '[]');
