@@ -39,7 +39,8 @@ testlib validators expect CR LF line ends, so the validator steps come out false
 - every solution's per-test verdict and whether it matches its tag.
 
 Timing is not judged exactly: an expected `OK` that comes back `TLE` is a warning (a slow
-runner), but a solution that never terminates must keep getting `TLE`.
+runner), and so are the tests after it, which polyman doesn't run once a solution times out.
+A solution that never terminates must keep getting `TLE`.
 
 ## Needs
 
