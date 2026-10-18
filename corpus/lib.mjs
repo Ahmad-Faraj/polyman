@@ -31,7 +31,9 @@ export function outcomeOf(report) {
  * excuse needs at least one expected OK to still be OK: a runner slow enough to
  * time out every test of a solution is not a slow runner, it's a broken limit.
  * That rule needs two or more expected OK tests; with one, a single slow test
- * stays a warning.
+ * stays a warning. polyman stops a solution at its first TLE, so a report cut
+ * short right after an expected OK that came back TLE is judged on the tests
+ * that ran, and the rest are a warning.
  */
 export function compare(expected, actual) {
   const diffs = [];
@@ -54,16 +56,28 @@ export function compare(expected, actual) {
       fail(`solution ${name}: missing from report`);
       continue;
     }
+    // polyman stops a solution at its first TLE, so a slow test cuts the
+    // report short; only the tests that ran are judged
+    let wantVerdicts = want.verdicts;
     if (got.verdicts.length !== want.verdicts.length) {
-      fail(
-        `solution ${name}: expected ${want.verdicts.length} tests, got ${got.verdicts.length}`
-      );
-      continue;
+      const ran = got.verdicts.length;
+      const last = got.verdicts[ran - 1];
+      if (
+        !(ran < want.verdicts.length) ||
+        !last?.endsWith(':TLE') ||
+        want.verdicts[ran - 1] !== last.replace(/:TLE$/, ':OK')
+      ) {
+        fail(
+          `solution ${name}: expected ${want.verdicts.length} tests, got ${ran}`
+        );
+        continue;
+      }
+      wantVerdicts = want.verdicts.slice(0, ran);
     }
-    const expectedOk = want.verdicts.filter(v => v.endsWith(':OK')).length;
+    const expectedOk = wantVerdicts.filter(v => v.endsWith(':OK')).length;
     let slower = 0;
     let other = false;
-    want.verdicts.forEach((wantTest, i) => {
+    wantVerdicts.forEach((wantTest, i) => {
       const gotTest = got.verdicts[i];
       if (gotTest === wantTest) return;
       if (wantTest.endsWith(':OK') && gotTest.endsWith(':TLE')) {
@@ -76,6 +90,11 @@ export function compare(expected, actual) {
         fail(`solution ${name}: expected ${wantTest}, got ${gotTest}`);
       }
     });
+    const notRun = want.verdicts.length - wantVerdicts.length;
+    if (notRun)
+      warn(
+        `solution ${name}: ${notRun} tests after ${wantVerdicts.at(-1).replace(/:OK$/, '')} did not run (timing, not judged)`
+      );
     const allTimedOut = expectedOk > 1 && slower === expectedOk;
     if (allTimedOut)
       fail(

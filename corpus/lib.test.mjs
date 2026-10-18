@@ -105,6 +105,64 @@ describe('compare', () => {
     expect(warnings(diffs)).toHaveLength(1);
   });
 
+  // polyman stops a solution at its first TLE, so a slow test cuts the report
+  // short: the tests after it never ran (!4 review, corpus/lib.mjs:55)
+  it.each([1, 2, 3])(
+    'excuses a slow test %i that cut the report short',
+    slowTest => {
+      const want = expected({ main });
+      const got = structuredClone(want);
+      got.solutions.main.verdicts = [
+        ...okTests(slowTest - 1),
+        `tests#${slowTest}:TLE`,
+      ];
+      got.solutions.main.matchesTag = false;
+      const diffs = compare(want, got);
+      expect(failures(diffs)).toEqual([]);
+      expect(warnings(diffs).map(d => d.message)).toEqual([
+        `solution main: tests#${slowTest}:OK came back tests#${slowTest}:TLE (timing, not judged)`,
+        `solution main: ${4 - slowTest} tests after tests#${slowTest} did not run (timing, not judged)`,
+      ]);
+    }
+  );
+
+  it('fails a short report that does not end on a slow test', () => {
+    const want = expected({ main });
+    const got = structuredClone(want);
+    got.solutions.main.verdicts = okTests(2);
+    expect(failures(compare(want, got))).toEqual([
+      'solution main: expected 4 tests, got 2',
+    ]);
+  });
+
+  it('fails a short report that ends on a TLE where OK was not expected', () => {
+    const wa = {
+      tag: 'WA',
+      matchesTag: true,
+      verdicts: ['tests#1:OK', 'tests#2:WA', 'tests#3:OK'],
+    };
+    const want = expected({ wa });
+    const got = structuredClone(want);
+    got.solutions.wa.verdicts = ['tests#1:OK', 'tests#2:TLE'];
+    expect(failures(compare(want, got))).toEqual([
+      'solution wa: expected 3 tests, got 2',
+    ]);
+  });
+
+  it('fails a short report whose earlier tests changed verdict', () => {
+    const want = expected({ main });
+    const got = structuredClone(want);
+    got.solutions.main.verdicts = ['tests#1:WA', 'tests#2:TLE'];
+    got.solutions.main.matchesTag = false;
+    const messages = failures(compare(want, got));
+    expect(messages).toContain(
+      'solution main: expected tests#1:OK, got tests#1:WA'
+    );
+    expect(messages).toContain(
+      'solution main: expected matchesTag=true, got false'
+    );
+  });
+
   it('fails a reference solution that times out on every test', () => {
     const want = expected({ main });
     const got = structuredClone(want);
