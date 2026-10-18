@@ -7,10 +7,26 @@
  */
 
 import fs from 'node:fs';
+import path from 'node:path';
 
 const [input = 'corpus/out/mutation/mutation.json', output = 'metrics.txt'] =
   process.argv.slice(2);
-const report = JSON.parse(fs.readFileSync(input, 'utf8'));
+
+const basePath = process.cwd();
+
+const normalizedInput = path.normalize(path.resolve(input));
+if (!normalizedInput.startsWith(basePath)) {
+  console.error('Invalid input path specified!');
+  process.exit(1);
+}
+
+const normalizedOutput = path.normalize(path.resolve(output));
+if (!normalizedOutput.startsWith(basePath)) {
+  console.error('Invalid output path specified!');
+  process.exit(1);
+}
+
+const report = JSON.parse(fs.readFileSync(normalizedInput, 'utf8'));
 
 const lines = [];
 let detected = 0;
@@ -30,3 +46,4 @@ const score = valid ? Math.round((1000 * detected) / valid) / 10 : 0;
 lines.unshift(`mutation_score ${score}`);
 fs.writeFileSync(output, `${lines.join('\n')}\n`);
 console.log(lines.join('\n'));
+
