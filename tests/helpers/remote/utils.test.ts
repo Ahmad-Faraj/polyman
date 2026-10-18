@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as remoteUtils from '../../../src/helpers/remote/utils';
 import fs from 'fs';
+import path from 'path';
 import { PolygonSDK } from '../../../src/polygon';
 import type { Problem, ProblemInfo } from '../../../src/types';
 
@@ -114,8 +115,9 @@ describe('remote/utils.ts', () => {
     it('should return path in HOME directory', () => {
       process.env['HOME'] = '/home/user';
       delete process.env['USERPROFILE'];
-      expect(remoteUtils.getPolymanDirectory()).toContain('/home/user');
-      expect(remoteUtils.getPolymanDirectory()).toContain('.polyman');
+      expect(remoteUtils.getPolymanDirectory()).toBe(
+        path.join('/home/user', '.polyman')
+      );
     });
 
     it('should fall back to USERPROFILE if HOME is missing', () => {

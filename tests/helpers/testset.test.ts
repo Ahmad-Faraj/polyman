@@ -1,3 +1,4 @@
+import path from 'path';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as testset from '../../src/helpers/testset';
 import * as generator from '../../src/helpers/generator';
@@ -83,7 +84,7 @@ describe('testset.ts', () => {
       };
       await testset.generateTestsForTestset(ts, []);
       expect(utils.ensureDirectoryExists).toHaveBeenCalledWith(
-        expect.stringContaining('testsets/main')
+        expect.stringContaining(path.join('testsets', 'main'))
       );
       expect(generator.executeResolvedTests).toHaveBeenCalled();
     });
