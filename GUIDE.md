@@ -2139,18 +2139,18 @@ polyman remote package ./my-problem standard
 5. **Step 5:** Triggers package build and polls for completion:
    - Gets current package count
    - Submits build request
-   - Polls every 60 seconds
+   - Polls every 30 seconds
    - Detects when package is created
    - Waits for package to finish building (READY or FAILED)
-   - Maximum wait time: 30 minutes
+   - Maximum wait time: 15 minutes (30 polls)
 6. **Step 6:** Displays package information
 
 **Important Notes:**
 
 - Package building is **asynchronous** - it may take several minutes
 - The command automatically waits and polls for completion
-- Progress updates are shown every minute
-- Download the package from Polygon web interface (automatic download coming soon)
+- Progress updates are shown on every 30-second poll
+- The command does not download the package yet. Download it from the Polygon web interface once the build is READY
 - Use `standard` type for most purposes
 - Use `linux` or `full` when you need test files included
 
@@ -2833,12 +2833,12 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v2
+        uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '20'
 
       - name: Install Polyman
         run: npm install -g polyman-cli
@@ -2856,16 +2856,15 @@ This automatically tests your problem on every commit.
 
 ### 10. Can I export my problem to Codeforces Polygon?
 
-**Answer:** Polyman uses Polygon-compatible format. To upload:
+**Answer:** Yes. `polyman remote push` uploads your local problem to Polygon:
 
-1. **Create problem on Polygon** (manually for now)
-2. **Upload files** via Polygon interface:
-   - Validator, Checker, Generators
-   - Solutions
-   - Tests (can be generated on Polygon too)
-3. **Configure** using Polygon UI
+```bash
+polyman remote push ./my-problem
+```
 
-**Future:** Polyman will support direct Polygon API integration for automated upload.
+It uploads solutions, checker, validator, generators, statements, tests, metadata and limits. Use the per-component flags (for example `-s -c` for solutions and checker only) to push part of the problem. If `Config.json` has no `problemId`, it creates the Polygon problem first. See [Push to Polygon](#basic-push) for details.
+
+If you prefer to do it by hand, create the problem on Polygon and upload the validator, checker, generators, solutions and tests through the Polygon web interface.
 
 ---
 
