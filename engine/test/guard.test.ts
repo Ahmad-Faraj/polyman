@@ -13,11 +13,11 @@ const PERSON = ['-c', 'user.name=someone', '-c', 'user.email=someone@example.com
 
 let repo: string;
 const git = (...args: string[]) => execFileSync('git', args, { cwd: repo, encoding: 'utf8' }).trim();
-const guard = (base: string, login?: string) =>
+const guard = (base: string, login?: string, extra: Record<string, string> = {}) =>
   spawnSync(process.execPath, [GUARD, base], {
     cwd: repo,
     encoding: 'utf8',
-    env: { ...process.env, AUTONOMY_CONFIG: CONFIG, GITLAB_USER_LOGIN: login ?? '' },
+    env: { ...process.env, CI_COMMIT_BRANCH: '', CI_DEFAULT_BRANCH: 'main', AUTONOMY_CONFIG: CONFIG, GITLAB_USER_LOGIN: login ?? '', ...extra },
   });
 
 beforeEach(() => {
@@ -74,6 +74,18 @@ describe('guard', () => {
       write([{ ...lesson(1), weight: 0 }, lesson(2)]);
       git(...RESPONDER, 'commit', '-q', '-am', 'record incident 2');
       expect(guard(base, 'ai-incident-responder-gitlab-ai-hackathon').status).toBe(1);
+    });
+
+    it('on the default branch, accepts the merged lesson although a person ran the pipeline', () => {
+      write([lesson(1), lesson(2)]);
+      git(...RESPONDER, 'commit', '-q', '-am', 'record incident 2');
+      expect(guard(base, 'HamzaHassanain', { CI_COMMIT_BRANCH: 'main' }).status).toBe(0);
+    });
+
+    it('on the default branch, still fails a rewritten lesson', () => {
+      write([{ ...lesson(1), weight: 0 }, lesson(2)]);
+      git(...RESPONDER, 'commit', '-q', '-am', 'record incident 2');
+      expect(guard(base, 'HamzaHassanain', { CI_COMMIT_BRANCH: 'main' }).status).toBe(1);
     });
 
     it('fails another agent that only takes the responder name', () => {

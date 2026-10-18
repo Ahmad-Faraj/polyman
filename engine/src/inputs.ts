@@ -134,5 +134,12 @@ function normalizeSeverity(s: string | undefined): Severity {
 export function loadIncidents(path: string): Incident[] {
   if (!existsSync(path)) return [];
   const data = JSON.parse(readFileSync(path, 'utf8'));
-  return Array.isArray(data) ? data : (data.incidents ?? []);
+  const entries: unknown[] = Array.isArray(data) ? data : (data.incidents ?? []);
+  // an agent writes these entries: one with the wrong shape is skipped, not fatal
+  return entries.filter((e): e is Incident => {
+    const i = e as Partial<Incident> | null;
+    const ok = !!i && Array.isArray(i.paths) && i.paths.every((p) => typeof p === 'string') && typeof i.weight === 'number';
+    if (!ok) console.warn(`${path}: skipped an entry without paths (string list) and weight (number): ${JSON.stringify(e)}`);
+    return ok;
+  });
 }

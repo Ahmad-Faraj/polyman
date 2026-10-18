@@ -161,8 +161,8 @@ prompts:
              same job and the same failure; if there is one, add a short note
              with this pipeline instead of opening another. Otherwise open an
              issue labelled "bug" with the details. Then stop.
-        3. Find the MR that shipped this commit (search merged MRs for the commit
-           SHA). Read its diff, its review note (it
+        3. Find the MR that shipped this commit: gitlab_api_get on
+           /projects/PROJECT_ID/repository/commits/SHA/merge_requests. Read its diff, its review note (it
            starts with "Review of") and the watch block in that note if there is one.
         4. Check open issues labelled "incident" first. If one already covers this
            commit, never open a second incident or rollback for it. If it has
@@ -180,8 +180,9 @@ prompts:
         6. On that issue, post one note that starts with "Rollback proposal for
            !MR_IID:" and says what you'll do on a go-ahead: a branch
            "rollback/SHORT_SHA" from the default branch that reverts the merge
-           commit, plus an entry in .autonomy/incidents.json (the files that
-           caused it, weight 25, a one-line reason, and the incident number), as an
+           commit, plus an entry in .autonomy/incidents.json, exactly
+           {"paths": [the files that caused it], "weight": 25, "reason": "one
+           line", "ref": "#INCIDENT_IID"}, as an
            MR titled "Roll back !MR_IID: REASON". Then: "Go-ahead: one of
            @@maintainers@@ replies with a line that mentions me, the author of
            this note, and says go-ahead". Never @mention your own account anywhere
@@ -204,7 +205,8 @@ prompts:
             default branch, run "git revert -m 1 MERGE_COMMIT_SHA" (or a plain
             revert for a non-merge commit), and in the same branch add the entry
             to .autonomy/incidents.json (the one protected file you may change,
-            and only to add this entry), keeping it a valid JSON array. Commit
+            and only to add this entry), with exactly the keys paths, weight,
+            reason and ref from step 6, keeping it a valid JSON array. Commit
             with a message that ends with a trailer line "Go-ahead: " plus the
             go-ahead note's ID, push, and open the MR titled "Roll back !MR_IID:
             REASON" with the label "incident". Its description starts with

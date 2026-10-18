@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { addedLines, addedLinesOf, changedFiles, securityFindings } from '../src/inputs.ts';
+import { addedLines, addedLinesOf, changedFiles, loadIncidents, securityFindings } from '../src/inputs.ts';
 
 describe('addedLines', () => {
   it('reads the new side of every hunk header in a -U0 diff', () => {
@@ -119,5 +119,21 @@ describe('securityFindings', () => {
       JSON.stringify({ scan: { type: 'sast' }, vulnerabilities: [{ name: 'Path Traversal', severity: 'Medium', location: { file: 'src/a.ts', start_line: 500, end_line: 506 } }] }),
     );
     expect(securityFindings(dir).findings).toEqual([{ scanner: 'sast', severity: 'Medium', name: 'Path Traversal', file: 'src/a.ts', line: 500, endLine: 506 }]);
+  });
+});
+
+describe('loadIncidents', () => {
+  it('keeps well-formed lessons and skips one with the wrong shape instead of failing', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'incidents-'));
+    const good = { paths: ['service/src/app.ts'], weight: 25, reason: 'production check failed', ref: '#70' };
+    writeFileSync(join(dir, 'incidents.json'), JSON.stringify([good, { files: ['x.ts'], weight: 25 }, { paths: ['y.ts'], weight: '25' }]));
+    expect(loadIncidents(join(dir, 'incidents.json'))).toEqual([good]);
+  });
+
+  it('reads an empty list and a missing file as no lessons', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'incidents-'));
+    writeFileSync(join(dir, 'incidents.json'), '[]');
+    expect(loadIncidents(join(dir, 'incidents.json'))).toEqual([]);
+    expect(loadIncidents(join(dir, 'none.json'))).toEqual([]);
   });
 });
