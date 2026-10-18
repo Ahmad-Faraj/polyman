@@ -164,6 +164,287 @@ describe('parseGeneratorScript - comments and FreeMarker', () => {
   });
 });
 
+describe('parseGeneratorScript - FreeMarker expansion (corpus/scripts)', () => {
+  const argsOf = (script: string) =>
+    parser.parseGeneratorScript(script).map(l => l.args.join(' '));
+
+  it('list.txt: expands a range with ${i}', () => {
+    expect(argsOf('<#list 1..3 as i>\ngen ${i} > $\n</#list>\n')).toEqual([
+      '1',
+      '2',
+      '3',
+    ]);
+  });
+
+  it('expression.txt: evaluates ${i*10}', () => {
+    expect(argsOf('<#list 1..3 as i>\ngen ${i*10} > $\n</#list>\n')).toEqual([
+      '10',
+      '20',
+      '30',
+    ]);
+  });
+
+  it('assign.txt: substitutes an assigned variable', () => {
+    expect(argsOf('<#assign n = 7>\ngen ${n} > $\n')).toEqual(['7']);
+  });
+
+  it('sequence.txt: expands a list over a sequence', () => {
+    expect(
+      argsOf('<#list [5, 50, 500] as n>\ngen ${n} > $\n</#list>\n')
+    ).toEqual(['5', '50', '500']);
+  });
+
+  it('nested.txt: expands nested lists in order', () => {
+    expect(
+      argsOf(
+        [
+          '<#list 1..2 as i>',
+          '<#list 1..2 as j>',
+          'gen ${i} ${j} > $',
+          '</#list>',
+          '</#list>',
+          '',
+        ].join('\n')
+      )
+    ).toEqual(['1 1', '1 2', '2 1', '2 2']);
+  });
+
+  it('supports + - * % parentheses and unary minus', () => {
+    expect(
+      argsOf('<#assign n = 7>\ngen ${(n+1)*2} ${n%4} ${n-10} ${-n} ${2*-n} > $')
+    ).toEqual(['16 3 -3 -7 -14']);
+  });
+
+  it('evaluates expressions in list bounds and sequences', () => {
+    expect(
+      argsOf('<#assign n = 2>\n<#list n..n*2 as i>\ngen ${i} > $\n</#list>')
+    ).toEqual(['2', '3', '4']);
+    expect(argsOf('<#list [1+1, 3*3] as n>\ngen ${n} > $\n</#list>')).toEqual([
+      '2',
+      '9',
+    ]);
+  });
+
+  it('expands an empty sequence to nothing', () => {
+    expect(
+      argsOf('<#list [] as n>\ngen ${n} > $\n</#list>\ngen 1 > $')
+    ).toEqual(['1']);
+  });
+
+  it('scopes the loop variable to its list', () => {
+    expect(() =>
+      parser.parseGeneratorScript(
+        '<#list 1..2 as i>\ngen ${i} > $\n</#list>\ngen ${i} > $'
+      )
+    ).toThrow(/Undefined variable "i" in \${i} on line 4/);
+  });
+
+  it('keeps @group comments working inside a list', () => {
+    const out = parser.parseGeneratorScript(
+      '<#-- @group g -->\n<#list 1..2 as i>\ngen ${i} > $\n</#list>'
+    );
+    expect(out.map(l => l.group)).toEqual(['g', 'g']);
+  });
+});
+
+describe('parseGeneratorScript - unsupported FreeMarker is rejected', () => {
+  it('names an unsupported directive and its line', () => {
+    expect(() =>
+      parser.parseGeneratorScript('gen 1 > $\n<#if true>\ngen 2 > $\n</#if>')
+    ).toThrow('Unsupported FreeMarker directive <#if> on line 2');
+  });
+
+  it('names an unsupported macro call', () => {
+    expect(() => parser.parseGeneratorScript('<@m/>\ngen 1 > $')).toThrow(
+      'Unsupported FreeMarker directive <@m> on line 1'
+    );
+  });
+
+  it('rejects division instead of guessing', () => {
+    expect(() =>
+      parser.parseGeneratorScript('<#list 1..3 as i>\ngen ${i/2} > $\n</#list>')
+    ).toThrow('Unsupported expression ${i/2} on line 2');
+  });
+
+  it('rejects an undefined variable', () => {
+    expect(() => parser.parseGeneratorScript('gen ${n} > $')).toThrow(
+      'Undefined variable "n" in ${n} on line 1'
+    );
+  });
+
+  it('never passes ${...} through literally', () => {
+    expect(() => parser.parseGeneratorScript('gen ${"a"} > $')).toThrow(
+      'Unsupported expression ${"a"} on line 1'
+    );
+    expect(() => parser.parseGeneratorScript('gen ${1.5} > $')).toThrow(
+      /Unsupported expression/
+    );
+    expect(() => parser.parseGeneratorScript('gen ${i > $')).toThrow(
+      'Unterminated "${" on line 1'
+    );
+  });
+
+  it('rejects modulo by zero and unsupported list forms', () => {
+    expect(() => parser.parseGeneratorScript('gen ${5%0} > $')).toThrow(
+      /Modulo by zero/
+    );
+    expect(() =>
+      parser.parseGeneratorScript('<#list xs as i>\ngen ${i} > $\n</#list>')
+    ).toThrow(/Unsupported expression <#list xs as i> on line 1/);
+    expect(() =>
+      parser.parseGeneratorScript('<#list 1..2>\ngen 1 > $\n</#list>')
+    ).toThrow(/Unsupported <#list> form on line 1/);
+  });
+
+  it('rejects unbalanced list tags', () => {
+    expect(() => parser.parseGeneratorScript('gen 1 > $\n</#list>')).toThrow(
+      'Unexpected </#list> on line 2'
+    );
+    expect(() =>
+      parser.parseGeneratorScript('<#list 1..2 as i>\ngen 1 > $')
+    ).toThrow('Unclosed <#list> on line 1');
+  });
+
+  it('rejects an unsupported <#assign> form', () => {
+    expect(() => parser.parseGeneratorScript('<#assign n>\ngen 1 > $')).toThrow(
+      /Unsupported <#assign> form on line 1/
+    );
+  });
+});
+
+describe('parseGeneratorScript - list size limit', () => {
+  it('exports the limit as a named constant', () => {
+    expect(parser.MAX_LIST_ITEMS).toBe(10000);
+  });
+
+  it('rejects a huge range quickly, naming the list and line', () => {
+    const start = Date.now();
+    expect(() =>
+      parser.parseGeneratorScript(
+        'gen 1 > $\n<#list 1..1000000000 as i>\ngen ${i} > $\n</#list>'
+      )
+    ).toThrow(/<#list 1\.\.1000000000 as i> on line 2 expands to more than/);
+    expect(Date.now() - start).toBeLessThan(1000);
+  });
+
+  it('rejects nested lists whose product exceeds the limit', () => {
+    const start = Date.now();
+    expect(() =>
+      parser.parseGeneratorScript(
+        '<#list 1..100000 as i>\n<#list 1..100000 as j>\ngen ${i} ${j} > $\n</#list>\n</#list>'
+      )
+    ).toThrow(/expands to more than 10000 items/);
+    expect(() =>
+      parser.parseGeneratorScript(
+        '<#list 1..1000 as i>\n<#list 1..1000 as j>\ngen ${i} > $\n</#list>\n</#list>'
+      )
+    ).toThrow(/<#list 1\.\.1000 as j> on line 2 expands to more than/);
+    expect(Date.now() - start).toBeLessThan(2000);
+  });
+
+  it('rejects a huge descending range', () => {
+    expect(() =>
+      parser.parseGeneratorScript(
+        '<#list 1000000000..1 as i>\ngen 1 > $\n</#list>'
+      )
+    ).toThrow(/on line 1 expands to more than/);
+  });
+
+  it('still allows a list of exactly the limit', () => {
+    const out = parser.parseGeneratorScript(
+      `<#list 1..${parser.MAX_LIST_ITEMS} as i>\ngen ${'${i}'} > $\n</#list>`
+    );
+    expect(out).toHaveLength(parser.MAX_LIST_ITEMS);
+  });
+});
+
+describe('parseGeneratorScript - ${} inside @group comments', () => {
+  it('rejects an interpolation in a group name', () => {
+    expect(() =>
+      parser.parseGeneratorScript('gen 1 > $\n<#-- @group g${i} -->\ngen 2 > $')
+    ).toThrow('Unsupported expression ${i} in @group on line 2');
+  });
+
+  it('rejects it inside a list too', () => {
+    expect(() =>
+      parser.parseGeneratorScript(
+        '<#list 1..2 as i>\n<#-- @group g${i} -->\ngen ${i} > $\n</#list>'
+      )
+    ).toThrow('Unsupported expression ${i} in @group on line 2');
+  });
+
+  it('still ignores ${} in ordinary comments', () => {
+    expect(
+      parser.parseGeneratorScript('<#-- note ${x} -->\ngen 1 > $')
+    ).toHaveLength(1);
+  });
+});
+
+describe('parseGeneratorScript - #{} and square-bracket tags are rejected', () => {
+  it('rejects #{...} numeric interpolation', () => {
+    expect(() =>
+      parser.parseGeneratorScript('gen 1 > $\ngen #{1} > $')
+    ).toThrow('Unsupported FreeMarker construct #{...} on line 2');
+  });
+
+  it('rejects [#list ...] square-bracket directives', () => {
+    expect(() =>
+      parser.parseGeneratorScript('[#list 1..3 as i]\ngen ${i} > $\n[/#list]')
+    ).toThrow('Unsupported FreeMarker construct [#list');
+    expect(() => parser.parseGeneratorScript('gen 1 > $\n[/#list]')).toThrow(
+      /\[\/#list.* on line 2/
+    );
+  });
+
+  it('rejects [@macro] calls', () => {
+    expect(() => parser.parseGeneratorScript('[@m/]\ngen 1 > $')).toThrow(
+      'Unsupported FreeMarker construct [@m (square-bracket syntax) on line 1'
+    );
+  });
+});
+
+describe('parseGeneratorScript - expression edge cases', () => {
+  const argsOf = (script: string) =>
+    parser.parseGeneratorScript(script).map(l => l.args.join(' '));
+
+  it('reports integer overflow', () => {
+    expect(() =>
+      parser.parseGeneratorScript('gen ${99999999999*99999999999} > $')
+    ).toThrow(/Integer overflow/);
+  });
+
+  it('handles unary plus and stacked signs', () => {
+    expect(argsOf('gen ${+3} ${+-3} ${-+3} ${- -3} > $')).toEqual([
+      '3 -3 -3 3',
+    ]);
+  });
+
+  it('rejects malformed expressions', () => {
+    for (const expr of ['(1+2', '', '1+']) {
+      expect(() => parser.parseGeneratorScript(`gen \${${expr}} > $`)).toThrow(
+        /Unsupported expression/
+      );
+    }
+  });
+
+  it('rejects a stray </#assign>', () => {
+    expect(() =>
+      parser.parseGeneratorScript('<#assign n = 1>\n</#assign>\ngen 1 > $')
+    ).toThrow('Unsupported FreeMarker directive </#assign> on line 2');
+  });
+
+  it('expands a CRLF script with a list and reports ${} on the right line', () => {
+    expect(argsOf('<#list 1..2 as i>\r\ngen ${i} > $\r\n</#list>\r\n')).toEqual(
+      ['1', '2']
+    );
+    expect(() =>
+      parser.parseGeneratorScript(
+        '<#list 1..2 as i>\r\ngen 1 > $\r\n</#list>\r\ngen ${} > $\r\n'
+      )
+    ).toThrow(/Unsupported expression \${} on line 4/);
+  });
+});
+
 describe('validateGeneratorReferences', () => {
   it('passes when all generators exist', () => {
     const lines = parser.parseGeneratorScript('gen 1 > 1\nother 2 > 2');
