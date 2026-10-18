@@ -910,6 +910,30 @@ describe('steps.ts', () => {
       vi.useRealTimers();
     });
 
+    it.each([
+      ['standard', false, true],
+      ['linux', true, true],
+      ['windows', true, true],
+      ['full', true, true],
+    ])(
+      'should call buildPackage for %s with full=%s, verify=%s',
+      async (type, full, verify) => {
+        vi.useFakeTimers();
+        const sdk = {
+          listPackages: vi
+            .fn()
+            .mockResolvedValueOnce([])
+            .mockResolvedValue([{ id: 5, state: 'READY', comment: 'ok' }]),
+          buildPackage: vi.fn().mockResolvedValue(undefined),
+        } as any;
+        const promise = steps.stepBuildPackage(1, sdk, 7, type);
+        await vi.advanceTimersByTimeAsync(30000);
+        await promise;
+        expect(sdk.buildPackage).toHaveBeenCalledWith(7, full, verify);
+        vi.useRealTimers();
+      }
+    );
+
     it('should throw when build fails', async () => {
       vi.useFakeTimers();
       const sdk = {

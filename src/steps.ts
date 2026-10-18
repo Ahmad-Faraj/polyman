@@ -962,11 +962,13 @@ export async function stepBuildPackage(
     `  ${fmt.infoIcon()} Starting build (this may take several minutes)...`
   );
 
-  const isFullVerify = packageType === 'full';
-  const isLinux = packageType === 'linux' || packageType === 'standard';
+  // Polygon builds the linux and windows packages only as part of a full
+  // package. Every build is verified.
+  const full = ['linux', 'windows', 'full'].includes(packageType);
+  const verify = true;
 
   // Trigger the build
-  await sdk.buildPackage(problemId, isFullVerify, isLinux);
+  await sdk.buildPackage(problemId, full, verify);
   fmt.info(`  ${fmt.infoIcon()} Build job queued, waiting for completion...`);
 
   // Poll every 30 seconds to check if new package is created
