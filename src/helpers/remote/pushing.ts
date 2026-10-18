@@ -151,25 +151,73 @@ export async function uploadChecker(
         try {
           const testsContent = fs.readFileSync(testsPath, 'utf-8');
           const testsData = JSON.parse(testsContent) as {
-            tests?: Array<CheckerTest>;
+            tests?: Array<Partial<CheckerTest>>;
           };
           if (testsData.tests) {
-            for (const test of testsData.tests) {
+            // Tests without a valid index get the next number that no test
+            // declares explicitly, so they can't overwrite one another.
+            const indexes = testsData.tests.map((test, position) => {
+              const raw: unknown = test.index;
+              if (raw === undefined || raw === null) return undefined;
+              const value = Number(raw);
+              if (Number.isInteger(value) && value > 0) return value;
+              fmt.warning(
+                `  ⚠️  Checker test #${position + 1} has an invalid index (${JSON.stringify(raw)}); it will be numbered automatically`
+              );
+              return undefined;
+            });
+            const declared = new Set<number>();
+            for (const [position, value] of indexes.entries()) {
+              if (value === undefined) continue;
+              if (declared.has(value)) {
+                fmt.warning(
+                  `  ⚠️  Checker test #${position + 1} repeats index ${value}; it overwrites the earlier test with that index`
+                );
+              }
+              declared.add(value);
+            }
+            let nextIndex = 1;
+            const takeNextIndex = (): number => {
+              while (declared.has(nextIndex)) nextIndex++;
+              return nextIndex++;
+            };
+
+            for (const [position, test] of testsData.tests.entries()) {
+              // Empty input, output and answer are valid checker tests (an
+              // empty contestant output, say); only absence is an error.
+              const { input, output, answer, expectedVerdict } = test;
               if (
-                test.index &&
-                test.input &&
-                test.output &&
-                test.answer &&
-                test.expectedVerdict
+                typeof input !== 'string' ||
+                typeof output !== 'string' ||
+                typeof answer !== 'string' ||
+                !expectedVerdict
               ) {
-                const checkerVerdict = test.expectedVerdict;
+                const missing = (
+                  ['input', 'output', 'answer', 'expectedVerdict'] as const
+                ).filter(field =>
+                  field === 'expectedVerdict'
+                    ? !test[field]
+                    : typeof test[field] !== 'string'
+                );
+                fmt.warning(
+                  `  ⚠️  Skipped checker test #${position + 1}: missing ${missing.join(', ')}`
+                );
+                continue;
+              }
+
+              const index = indexes[position] ?? takeNextIndex();
+              try {
                 await sdk.saveCheckerTest(
                   problemId,
-                  test.index,
-                  normalizeLineEndingsFromSystemToRemote(test.input),
-                  normalizeLineEndingsFromSystemToRemote(test.output),
-                  normalizeLineEndingsFromSystemToRemote(test.answer),
-                  checkerVerdict
+                  index,
+                  normalizeLineEndingsFromSystemToRemote(input),
+                  normalizeLineEndingsFromSystemToRemote(output),
+                  normalizeLineEndingsFromSystemToRemote(answer),
+                  expectedVerdict
+                );
+              } catch (error) {
+                fmt.warning(
+                  `  ⚠️  Failed to upload checker test #${position + 1}: ${describeError(error)}`
                 );
               }
             }
