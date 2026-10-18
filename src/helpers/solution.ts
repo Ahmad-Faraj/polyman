@@ -779,7 +779,6 @@ export async function startTheComparisonProcess(
             msg
           );
           verdictTracker.didWA = true;
-          break;
         }
       }
     }
