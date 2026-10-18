@@ -323,6 +323,34 @@ describe('cli.ts', () => {
     );
   });
 
+  it('should accept the documented push form with -s -c', async () => {
+    await loadCli(['remote', 'push', './my-problem', '-s', '-c']);
+    expect(actions.remotePushProblemAction).toHaveBeenCalledWith(
+      './my-problem',
+      expect.objectContaining({ solutions: true, checker: true })
+    );
+  });
+
+  it('should reject push with a problem id and a directory', async () => {
+    const exitSpy = vi
+      .spyOn(process, 'exit')
+      .mockImplementation((() => undefined) as never);
+    const errSpy = vi
+      .spyOn(process.stderr, 'write')
+      .mockImplementation((() => true) as never);
+    try {
+      await loadCli(['remote', 'push', '123456', './my-problem']);
+    } catch {
+      // commander may throw when exit is stubbed
+    }
+    const stderr = errSpy.mock.calls.map(c => String(c[0])).join('');
+    expect(stderr).toContain('too many arguments');
+    // exit is stubbed, so commander carries on after reporting the error
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    exitSpy.mockRestore();
+    errSpy.mockRestore();
+  });
+
   it('should register remote view command', async () => {
     await loadCli(['remote', 'view', '42']);
     expect(actions.remoteViewProblemAction).toHaveBeenCalledWith(
