@@ -8,17 +8,57 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { isInside } from './lib.mjs';
 
 const [input = 'corpus/out/mutation/mutation.json', output = 'metrics.txt'] =
   process.argv.slice(2);
 
-// Both paths must stay inside the working directory: `path.relative` catches
-// `..` and sibling folders such as `/repo-other`, which `startsWith` lets through.
-const basePath = process.cwd();
+// The real path of `file`, symlinks followed. The output may not exist yet,
+// so the nearest entry that does exist is resolved and the rest appended. A
+// dangling symlink is followed to where it points, so the check sees the file
+// that would really be written. A symlink loop throws (ELOOP).
+const lexists = p => {
+  try {
+    fs.lstatSync(p);
+    return true;
+  } catch {
+    return false;
+  }
+};
+const realPath = (file, hops = 0) => {
+  if (hops > 40)
+    throw Object.assign(new Error('too many symlinks'), { code: 'ELOOP' });
+  const missing = [];
+  let at = file;
+  while (!lexists(at)) {
+    missing.unshift(path.basename(at));
+    at = path.dirname(at);
+  }
+  try {
+    return path.join(fs.realpathSync(at), ...missing);
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+    // `at` is a dangling symlink: its target is read from the folder it is in
+    const target = path.resolve(
+      fs.realpathSync(path.dirname(at)),
+      fs.readlinkSync(at)
+    );
+    return realPath(path.join(target, ...missing), hops + 1);
+  }
+};
+
+// Both paths must stay inside the working directory, also through a symlink
+// that points outside it.
+const basePath = fs.realpathSync(process.cwd());
 const inside = file => {
-  const resolved = path.resolve(basePath, file);
-  const rel = path.relative(basePath, resolved);
-  if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) {
+  let resolved;
+  try {
+    resolved = realPath(path.resolve(basePath, file));
+  } catch (error) {
+    console.error(`cannot resolve ${file}: ${error.code ?? error.message}`);
+    process.exit(1);
+  }
+  if (!isInside(basePath, resolved)) {
     console.error(`path outside the working directory: ${file}`);
     process.exit(1);
   }

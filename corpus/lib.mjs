@@ -3,6 +3,8 @@
  * (corpus/lib.test.mjs). run.mjs and polygon-roundtrip.mjs import from here.
  */
 
+import path from 'node:path';
+
 /** Reduces a `polyman verify --json` report to the parts the corpus pins. */
 export function outcomeOf(report) {
   const steps = {};
@@ -181,6 +183,21 @@ export function inputCountCheck(testset, local, remote) {
     ok: local === remote,
     detail: `polyman generated ${local} tests, Polygon has ${remote}`,
   };
+}
+
+/**
+ * True when `target` is a file strictly inside the folder `base` (both
+ * absolute). `path.relative` catches `..` and sibling folders such as
+ * `/repo-other`, which `startsWith` lets through.
+ */
+export function isInside(base, target) {
+  const rel = path.relative(base, target);
+  return (
+    rel !== '' &&
+    rel !== '..' &&
+    !rel.startsWith(`..${path.sep}`) &&
+    !path.isAbsolute(rel)
+  );
 }
 
 /** A check group that produced nothing must fail, or it passes unseen. */
