@@ -73,16 +73,20 @@ export function createTheme(name: ThemeName, c: ChalkInstance): Theme {
     underline: c.underline,
   };
 
+  // chalk turns hex colors into xterm-256 colors on 256-color terminals and
+  // into the 16 basic colors on older ones. These values keep at least 4.5:1
+  // contrast on white after that conversion, and the warning color becomes
+  // black, not red, on 16-color terminals so it does not look like an error.
   if (name === 'light') {
     return {
       ...shared,
       name,
-      warning: c.hex('#B35C00'),
+      warning: c.hex('#7F4C00'), // 256-color: 94 (#875F00)
       info: (text: string) => text,
-      muted: c.hex('#5F6368'),
+      muted: c.hex('#6C6C6C'), // 256-color: 242 (same value)
       stepTitle: c.bold,
-      accent: c.hex('#C62828'),
-      primary: c.hex('#0D47A1'),
+      accent: c.hex('#D70000'), // 256-color: 160 (same value)
+      primary: c.hex('#0D47A1'), // 256-color: 25 (#005FAF)
     };
   }
 
