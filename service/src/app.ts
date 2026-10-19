@@ -80,6 +80,22 @@ export function buildApp(opts: AppOptions) {
    */
   let unclean: string | undefined;
 
+  /**
+   * Refuses a browser on another site posting to the service. Every POST is
+   * judged whatever its path, because Fastify routes the decoded path and a raw
+   * prefix test is bypassed by /%61pi/. Only a request that carries an Origin is judged: scripts (curl, CI, the checks) send none and
+   * pass. The Origin has to name this request's own host. The answer never
+   * repeats the Origin.
+   */
+  app.addHook('onRequest', async (req, reply) => {
+    if (req.method !== 'POST') return;
+    const origin = req.headers.origin;
+    if (origin === undefined) return;
+    if (!originMatchesHost(origin, req.headers.host)) {
+      return reply.code(403).send({ error: 'cross-site request refused: the Origin does not match this host' });
+    }
+  });
+
   for (const [route, file] of Object.entries(STATIC)) {
     app.get(route, async (_req, reply) => {
       const ext = file.split('.').pop()!;
@@ -296,6 +312,23 @@ export function buildApp(opts: AppOptions) {
   });
 
   return app;
+}
+
+/**
+ * True when the Origin header names the same host and port as the Host header,
+ * ignoring case and treating a scheme's default port as no port. `Origin: null`,
+ * an unparseable value, a scheme other than http(s) and a missing Host do not match.
+ */
+function originMatchesHost(origin: unknown, host: string | undefined): boolean {
+  if (typeof origin !== 'string' || !host || !/^[^\s/?#@\\]+$/.test(host)) return false;
+  try {
+    const from = new URL(origin);
+    if (from.protocol !== 'http:' && from.protocol !== 'https:') return false;
+    // parsing the Host with the Origin's scheme drops that scheme's default port on both sides
+    return new URL(`${from.protocol}//${host}`).host === from.host;
+  } catch {
+    return false;
+  }
 }
 
 /** Gives a folder (or file) and everything in it to the runner user, readable by nobody else. */

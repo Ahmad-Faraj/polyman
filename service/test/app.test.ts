@@ -260,3 +260,88 @@ describe('POST /api/samples/:name/verify', () => {
     expect((await app.inject({ method: 'POST', url: '/api/samples/..%2Fsamples/verify' })).statusCode).toBe(404);
   });
 });
+
+describe('a browser on another site posting to the API', () => {
+  const HOST = 'polyman-verify-1.us-east1.run.app';
+  const post = (headers: Record<string, string>, url = '/api/verify') => app.inject({ method: 'POST', url, headers });
+
+  it('lets a request with no Origin through (curl, scripts, the production check)', async () => {
+    expect((await post({ host: HOST })).statusCode).not.toBe(403);
+  });
+
+  it('lets an Origin that matches the host through', async () => {
+    expect((await post({ host: HOST, origin: `https://${HOST}` })).statusCode).not.toBe(403);
+  });
+
+  it('refuses a foreign Origin, on both POST routes', async () => {
+    const res = await post({ host: HOST, origin: 'https://evil.example' });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error).toContain('cross-site');
+    expect((await post({ host: HOST, origin: 'https://evil.example' }, '/api/samples/demo/verify')).statusCode).toBe(403);
+  });
+
+  it('refuses a foreign Origin on an encoded path (/%61pi/ is /api/ once decoded)', async () => {
+    expect((await post({ host: HOST, origin: 'https://evil.example' }, '/%61pi/verify')).statusCode).toBe(403);
+    expect((await post({ host: HOST, origin: 'https://evil.example' }, '/%61pi/samples/demo/verify')).statusCode).toBe(403);
+    expect((await post({ host: HOST, origin: 'https://evil.example' }, '/a%70i/verify')).statusCode).toBe(403);
+  });
+
+  it('refuses a foreign Origin with a query string, and on a real multipart upload', async () => {
+    const foreign = { host: HOST, origin: 'https://evil.example' };
+    expect((await post(foreign, '/api/verify?x=1')).statusCode).toBe(403);
+    const up = multipartBody(await zipOf({ ...problem('') }));
+    const upload = (url: string, headers: Record<string, string>) =>
+      app.inject({ method: 'POST', url, payload: up.payload, headers: { ...up.headers, ...headers } });
+    for (const url of ['/api/verify', '/api/verify?x=1', '/%61pi/verify']) {
+      const res = await upload(url, foreign);
+      expect(res.statusCode).toBe(403);
+      expect(res.json().error).toContain('cross-site');
+    }
+  });
+
+  it('verifies a real zip upload with no Origin, and with a matching Origin', async () => {
+    const up = multipartBody(await zipOf({ ...problem('') }));
+    for (const extra of [{}, { origin: `https://${HOST}` }]) {
+      const res = await app.inject({ method: 'POST', url: '/api/verify', payload: up.payload, headers: { ...up.headers, host: HOST, ...extra } });
+      expect(res.statusCode).toBe(200);
+      expect(events(res.body).at(-1)).toMatchObject({ type: 'done', ok: true });
+    }
+  });
+
+  it('refuses Origin: null, an unparseable Origin, a non-http scheme and an Origin with no Host', async () => {
+    expect((await post({ host: HOST, origin: 'null' })).statusCode).toBe(403);
+    expect((await post({ host: HOST, origin: 'not a url' })).statusCode).toBe(403);
+    expect((await post({ host: HOST, origin: `ftp://${HOST}` })).statusCode).toBe(403);
+    expect((await post({ origin: `https://${HOST}`, host: '' })).statusCode).toBe(403);
+  });
+
+  it('compares the port: localhost:8080 matches http://localhost:8080 and not :9999', async () => {
+    expect((await post({ host: 'localhost:8080', origin: 'http://localhost:8080' })).statusCode).not.toBe(403);
+    expect((await post({ host: 'localhost:8080', origin: 'http://localhost:9999' })).statusCode).toBe(403);
+  });
+
+  it('ignores case in the host and the Origin', async () => {
+    expect((await post({ host: HOST, origin: `https://${HOST.toUpperCase()}` })).statusCode).not.toBe(403);
+    expect((await post({ host: HOST.toUpperCase(), origin: `https://${HOST}` })).statusCode).not.toBe(403);
+  });
+
+  it('treats the default port of the scheme as no port, on either side', async () => {
+    expect((await post({ host: HOST, origin: `https://${HOST}:443` })).statusCode).not.toBe(403);
+    expect((await post({ host: `${HOST}:443`, origin: `https://${HOST}` })).statusCode).not.toBe(403);
+    expect((await post({ host: `${HOST}:80`, origin: `http://${HOST}` })).statusCode).not.toBe(403);
+    // 443 is not the default port of http
+    expect((await post({ host: HOST, origin: `http://${HOST}:443` })).statusCode).toBe(403);
+  });
+
+  it('does not repeat the Origin in the refusal', async () => {
+    const res = await post({ host: HOST, origin: 'https://<script>evil.example' });
+    expect(res.statusCode).toBe(403);
+    expect(res.body).not.toContain('evil');
+    expect(res.body).not.toContain('script');
+  });
+
+  it('leaves GET requests and the pages alone', async () => {
+    const headers = { host: HOST, origin: 'https://evil.example' };
+    for (const url of ['/', '/api/samples', '/api/version']) expect((await app.inject({ method: 'GET', url, headers })).statusCode).toBe(200);
+  });
+});
