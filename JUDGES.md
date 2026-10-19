@@ -26,6 +26,7 @@ polyman is an MIT command-line tool that people who set programming-contest prob
 ## By judging criterion
 
 ### Technological implementation
+- **The bug museum** ([wiki](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/wikis/Bug-museum)): the 8 judge-found bugs planted again on today's code. 3.0.0's 967 unit tests caught none of them, the judges caught all 8, and today's 1268 tests fail on all 8 (7 on a real behaviour check), because each agent fix left a test behind. The script reruns it.
 - **Four custom flows on the Duo Agent Platform**, published from the repo, with the project's policy filled in at publish time ([`engine/`](engine)). The go-ahead is enforced in CI, not in a prompt: [`autonomy:goahead`](engine/ci/autonomy.gitlab-ci.yml) reads who pushed each commit and finds the go-ahead note for that push, from someone allowed for the change's risk tier and never the requester. Its code and the policy come from the target branch.
 - **Judges that are neither an LLM nor ours**: the corpus (real g++, Java and Python on five original problems with deliberately wrong solutions, judged per test), the round trip (what polyman pushed is read back from the problem platform and compared test by test), mutation testing of the verdict code, toolchain lanes, the service's golden set.
 - **Release as a chain of custody**: canary in GitLab's npm registry → npm `next` with provenance → both versions installed and judged → `latest` → GitLab Release with the corpus verdicts, mutation report, SBOM and Sigstore entry.
@@ -60,7 +61,8 @@ Judge finds a bug → issue with evidence → agent proposes → someone else's 
 3. a CI guard judges every agent push: no go-ahead from someone who didn't ask, no push ([refused on !67](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17265270744));
 4. mutation testing judges the guard: of 324 bugs planted in the go-ahead rules, the tests catch 295, 91% ([!128](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/128));
 5. a frozen-MR benchmark judges the review agent: the same MRs at the same head, old reviewer against new, scored against findings people later confirmed ([#61](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues/61));
-6. the public ledger lets anyone judge us: every accepted agent push and its go-ahead, chained by SHA-256 ([ledger](https://showcase-ce2cdc.gitlab.io/ledger/)).
+6. **a session audit with no model in it judges what the agents actually did**: it reads every Duo session's trace and checkpoint and holds each push against the ledger and the guard. On its first run it found two agent pushes the guard never saw: branches re-created after their MR merged, outside any MR ([!131](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/131), [#64](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/work_items/64));
+7. the public ledger lets anyone judge us: every accepted agent push and its go-ahead, chained by SHA-256 ([ledger](https://showcase-ce2cdc.gitlab.io/ledger/)).
 
 Also: **the go-ahead decides who, by risk** (the risk score picks who may approve and how deep the review goes), and **a prompt is not a control**: review specialists told "REPORT ONLY: do not push" pushed six times on Oct 18, and the guard refused each one ([replay](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/wikis/Session-replay-67)).
 
@@ -83,6 +85,7 @@ The video (under 3 minutes) follows one bug from the nightly incident to the rel
 | Re-reviews of a new head were half of all tokens | re-review only what changed since the last reviewed head (!105) | the reviewer is 94% of all agent tokens, re-reviews half of those |
 | Specialists gathered context call by call | fewer, larger lookups (!100, !102) | same MRs, frozen at the same head: 43% fewer calls, 55% fewer tokens (1.28M → 0.57M per review), about the same findings (n=3, [#61](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues/61)); at our measured 3.4-27.7 gCO2e per million tokens, about 4.4-35 g → 1.9-16 g per review |
 | A wrong change costs a build and its reviews | a person's go-ahead before any build | 2 of 13 proposals were never built |
+| What does one accepted change cost? | count every session linked from each fix's issue and MRs | median per shipped fix: 78 model calls, 3.2M tokens, about 22 credits, 13-115 gCO2e; 4-16 credits without a fix round, 74 for #8 with two ([script](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/wikis/tools/fix-cost.py)) |
 | A service that idles all day | Cloud Run scales to zero, one request per instance | no instance runs between requests (hence the cold start) |
 
 Anyone can recompute the per-review numbers: `npx -y -p @grnsft/if@1.1.1 if-run -m sustainability/agent-reviews.yml`.
