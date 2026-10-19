@@ -1,0 +1,537 @@
+{
+  "version": 1,
+  "rules": 2,
+  "project": "gitlab-ai-hackathon/transcend-october-2026/30770856/showcase",
+  "since": {
+    "commit": "06a116ff249be30f7274455932dfdc38e0191ce3",
+    "at": "2026-10-17T20:11:08Z"
+  },
+  "head": "42050484a00d7a065ee212bc4ae2367862a174f223313baebd3b7ee081a22de0",
+  "records": [
+    {
+      "mr": 26,
+      "mr_url": "https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/26",
+      "merged_at": "2026-10-17T23:00:52Z",
+      "closes": [
+        22
+      ],
+      "branch": "22-find-python3-interpreter",
+      "agent": "ai-issue-builder-gitlab-ai-hackathon_e1c791",
+      "flow": "issue-builder",
+      "pushed_at": "2026-10-17T22:13:04Z",
+      "head": "83d78ea8f145e005b6ca06a9907bfe5deb30c72b",
+      "commits": [
+        "83d78ea8f145e005b6ca06a9907bfe5deb30c72b"
+      ],
+      "thread": {
+        "kind": "issue",
+        "iid": 22
+      },
+      "proposal": {
+        "note": 4035973201,
+        "url": "https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues/22#note_4035973201",
+        "by": "ai-issue-builder-gitlab-ai-hackathon_e1c791",
+        "at": "2026-10-17T20:56:18Z"
+      },
+      "go_ahead": {
+        "note": 4036138042,
+        "url": "https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues/22#note_4036138042",
+        "by": "Mazen-Ghanaym",
+        "at": "2026-10-17T22:09:49Z"
+      },
+      "requesters": [
+        "Ahmad-Faraj"
+      ],
+      "approver_not_requester": true,
+      "tier": "low",
+      "rollback": false,
+      "allowed": "anyone",
+      "allowed_approvers": [
+        "HamzaHassanain",
+        "Mazen-Ghanaym"
+      ],
+      "accepted": true,
+      "reasons": [],
+      "guard": {
+        "pipeline": 2959237238,
+        "job": 17259651990,
+        "status": "success"
+      },
+      "seq": 1,
+      "prev": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "mr": 50,
+      "mr_url": "https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/50",
+      "merged_at": "2026-10-18T06:18:39Z",
+      "closes": [
+        12
+      ],
+      "branch": "12-windows-test-paths",
+      "agent": "ai-issue-builder-gitlab-ai-hackathon_e1c791",
+      "flow": "issue-builder",
+      "pushed_at": "2026-10-18T06:09:48Z",
+      "head": "0c659720d4f46c453ea507861711ca8e3c1d4f2d",
+      "commits": [
+        "0c659720d4f46c453ea507861711ca8e3c1d4f2d"
+      ],
+      "thread": {
+        "kind": "issue",
+        "iid": 12
+      },
+      "proposal": {
+        "note": 4036934447,
+        "url": "https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues/12#note_4036934447",
+        "by": "ai-issue-builder-gitlab-ai-hackathon_e1c791",
+        "at": "2026-10-18T06:00:57Z"
+      },
+      "go_ahead": {
+        "note": 4036943960,
+        "url": "https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues/12#note_4036943960",
+        "by": "Ahmad-Faraj",
+        "at": "2026-10-18T06:06:45Z"
+      },
+      "requesters": [
+        "HamzaHassanain"
+      ],
+      "approver_not_requester": true,
+      "tier": "low",
+      "rollback": false,
+      "allowed": "anyone",
+      "allowed_approvers": [
+        "Ahmad-Faraj",
+        "Mazen-Ghanaym"
+      ],
+      "accepted": true,
+      "reasons": [],
+      "guard": {
+        "pipeline": 2959787621,
+        "job": 17262489243,
+        "status": "success"
+      },
+      "seq": 2,
+      "prev": "133e6c87d2fdea0bd0f1a148af79512eb677441590896428bc44a207a8df4d9c"
+    },
+    {
+      "mr": 51,
+      "mr_url": "https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/51",
+      "merged_at": "2026-10-18T06:40:04Z",
+      "closes": [
+        13
+      ],
+      "branch": "13-docs-out-of-date",
+      "agent": "ai-issue-builder-gitlab-ai-hackathon_e1c791",
+      "flow": "issue-builder",
+      "pushed_at": "2026-10-18T06:11:51Z",
+      "head": "a1aae584cf4fff9250584c6a14e7a3094c17ea50",
+      "commits": [
+        "a1aae584cf4fff9250584c6a14e7a3094c17ea50"
+      ],
+      "thread": {
+        "kind": "issue",
+        "iid": 13
+      },
+      "proposal": {
+        "note": 4036936297,
+        "url": "https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues/13#note_4036936297",
+        "by": "ai-issue-builder-gitlab-ai-hackathon_e1c791",
+        "at": "2026-10-18T06:02:15Z"
+      },
+      "go_ahead": {
+        "note": 4036946659,
+        "url": "https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues/13#note_4036946659",
+        "by": "Ahmad-Faraj",
+        "at": "2026-10-18T06:08:47Z"
+      },
+      "requesters": [
+        "HamzaHassanain"
+      ],
+      "approver_not_requester": true,
+      "tier": "low",
+      "rollback": false,
+      "allowed": "anyone",
+      "allowed_approvers": [
+        "Ahmad-Faraj",
+        "Mazen-Ghanaym"
+      ],
+      "accepted": true,
+      "reasons": [],
+      "guard": {
+        "pipeline": 2959811087,
+        "job": 17262610558,
+        "status": "success"
+      },
+      "seq": 3,
+      "prev": "bdc78ef8632e2238402c6d5b830a13be6244fff07da531b51f49ecb1e7f2a3cc"
+    },
+    {
+      "mr": 51,
+      "mr_url": "https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/51",
+      "merged_at": "2026-10-18T06:40:04Z",
+      "closes": [
+        13
+      ],
+      "branch": "13-docs-out-of-date",
+      "agent": "ai-mr-reviewer-gitlab-ai-hackathon_e50080",
+      "flow": "mr-reviewer",
+      "pushed_at": "2026-10-18T06:33:13Z",
+      "head": "0064ed4432100eb4c8efb44390803780bc0c8deb",
+      "commits": [
+        "0064ed4432100eb4c8efb44390803780bc0c8deb",
+        "01331dd59b9c9bcbfce98ac18a7c5abe4bb516e5"
+      ],
+      "thread": {
+        "kind": "merge_request",
+        "iid": 51
+      },
+      "proposal": {
+        "note": 4036970240,
+        "url": "https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/51#note_4036970240",
+        "by": "ai-mr-reviewer-gitlab-ai-hackathon_e50080",
+        "at": "2026-10-18T06:22:34Z"
+      },
+      "go_ahead": {
+        "note": 4036983381,
+        "url": "https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/51#note_4036983381",
+        "by": "Ahmad-Faraj",
+        "at": "2026-10-18T06:31:11Z"
+      },
+      "requesters": [
+        "HamzaHassanain"
+      ],
+      "approver_not_requester": true,
+      "tier": "low",
+      "rollback": false,
+      "allowed": "anyone",
+      "allowed_approvers": [
+        "Ahmad-Faraj",
+        "Mazen-Ghanaym"
+      ],
+      "accepted": true,
+      "reasons": [],
+      "guard": {
+        "pipeline": 2959811087,
+        "job": 17262610558,
+        "status": "success"
+      },
+      "seq": 4,
+      "prev": "1bf8b3a7fc2218110dc8e7277c8a696205be96eb03d480801e84b3547ce1337f"
+    },
+    {
+      "mr": 54,
+      "mr_url": "https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/54",
+      "merged_at": "2026-10-18T06:46:15Z",
+      "closes": [
+        4
+      ],
+      "branch": "4-formatter-light-theme",
+      "agent": "ai-issue-builder-gitlab-ai-hackathon_e1c791",
+      "flow": "issue-builder",
+      "pushed_at": "2026-10-18T06:31:36Z",
+      "head": "5e9801fdf695758282ecd5f2f8696fbf63d59196",
+      "commits": [
+        "5e9801fdf695758282ecd5f2f8696fbf63d59196"
+      ],
+      "thread": {
+        "kind": "issue",
+        "iid": 4
+      },
+      "proposal": {
+        "note": 4036970171,
+        "url": "https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues/4#note_4036970171",
+        "by": "ai-issue-builder-gitlab-ai-hackathon_e1c791",
+        "at": "2026-10-18T06:22:32Z"
+      },
+      "go_ahead": {
+        "note": 4036978417,
+        "url": "https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues/4#note_4036978417",
+        "by": "Ahmad-Faraj",
+        "at": "2026-10-18T06:27:35Z"
+      },
+      "requesters": [
+        "HamzaHassanain"
+      ],
+      "approver_not_requester": true,
+      "tier": "low",
+      "rollback": false,
+      "allowed": "anyone",
+      "allowed_approvers": [
+        "Ahmad-Faraj",
+        "Mazen-Ghanaym"
+      ],
+      "accepted": true,
+      "reasons": [],
+      "guard": {
+        "pipeline": 2959809404,
+        "job": 17262601479,
+        "status": "success"
+      },
+      "seq": 5,
+      "prev": "aa16ff5b8fd90b0882d03c8f87f80e6eea89bc34295962f89673d09de06c7ff6"
+    },
+    {
+      "mr": 73,
+      "mr_url": "https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/73",
+      "merged_at": "2026-10-18T13:10:58Z",
+      "closes": [
+        21
+      ],
+      "branch": "21-judge-every-test",
+      "agent": "ai-issue-builder-gitlab-ai-hackathon_e1c791",
+      "flow": "issue-builder",
+      "pushed_at": "2026-10-18T12:30:34Z",
+      "head": "41df98012b585eed3682337c3242983f8bb621fb",
+      "commits": [
+        "41df98012b585eed3682337c3242983f8bb621fb"
+      ],
+      "thread": {
+        "kind": "issue",
+        "iid": 21
+      },
+      "proposal": {
+        "note": 4036864596,
+        "url": "https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues/21#note_4036864596",
+        "by": "ai-issue-builder-gitlab-ai-hackathon_e1c791",
+        "at": "2026-10-18T05:06:57Z"
+      },
+      "go_ahead": {
+        "note": 4037554981,
+        "url": "https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues/21#note_4037554981",
+        "by": "HamzaHassanain",
+        "at": "2026-10-18T12:27:08Z"
+      },
+      "requesters": [
+        "Ahmad-Faraj"
+      ],
+      "approver_not_requester": true,
+      "tier": "medium",
+      "rollback": false,
+      "allowed": "anyone",
+      "allowed_approvers": [
+        "HamzaHassanain",
+        "Mazen-Ghanaym"
+      ],
+      "accepted": true,
+      "reasons": [],
+      "guard": {
+        "pipeline": 2960235701,
+        "job": 17264913912,
+        "status": "success"
+      },
+      "seq": 6,
+      "prev": "050baabbcf828cab91b33e7a3e1e904b49623f1356e287daaabbe6cc4993fe5b"
+    },
+    {
+      "mr": 59,
+      "mr_url": "https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/59",
+      "merged_at": "2026-10-18T13:50:46Z",
+      "closes": [
+        8
+      ],
+      "branch": "8-shell-completion",
+      "agent": "ai-issue-builder-gitlab-ai-hackathon_e1c791",
+      "flow": "issue-builder",
+      "pushed_at": "2026-10-18T06:44:58Z",
+      "head": "8e378fd914c999d0f563ba1cb991e01f24824447",
+      "commits": [
+        "8e378fd914c999d0f563ba1cb991e01f24824447"
+      ],
+      "thread": {
+        "kind": "issue",
+        "iid": 8
+      },
+      "proposal": {
+        "note": 4036965799,
+        "url": "https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues/8#note_4036965799",
+        "by": "ai-issue-builder-gitlab-ai-hackathon_e1c791",
+        "at": "2026-10-18T06:20:31Z"
+      },
+      "go_ahead": {
+        "note": 4036974933,
+        "url": "https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues/8#note_4036974933",
+        "by": "Ahmad-Faraj",
+        "at": "2026-10-18T06:25:33Z"
+      },
+      "requesters": [
+        "HamzaHassanain"
+      ],
+      "approver_not_requester": true,
+      "tier": "medium",
+      "rollback": false,
+      "allowed": "anyone",
+      "allowed_approvers": [
+        "Ahmad-Faraj",
+        "Mazen-Ghanaym"
+      ],
+      "accepted": true,
+      "reasons": [],
+      "guard": {
+        "pipeline": 2960326824,
+        "job": 17265434352,
+        "status": "success"
+      },
+      "seq": 7,
+      "prev": "0cb98e42f4cd0c6797d8bb79ea1a1917fc1dfef144cf57f1fd96d2c688cbbe14"
+    },
+    {
+      "mr": 59,
+      "mr_url": "https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/59",
+      "merged_at": "2026-10-18T13:50:46Z",
+      "closes": [
+        8
+      ],
+      "branch": "8-shell-completion",
+      "agent": "ai-mr-reviewer-gitlab-ai-hackathon_e50080",
+      "flow": "mr-reviewer",
+      "pushed_at": "2026-10-18T07:29:21Z",
+      "head": "c96eb89d0c6577f61810ddd9b4858a7538177e1b",
+      "commits": [
+        "c96eb89d0c6577f61810ddd9b4858a7538177e1b",
+        "7286b9f3aa9f6bb855b0b20598ee046ebadcbb4c",
+        "e7132d1c6e72b5456119d8a17f92b15738168dbf",
+        "39b8027c299cc320e519fe5c148c52943b3068d7"
+      ],
+      "thread": {
+        "kind": "merge_request",
+        "iid": 59
+      },
+      "proposal": {
+        "note": 4037026037,
+        "url": "https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/59#note_4037026037",
+        "by": "ai-mr-reviewer-gitlab-ai-hackathon_e50080",
+        "at": "2026-10-18T07:06:36Z"
+      },
+      "go_ahead": {
+        "note": 4037042850,
+        "url": "https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/59#note_4037042850",
+        "by": "Ahmad-Faraj",
+        "at": "2026-10-18T07:19:21Z"
+      },
+      "requesters": [
+        "HamzaHassanain"
+      ],
+      "approver_not_requester": true,
+      "tier": "medium",
+      "rollback": false,
+      "allowed": "anyone",
+      "allowed_approvers": [
+        "Ahmad-Faraj",
+        "Mazen-Ghanaym"
+      ],
+      "accepted": true,
+      "reasons": [],
+      "guard": {
+        "pipeline": 2960326824,
+        "job": 17265434352,
+        "status": "success"
+      },
+      "seq": 8,
+      "prev": "829a750ad1582aa21b9efb26183a07a7fd183ce5b75d0fa9db1ee6c4a57d3474"
+    },
+    {
+      "mr": 59,
+      "mr_url": "https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/59",
+      "merged_at": "2026-10-18T13:50:46Z",
+      "closes": [
+        8
+      ],
+      "branch": "8-shell-completion",
+      "agent": "ai-mr-reviewer-gitlab-ai-hackathon_e50080",
+      "flow": "mr-reviewer",
+      "pushed_at": "2026-10-18T08:13:04Z",
+      "head": "64331bafb3f86d07495bb591f7cab531babdd145",
+      "commits": [
+        "64331bafb3f86d07495bb591f7cab531babdd145",
+        "3b57b711d057c602617c857273b1174f21a88905"
+      ],
+      "thread": {
+        "kind": "merge_request",
+        "iid": 59
+      },
+      "proposal": {
+        "note": 4037093936,
+        "url": "https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/59#note_4037093936",
+        "by": "ai-mr-reviewer-gitlab-ai-hackathon_e50080",
+        "at": "2026-10-18T07:59:46Z"
+      },
+      "go_ahead": {
+        "note": 4037106115,
+        "url": "https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/59#note_4037106115",
+        "by": "Ahmad-Faraj",
+        "at": "2026-10-18T08:08:15Z"
+      },
+      "requesters": [
+        "HamzaHassanain"
+      ],
+      "approver_not_requester": true,
+      "tier": "medium",
+      "rollback": false,
+      "allowed": "anyone",
+      "allowed_approvers": [
+        "Ahmad-Faraj",
+        "Mazen-Ghanaym"
+      ],
+      "accepted": true,
+      "reasons": [],
+      "guard": {
+        "pipeline": 2960326824,
+        "job": 17265434352,
+        "status": "success"
+      },
+      "seq": 9,
+      "prev": "d58e25893ca69c00d3f7b67f6d8bca0bdf99881142e4bc70eab218aaee37ebeb"
+    },
+    {
+      "mr": 101,
+      "mr_url": "https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/101",
+      "merged_at": "2026-10-18T17:57:36Z",
+      "closes": [
+        58
+      ],
+      "branch": "58-checker-long-verdicts",
+      "agent": "ai-issue-builder-gitlab-ai-hackathon_e1c791",
+      "flow": "issue-builder",
+      "pushed_at": "2026-10-18T16:41:08Z",
+      "head": "6a3b64079161dfa66f0653366251c57bba14322c",
+      "commits": [
+        "6a3b64079161dfa66f0653366251c57bba14322c"
+      ],
+      "thread": {
+        "kind": "issue",
+        "iid": 58
+      },
+      "proposal": {
+        "note": 4037902385,
+        "url": "https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues/58#note_4037902385",
+        "by": "ai-issue-builder-gitlab-ai-hackathon_e1c791",
+        "at": "2026-10-18T15:49:40Z"
+      },
+      "go_ahead": {
+        "note": 4037989527,
+        "url": "https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues/58#note_4037989527",
+        "by": "HamzaHassanain",
+        "at": "2026-10-18T16:37:41Z"
+      },
+      "requesters": [
+        "Ahmad-Faraj"
+      ],
+      "approver_not_requester": true,
+      "tier": "high",
+      "rollback": false,
+      "allowed": "maintainers",
+      "allowed_approvers": [
+        "HamzaHassanain",
+        "Mazen-Ghanaym"
+      ],
+      "accepted": true,
+      "reasons": [],
+      "guard": {
+        "pipeline": 2960540150,
+        "job": 17266677127,
+        "status": "success"
+      },
+      "seq": 10,
+      "prev": "90e46d4c8cd755d2bc6f211fef307ecc249ee76161a315cd5de4d9fb1d680c7d"
+    }
+  ]
+}
