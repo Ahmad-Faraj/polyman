@@ -611,6 +611,12 @@ export async function uploadTestsets(
       // not cwd, so push works from any directory.
       const scriptText = readScriptText(testset, problemDir);
 
+      // Likewise refuse manual test paths outside the problem folder before
+      // anything is cleared on Polygon.
+      const manualPaths = (testset.manualTests ?? []).map(m =>
+        insideProblem(problemDir, m.input)
+      );
+
       await clearTestset(sdk, problemId, testset.name, failures);
 
       if (testset.groupsEnabled) {
@@ -626,7 +632,7 @@ export async function uploadTestsets(
       const manualPromises = createManualTestsPromises(
         sdk,
         problemId,
-        problemDir,
+        manualPaths,
         testset
       );
       try {
@@ -748,12 +754,12 @@ async function clearTestset(
 function createManualTestsPromises(
   sdk: PolygonSDK,
   problemId: number,
-  problemDir: string,
+  manualPaths: string[],
   testset: LocalTestset
 ): Array<Promise<void>> {
   const promises: Array<Promise<void>> = [];
-  for (const m of testset.manualTests ?? []) {
-    const testPath = insideProblem(problemDir, m.input);
+  for (const [position, m] of (testset.manualTests ?? []).entries()) {
+    const testPath = manualPaths[position];
     if (!fs.existsSync(testPath)) {
       throw new Error(`Manual test file not found: ${m.input}`);
     }

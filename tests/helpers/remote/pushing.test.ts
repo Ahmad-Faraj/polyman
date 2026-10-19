@@ -2026,6 +2026,25 @@ describe('pushing.ts', () => {
       ]);
     });
 
+    it('should refuse a manual test outside the folder before clearing the testset', async () => {
+      const { sdk, mocks } = buildSdk();
+      const cfg = asConfig({
+        testsets: [
+          {
+            name: 'tests',
+            manualTests: [
+              { input: 'ok.txt', index: 1 },
+              { input: '../t.txt', index: 2 },
+            ],
+          },
+        ],
+      });
+      await pushing.uploadTestsets(sdk, 1, 'dir', cfg, []);
+      expect(mocks.enableGroups).not.toHaveBeenCalled();
+      expect(mocks.saveScript).not.toHaveBeenCalled();
+      expect(mocks.saveTest).not.toHaveBeenCalled();
+    });
+
     it('should still read a file whose name starts with two dots', async () => {
       const { sdk, mocks } = buildSdk();
       const cfg = asConfig({
