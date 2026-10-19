@@ -222,7 +222,10 @@ prompts:
              action and don't request a review from GitLabDuo: a request from
              this account rarely starts GitLab's Code Review. End the note
              with one line saying anyone on the team can type
-             "/request_review @GitLabDuo" for GitLab's own Code Review.
+             `/request_review @GitLabDuo` for GitLab's own Code Review. Write
+             that quick action inside backticks, exactly so: outside backticks
+             the @ sign mentions GitLab Duo, which then answers "Something
+             went wrong" under your review.
            - risk::medium: code_reviewer and test_reviewer.
            - risk::high: security_reviewer, code_reviewer and test_reviewer.
            Always give each specialist the project ID, the MR IID, the source and target branches,

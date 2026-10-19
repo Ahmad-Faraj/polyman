@@ -111,6 +111,14 @@ describe("the project's Duo flows", () => {
     expect(renderFlow(read('pipeline-fixer.yaml'), values)).toContain('`@ai-fixer go-ahead`');
   });
 
+  // a bare @GitLabDuo in a note mentions GitLab Duo, which answers "Something went wrong" (!134, !137)
+  it('no flow writes a bare @GitLabDuo; the Code Review hint is a quick action in backticks', () => {
+    for (const file of files) {
+      const outside = read(file).replace(/`[^`\n]*`/g, '');
+      expect(outside).not.toMatch(/@GitLabDuo/i);
+    }
+  });
+
   it("each proposal ends by mentioning the people who may give its go-ahead, or no one when nobody is left", () => {
     for (const file of ['issue-builder.yaml', 'pipeline-fixer.yaml', 'mr-reviewer.yaml']) {
       const text = flat(file);
@@ -179,7 +187,7 @@ describe("the project's Duo flows", () => {
     const low = text.slice(text.indexOf('- risk::low:'), text.indexOf('- risk::medium:'));
     expect(low).toContain("don't delegate. Review the diff yourself, lightly");
     expect(low).toContain("Post no quick action and don't request a review from GitLabDuo");
-    expect(low).toContain('anyone on the team can type "/request_review @GitLabDuo"');
+    expect(low).toContain('anyone on the team can type `/request_review @GitLabDuo`');
     // the only mention of the quick action is the line telling people they can type it
     expect(text.split('/request_review').length - 1).toBe(1);
     expect(text).not.toContain('requested review from @GitLabDuo');
