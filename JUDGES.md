@@ -71,7 +71,7 @@ The video (under 3 minutes) follows one bug from the nightly incident to the rel
 | Every review got three specialists | review depth follows the risk score | a low-risk review costs 1/6 to 1/8 of a high-risk one |
 | Reviewer sessions woke for pipelines that weren't theirs | filter triggers to their own event | 49% of reviewer sessions were wasted wake-ups before the filter (sandbox) |
 | Re-reviews of a new head were half of all tokens | re-review only what changed since the last reviewed head (!105) | the reviewer is 94% of all agent tokens, re-reviews half of those |
-| Specialists gathered context call by call | fewer, larger lookups (!100, !102) | same MRs, frozen at the same head: 43% fewer calls, 55% fewer tokens, about the same findings (n=3, [#61](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues/61)) |
+| Specialists gathered context call by call | fewer, larger lookups (!100, !102) | same MRs, frozen at the same head: 43% fewer calls, 55% fewer tokens (1.28M → 0.57M per review), about the same findings (n=3, [#61](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues/61)); at our measured 3.4-27.7 gCO2e per million tokens, about 4.4-35 g → 1.9-16 g per review |
 | A wrong change costs a build and its reviews | a person's go-ahead before any build | 2 of 13 proposals were never built |
 | A service that idles all day | Cloud Run scales to zero, one request per instance | no instance runs between requests (hence the cold start) |
 
