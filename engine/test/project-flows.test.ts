@@ -178,6 +178,18 @@ describe("the project's Duo flows", () => {
     expect(renderFlow(read('mr-reviewer.yaml'), values).replace(/\s+/g, ' ')).toContain('a later push is reviewed when someone mentions `@ai-reviewer` on the MR');
   });
 
+  // !137, 14:24: a second mention found the head reviewed and the session stopped without a word
+  it("a person's mention on an already-reviewed head gets one short note linking the review", () => {
+    const body = promptOf('mr-reviewer.yaml');
+    const otherwise = body.slice(body.indexOf('- Otherwise (already reviewed, no go-ahead, or nothing to fix)'), body.indexOf('4. Read the risk tier'));
+    expect(otherwise).toContain("for a person's mention, post one short note that doesn't start with \"Review of\"");
+    expect(otherwise).toContain('the current head SHORT_SHA is already reviewed (link that review note)');
+    expect(otherwise).toContain('the next step is a go-ahead on its proposed fixes or a new push');
+    expect(otherwise).toContain('For a pipeline event, post nothing. Stop.');
+    // the reply is not a review, so the go-ahead guard never takes it for a proposal
+    expect(isProposal('The current head 1a2b3c4d is already reviewed')).toBe(false);
+  });
+
   it('the review note tells the maintainers to promote a merge that releases the service', () => {
     const text = flat('mr-reviewer.yaml');
     expect(text).toContain('"After merge", only when the diff touches service/, src/, assets/, template/, package.json or package-lock.json');

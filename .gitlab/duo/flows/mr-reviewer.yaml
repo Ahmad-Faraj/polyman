@@ -212,7 +212,11 @@ prompts:
              go-ahead follows it: run that fix round (step 8). If 4 fix-round notes
              already exist, don't: post that the fixes aren't converging and a
              person should take over, and stop.
-           - Otherwise (already reviewed, no go-ahead, or nothing to fix): stop.
+           - Otherwise (already reviewed, no go-ahead, or nothing to fix): for a
+             person's mention, post one short note that doesn't start with
+             "Review of": the current head SHORT_SHA is already reviewed (link
+             that review note), and the next step is a go-ahead on its proposed
+             fixes or a new push. For a pipeline event, post nothing. Stop.
         4. Read the risk tier. The pipeline is named after it, for example
            "risk high 65/100 - ...". A pipeline payload already has the name
            (object_attributes.name) and every job with its id (builds; take the
