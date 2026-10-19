@@ -42,6 +42,7 @@ import type {
 } from '../types';
 import fs from 'fs';
 import path from 'path';
+import { insideProblem } from './utils';
 
 const COMMENT_RE = /<#--([\s\S]*?)-->/g;
 
@@ -68,7 +69,7 @@ export function readScriptText(
   if (!gs) return '';
   if (typeof gs.script === 'string') return gs.script;
   if (gs.scriptFile) {
-    const filePath = path.resolve(baseDir, gs.scriptFile);
+    const filePath = insideProblem(baseDir, gs.scriptFile);
     if (!fs.existsSync(filePath)) {
       throw new Error(
         `Generator scriptFile not found for testset "${testset.name}": ${gs.scriptFile}`

@@ -653,6 +653,40 @@ describe('readScriptText', () => {
       'utf-8'
     );
   });
+
+  it('refuses a scriptFile outside baseDir without reading it', () => {
+    const ts: LocalTestset = {
+      name: 'tests',
+      generatorScript: { scriptFile: '../x' },
+    };
+    exists(true);
+    expect(() => parser.readScriptText(ts, '/path/to/problem')).toThrow(
+      /Refusing path/
+    );
+    expect(fs.readFileSync).not.toHaveBeenCalled();
+  });
+
+  it('refuses an absolute scriptFile outside baseDir', () => {
+    const ts: LocalTestset = {
+      name: 'tests',
+      generatorScript: { scriptFile: '/etc/passwd' },
+    };
+    exists(true);
+    expect(() => parser.readScriptText(ts, '/path/to/problem')).toThrow(
+      /Refusing path/
+    );
+    expect(fs.readFileSync).not.toHaveBeenCalled();
+  });
+
+  it('still reads a scriptFile whose name starts with two dots', () => {
+    const ts: LocalTestset = {
+      name: 'tests',
+      generatorScript: { scriptFile: '..x.txt' },
+    };
+    exists(true);
+    vi.mocked(fs.readFileSync).mockReturnValue('gen 1 > 1');
+    expect(parser.readScriptText(ts, '/path/to/problem')).toBe('gen 1 > 1');
+  });
 });
 
 describe('toPolygonScript', () => {

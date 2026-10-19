@@ -2013,6 +2013,19 @@ describe('pushing.ts', () => {
       ]);
     });
 
+    it('should refuse a generator scriptFile outside the folder', async () => {
+      const { sdk, mocks } = buildSdk();
+      const failures: string[] = [];
+      const cfg = asConfig({
+        testsets: [{ name: 'tests', generatorScript: { scriptFile: '../x' } }],
+      });
+      await pushing.uploadTestsets(sdk, 1, 'dir', cfg, failures);
+      expect(mocks.saveScript).not.toHaveBeenCalled();
+      expect(failures).toEqual([
+        'testset tests: Refusing path outside the problem folder: ../x',
+      ]);
+    });
+
     it('should still read a file whose name starts with two dots', async () => {
       const { sdk, mocks } = buildSdk();
       const cfg = asConfig({
