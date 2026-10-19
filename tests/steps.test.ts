@@ -3,8 +3,6 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 
-/* eslint-disable @typescript-eslint/unbound-method */
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as steps from '../src/steps';
 import * as createTemplate from '../src/helpers/create-template';
@@ -262,7 +260,7 @@ describe('steps.ts', () => {
       await steps.stepCompileGeneratorsForSingleTest(
         1,
         config,
-        { name: 'tests' } as any,
+        { name: 'tests' },
         2
       );
       expect(generator.compileGeneratorsForTests).toHaveBeenCalledWith(
@@ -275,12 +273,7 @@ describe('steps.ts', () => {
   describe('stepGenerateSingleTest', () => {
     it('should call generateSingleTest', async () => {
       const config = baseConfig();
-      await steps.stepGenerateSingleTest(
-        1,
-        config,
-        { name: 'tests' } as any,
-        2
-      );
+      await steps.stepGenerateSingleTest(1, config, { name: 'tests' }, 2);
       expect(testset.generateSingleTest).toHaveBeenCalledWith(
         { name: 'tests' },
         2,
@@ -318,7 +311,7 @@ describe('steps.ts', () => {
       await steps.stepCompileGeneratorsForGroup(
         1,
         config,
-        { name: 'tests' } as any,
+        { name: 'tests' },
         'a'
       );
       expect(generator.compileGeneratorsForTests).toHaveBeenCalledWith(
@@ -355,7 +348,7 @@ describe('steps.ts', () => {
       await steps.stepCompileGeneratorsForGroup(
         1,
         config,
-        { name: 'tests' } as any,
+        { name: 'tests' },
         'all'
       );
       expect(generator.compileGeneratorsForTests).toHaveBeenCalledWith(
@@ -368,12 +361,7 @@ describe('steps.ts', () => {
   describe('stepGenerateTestsForGroup', () => {
     it('should call generateTestsForGroup', async () => {
       const config = baseConfig();
-      await steps.stepGenerateTestsForGroup(
-        1,
-        config,
-        { name: 'tests' } as any,
-        'g'
-      );
+      await steps.stepGenerateTestsForGroup(1, config, { name: 'tests' }, 'g');
       expect(testset.generateTestsForGroup).toHaveBeenCalledWith(
         { name: 'tests' },
         'g',
@@ -399,7 +387,7 @@ describe('steps.ts', () => {
       const config = baseConfig();
       await steps.stepCompileGeneratorsForTestset(1, config, {
         name: 'tests',
-      } as any);
+      });
       expect(generator.compileGeneratorsForTests).toHaveBeenCalledWith(
         tests,
         config.generators
@@ -412,7 +400,7 @@ describe('steps.ts', () => {
       const config = baseConfig();
       await steps.stepGenerateTestsForTestset(1, config, {
         name: 'tests',
-      } as any);
+      });
       expect(testset.generateTestsForTestset).toHaveBeenCalledWith(
         { name: 'tests' },
         config.generators
@@ -433,6 +421,22 @@ describe('steps.ts', () => {
         config.solutions
       );
       expect(testset.ensureTestsetsExist).toHaveBeenCalledWith(config.testsets);
+      expect(solution.validateTimeLimitMultipliers).toHaveBeenCalledWith(
+        config
+      );
+    });
+
+    it('should fail when timeLimitMultipliers is invalid', () => {
+      const config = baseConfig({ timeLimitMultipliers: { java: 0 } });
+      vi.mocked(solution.validateTimeLimitMultipliers).mockImplementationOnce(
+        () => {
+          throw new Error('Invalid timeLimitMultipliers.java');
+        }
+      );
+      expect(() => steps.stepValidateConfigForSolutions(1, config, [])).toThrow(
+        'Invalid timeLimitMultipliers.java'
+      );
+      expect(formatter.fmt.stepComplete).not.toHaveBeenCalled();
     });
   });
 
@@ -569,6 +573,26 @@ describe('steps.ts', () => {
       expect(() =>
         steps.stepValidateConfigForSolutionTest(1, 'missing')
       ).toThrow('No solution named "missing" found.');
+    });
+
+    it('should fail when timeLimitMultipliers is invalid', () => {
+      const main = { name: 'main', source: 'm.cpp', tag: 'MA' };
+      const config = baseConfig({
+        solutions: [main],
+        timeLimitMultipliers: { java: 0 },
+      });
+      vi.mocked(utils.readConfigFile).mockReturnValue(config);
+      vi.mocked(solution.validateTimeLimitMultipliers).mockImplementationOnce(
+        () => {
+          throw new Error('Invalid timeLimitMultipliers.java');
+        }
+      );
+      expect(() => steps.stepValidateConfigForSolutionTest(1, 'main')).toThrow(
+        'Invalid timeLimitMultipliers.java'
+      );
+      expect(solution.validateTimeLimitMultipliers).toHaveBeenCalledWith(
+        config
+      );
     });
   });
 
@@ -745,7 +769,7 @@ describe('steps.ts', () => {
 
   describe('stepFetchStatements', () => {
     it('should fetch statements', async () => {
-      vi.mocked(viewer.fetchStatements).mockResolvedValue([] as any);
+      vi.mocked(viewer.fetchStatements).mockResolvedValue([]);
       const result = await steps.stepFetchStatements(1, {} as any, 5);
       expect(result).toEqual([]);
       expect(viewer.logStatementsFetch).toHaveBeenCalled();
@@ -787,7 +811,7 @@ describe('steps.ts', () => {
         resourceFiles: [],
         sourceFiles: [],
         auxFiles: [],
-      } as any);
+      });
       await steps.stepFetchFiles(1, {} as any, 5);
       expect(formatter.fmt.stepComplete).toHaveBeenCalledWith(
         'Files check complete'
@@ -834,7 +858,7 @@ describe('steps.ts', () => {
       ] as any);
       const result = steps.stepFetchGenerators(
         1,
-        { resourceFiles: [], sourceFiles: [], auxFiles: [] } as any,
+        { resourceFiles: [], sourceFiles: [], auxFiles: [] },
         'wcmp',
         'val.cpp'
       );
@@ -857,7 +881,7 @@ describe('steps.ts', () => {
         {} as any,
         [],
         [],
-        { resourceFiles: [], sourceFiles: [], auxFiles: [] } as any,
+        { resourceFiles: [], sourceFiles: [], auxFiles: [] },
         [],
         '',
         '',
@@ -943,7 +967,7 @@ describe('steps.ts', () => {
   });
 
   describe('stepDownloadProblemFilesAndSetUpConfig', () => {
-    it('should aggregate downloads and write Config.json', async () => {
+    const pullWithChecker = async (checker: object) => {
       vi.mocked(remoteUtils.fetchProblemInfo).mockResolvedValue({
         name: 'p',
         owner: 'o',
@@ -956,19 +980,19 @@ describe('steps.ts', () => {
       vi.mocked(pulling.downloadSolutions).mockResolvedValue({
         count: 1,
         data: [],
-      } as any);
+      });
       vi.mocked(pulling.downloadChecker).mockResolvedValue({
         count: 1,
-        data: { name: 'wcmp', source: 'wcmp.cpp' },
+        data: checker,
       } as any);
       vi.mocked(pulling.downloadValidator).mockResolvedValue({
         count: 1,
         data: { name: 'val', source: 'val.cpp' },
-      } as any);
+      });
       vi.mocked(pulling.downloadGenerators).mockResolvedValue({
         count: 2,
         data: [],
-      } as any);
+      });
       vi.mocked(pulling.downloadStatements).mockResolvedValue({
         count: 0,
         config: {},
@@ -976,7 +1000,7 @@ describe('steps.ts', () => {
       vi.mocked(pulling.fetchProblemMetadata).mockResolvedValue({
         description: 'd',
         tags: ['t'],
-      } as any);
+      });
       vi.mocked(fs.writeFileSync).mockImplementation(() => undefined);
 
       await steps.stepDownloadProblemFilesAndSetUpConfig(
@@ -985,10 +1009,38 @@ describe('steps.ts', () => {
         7,
         'savePath'
       );
+    };
+
+    it('should aggregate downloads and write Config.json', async () => {
+      await pullWithChecker({
+        name: 'wcmp',
+        source: 'wcmp.cpp',
+        isStandard: true,
+      });
       expect(fs.writeFileSync).toHaveBeenCalledWith(
         expect.stringContaining('Config.json'),
         expect.any(String),
         'utf-8'
+      );
+      expect(pulling.downloadGenerators).toHaveBeenCalledWith(
+        expect.anything(),
+        7,
+        expect.stringContaining('savePath'),
+        ['val']
+      );
+    });
+
+    it('should not download a custom checker as a generator', async () => {
+      await pullWithChecker({
+        name: 'chk',
+        source: './checker/chk.cpp',
+        isStandard: false,
+      });
+      expect(pulling.downloadGenerators).toHaveBeenCalledWith(
+        expect.anything(),
+        7,
+        expect.stringContaining('savePath'),
+        ['val', 'chk']
       );
     });
   });
@@ -1213,6 +1265,151 @@ describe('steps.ts', () => {
         expect.any(String),
         'utf-8'
       );
+    });
+  });
+  describe('stepPromptCreateProblem', () => {
+    it('returns true without prompting when --yes is given', async () => {
+      const result = await steps.stepPromptCreateProblem(1, { yes: true });
+      expect(result).toBe(true);
+      expect(utils.stdinIsInteractive).not.toHaveBeenCalled();
+      expect(formatter.fmt.stepComplete).toHaveBeenCalledWith(
+        'Confirmed via --yes'
+      );
+    });
+
+    it('fails fast instead of prompting when stdin is not a terminal', async () => {
+      vi.mocked(utils.stdinIsInteractive).mockReturnValue(false);
+      await expect(steps.stepPromptCreateProblem(1)).rejects.toThrow(
+        /stdin is not a terminal; pass --yes/
+      );
+    });
+
+    it('prompts on a terminal and accepts yes', async () => {
+      vi.mocked(utils.stdinIsInteractive).mockReturnValue(true);
+      const close = vi.fn();
+      vi.doMock('readline', () => ({
+        createInterface: () => ({
+          question: (_q: string, cb: (a: string) => void) => cb('yes'),
+          close,
+        }),
+      }));
+      const result = await steps.stepPromptCreateProblem(1);
+      expect(result).toBe(true);
+      expect(close).toHaveBeenCalled();
+      vi.doUnmock('readline');
+    });
+
+    it('prompts on a terminal and treats anything but yes/y as cancel', async () => {
+      vi.mocked(utils.stdinIsInteractive).mockReturnValue(true);
+      vi.doMock('readline', () => ({
+        createInterface: () => ({
+          question: (_q: string, cb: (a: string) => void) => cb('no'),
+          close: vi.fn(),
+        }),
+      }));
+      const result = await steps.stepPromptCreateProblem(1);
+      expect(result).toBe(false);
+      expect(formatter.fmt.stepComplete).toHaveBeenCalledWith('User cancelled');
+      vi.doUnmock('readline');
+    });
+  });
+
+  describe('stepGetValidProblemName', () => {
+    type Sdk = Parameters<typeof steps.stepGetValidProblemName>[1];
+    const sdkWith = (names: string[]): Sdk =>
+      ({
+        listProblems: vi.fn().mockResolvedValue(names.map(name => ({ name }))),
+      }) as unknown as Sdk;
+
+    it('accepts a valid --name that is free on Polygon', async () => {
+      vi.mocked(utils.stdinIsInteractive).mockReturnValue(false);
+      const name = await steps.stepGetValidProblemName(
+        1,
+        sdkWith(['other']),
+        'config-name',
+        { explicitName: 'two-sum' }
+      );
+      expect(name).toBe('two-sum');
+    });
+
+    it('rejects an invalid --name with the naming rule instead of prompting', async () => {
+      vi.mocked(utils.stdinIsInteractive).mockReturnValue(true);
+      await expect(
+        steps.stepGetValidProblemName(1, sdkWith([]), undefined, {
+          explicitName: 'Two Sum',
+        })
+      ).rejects.toThrow(
+        'Invalid problem name "Two Sum". Name must be lowercase, no spaces, only dashes allowed.'
+      );
+    });
+
+    it('rejects a --name that already exists on Polygon', async () => {
+      vi.mocked(utils.stdinIsInteractive).mockReturnValue(true);
+      await expect(
+        steps.stepGetValidProblemName(1, sdkWith(['Two-Sum']), undefined, {
+          explicitName: 'two-sum',
+        })
+      ).rejects.toThrow('Problem name "two-sum" already exists on Polygon.');
+    });
+
+    it('uses a valid Config.json name without prompting when headless', async () => {
+      vi.mocked(utils.stdinIsInteractive).mockReturnValue(false);
+      const name = await steps.stepGetValidProblemName(
+        1,
+        sdkWith([]),
+        'max-flow'
+      );
+      expect(name).toBe('max-flow');
+    });
+
+    it('fails fast when headless and no usable name is available', async () => {
+      vi.mocked(utils.stdinIsInteractive).mockReturnValue(false);
+      await expect(
+        steps.stepGetValidProblemName(1, sdkWith([]), undefined)
+      ).rejects.toThrow(/pass --name <name>/);
+    });
+
+    it('fails fast when headless and the Config.json name is invalid', async () => {
+      vi.mocked(utils.stdinIsInteractive).mockReturnValue(false);
+      await expect(
+        steps.stepGetValidProblemName(1, sdkWith([]), 'Bad Name')
+      ).rejects.toThrow('Invalid problem name "Bad Name"');
+    });
+
+    it('assumes the name is free when Polygon cannot be queried', async () => {
+      vi.mocked(utils.stdinIsInteractive).mockReturnValue(false);
+      const sdk = {
+        listProblems: vi.fn().mockRejectedValue(new Error('offline')),
+      } as unknown as Sdk;
+      const name = await steps.stepGetValidProblemName(1, sdk, 'two-sum');
+      expect(name).toBe('two-sum');
+    });
+
+    it('prompts on a terminal until a valid free name is typed', async () => {
+      vi.mocked(utils.stdinIsInteractive).mockReturnValue(true);
+      const answers = ['Bad Name', 'taken', 'fresh-name'];
+      const close = vi.fn();
+      vi.doMock('readline', () => ({
+        createInterface: () => ({
+          question: (_q: string, cb: (a: string) => void) =>
+            cb(answers.shift() ?? ''),
+          close,
+        }),
+      }));
+      const name = await steps.stepGetValidProblemName(
+        1,
+        sdkWith(['taken']),
+        undefined
+      );
+      expect(name).toBe('fresh-name');
+      expect(close).toHaveBeenCalledTimes(1);
+      expect(formatter.fmt.error).toHaveBeenCalledWith(
+        expect.stringContaining('Invalid problem name "Bad Name"')
+      );
+      expect(formatter.fmt.error).toHaveBeenCalledWith(
+        expect.stringContaining('already exists on Polygon')
+      );
+      vi.doUnmock('readline');
     });
   });
 });

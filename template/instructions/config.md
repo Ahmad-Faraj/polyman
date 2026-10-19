@@ -12,11 +12,13 @@ The single source of truth for the whole problem. Every other file is referenced
   "description": "Short description.",
   "tags": ["implementation", "math"],
 
-  "timeLimit": 1000,                     // ms, applied to every solution
+  "timeLimit": 1000,                     // ms, applied to every solution (scaled per language locally by timeLimitMultipliers)
+  "timeLimitMultipliers": { "java": 2 }, // optional; local-only scaling of timeLimit per language (cpp/java/python), Polygon keeps timeLimit
   "memoryLimit": 256,                    // MB
   "inputFile": "stdin",                  // keep "stdin" unless asked
   "outputFile": "stdout",                // keep "stdout" unless asked
   "interactive": false,                  // see instructions/checker.md (custom checker) — true is rare
+  "cppStandard": "c++23",                // optional; local g++ -std= value (default c++23; use c++17/c++20 on older compilers)
 
   "compiler": {                          // optional, local-only; omit unless the user asks
     "cpp": "g++-15",                     // C++ compiler executable (default "g++")
@@ -32,6 +34,16 @@ The single source of truth for the whole problem. Every other file is referenced
   "testsets":    [ …below             ]
 }
 ```
+
+## Schema
+
+`Config.schema.json` (next to `Config.json`) is a JSON Schema (draft-07) for this file. `Config.json` points at it via its first key, `"$schema": "./Config.schema.json"`, so editors validate as you type and every enum (solution tags, `sourceType` values, points/feedback policies) and every required key is machine-checkable. polyman itself ignores `$schema`; it is never pushed to Polygon. Keep the key. If you need to validate by hand:
+
+```bash
+npx --yes ajv-cli validate -s Config.schema.json -d Config.json
+```
+
+The schema mirrors the `ConfigFile` type in polyman's `src/types.d.ts`; if the two disagree, the type wins and the schema is the bug.
 
 `compiler` only affects how polyman compiles on this machine; it is never sent to Polygon (Polygon uses `sourceType`). The environment variables `POLYMAN_CXX` and `POLYMAN_JAVAC` override `compiler.cpp` and `compiler.javac`.
 
@@ -67,6 +79,7 @@ Usually one named `"tests"`. Each entry:
 
 - **Add a solution / generator / manual test** → add the source file *and* the `Config.json` entry in the same edit.
 - **Change time/memory** → update `timeLimit` / `memoryLimit`, run `polyman verify`.
+- **A Java or Python solution TLEs locally but is correct** → add `timeLimitMultipliers` (`{ "java": 2 }`) instead of inflating `timeLimit` for every solution; the factor only applies to local runs, so Polygon keeps the real limit.
 - **Switch checker** → see `instructions/checker.md`.
 - **Multiple testsets** → append another `testsets[]` entry; each testset has its own script + manuals.
 

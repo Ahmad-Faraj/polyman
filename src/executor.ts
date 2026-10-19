@@ -411,7 +411,7 @@ export class CommandExecutor {
       }
     } catch (error: unknown) {
       if ((error as { code?: string }).code !== 'ESRCH') {
-        console.log(error);
+        fmt.log(error instanceof Error ? error.message : String(error));
       }
       // Process already terminated
     }
@@ -546,12 +546,16 @@ const setupProcessCleanup = () => {
   });
 
   process.on('uncaughtException', err => {
-    console.error('Uncaught exception:', err);
+    fmt.error(`Uncaught exception: ${err.stack ?? err.message}`);
     void cleanupAndExit('uncaughtException');
   });
 
   process.on('unhandledRejection', reason => {
-    console.error('Unhandled rejection:', reason);
+    const detail =
+      reason instanceof Error
+        ? (reason.stack ?? reason.message)
+        : String(reason);
+    fmt.error(`Unhandled rejection: ${detail}`);
     void cleanupAndExit('unhandledRejection');
   });
 };

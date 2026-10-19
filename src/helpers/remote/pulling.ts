@@ -18,6 +18,7 @@ import type {
 } from '../../types';
 import { fmt } from '../../formatter';
 import { normalizeLineEndingsFromRemoteToSystem } from './utils';
+import { CPP_EXTENSIONS } from '../utils';
 
 /**
  * Downloads all solutions from Polygon and returns metadata.
@@ -242,14 +243,14 @@ export async function downloadValidator(
  * @param {PolygonSDK} sdk - Polygon SDK instance
  * @param {number} problemId - Problem ID
  * @param {string} problemDir - Target directory
- * @param {string} validatorName - Validator filename to skip
+ * @param {string[]} skipNames - Checker and validator names (without extension) to skip
  * @returns {Promise<{ data: Array<LocalGenerator>; count: number }>}
  */
 export async function downloadGenerators(
   sdk: PolygonSDK,
   problemId: number,
   problemDir: string,
-  validatorName: string
+  skipNames: string[]
 ): Promise<{
   data: Array<LocalGenerator>;
   count: number;
@@ -266,7 +267,9 @@ export async function downloadGenerators(
         file.sourceType?.includes('checker') ||
         file.sourceType?.includes('validator') ||
         file.sourceType?.startsWith('solution.') ||
-        file.name === validatorName + '.cpp'
+        skipNames.some(name =>
+          CPP_EXTENSIONS.some(ext => file.name === name + ext)
+        )
       ) {
         continue;
       }

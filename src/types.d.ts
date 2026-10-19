@@ -116,6 +116,9 @@ type CppSourceType =
   | 'cpp.g++14'
   | 'cpp.g++17'
   | 'cpp.g++20'
+  | 'cpp.msys2-mingw64-9-g++17'
+  | 'cpp.gcc13-64-winlibs-g++20'
+  | 'cpp.gcc14-64-msys2-g++23'
   | 'cpp.ms2017'
   | 'cpp.ms2019'
   | 'cpp.clang++17'
@@ -372,6 +375,31 @@ interface Package {
 // ==================== Configuration File ====================
 
 /**
+ * Optional per-language scaling of the declared `timeLimit`, applied to local
+ * runs only (`run`, `verify`, `test`). Polygon does not scale time limits, so
+ * the value pushed to Polygon stays the plain `timeLimit`.
+ *
+ * A correct Java or Python solution can TLE locally against a C++ limit (JVM
+ * startup, interpreter overhead); this gives it a bigger local budget without
+ * touching the problem itself. A language that is not listed keeps a factor
+ * of 1, so omitting the field entirely changes nothing.
+ *
+ * @interface TimeLimitMultipliers
+ * @property {number} [cpp] - Factor for C++ solutions (default 1)
+ * @property {number} [java] - Factor for Java solutions (default 1)
+ * @property {number} [python] - Factor for Python solutions (default 1)
+ *
+ * @example
+ * // With "timeLimit": 1000, a Java solution runs with 2000ms locally.
+ * { "java": 2, "python": 3 }
+ */
+interface TimeLimitMultipliers {
+  cpp?: number;
+  java?: number;
+  python?: number;
+}
+
+/**
  * Local configuration file structure for managing Polygon problems.
  * This extends Polygon API types with local workspace information.
  *
@@ -381,10 +409,12 @@ interface Package {
  * @property {string} [owner] - Problem owner username
  * @property {number} [revision] - Current revision number
  * @property {number} timeLimit - Time limit in milliseconds
+ * @property {TimeLimitMultipliers} [timeLimitMultipliers] - Local-only per-language scaling of timeLimit
  * @property {number} memoryLimit - Memory limit in megabytes
  * @property {string} inputFile - Input file name
  * @property {string} outputFile - Output file name
  * @property {boolean} interactive - Whether problem is interactive
+ * @property {string} [cppStandard] - C++ standard for local compilation, passed as `-std=` (default `c++23`)
  * @property {string[]} [tags] - Problem tags/categories
  * @property {string} [description] - General problem description
  * @property {string} [tutorial] - General tutorial text
@@ -405,10 +435,15 @@ interface ConfigFile {
 
   // Problem info
   timeLimit: number;
+  // Local-only scaling of timeLimit per solution language; Polygon gets timeLimit as is.
+  timeLimitMultipliers?: TimeLimitMultipliers;
   memoryLimit: number;
   inputFile: string;
   outputFile: string;
   interactive: boolean;
+
+  // Local compilation: value for g++ `-std=` (e.g. 'c++17', 'c++20', 'c++23')
+  cppStandard?: string;
 
   // Tags and descriptions
   tags?: string[];
@@ -752,6 +787,99 @@ interface VerdictTracker {
   didRTE: boolean;
 }
 
+// ==================== JSON Reports ====================
+
+/**
+ * Per-test verdict recorded while a solution runs (and, during comparison,
+ * after the checker has judged its output).
+ * @typedef TestVerdict
+ */
+type TestVerdict = 'OK' | 'WA' | 'TLE' | 'MLE' | 'RTE';
+
+/**
+ * One executed test inside a JSON report.
+ * @interface TestResult
+ * @property {string} testset - Testset the input came from
+ * @property {string} [group] - Group name, only when the run targeted a group
+ * @property {number} index - Polygon test index (the N in test<N>.txt)
+ * @property {TestVerdict} verdict - Verdict for this test
+ * @property {number} timeMs - Wall-clock time polyman observed for the process
+ * @property {string} message - Failure detail (empty for OK)
+ * @property {string} [solution] - Present only when a run covered several solutions
+ */
+interface TestResult {
+  testset: string;
+  group?: string;
+  index: number;
+  verdict: TestVerdict;
+  timeMs: number;
+  message: string;
+  solution?: string;
+}
+
+/**
+ * One pipeline step inside a verify report.
+ * @interface StepResult
+ */
+interface StepResult {
+  name: string;
+  ok: boolean;
+  errors: string[];
+}
+
+/**
+ * One solution's outcome inside a verify report.
+ * @interface SolutionResult
+ * @property {boolean} matchesTag - Whether the observed verdicts satisfy the tag
+ * @property {string} reason - Human explanation of matchesTag
+ */
+interface SolutionResult {
+  name: string;
+  tag: SolutionTag;
+  matchesTag: boolean;
+  reason: string;
+  tests: TestResult[];
+}
+
+/**
+ * Fields shared by every JSON report.
+ * @interface ReportBase
+ */
+interface ReportBase {
+  schemaVersion: 1;
+  polymanVersion: string;
+  ok: boolean;
+}
+
+/**
+ * Report emitted by `polyman run <solution> --json`.
+ * @interface RunReport
+ */
+interface RunReport extends ReportBase {
+  command: 'run';
+  solution: string;
+  tag: SolutionTag | null;
+  tests: TestResult[];
+  summary: {
+    total: number;
+    byVerdict: Partial<Record<TestVerdict, number>>;
+  };
+  errors: string[];
+}
+
+/**
+ * Report emitted by `polyman verify --json`.
+ * @interface VerifyReport
+ */
+interface VerifyReport extends ReportBase {
+  command: 'verify';
+  failedStep: string | null;
+  steps: StepResult[];
+  solutions: SolutionResult[];
+}
+
+type JsonReport = RunReport | VerifyReport;
+
 // ==================== Exports ====================
 
 export {
@@ -790,6 +918,8 @@ export {
   PackageState,
   PackageType,
   Package,
+  // Configuration
+  TimeLimitMultipliers,
   // Local types
   CompilerConfig,
   LocalSolution,
@@ -806,6 +936,14 @@ export {
   ResolvedTestSource,
   // Utilities
   VerdictTracker,
+  // JSON reports
+  TestVerdict,
+  TestResult,
+  StepResult,
+  SolutionResult,
+  RunReport,
+  VerifyReport,
+  JsonReport,
 };
 
 export default ConfigFile;

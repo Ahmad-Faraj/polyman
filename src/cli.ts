@@ -29,10 +29,18 @@ import {
   remoteViewProblemAction,
   remoteCommitProblemAction,
   remotePackageProblemAction,
+  cacheStatusAction,
+  cacheClearAction,
 } from './actions';
+import { fmt } from './formatter';
 import { printComprehensiveHelp } from './help';
+import { setCacheEnabled } from './helpers/compile-cache';
+import { resolveTheme, type Theme } from './theme';
 
 const program = new Command();
+
+/** Color theme for this run, set before commander parses the arguments. */
+let theme: Theme | undefined;
 
 // Read version from package.json so the CLI's --version output always matches
 // the published package; previously this string was hand-edited and drifted.
@@ -52,8 +60,17 @@ program
   .version(pkg.version)
   .helpOption(false)
   .option('-h, --help', 'display help for command', () => {
-    printComprehensiveHelp(program);
+    printComprehensiveHelp(program, theme);
+  })
+  // Commands that compile sources accept `--no-cache`; commander stores it as
+  // `cache: false` on the command that runs.
+  .hook('preAction', (_program, actionCommand) => {
+    setCacheEnabled(actionCommand.opts<{ cache?: boolean }>().cache !== false);
   });
+
+/** Help text for the `--no-cache` flag shared by every compiling command. */
+const NO_CACHE_DESCRIPTION =
+  'Recompile every source instead of reusing cached binaries';
 
 // ============================================================================
 // LOCAL COMMANDS
@@ -170,6 +187,7 @@ program
   .option('-t, --testset <name>', 'Generate specific testset')
   .option('-g, --group <name>', 'Generate specific group within testset')
   .option('-i, --index <number>', 'Generate specific test by index')
+  .option('--no-cache', NO_CACHE_DESCRIPTION)
   .action(
     async (options: {
       all?: boolean;
@@ -222,6 +240,7 @@ program
   .option('-t, --testset <name>', 'Validate specific testset')
   .option('-g, --group <name>', 'Validate specific group within testset')
   .option('-i, --index <number>', 'Validate specific test by index')
+  .option('--no-cache', NO_CACHE_DESCRIPTION)
   .action(
     async (options: {
       all?: boolean;
@@ -266,6 +285,7 @@ program
  * polyman run main --testset tests
  * polyman run main --testset tests --group samples
  * polyman run main --testset tests --index 5
+ * polyman run main --all --json   # machine-readable report on stdout
  */
 program
   .command('run <solution-name>')
@@ -274,6 +294,11 @@ program
   .option('-t, --testset <name>', 'Run on specific testset')
   .option('-g, --group <name>', 'Run on specific group within testset')
   .option('-i, --index <number>', 'Run on specific test by index')
+  .option(
+    '--json',
+    'Print a JSON report to stdout (human output goes to stderr)'
+  )
+  .option('--no-cache', NO_CACHE_DESCRIPTION)
   .action(
     async (
       solutionName: string,
@@ -282,6 +307,7 @@ program
         testset?: string;
         group?: string;
         index?: string;
+        json?: boolean;
       }
     ) => {
       let target = 'all';
@@ -298,7 +324,9 @@ program
         }
       }
 
-      await runSolutionAction(solutionName, target, modifier);
+      await runSolutionAction(solutionName, target, modifier, {
+        json: options.json === true,
+      });
     }
   );
 
@@ -321,6 +349,7 @@ program
 program
   .command('test <what>')
   .description('Test validator, checker, or a solution against main correct')
+  .option('--no-cache', NO_CACHE_DESCRIPTION)
   .action(testWhatAction);
 
 // ============================================================================
@@ -335,11 +364,51 @@ program
  *
  * @example
  * polyman verify
+ * polyman verify --json   # machine-readable report on stdout
  */
 program
   .command('verify')
   .description('Run full problem verification (generate, validate, test all)')
-  .action(fullVerificationAction);
+  .option(
+    '--json',
+    'Print a JSON report to stdout (human output goes to stderr)'
+  )
+  .option('--no-cache', NO_CACHE_DESCRIPTION)
+  .action(async (options: { json?: boolean }) => {
+    await fullVerificationAction({ json: options.json === true });
+  });
+
+// ============================================================================
+// CACHE COMMANDS
+// ============================================================================
+
+const cache = program
+  .command('cache')
+  .description('Manage the compilation cache of the current problem');
+
+/**
+ * Command: cache status
+ * Shows the cached binaries of the problem in the current directory.
+ *
+ * @example
+ * polyman cache status
+ */
+cache
+  .command('status')
+  .description('Show cached binaries, their size, and when they were used')
+  .action(cacheStatusAction);
+
+/**
+ * Command: cache clear
+ * Deletes the compilation cache so every source is recompiled.
+ *
+ * @example
+ * polyman cache clear
+ */
+cache
+  .command('clear')
+  .description('Delete the compilation cache (forces recompilation)')
+  .action(cacheClearAction);
 
 // ============================================================================
 // REMOTE COMMANDS
@@ -425,6 +494,7 @@ remote
  * polyman remote push ./my-problem
  * polyman remote push ./my-problem -s -c  # Push only solutions and checker
  * polyman remote push ./my-problem --all  # Push everything (default)
+ * polyman remote push . --yes --name two-sum  # Create the Polygon problem headlessly
  * */
 remote
   .command('push <directory>')
@@ -438,6 +508,8 @@ remote
   .option('-t, --tests', 'Push tests')
   .option('-m, --metadata', 'Push metadata (description and tags)')
   .option('-i, --info', 'Update problem info (time/memory limits)')
+  .option('-y, --yes', 'Create a new Polygon problem without confirmation')
+  .option('-n, --name <name>', 'Name (slug) for a new Polygon problem')
   .action(
     async (
       directory: string,
@@ -451,6 +523,8 @@ remote
         tests?: boolean;
         metadata?: boolean;
         info?: boolean;
+        yes?: boolean;
+        name?: string;
       }
     ) => {
       await remotePushProblemAction(directory, options);
@@ -493,4 +567,10 @@ remote
   .description('Build problem package on Polygon')
   .action(remotePackageProblemAction);
 
-program.parse(process.argv);
+// Detecting the theme may ask the terminal for its background color, which is
+// async, so it runs once here before commander starts any action.
+void resolveTheme().then(resolved => {
+  theme = resolved;
+  fmt.setTheme(resolved);
+  program.parse(process.argv);
+});

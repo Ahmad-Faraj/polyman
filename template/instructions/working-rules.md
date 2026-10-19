@@ -70,10 +70,13 @@ polyman test validator                          # validator self-tests
 polyman test checker                            # checker self-tests
 polyman test wa-solution                        # diff a named solution against main
 polyman verify                                  # full pipeline (the bar for "done")
+polyman verify --json > verify.json             # same, machine-readable (stdout = JSON only)
+polyman run main --all --json                   # per-test verdicts as JSON
 polyman list solutions | generators | checkers | testsets
 
 polyman remote pull <id> .                      # sync from Polygon
 polyman remote push . && polyman remote commit . "msg"
+polyman remote push . --yes --name <slug>       # first push of a new problem, no prompts
 ```
 
 ## When stuck

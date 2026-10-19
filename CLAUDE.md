@@ -21,7 +21,7 @@ src/
   steps.ts        Reusable workflow steps composed by actions (1500 lines)
   executor.ts     Process spawning, compilation, time/memory limits (980 lines)
   polygon.ts      Polygon HTTPS API client — sign requests, push/pull problems (1800 lines)
-  formatter.ts    chalk-based terminal output (icons, colours, spinners)
+  formatter.ts    chalk-based terminal output (icons, colours, sections)
   help.ts         Custom `--help` renderer
   types.d.ts      All TypeScript types — Polygon API shapes + local Config.json schema
   helpers/
@@ -128,7 +128,7 @@ Every solution has a `tag` (`SolutionTag` in `types.d.ts`):
 ## 8. Things to be careful with
 
 - **Do not edit `template/` casually.** It is the public surface for new problems and is bundled into the npm package. Any change ripples to every future `polyman new`. If the user asks for a template change, also update `template/CLAUDE.md` and `template/AGENTS.md`.
-- **Do not bump dependencies as a side-effect** of unrelated work. The two runtime deps (`chalk@^5`, `commander@^14`) are intentional choices.
+- **Do not bump dependencies as a side-effect** of unrelated work. The three runtime deps (`chalk@^5`, `commander@^14`, `execa@^5`) are intentional choices.
 - **Windows quirks are real.** Process cleanup on TLE is fragile on Windows (`NOTES.md`). Avoid changes to `executor.ts` process-kill paths without testing on Windows or asking the user.
 - **CRLF vs LF in JSON test fixtures**: validator/checker tests embed input as JSON string literals; on Windows these may need `\r\n`. See `NOTES.md`.
 - **`assets/checkers/*.cpp`** are upstream testlib standard checkers — don't modify them; treat as vendor.

@@ -65,12 +65,20 @@ Flags (each enables one component; presence implies non-`--all` mode):
 
 ## `polyman remote push <directory> [flags]`
 
-Uploads the local problem to Polygon. If `Config.json.problemId` is missing, polyman prompts to create a new Polygon problem first (asks for confirmation and a slug).
+Uploads the local problem to Polygon. If `Config.json.problemId` is missing, polyman creates a new Polygon problem first. On a terminal it asks for confirmation and a slug; headless (no TTY on stdin) it refuses to block on a prompt and exits 1 naming the flag to pass instead.
 
 ```bash
 polyman remote push .
-polyman remote push . -s -t              # solutions + tests only
+polyman remote push . -s -t                          # solutions + tests only
+polyman remote push . --yes --name two-sum           # create the Polygon problem without prompts
 ```
+
+Creation flags (only relevant when `problemId` is missing):
+
+| Short | Long | Effect |
+| --- | --- | --- |
+| `-y` | `--yes` | Skip the "create a new problem?" confirmation. |
+| `-n <slug>` | `--name <slug>` | Use this slug instead of prompting. Must match `^[a-z0-9]+(-[a-z0-9]+)*$` and be free on Polygon; otherwise the push fails instead of re-prompting. Without it, a valid `Config.json.name` is used as-is. |
 
 Flags mirror `pull`:
 

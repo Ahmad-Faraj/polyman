@@ -65,6 +65,52 @@ export function readScriptText(
 }
 
 /**
+ * Rewrites generator references for upload to Polygon.
+ *
+ * Locally a script line starts with `Config.json.generators[].name`, which is
+ * free-form (`gen-random`). Polygon resolves the same token against the
+ * uploaded source file name without its extension (`gen` for `gen.cpp`), so a
+ * script pushed verbatim breaks whenever the two differ. Comments, FreeMarker
+ * directives, arguments and targets are preserved byte-for-byte; only the
+ * leading generator token of each command line is swapped.
+ *
+ * @param script - raw local script text
+ * @param generators - configured generators used to map name -> source
+ * @returns script text safe to send to `problem.saveScript`
+ *
+ * @example
+ * toPolygonScript('gen-random 10 > $', [
+ *   { name: 'gen-random', source: './generators/gen.cpp' },
+ * ]);
+ * // Returns: 'gen 10 > $'
+ */
+export function toPolygonScript(
+  script: string,
+  generators: LocalGenerator[]
+): string {
+  const remoteNames = new Map<string, string>();
+  for (const g of generators) {
+    remoteNames.set(g.name, path.basename(g.source).replace(/\.[^.]+$/, ''));
+  }
+
+  return script
+    .split(/(\r?\n)/)
+    .map(piece => {
+      if (piece === '\n' || piece === '\r\n') return piece;
+      // Blank out comments in place so token offsets still map onto `piece`.
+      const masked = piece.replace(COMMENT_RE, m => ' '.repeat(m.length));
+      const match = /^\s*(\S+)/.exec(masked);
+      if (!match) return piece;
+      const token = match[1];
+      const remote = remoteNames.get(token);
+      if (remote === undefined || remote === token) return piece;
+      const start = match[0].length - token.length;
+      return piece.slice(0, start) + remote + piece.slice(start + token.length);
+    })
+    .join('');
+}
+
+/**
  * Tokenizes one already-uncommented script line. Quoted arguments are
  * preserved as a single token; unquoted whitespace separates tokens.
  */

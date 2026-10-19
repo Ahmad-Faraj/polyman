@@ -126,7 +126,7 @@ Polyman is a command-line tool designed for competitive programming problem sett
 ### Prerequisites
 
 - **Node.js** v14 or higher
-- **C++ Compiler** (g++, clang, or MSVC)
+- **C++ Compiler** (g++ with C++23 support by default; set `cppStandard` in `Config.json` to target an older standard)
 - **Java JDK** (optional, for Java solutions)
 - **Python** (optional, for Python solutions)
 - **testlib.h** (automatically downloadable via Polyman)
@@ -226,9 +226,28 @@ my-problem/
 {
   "description": "A brief description of the problem",
   "tags": ["implementation", "math", "greedy"],
-  "tutorial": "Solution explanation and approach"
+  "tutorial": "Solution explanation and approach",
+  "cppStandard": "c++23",
+  "timeLimitMultipliers": { "java": 2, "python": 3 }
 }
 ```
+
+| Field                  | Type   | Description                                                                          | Default          |
+| ---------------------- | ------ | ------------------------------------------------------------------------------------ | ---------------- |
+| `cppStandard`          | string | Standard passed to the local `g++` as `-std=` (e.g. `c++17`, `c++20`)                | `c++23`          |
+| `timeLimitMultipliers` | object | Per-language factors applied to `timeLimit` for local runs (`cpp`, `java`, `python`) | every factor `1` |
+
+`cppStandard` only affects local compilation (`generate`, `validate`, `run`, `verify`). The compiler used on Polygon is chosen per file through `sourceType` (see [Source Types](#source-types)).
+
+`timeLimitMultipliers` also only affects local runs. Java and Python are slower than C++ at the same task (JVM startup, interpreter), so a correct `OK` solution can get TLE locally against a C++-sized limit and fail `polyman verify` even though the problem is fine. A factor scales `timeLimit` for that language only:
+
+```json
+{ "timeLimit": 1000, "timeLimitMultipliers": { "java": 2, "python": 3 } }
+```
+
+A Java solution then runs locally with `2000ms` and a Python one with `3000ms`; C++ keeps `1000ms` unless you list `cpp` too. The scaled limit is printed when a run starts, e.g. `Time Limit: 2000ms (x2 for java)`. Polygon has no per-language limits, so `polyman remote push` still sends the plain `timeLimit` — the scaling never changes the problem itself. Omitting the field keeps every solution on the declared limit, exactly as before. The language comes from the file extension (`.cpp`/`.cc`/`.cxx`, `.java`, `.py`), the same way polyman picks how to run the file locally; `sourceType` does not change it.
+
+`run`, `test` and `verify` check the field before anything runs and stop with an error if it is wrong: a key other than `cpp`, `java` or `python`, a factor that is not a positive number (including `null`), a value that is not an object, or a factor that makes the limit bigger than `2147483647ms`.
 
 #### Local Compiler Overrides
 
@@ -343,8 +362,13 @@ Define all solutions with their expected behavior:
 **C++ Compilers:**
 
 - `cpp.g++11`, `cpp.g++14`, `cpp.g++17`, `cpp.g++20`
+- `cpp.msys2-mingw64-9-g++17`, `cpp.gcc13-64-winlibs-g++20`, `cpp.gcc14-64-msys2-g++23` (64-bit; the last one is Polygon's C++23 compiler)
 - `cpp.ms2017`, `cpp.ms2019`
 - `cpp.clang++17`, `cpp.clang++20`
+
+`sourceType` is honored on `polyman remote push` for solutions, generators, the checker and the validator. C++ files without one are uploaded as `cpp.g++17`. Polygon retires compilers over time, so check the problem's compiler list in the Polygon UI if an upload is rejected.
+
+C++ sources may use the `.cpp`, `.cc` or `.cxx` extension.
 
 **Java Versions:**
 
@@ -359,7 +383,7 @@ Define all solutions with their expected behavior:
 - Always include exactly **one** solution with tag `MA`
 - Include solutions with different expected behaviors (WA, TL, etc.)
 - Use appropriate sourceType for each solution
-- You May Leave The Source Types Empty to Use Default Compilers
+- You May Leave The Source Types Empty to Use Default Compilers (`cpp.g++17` for C++)
 
 **Don'ts:**
 
@@ -1469,6 +1493,7 @@ polyman run main --all                                    # All testsets
 polyman run main --testset tests                          # One testset
 polyman run main --testset tests --group samples          # One group
 polyman run main --testset tests --index 5                # One test
+polyman run main --all --json > run.json                  # JSON report on stdout
 ```
 
 **What Happens:**
@@ -1476,6 +1501,27 @@ polyman run main --testset tests --index 5                # One test
 1. Compiles the solution (C++: g++/clang, Java: javac, Python: none) and the checker
 2. Runs the solution against each selected test, measuring time and detecting TLE/MLE/crashes
 3. Invokes the checker against the main solution's answers and reports per-test verdicts plus a summary
+
+**`--json`:** stdout carries exactly one JSON document and every human-readable line goes to stderr, so the output can be piped straight into a parser. The exit code is unchanged. Shape:
+
+```json
+{
+  "schemaVersion": 1,
+  "polymanVersion": "3.0.0",
+  "command": "run",
+  "ok": true,
+  "solution": "main",
+  "tag": "MA",
+  "tests": [
+    { "testset": "tests", "index": 1, "verdict": "OK", "timeMs": 4, "message": "" },
+    { "testset": "tests", "index": 2, "verdict": "TLE", "timeMs": 1003, "message": "Time Limit Exceeded after 1000ms" }
+  ],
+  "summary": { "total": 2, "byVerdict": { "OK": 1, "TLE": 1 } },
+  "errors": []
+}
+```
+
+`verdict` is `OK` (ran to completion; `run` does not invoke the checker), `TLE`, `MLE`, or `RTE`. `tests` lists only the tests that were executed: polyman stops a solution at its first failing test in a testset. `group` is present only with `--group`; `tests[].solution` is present only for `polyman run all`. `ok` reflects whether the command itself completed, not the verdicts, and `errors` is non-empty only when `ok` is false.
 
 ---
 
@@ -1544,7 +1590,54 @@ Runs complete problem verification workflow.
 
 ```bash
 polyman verify
+polyman verify --json > verify.json     # JSON report on stdout, human log on stderr
 ```
+
+**`--json`:** writes exactly one JSON document to stdout on every code path, including compile failures and validator self-test failures, and moves all human-readable output to stderr. The exit code is unchanged (0 only when every step passed). Shape:
+
+```json
+{
+  "schemaVersion": 1,
+  "polymanVersion": "3.0.0",
+  "command": "verify",
+  "ok": false,
+  "failedStep": "test-validator",
+  "steps": [
+    { "name": "read-config", "ok": true, "errors": [] },
+    { "name": "compile-generators", "ok": true, "errors": [] },
+    { "name": "generate-tests", "ok": true, "errors": [] },
+    { "name": "compile-validator", "ok": true, "errors": [] },
+    {
+      "name": "test-validator",
+      "ok": false,
+      "errors": [
+        "✖ Validator Test 1 failed:\n\tFAIL Expected EOLN (test case 1, stdin, line 1)\n expected to be VALID",
+        "Some validator tests failed"
+      ]
+    }
+  ],
+  "solutions": []
+}
+```
+
+Step names, in pipeline order: `read-config`, `compile-generators`, `generate-tests`, `compile-validator`, `test-validator`, `validate-tests`, `compile-checker`, `test-checker`, `compile-solutions`, `run-solutions`, `verify-solutions`. `failedStep` names the first failing step (null on success) and later steps are absent because verify stops there. `steps[].errors` holds the error lines printed during a failed step and is empty for steps that passed.
+
+On success `solutions[]` has one entry per solution that ran:
+
+```json
+{
+  "name": "wa",
+  "tag": "WA",
+  "matchesTag": true,
+  "reason": "Behaves as expected",
+  "tests": [
+    { "testset": "tests", "index": 1, "verdict": "OK", "timeMs": 3, "message": "" },
+    { "testset": "tests", "index": 2, "verdict": "WA", "timeMs": 3, "message": "wrong answer expected 3 found 4" }
+  ]
+}
+```
+
+`matchesTag` is the tag-conformance verdict and `reason` explains it. Per-test verdicts are `OK`, `WA`, `TLE`, `MLE`, `RTE`; `WA` is assigned by the checker in the comparison step. A solution that ran but was never compared (verification stopped first) is reported with `matchesTag: false` and the reason `Not evaluated: verification stopped before comparison`.
 
 **What Happens:**
 
@@ -1665,6 +1758,65 @@ This is the **most comprehensive command**. It runs all steps in order:
 | `test checker`     | Checker           | -         | Self-tests | -              | -               |
 | `test <solution>`  | All               | ✓         | -          | ✓              | ✓               |
 | `verify`           | All               | ✓         | ✓          | ✓              | ✓               |
+
+---
+
+### Compilation Cache
+
+Compiling testlib-based C++ takes seconds per file, and most runs recompile sources that have not changed. Polyman therefore caches every C++ binary it builds in `.polyman/cache/compiled/` inside the problem directory.
+
+**When a source is recompiled.** Each cached binary is keyed by a SHA-256 over:
+
+- the source file's contents,
+- the contents of every local header it reaches through `#include "..."`, followed recursively (`testlib.h`, your own helpers),
+- the compile flags (`-O2`, `-std=<cppStandard>`),
+- the compiler, as reported by `g++ --version`.
+
+If any of these change, the source is recompiled; otherwise the cached binary is copied into place and `g++` does not run. A cached binary whose checksum no longer matches is discarded and rebuilt. `verify` prints how much compile time the cache saved:
+
+```
+  ⚡ Compile cache: 6 hits, 1 miss · saved ~38.2s
+```
+
+**testlib is compiled once.** Most of a generator's, validator's or checker's compile time is spent on `testlib.h` itself. The first compile that needs it splits a copy of the problem's `testlib.h` into declarations and definitions, compiles the definitions once into `.polyman/cache/testlib/<key>/testlib.o`, and every testlib program then only parses the declarations and links that object (about 1s instead of 5s per program). The problem's `testlib.h` is never modified. A source compiles against the original header as before when it defines a macro or uses a pragma before `#include "testlib.h"` (testlib reads settings such as `EJUDGE` that way), keeps its own `testlib.h` next to it, is compiled with `--no-cache`, or fails to build against the split while it builds against the original.
+
+**Managing the cache.**
+
+```bash
+polyman cache status      # list cached binaries, their size, and when they were last used
+polyman cache clear       # delete the cache; the next run recompiles everything
+polyman verify --no-cache # recompile everything this run, without reading or writing the cache
+```
+
+`--no-cache` is accepted by `generate`, `validate`, `run`, `test`, and `verify`.
+
+Entries unused for 30 days are removed, and the cache is capped at 256 MB (least recently used entries go first). The cache lives with the problem, so it survives across sessions; add `.polyman/` to your `.gitignore`.
+
+**Limitations.** Java solutions are always compiled with `javac`. Headers pulled in through angle brackets (`#include <...>`) are treated as part of the compiler, so after editing a system header, run `polyman cache clear`.
+
+### Terminal Colors
+
+polyman has two color themes: one for dark terminals and one for white or light terminals. By default it picks the theme from the terminal background when it starts:
+
+1. If `COLORFGBG` is set (some terminals like iTerm2, Konsole and rxvt set it), polyman reads the background color from it.
+2. If not, polyman asks the terminal for its background color (the OSC 11 query). Most modern terminals answer in a few milliseconds. A terminal that does not support the query is detected at once, and polyman waits at most 100 ms for an answer.
+3. If there is still no answer, polyman uses the dark theme.
+
+Detection only runs in an interactive terminal. It is skipped when the output or the input is not a terminal (for example `polyman verify > log.txt` or in CI), when colors are off, when `TERM=dumb`, when polyman runs as a background job, and on Windows for now. In these cases polyman uses the dark theme.
+
+Two environment variables change this:
+
+- `POLYMAN_THEME=dark` or `POLYMAN_THEME=light` forces a theme and skips detection. Use it when detection picks the wrong theme. `POLYMAN_THEME=auto` (or no value) means detect. Any other value uses the dark theme.
+- `NO_COLOR=1` (any non-empty value, see [no-color.org](https://no-color.org)) turns all colors off. This is useful for logs and CI.
+
+```bash
+POLYMAN_THEME=light polyman verify
+NO_COLOR=1 polyman verify > verify.log
+```
+
+To always use one theme, add the line to your shell profile, for example `export POLYMAN_THEME=light` in `~/.bashrc` or `~/.zshrc`.
+
+`NO_COLOR` wins over everything else: with `NO_COLOR=1`, polyman prints no colors even if `FORCE_COLOR` or `POLYMAN_THEME` is set. `FORCE_COLOR` only controls how many colors the terminal gets (16, 256 or true color); `POLYMAN_THEME` picks the palette inside that.
 
 ---
 
@@ -1930,6 +2082,19 @@ polyman remote push 123456 ./my-problem --all
 | Tests | `-t, --tests` | Push testsets and manual tests |
 | Metadata | `-m, --metadata` | Push description and tags |
 | Info | `-i, --info` | Update problem info (limits) |
+| Yes | `-y, --yes` | Create a new Polygon problem without the confirmation prompt |
+| Name | `-n, --name <slug>` | Slug for the new Polygon problem instead of prompting |
+
+#### Creating the Polygon problem headlessly
+
+When `Config.json` has no `problemId`, `push` creates the problem on Polygon first. In a terminal it asks for confirmation and, if `Config.json.name` is missing, invalid, or taken, for a slug. Without a terminal on stdin (CI, an AI agent, `< /dev/null`) it never blocks on a prompt: it exits 1 and names the flag to pass.
+
+```bash
+polyman remote push . --yes                     # confirm creation; slug comes from Config.json.name
+polyman remote push . --yes --name two-sum      # confirm and set the slug explicitly
+```
+
+A `--name` that does not match `^[a-z0-9]+(-[a-z0-9]+)*$` or already exists on Polygon fails the push instead of re-prompting.
 
 **⚠️ Important:**
 
@@ -2225,6 +2390,9 @@ testsets/*/test*.txt
 
 # Solution outputs
 solutions-outputs/
+
+# Compilation cache
+.polyman/
 
 # System files
 .DS_Store

@@ -58,7 +58,7 @@ function createMockSdk(): MockSdk {
     viewTags: vi.fn(),
     getCheckerTests: vi.fn(),
     getValidatorTests: vi.fn(),
-  } as MockSdk;
+  };
 }
 
 /** Cast a partial mock SDK to the full {@link PolygonSDK} shape via `unknown`. */
@@ -376,13 +376,78 @@ describe('pulling.ts', () => {
         asSdk(mockSdk),
         1,
         'dir',
-        'validator'
+        ['validator']
       );
 
       expect(result.count).toBe(1);
       expect(result.data).toHaveLength(1);
       expect(result.data[0].name).toBe('gen');
       expect(result.data[0].source).toBe('./generators/gen.cpp');
+    });
+
+    it('should skip the validator when it uses a .cc or .cxx extension', async () => {
+      mockSdk.getFiles.mockResolvedValue({
+        sourceFiles: [
+          { name: 'gen.cc', modificationTimeSeconds: 0, length: 0 },
+          { name: 'validator.cc', modificationTimeSeconds: 0, length: 0 },
+          { name: 'validator.cxx', modificationTimeSeconds: 0, length: 0 },
+        ],
+        resourceFiles: [],
+        auxFiles: [],
+      });
+      mockSdk.viewFile.mockResolvedValue('code');
+
+      const result = await pulling.downloadGenerators(
+        asSdk(mockSdk),
+        1,
+        'dir',
+        ['validator']
+      );
+
+      expect(result.count).toBe(1);
+      expect(result.data).toEqual([
+        { name: 'gen', source: './generators/gen.cc' },
+      ]);
+    });
+
+    it('should skip the checker, whose sourceType is only its compiler', async () => {
+      mockSdk.getFiles.mockResolvedValue({
+        sourceFiles: [
+          {
+            name: 'chk.cpp',
+            modificationTimeSeconds: 0,
+            length: 0,
+            sourceType: 'cpp.g++17',
+          },
+          {
+            name: 'gen.cpp',
+            modificationTimeSeconds: 0,
+            length: 0,
+            sourceType: 'cpp.g++17',
+          },
+          {
+            name: 'val.cpp',
+            modificationTimeSeconds: 0,
+            length: 0,
+            sourceType: 'cpp.g++17',
+          },
+        ],
+        resourceFiles: [],
+        auxFiles: [],
+      });
+      mockSdk.viewFile.mockResolvedValue('code');
+
+      const result = await pulling.downloadGenerators(
+        asSdk(mockSdk),
+        1,
+        'dir',
+        ['val', 'chk']
+      );
+
+      expect(result.data).toEqual([
+        { name: 'gen', source: './generators/gen.cpp' },
+      ]);
+      expect(mockSdk.viewFile).toHaveBeenCalledTimes(1);
     });
 
     it('should warn but continue when individual viewFile fails', async () => {
@@ -406,7 +471,7 @@ describe('pulling.ts', () => {
         asSdk(mockSdk),
         1,
         'dir',
-        'val'
+        ['val']
       );
 
       expect(result.count).toBe(2);
@@ -420,7 +485,7 @@ describe('pulling.ts', () => {
         asSdk(mockSdk),
         1,
         'dir',
-        'val'
+        ['val']
       );
 
       expect(result.count).toBe(0);
@@ -438,7 +503,7 @@ describe('pulling.ts', () => {
         asSdk(mockSdk),
         1,
         'dir',
-        'val'
+        ['val']
       );
 
       expect(result.count).toBe(0);
@@ -459,7 +524,7 @@ describe('pulling.ts', () => {
         asSdk(mockSdk),
         1,
         'dir',
-        'val'
+        ['val']
       );
       expect(result.count).toBe(1);
       expect(result.data[0].name).toBe('mystery');

@@ -39,7 +39,7 @@ Polyman eliminates manual testing and syncing, letting you focus on problem desi
 ### System Requirements
 
 - **Node.js** ≥ 14
-- **C++ Compiler** (g++ with C++17+; override the executable with `POLYMAN_CXX` or the `compiler.cpp` field in `Config.json`)
+- **C++ Compiler** (g++ with C++23 support; set `cppStandard` in `Config.json` for older compilers, or pick another compiler with `POLYMAN_CXX` or `compiler.cpp`)
 - **Python 3** (optional - for Python solutions)
 - **Java JDK** (optional - for Java solutions)
 
@@ -101,6 +101,9 @@ polyman remote commit . "Updated solutions"
 | `polyman run <solution> --all` | Run solution on all tests       |
 | `polyman test <component>`     | Test validator/checker/solution |
 | `polyman verify`               | Complete verification workflow  |
+| `polyman verify --json`        | Same, as a JSON report on stdout |
+| `polyman cache status`         | Show cached compiled binaries   |
+| `polyman cache clear`          | Delete the compilation cache    |
 
 ### Polygon Commands
 
@@ -114,6 +117,18 @@ polyman remote commit . "Updated solutions"
 | `polyman remote package <id> <type>` | Build package        |
 
 For detailed usage, see [GUIDE.md](GUIDE.md#cli-commands-reference).
+
+### Compilation cache
+
+C++ builds are cached in `.polyman/cache/` inside the problem directory. A source is recompiled only when it, a local header it includes (such as `testlib.h`), `cppStandard`, or the compiler version changes; otherwise the cached binary is reused and `verify` reports the time saved. Pass `--no-cache` to `generate`, `validate`, `run`, `test` or `verify` to force recompilation. See [GUIDE.md](GUIDE.md#compilation-cache).
+
+### Terminal colors
+
+polyman checks the terminal background when it starts and uses light colors on a white or light terminal, dark colors otherwise. If it picks the wrong one, set `POLYMAN_THEME=dark` or `POLYMAN_THEME=light` to force it. Set `NO_COLOR=1` (see [no-color.org](https://no-color.org)) to turn colors off. `NO_COLOR` wins over `FORCE_COLOR` and `POLYMAN_THEME`. See [GUIDE.md](GUIDE.md#terminal-colors).
+
+### Scripting and AI agents
+
+`run` and `verify` accept `--json`: stdout then carries exactly one JSON document and all human-readable output moves to stderr, so `polyman verify --json > verify.json` is safe to parse. The exit code is unchanged. `remote push` accepts `--yes` and `--name <slug>` so a new problem can be created without a terminal; without a TTY the command fails fast instead of waiting on a prompt. See [GUIDE.md](GUIDE.md#full-verification) for the report shape.
 
 ## Solution Tags
 

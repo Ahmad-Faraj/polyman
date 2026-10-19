@@ -1,14 +1,27 @@
 /**
  * @fileoverview Terminal output formatter with Codeforces-themed styling.
- * Provides consistent, colorful CLI output using chalk library.
+ * Provides consistent, colorful CLI output; colors come from the active theme.
  * All methods use explicit icon placement for better indentation control.
  */
 
-import chalk from 'chalk';
+import { getTheme, type Theme } from './theme';
+
+/**
+ * Stream that human-readable output is written to.
+ * @typedef OutputTarget
+ */
+export type OutputTarget = 'stdout' | 'stderr';
+
+/**
+ * Listener that receives every message passed to `fmt.error`.
+ * @typedef ErrorSink
+ */
+export type ErrorSink = (message: string) => void;
 
 /**
  * Formatter class for creating styled terminal output with Codeforces theme.
- * Uses chalk library for coloring with custom hex colors (#1E88E5 blue, #FF6B6B red).
+ * Colors come from a {@link Theme} (see src/theme.ts). The CLI detects the
+ * theme once at startup and applies it with {@link Formatter.setTheme}.
  *
  * @class Formatter
  * @example
@@ -20,6 +33,57 @@ import chalk from 'chalk';
  * fmt.stepComplete('Done');
  */
 export class Formatter {
+  private target: OutputTarget = 'stdout';
+  private errorSink: ErrorSink | null = null;
+
+  /**
+   * @param {Theme} [theme=getTheme()] - Color theme to style output with
+   */
+  constructor(private theme: Theme = getTheme()) {}
+
+  /**
+   * Replaces the color theme. The CLI calls it after detecting the terminal
+   * background, because `fmt` is created before detection finishes.
+   * @param {Theme} theme - Color theme to style output with
+   */
+  setTheme(theme: Theme): void {
+    this.theme = theme;
+  }
+
+  /**
+   * Routes all printed output to stdout (default) or stderr.
+   * `--json` commands switch to stderr so stdout carries only the JSON report.
+   * @param {OutputTarget} target - Stream to print to
+   */
+  setOutput(target: OutputTarget): void {
+    this.target = target;
+  }
+
+  /**
+   * Returns the stream human output currently goes to.
+   * @returns {OutputTarget} 'stdout' or 'stderr'
+   */
+  getOutput(): OutputTarget {
+    return this.target;
+  }
+
+  /**
+   * Registers a listener that receives every `error()` message, or null to
+   * remove it. Used by the JSON report collector to capture failure text.
+   * @param {ErrorSink | null} sink - Listener for error messages
+   */
+  setErrorSink(sink: ErrorSink | null): void {
+    this.errorSink = sink;
+  }
+
+  private print(...parts: string[]): void {
+    if (this.target === 'stderr') {
+      console.error(...parts);
+    } else {
+      console.log(...parts);
+    }
+  }
+
   /**
    * Prints a success message in green.
    * @param {string} message - The message to display
@@ -27,7 +91,7 @@ export class Formatter {
    * fmt.success('Template created successfully!');
    */
   success(message: string) {
-    console.log(chalk.green(message));
+    this.print(this.theme.success(message));
   }
 
   /**
@@ -37,7 +101,8 @@ export class Formatter {
    * fmt.error('Failed to compile validator');
    */
   error(message: string) {
-    console.log(chalk.red(message));
+    this.print(this.theme.error(message));
+    this.errorSink?.(message);
   }
 
   /**
@@ -47,7 +112,7 @@ export class Formatter {
    * fmt.warning('testlib.h already exists');
    */
   warning(message: string) {
-    console.log(chalk.yellow(message));
+    this.print(this.theme.warning(message));
   }
 
   /**
@@ -57,7 +122,7 @@ export class Formatter {
    * fmt.info(`Target: ${generatorName}`);
    */
   info(message: string) {
-    console.log(chalk.white(message));
+    this.print(this.theme.info(message));
   }
 
   /**
@@ -68,7 +133,7 @@ export class Formatter {
    * fmt.log('Additional details...');
    */
   log(message: string) {
-    console.log(chalk.gray(message));
+    this.print(this.theme.muted(message));
   }
 
   /**
@@ -79,7 +144,7 @@ export class Formatter {
    * fmt.success(`${fmt.checkmark()} Test passed`);
    */
   checkmark(): string {
-    return chalk.green('✓');
+    return this.theme.success('✓');
   }
 
   /**
@@ -90,7 +155,7 @@ export class Formatter {
    * fmt.error(`${fmt.cross()} Test failed`);
    */
   cross(): string {
-    return chalk.red('✖');
+    return this.theme.error('✖');
   }
 
   /**
@@ -101,7 +166,7 @@ export class Formatter {
    * fmt.warning(`${fmt.warningIcon()} Memory limit not supported on Windows`);
    */
   warningIcon(): string {
-    return chalk.yellow('⚠');
+    return this.theme.warning('⚠');
   }
 
   /**
@@ -112,7 +177,7 @@ export class Formatter {
    * fmt.info(`${fmt.infoIcon()} Found 5 generators`);
    */
   infoIcon(): string {
-    return chalk.blue('ℹ');
+    return this.theme.infoIcon('ℹ');
   }
 
   /**
@@ -123,11 +188,11 @@ export class Formatter {
    * fmt.section('📁 CREATE NEW PROBLEM TEMPLATE');
    */
   section(title: string) {
-    console.log();
-    console.log(chalk.bold.blue(`${'═'.repeat(50)}`));
-    console.log(chalk.bold.blue(`  ${title}`));
-    console.log(chalk.bold.blue(`${'═'.repeat(50)}`));
-    console.log();
+    this.print();
+    this.print(this.theme.heading(`${'═'.repeat(50)}`));
+    this.print(this.theme.heading(`  ${title}`));
+    this.print(this.theme.heading(`${'═'.repeat(50)}`));
+    this.print();
   }
 
   /**
@@ -138,9 +203,10 @@ export class Formatter {
    * fmt.step(1, 'Creating Directory Structure');
    */
   step(stepNumber: number, title: string) {
-    console.log();
-    console.log(
-      chalk.bold.blue(`┌─ Step ${stepNumber}: `) + chalk.bold.white(title)
+    this.print();
+    this.print(
+      this.theme.heading(`┌─ Step ${stepNumber}: `) +
+        this.theme.stepTitle(title)
     );
   }
   /**
@@ -149,7 +215,7 @@ export class Formatter {
    * fmt.newLine();
    */
   newLine() {
-    console.log();
+    this.print();
   }
 
   /**
@@ -160,9 +226,9 @@ export class Formatter {
    */
   stepComplete(message?: string) {
     if (message) {
-      console.log(chalk.green(`└─ ✓ ${message}`));
+      this.print(this.theme.success(`└─ ✓ ${message}`));
     } else {
-      console.log(chalk.green(`└─ ✓ Complete`));
+      this.print(this.theme.success(`└─ ✓ Complete`));
     }
   }
 
@@ -174,7 +240,7 @@ export class Formatter {
    * fmt.info(`Target: ${fmt.highlight('all')}`);
    */
   highlight(text: string): string {
-    return chalk.bold.blue(text);
+    return this.theme.heading(text);
   }
 
   /**
@@ -185,7 +251,7 @@ export class Formatter {
    * fmt.info(`${fmt.dim('(optional)')}`);
    */
   dim(text: string): string {
-    return chalk.dim(text);
+    return this.theme.dim(text);
   }
 
   /**
@@ -193,10 +259,10 @@ export class Formatter {
    * @param {string} text - Text to make bold
    * @returns {string} Styled text
    * @example
-   * console.log(fmt.bold('Important:'));
+   * this.print(fmt.bold('Important:'));
    */
   bold(text: string): string {
-    return chalk.bold(text);
+    return this.theme.bold(text);
   }
 
   /**
@@ -207,7 +273,7 @@ export class Formatter {
    * fmt.log(`Error: ${fmt.accent('Failed')}`);
    */
   accent(text: string): string {
-    return chalk.hex('#FF6B6B')(text); // Codeforces red accent
+    return this.theme.accent(text);
   }
 
   /**
@@ -218,7 +284,7 @@ export class Formatter {
    * fmt.info(`Main solution: ${fmt.primary(mainSolution.name)}`);
    */
   primary(text: string): string {
-    return chalk.hex('#1E88E5')(text); // Codeforces blue
+    return this.theme.primary(text);
   }
 
   /**
@@ -229,15 +295,19 @@ export class Formatter {
    * fmt.successBox('TEMPLATE CREATED SUCCESSFULLY!');
    */
   successBox(message: string) {
-    console.log();
-    console.log(
-      chalk.bold.green('  ╔═══════════════════════════════════════════════╗')
+    this.print();
+    this.print(
+      this.theme.successBold(
+        '  ╔═══════════════════════════════════════════════╗'
+      )
     );
-    console.log(chalk.bold.green(`    🎉  ${message.padEnd(41)}  `));
-    console.log(
-      chalk.bold.green('  ╚═══════════════════════════════════════════════╝')
+    this.print(this.theme.successBold(`    🎉  ${message.padEnd(41)}  `));
+    this.print(
+      this.theme.successBold(
+        '  ╚═══════════════════════════════════════════════╝'
+      )
     );
-    console.log();
+    this.print();
   }
 
   /**
@@ -248,15 +318,15 @@ export class Formatter {
    * fmt.errorBox('VALIDATION FAILED!');
    */
   errorBox(message: string) {
-    console.log();
-    console.log(
-      chalk.bold.red('  ╔═══════════════════════════════════════════╗')
+    this.print();
+    this.print(
+      this.theme.errorBold('  ╔═══════════════════════════════════════════╗')
     );
-    console.log(chalk.bold.red(`   ❌  ${message.padEnd(35)}  `));
-    console.log(
-      chalk.bold.red('  ╚═══════════════════════════════════════════╝')
+    this.print(this.theme.errorBold(`   ❌  ${message.padEnd(35)}  `));
+    this.print(
+      this.theme.errorBold('  ╚═══════════════════════════════════════════╝')
     );
-    console.log();
+    this.print();
   }
 }
 

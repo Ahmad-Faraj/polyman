@@ -17,7 +17,7 @@ int main(int argc, char *argv[])
 
         if (i < n - 1)
             cout << " ";
-        // else
-        //     cout << endl;
+        else
+            cout << endl;
     }
 }

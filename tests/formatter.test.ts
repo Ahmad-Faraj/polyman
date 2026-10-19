@@ -84,6 +84,78 @@ describe('Formatter', () => {
     });
   });
 
+  describe('output target', () => {
+    it('defaults to stdout', () => {
+      expect(fmt.getOutput()).toBe('stdout');
+    });
+
+    it('routes every print method to stderr after setOutput("stderr")', () => {
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const local = new Formatter();
+      local.setOutput('stderr');
+      expect(local.getOutput()).toBe('stderr');
+
+      local.success('s');
+      local.error('e');
+      local.warning('w');
+      local.info('i');
+      local.log('l');
+      local.newLine();
+      local.section('T');
+      local.step(1, 'S');
+      local.stepComplete();
+      local.successBox('ok');
+      local.errorBox('no');
+
+      expect(consoleSpy).not.toHaveBeenCalled();
+      expect(errorSpy).toHaveBeenCalledWith(chalk.green('s'));
+      expect(errorSpy).toHaveBeenCalledWith(chalk.red('e'));
+      expect(errorSpy).toHaveBeenCalledWith(chalk.yellow('w'));
+      expect(errorSpy).toHaveBeenCalledWith(chalk.white('i'));
+      expect(errorSpy).toHaveBeenCalledWith(chalk.gray('l'));
+      // newLine(1) + section(5) + step(2) + stepComplete(1) + boxes(10) + 5
+      expect(errorSpy).toHaveBeenCalledTimes(24);
+    });
+
+    it('switches back to stdout', () => {
+      const local = new Formatter();
+      local.setOutput('stderr');
+      local.setOutput('stdout');
+      local.info('back');
+      expect(consoleSpy).toHaveBeenCalledWith(chalk.white('back'));
+    });
+  });
+
+  describe('error sink', () => {
+    it('forwards the raw error message to the sink', () => {
+      const local = new Formatter();
+      const sink = vi.fn();
+      local.setErrorSink(sink);
+      local.error('bad thing');
+      expect(sink).toHaveBeenCalledWith('bad thing');
+      expect(consoleSpy).toHaveBeenCalledWith(chalk.red('bad thing'));
+    });
+
+    it('does not forward other message kinds', () => {
+      const local = new Formatter();
+      const sink = vi.fn();
+      local.setErrorSink(sink);
+      local.warning('w');
+      local.info('i');
+      local.errorBox('box');
+      expect(sink).not.toHaveBeenCalled();
+    });
+
+    it('stops forwarding after the sink is cleared', () => {
+      const local = new Formatter();
+      const sink = vi.fn();
+      local.setErrorSink(sink);
+      local.setErrorSink(null);
+      local.error('x');
+      expect(sink).not.toHaveBeenCalled();
+    });
+  });
+
   describe('complex output methods', () => {
     it('should print section header', () => {
       fmt.section('Title');

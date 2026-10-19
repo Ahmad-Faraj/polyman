@@ -131,17 +131,19 @@ type ReadFileSimulator = (filePath: string) => {
 };
 
 function installReadFileMock(simulator: ReadFileSimulator): void {
-  mockedFsReadFile.mockImplementation(((
-    filePath: fs.PathOrFileDescriptor,
-    optionsOrCb: unknown,
-    maybeCb?: unknown
-  ) => {
-    const callback = (
-      typeof optionsOrCb === 'function' ? optionsOrCb : maybeCb
-    ) as (err: NodeJS.ErrnoException | null, data: string) => void;
-    const result = simulator(String(filePath));
-    callback(result.err, result.data);
-  }) as unknown as typeof fs.readFile);
+  mockedFsReadFile.mockImplementation(
+    (
+      filePath: fs.PathOrFileDescriptor,
+      optionsOrCb: unknown,
+      maybeCb?: unknown
+    ) => {
+      const callback = (
+        typeof optionsOrCb === 'function' ? optionsOrCb : maybeCb
+      ) as (err: NodeJS.ErrnoException | null, data: string) => void;
+      const result = simulator(String(filePath));
+      callback(result.err, result.data);
+    }
+  );
 }
 
 describe('checker.ts', () => {
@@ -593,7 +595,7 @@ describe('checker.ts', () => {
       );
 
       installReadFileMock(() => ({
-        err: new Error('ENOENT') as NodeJS.ErrnoException,
+        err: new Error('ENOENT'),
         data: '',
       }));
 

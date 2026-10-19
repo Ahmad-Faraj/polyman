@@ -1,16 +1,16 @@
 import type { ReadStream } from 'fs';
 import fs from 'fs';
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-  type MockInstance,
-} from 'vitest';
+import path from 'path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { MockInstance } from 'vitest';
 import { executor } from '../../src/executor';
 import { fmt } from '../../src/formatter';
+import { cachedCompile } from '../../src/helpers/compile-cache';
+import {
+  findPrebuiltTestlib,
+  markPrebuiltTestlibUnsupported,
+} from '../../src/helpers/prebuilt-testlib';
+import { quoteShellArgument } from '../../src/helpers/shell';
 import * as utils from '../../src/helpers/utils';
 import type {
   LocalChecker,
@@ -36,6 +36,20 @@ vi.mock('fs', () => {
 
 vi.mock('../../src/executor');
 vi.mock('../../src/formatter');
+// Pass-through: compile-cache.test.ts covers the cache itself.
+vi.mock('../../src/helpers/compile-cache', () => ({
+  cachedCompile: vi.fn(
+    async (_request: unknown, compile: () => Promise<unknown>) => {
+      await compile();
+    }
+  ),
+}));
+// No prebuilt testlib unless a test provides one; prebuilt-testlib.test.ts
+// covers building it.
+vi.mock('../../src/helpers/prebuilt-testlib', () => ({
+  findPrebuiltTestlib: vi.fn(() => Promise.resolve(null)),
+  markPrebuiltTestlibUnsupported: vi.fn(),
+}));
 
 // Mock specific console methods to avoid clutter
 const mockExit = vi
@@ -67,7 +81,7 @@ function makeReadStreamStub(
 ): ReadStream {
   const stub: Pick<ReadStream, 'on' | 'close'> = {
     on: on as unknown as ReadStream['on'],
-    close: vi.fn() as unknown as ReadStream['close'],
+    close: vi.fn(),
   };
   return stub as ReadStream;
 }
@@ -227,14 +241,75 @@ describe('utils.ts', () => {
     });
 
     describe('compileCPP', () => {
-      it('should compile cpp file with g++ by default', async () => {
+      beforeEach(() => {
+        // Drop any Config.json stub left behind by a previous test.
+        readFileSyncMock.mockReset();
+      });
+
+      it('should compile cpp file with -O2 and C++23 by default', async () => {
         await utils.compileCPP('main.cpp');
 
         expect(executeMock()).toHaveBeenCalledWith(
-          expect.stringMatching(/^['"]g\+\+['"] -iquote/),
+          expect.stringContaining("'g++' '-O2' '-std=c++23' -iquote"),
           expect.anything()
         );
       });
+
+      it('should honor the cppStandard option', async () => {
+        await utils.compileCPP('main.cpp', { cppStandard: 'c++17' });
+
+        expect(executeMock()).toHaveBeenCalledWith(
+          expect.stringContaining("'g++' '-O2' '-std=c++17' -iquote"),
+          expect.anything()
+        );
+      });
+
+      it('should read cppStandard from Config.json when no option given', async () => {
+        (
+          readFileSyncMock as unknown as ReturnType<
+            typeof vi.fn<(...args: unknown[]) => string>
+          >
+        ).mockReturnValue('{"cppStandard": "c++20"}');
+
+        await utils.compileCPP('main.cpp');
+
+        expect(executeMock()).toHaveBeenCalledWith(
+          expect.stringContaining("'-std=c++20' "),
+          expect.anything()
+        );
+      });
+
+      it('should reject an invalid cppStandard from Config.json', async () => {
+        (
+          readFileSyncMock as unknown as ReturnType<
+            typeof vi.fn<(...args: unknown[]) => string>
+          >
+        ).mockReturnValue('{"cppStandard": "c++23; rm -rf /"}');
+
+        await expect(utils.compileCPP('main.cpp')).rejects.toThrow(
+          /Invalid cppStandard/
+        );
+        expect(executeMock()).not.toHaveBeenCalled();
+      });
+
+      it.each(['.cc', '.cxx'])(
+        'should compile %s file and strip the extension for the output',
+        async ext => {
+          const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue('/p');
+          try {
+            await utils.compileCPP(`solutions/main${ext}`);
+
+            expect(executeMock()).toHaveBeenCalledWith(
+              expect.stringContaining(
+                `-o '/p/solutions/main' '/p/solutions/main${ext}'`
+              ),
+              expect.anything()
+            );
+          } finally {
+            cwdSpy.mockRestore();
+          }
+        }
+      );
 
       it.skipIf(process.platform === 'win32')(
         'should protect C++ paths containing spaces and parentheses',
@@ -242,7 +317,7 @@ describe('utils.ts', () => {
           await utils.compileCPP('gen.cpp');
 
           expect(executeMock()).toHaveBeenCalledWith(
-            "'g++' -iquote '/tmp/polyman path 3)test' " +
+            "'g++' '-O2' '-std=c++23' -iquote '/tmp/polyman path 3)test' " +
               "-o '/tmp/polyman path 3)test/gen' " +
               "'/tmp/polyman path 3)test/gen.cpp'",
             expect.anything()
@@ -262,7 +337,8 @@ describe('utils.ts', () => {
           await utils.compileCPP('gen.cpp');
 
           expect(executeMock()).toHaveBeenCalledWith(
-            "'g++-15' '-O2' '-std=c++23' -iquote '/tmp/polyman path 3)test' " +
+            "'g++-15' '-O2' '-std=c++23' '-O2' '-std=c++23' " +
+              "-iquote '/tmp/polyman path 3)test' " +
               "-o '/tmp/polyman path 3)test/gen' " +
               "'/tmp/polyman path 3)test/gen.cpp'",
             expect.anything()
@@ -279,7 +355,8 @@ describe('utils.ts', () => {
           await utils.compileCPP('gen.cpp');
 
           expect(executeMock()).toHaveBeenCalledWith(
-            "'/opt/my compilers/bin/clang++' -iquote '/tmp/polyman path 3)test' " +
+            "'/opt/my compilers/bin/clang++' '-O2' '-std=c++23' " +
+              "-iquote '/tmp/polyman path 3)test' " +
               "-o '/tmp/polyman path 3)test/gen' " +
               "'/tmp/polyman path 3)test/gen.cpp'",
             expect.anything()
@@ -287,11 +364,186 @@ describe('utils.ts', () => {
         }
       );
 
-      it('should throw if file is not .cpp', async () => {
+      it('should throw if file is not a C++ source', async () => {
         await expect(utils.compileCPP('main.c')).rejects.toThrow(
-          /Expected .cpp file/
+          /Expected .cpp\/.cc\/.cxx file/
         );
+        expect(executeMock()).not.toHaveBeenCalled();
       });
+
+      it('should route the compile through the cache with its inputs', async () => {
+        const cwd = path.resolve('/p');
+        const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(cwd);
+        try {
+          await utils.compileCPP('solutions/main.cpp', {
+            cppStandard: 'c++20',
+          });
+
+          const output = path.join(cwd, 'solutions', 'main');
+          expect(vi.mocked(cachedCompile)).toHaveBeenCalledWith(
+            {
+              sourcePath: path.join(cwd, 'solutions', 'main.cpp'),
+              binaryPath:
+                process.platform === 'win32' ? `${output}.exe` : output,
+              compiler: 'g++',
+              flags: ['-O2', '-std=c++20'],
+              includeDirs: [cwd],
+            },
+            expect.any(Function)
+          );
+        } finally {
+          cwdSpy.mockRestore();
+        }
+      });
+
+      describe('with a prebuilt testlib', () => {
+        const cwd = path.resolve('/p');
+        const prebuilt = {
+          key: 'k',
+          includeDir: path.join(cwd, '.polyman', 'cache', 'testlib', 'k'),
+          objectPath: path.join(
+            cwd,
+            '.polyman',
+            'cache',
+            'testlib',
+            'k',
+            'testlib.o'
+          ),
+        };
+        const q = (value: string) => quoteShellArgument(value);
+        const source = path.join(cwd, 'validator', 'val.cpp');
+        const output = path.join(cwd, 'validator', 'val');
+        const splitCommand =
+          `${q('g++')} ${q('-O2')} ${q('-std=c++23')} -iquote ${q(prebuilt.includeDir)} -iquote ${q(cwd)} ` +
+          `-o ${q(output)} ${q(prebuilt.objectPath)} ${q(source)}`;
+        const fullCommand = `${q('g++')} ${q('-O2')} ${q('-std=c++23')} -iquote ${q(cwd)} -o ${q(output)} ${q(source)}`;
+        let cwdSpy: MockInstance<() => string>;
+
+        beforeEach(() => {
+          cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(cwd);
+          vi.mocked(findPrebuiltTestlib).mockResolvedValueOnce(prebuilt);
+        });
+
+        afterEach(() => {
+          cwdSpy.mockRestore();
+        });
+
+        it('compiles against the split header and links the object', async () => {
+          await utils.compileCPP('validator/val.cpp', { cppStandard: 'c++23' });
+
+          expect(executeMock()).toHaveBeenCalledTimes(1);
+          expect(executeMock()).toHaveBeenCalledWith(
+            splitCommand,
+            expect.anything()
+          );
+          expect(vi.mocked(findPrebuiltTestlib)).toHaveBeenCalledWith({
+            sourcePath: source,
+            compiler: 'g++',
+            flags: ['-O2', '-std=c++23'],
+          });
+        });
+
+        it('falls back to the original header and marks the split unsupported', async () => {
+          executeMock()
+            .mockRejectedValueOnce(new Error('undefined reference'))
+            .mockResolvedValueOnce({
+              stdout: '',
+              stderr: '',
+              exitCode: 0,
+              success: true,
+            });
+
+          await utils.compileCPP('validator/val.cpp', { cppStandard: 'c++23' });
+
+          expect(executeMock()).toHaveBeenLastCalledWith(
+            fullCommand,
+            expect.anything()
+          );
+          expect(
+            vi.mocked(markPrebuiltTestlibUnsupported)
+          ).toHaveBeenCalledWith(prebuilt);
+        });
+
+        it('reports the normal compile error when the source is broken', async () => {
+          executeMock()
+            .mockRejectedValueOnce(new Error('split: expected ;'))
+            .mockRejectedValueOnce(new Error('val.cpp:3: expected ;'));
+
+          await expect(
+            utils.compileCPP('validator/val.cpp', { cppStandard: 'c++23' })
+          ).rejects.toThrow('val.cpp:3: expected ;');
+          expect(
+            vi.mocked(markPrebuiltTestlibUnsupported)
+          ).not.toHaveBeenCalled();
+        });
+      });
+    });
+
+    describe('C++ source helpers', () => {
+      beforeEach(() => {
+        readFileSyncMock.mockReset();
+      });
+
+      it('isCppSource recognises .cpp, .cc and .cxx (case-insensitively)', () => {
+        expect(utils.isCppSource('a/b/main.cpp')).toBe(true);
+        expect(utils.isCppSource('main.cc')).toBe(true);
+        expect(utils.isCppSource('main.cxx')).toBe(true);
+        expect(utils.isCppSource('MAIN.CPP')).toBe(true);
+        expect(utils.isCppSource('main.c')).toBe(false);
+        expect(utils.isCppSource('main.py')).toBe(false);
+        expect(utils.isCppSource('testlib.h')).toBe(false);
+      });
+
+      it('stripCppExtension removes only C++ extensions', () => {
+        expect(utils.stripCppExtension('/p/main.cpp')).toBe('/p/main');
+        expect(utils.stripCppExtension('/p/main.cc')).toBe('/p/main');
+        expect(utils.stripCppExtension('/p/main.cxx')).toBe('/p/main');
+        expect(utils.stripCppExtension('/p/Main.java')).toBe('/p/Main.java');
+        expect(utils.stripCppExtension('ncmp')).toBe('ncmp');
+      });
+
+      it('resolveCppStandard falls back to c++23 without Config.json', () => {
+        readFileSyncMock.mockImplementation(() => {
+          throw new Error('ENOENT');
+        });
+        expect(utils.resolveCppStandard()).toBe(utils.DEFAULT_CPP_STANDARD);
+        expect(utils.DEFAULT_CPP_STANDARD).toBe('c++23');
+      });
+
+      it('resolveCppStandard falls back to c++23 when the field is absent', () => {
+        (
+          readFileSyncMock as unknown as ReturnType<
+            typeof vi.fn<(...args: unknown[]) => string>
+          >
+        ).mockReturnValue('{"solutions": []}');
+        expect(utils.resolveCppStandard()).toBe('c++23');
+      });
+
+      it.each(['c++11', 'c++17', 'gnu++20', 'c++2b', 'c++26'])(
+        'resolveCppStandard accepts %s',
+        std => {
+          (
+            readFileSyncMock as unknown as ReturnType<
+              typeof vi.fn<(...args: unknown[]) => string>
+            >
+          ).mockReturnValue(JSON.stringify({ cppStandard: std }));
+          expect(utils.resolveCppStandard()).toBe(std);
+        }
+      );
+
+      it.each(['17', 'c++', 'c++23 -fno-exceptions', 23])(
+        'resolveCppStandard rejects %s',
+        std => {
+          (
+            readFileSyncMock as unknown as ReturnType<
+              typeof vi.fn<(...args: unknown[]) => string>
+            >
+          ).mockReturnValue(JSON.stringify({ cppStandard: std }));
+          expect(() => utils.resolveCppStandard()).toThrow(
+            /Invalid cppStandard/
+          );
+        }
+      );
     });
 
     describe('compileJava', () => {
@@ -437,6 +689,20 @@ describe('utils.ts', () => {
       };
       expect(utils.getCompiledCommandToRun(obj)).toContain('main');
       expect(utils.getCompiledCommandToRun(obj)).not.toContain('.cpp');
+    });
+
+    it.each(['.cc', '.cxx'])('should handle %s like .cpp', ext => {
+      const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue('/p');
+      const obj: LocalSolution = {
+        source: `solutions/main${ext}`,
+        name: 'main',
+        tag: 'MA',
+      };
+      try {
+        expect(utils.getCompiledCommandToRun(obj)).toBe("'/p/solutions/main'");
+      } finally {
+        cwdSpy.mockRestore();
+      }
     });
 
     it.skipIf(process.platform === 'win32')(

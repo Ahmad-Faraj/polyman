@@ -161,6 +161,10 @@ const timeout = setTimeout(() => {
 
 Terminal output styling with Codeforces theme.
 
+The actual colors come from `src/theme.ts`: a dark theme and a light theme. A non-empty `NO_COLOR` turns all colors off. `POLYMAN_THEME=dark` or `POLYMAN_THEME=light` forces a theme. When `POLYMAN_THEME` is unset or `auto`, `resolveTheme()` detects the terminal background with `src/helpers/terminal-background.ts`: first `COLORFGBG`, then an OSC 11 query followed by a DA1 query (the DA1 answer tells a terminal without OSC 11 support apart from a slow one), with a 100 ms timeout, and dark as the fallback. Detection is skipped when stdin or stdout is not a TTY, when chalk has no colors, when `TERM=dumb`, for background jobs, and on Windows.
+
+Detection is async, but `fmt` is created when the module loads, so `src/cli.ts` awaits `resolveTheme()` once before `program.parse()` and applies the result with `fmt.setTheme(theme)` and `printComprehensiveHelp(program, theme)`. The sync `getTheme(env)` does no detection (unset means dark); it is the default for `new Formatter()` and for tests.
+
 **Colors:**
 
 - Primary: `#1E88E5` (blue)

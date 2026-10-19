@@ -8,6 +8,7 @@ import ConfigFile, {
   LocalSolution,
   VerdictTracker,
   LocalTestset,
+  TestVerdict,
 } from '../types';
 import { executor } from '../executor';
 import fs from 'fs';
@@ -16,12 +17,14 @@ import { logError, throwError } from './utils';
 import {
   compileCPP,
   compileJava,
+  isCppSource,
   readConfigFile,
   readFirstLine,
   getTestFiles,
   getCompiledCommandToRun,
 } from './utils';
 import { fmt } from '../formatter';
+import { report } from '../report';
 import { ensureCheckerExists, runChecker } from './checker';
 import type { LocalChecker } from '../types';
 import { getTestIndicesForGroup } from './testset';
@@ -78,6 +81,225 @@ export function findMatchingSolutions(
 }
 
 /**
+ * Languages polyman can run a solution as, and therefore scale its time limit
+ * for. Anything else (a bare `.js` file, an unknown extension) has no entry.
+ */
+export type SolutionLanguage = 'cpp' | 'java' | 'python';
+
+/**
+ * Keys accepted in `timeLimitMultipliers`.
+ */
+const SOLUTION_LANGUAGES: readonly SolutionLanguage[] = [
+  'cpp',
+  'java',
+  'python',
+];
+
+/**
+ * Longest timeout Node's timers accept (2^31 - 1 ms). A bigger value makes
+ * `setTimeout` fire right away, which would turn every run into a TLE.
+ */
+export const MAX_TIME_LIMIT_MS = 2147483647;
+
+/**
+ * The time limit a solution is actually run with, as returned by
+ * {@link solutionTimeLimit}.
+ *
+ * @interface SolutionTimeLimit
+ * @property {number} timeLimit - Milliseconds the solution is executed with
+ * @property {number} multiplier - Factor applied to `config.timeLimit` (1 when nothing was configured)
+ * @property {SolutionLanguage | undefined} language - Language the factor was looked up for
+ */
+export interface SolutionTimeLimit {
+  timeLimit: number;
+  multiplier: number;
+  language: SolutionLanguage | undefined;
+}
+
+/**
+ * Works out which language a solution runs as locally. Only the file
+ * extension decides, with the same checks `getCompiledCommandToRun` uses to
+ * pick the program, so the factor always matches how the file is really run.
+ * `sourceType` is ignored here: it only picks the compiler on Polygon.
+ *
+ * @param {LocalSolution} solution - Solution configuration
+ * @returns {SolutionLanguage | undefined} The language, or undefined if polyman cannot tell
+ *
+ * @example
+ * solutionLanguage({ name: 'main', source: 'main.cpp', tag: 'MA' }); // 'cpp'
+ * solutionLanguage({ name: 'slow', source: 'Main.java', tag: 'OK' }); // 'java'
+ */
+export function solutionLanguage(
+  solution: LocalSolution
+): SolutionLanguage | undefined {
+  if (isCppSource(solution.source)) return 'cpp';
+
+  switch (path.extname(solution.source)) {
+    case '.java':
+      return 'java';
+    case '.py':
+      return 'python';
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * Scales the declared limit by a factor, never going below 1ms.
+ *
+ * @private
+ * @param {number} timeLimit - Declared limit in milliseconds
+ * @param {number} multiplier - Factor to apply
+ * @returns {number} Scaled limit in whole milliseconds
+ */
+function scaleTimeLimit(timeLimit: number, multiplier: number): number {
+  return Math.max(1, Math.round(timeLimit * multiplier));
+}
+
+/**
+ * Prints a value from Config.json for an error message: numbers as they are
+ * (so `Infinity` does not show up as `null`), anything else as JSON.
+ *
+ * @private
+ * @param {unknown} value - Value to print
+ * @returns {string} Printable form of the value
+ */
+function describeConfigValue(value: unknown): string {
+  return typeof value === 'number' ? String(value) : JSON.stringify(value);
+}
+
+/**
+ * Checks `config.timeLimitMultipliers` before anything runs. A bad value
+ * must stop the command: if it only failed inside a run, the error would be
+ * read as an expected solution failure and `verify` could pass without the
+ * solution ever running.
+ *
+ * The field is optional. When it is set it must be an object whose keys are
+ * `cpp`, `java` or `python`, each a positive number, and the scaled limit
+ * must fit in a Node timer ({@link MAX_TIME_LIMIT_MS}).
+ *
+ * @param {ConfigFile} config - Configuration to check
+ *
+ * @throws {Error} If the field is not an object, has an unknown key, has a
+ * factor that is not a positive number, or makes the limit too large
+ *
+ * @example
+ * validateTimeLimitMultipliers(config); // throws on { "java": 0 }
+ */
+export function validateTimeLimitMultipliers(config: ConfigFile): void {
+  const multipliers: unknown = config.timeLimitMultipliers;
+  if (multipliers === undefined) return;
+
+  if (
+    typeof multipliers !== 'object' ||
+    multipliers === null ||
+    Array.isArray(multipliers)
+  ) {
+    throw new Error(
+      `Invalid timeLimitMultipliers in Config.json: ${describeConfigValue(multipliers)} ` +
+        `(expected an object like { "java": 2, "python": 3 })`
+    );
+  }
+
+  for (const [key, value] of Object.entries(multipliers)) {
+    if (!(SOLUTION_LANGUAGES as readonly string[]).includes(key)) {
+      throw new Error(
+        `Unknown key in timeLimitMultipliers: ${JSON.stringify(key)} ` +
+          `(allowed keys: ${SOLUTION_LANGUAGES.join(', ')})`
+      );
+    }
+
+    if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+      throw new Error(
+        `Invalid timeLimitMultipliers.${key} in Config.json: ${describeConfigValue(value)} ` +
+          `(expected a positive number)`
+      );
+    }
+
+    const scaled = scaleTimeLimit(config.timeLimit, value);
+    if (!(scaled <= MAX_TIME_LIMIT_MS)) {
+      throw new Error(
+        `timeLimitMultipliers.${key} is too large: ${config.timeLimit}ms x ${value} ` +
+          `gives ${Number.isFinite(scaled) ? `${scaled}ms` : 'an infinite limit'}, ` +
+          `the maximum is ${MAX_TIME_LIMIT_MS}ms`
+      );
+    }
+  }
+}
+
+/**
+ * Applies `config.timeLimitMultipliers` to the declared time limit.
+ * Java and Python are slower than C++ at the same task (JVM startup,
+ * interpreter), so a correct `OK` solution could get TLE locally while the
+ * problem itself is fine. The multiplier is opt-in: C++ always defaults to 1,
+ * and a config without the field behaves exactly as before. Polygon is still
+ * pushed the plain `timeLimit`, this only changes local runs.
+ *
+ * Commands call {@link validateTimeLimitMultipliers} before running anything;
+ * it is called here again so this function never returns a bad limit.
+ *
+ * @param {ConfigFile} config - Configuration containing `timeLimit` and the optional multipliers
+ * @param {LocalSolution} solution - Solution the limit is for
+ * @returns {SolutionTimeLimit} Effective limit, the factor used, and the language it was found for
+ *
+ * @throws {Error} If `timeLimitMultipliers` is invalid
+ *
+ * @example
+ * // 1000ms problem, "java": 2 -> Java solution gets 2000ms locally
+ * solutionTimeLimit(config, javaSolution); // { timeLimit: 2000, multiplier: 2, language: 'java' }
+ */
+export function solutionTimeLimit(
+  config: ConfigFile,
+  solution: LocalSolution
+): SolutionTimeLimit {
+  validateTimeLimitMultipliers(config);
+
+  const language = solutionLanguage(solution);
+  const multiplier =
+    language === undefined ? 1 : (config.timeLimitMultipliers?.[language] ?? 1);
+
+  if (multiplier === 1) {
+    return { timeLimit: config.timeLimit, multiplier, language };
+  }
+
+  return {
+    timeLimit: scaleTimeLimit(config.timeLimit, multiplier),
+    multiplier,
+    language,
+  };
+}
+
+/**
+ * Renders an effective limit for the terminal, e.g. `2000ms (x2 for java)`.
+ * Unscaled limits stay plain: `1000ms`. The factor is shown with at most two
+ * decimals (`x1.33`, `x1.5`, `x2`).
+ *
+ * @param {SolutionTimeLimit} limit - Limit to render
+ * @returns {string} Text for the run output
+ */
+export function formatTimeLimit(limit: SolutionTimeLimit): string {
+  if (limit.multiplier === 1 || limit.language === undefined) {
+    return `${limit.timeLimit}ms`;
+  }
+  const factor = Number(limit.multiplier.toFixed(2)).toString();
+  return `${limit.timeLimit}ms (x${factor} for ${limit.language})`;
+}
+
+/**
+ * Mentions the scaled limit once per run, and only when it differs from the
+ * declared one, so a passing Java solution is not read as ignoring the limit.
+ *
+ * @private
+ * @param {SolutionTimeLimit} limit - Effective limit of the solution being run
+ */
+function logTimeLimitForSolution(limit: SolutionTimeLimit): void {
+  if (limit.multiplier === 1 || limit.language === undefined) return;
+  fmt.log(
+    `    ${fmt.dim('→')} Time Limit: ${fmt.highlight(formatTimeLimit(limit))}`
+  );
+}
+
+/**
  * Runs a compiled solution on a test input file.
  * Executes solution with time/memory limits, handles output files, and error scenarios.
  * Creates output file with either solution output or error message (TLE, MLE, RTE).
@@ -110,7 +332,8 @@ async function runSolution(
   timeout: number,
   memoryLimitMB: number,
   inputFile: string,
-  testsetName: string
+  testsetName: string,
+  groupName?: string
 ) {
   const outputFilePath = path.resolve(
     process.cwd(),
@@ -130,6 +353,18 @@ async function runSolution(
   if (fs.existsSync(outputFilePath)) {
     fs.unlinkSync(outputFilePath);
   }
+  const testIndex = parseTestIndex(inputFile);
+  const startedAt = Date.now();
+  const record = (verdict: TestVerdict, message: string) => {
+    report.recordTest(solution, {
+      testset: testsetName,
+      ...(groupName !== undefined ? { group: groupName } : {}),
+      index: testIndex,
+      verdict,
+      timeMs: Date.now() - startedAt,
+      message,
+    });
+  };
   await executor.executeWithRedirect(
     compiledPath,
     {
@@ -137,18 +372,36 @@ async function runSolution(
       memoryLimitMB,
       silent: true,
       onError: result => {
+        record('RTE', `Runtime Error: ${result.stderr}`);
         writeErrorOutputAndThrow(outputFilePath, result.stderr);
       },
       onTimeout: () => {
+        record('TLE', `Time Limit Exceeded after ${timeout}ms`);
         writeTimeoutOutputAndThrow(outputFilePath, timeout);
       },
       onMemoryExceeded: () => {
+        record('MLE', `Memory Limit Exceeded (${memoryLimitMB} MB)`);
         writeMemoryOutputAndThrow(outputFilePath, memoryLimitMB);
       },
     },
     inputFilePath,
     outputFilePath
   );
+  record('OK', '');
+}
+
+/**
+ * Extracts the Polygon test index from a test file name.
+ *
+ * @param {string} testFile - File name such as `test12.txt`
+ * @returns {number} The numeric index, or 0 if the name has no number
+ *
+ * @example
+ * parseTestIndex('test12.txt'); // 12
+ */
+export function parseTestIndex(testFile: string): number {
+  const match = /(\d+)/.exec(testFile);
+  return match ? parseInt(match[1], 10) : 0;
 }
 /**
  * Creates output directory for solution if it doesn't exist.
@@ -205,12 +458,14 @@ function ensureOutputDirectory(
  * // No compilation needed (interpreted)
  */
 export async function compileSolution(sourcePath: string): Promise<void> {
+  if (isCppSource(sourcePath)) {
+    await compileCPP(sourcePath);
+    return;
+  }
+
   const ext = path.extname(sourcePath);
 
   switch (ext) {
-    case '.cpp':
-      await compileCPP(sourcePath);
-      break;
     case '.py':
       // No compilation needed for Python
       break;
@@ -266,6 +521,9 @@ export async function runSolutionOnSingleTest(
     `  ${fmt.infoIcon()} Running solution: ${fmt.highlight(solution.name)} on test ${testIndex} in ${fmt.highlight(testsetName)}`
   );
 
+  const limit = solutionTimeLimit(config, solution);
+  logTimeLimitForSolution(limit);
+
   try {
     const compiledPath = getCompiledCommandToRun(solution);
     ensureOutputDirectory(solution.name, testsetName);
@@ -275,7 +533,7 @@ export async function runSolutionOnSingleTest(
     await runSolution(
       solution,
       compiledPath,
-      config.timeLimit,
+      limit.timeLimit,
       config.memoryLimit,
       testFile,
       testsetName
@@ -314,6 +572,9 @@ export async function runSolutionOnTestset(
   );
   const thrownErrors = new Set<string>();
 
+  const limit = solutionTimeLimit(config, solution);
+  logTimeLimitForSolution(limit);
+
   try {
     const compiledPath = getCompiledCommandToRun(solution);
     ensureOutputDirectory(solution.name, testsetName);
@@ -329,7 +590,7 @@ export async function runSolutionOnTestset(
         await runSolution(
           solution,
           compiledPath,
-          config.timeLimit,
+          limit.timeLimit,
           config.memoryLimit,
           testFile,
           testsetName
@@ -394,6 +655,9 @@ export async function runSolutionOnGroup(
   );
   const thrownErrors = new Set<string>();
 
+  const limit = solutionTimeLimit(config, solution);
+  logTimeLimitForSolution(limit);
+
   try {
     const compiledPath = getCompiledCommandToRun(solution);
     ensureOutputDirectory(solution.name, testset.name);
@@ -412,10 +676,11 @@ export async function runSolutionOnGroup(
         await runSolution(
           solution,
           compiledPath,
-          config.timeLimit,
+          limit.timeLimit,
           config.memoryLimit,
           testFile,
-          testset.name
+          testset.name,
+          groupName
         );
       } catch (error) {
         const message =
@@ -517,6 +782,7 @@ export async function testSolutionAgainstMainCorrect(solutionName: string) {
     if (testsets.length === 0) {
       throw new Error('No testsets defined in configuration');
     }
+    validateTimeLimitMultipliers(config);
 
     ensureMainSolutionExists(solutions);
     ensureSolutionExists(solutions, solutionName);
@@ -724,9 +990,23 @@ export async function startTheComparisonProcess(
             answerFilePath,
             expectedVerdict
           );
+          report.updateTestVerdict(
+            targetSolution,
+            testset.name,
+            parseTestIndex(testFile),
+            'OK',
+            ''
+          );
         } catch (error) {
           const msg = error instanceof Error ? error.message : String(error);
           logError(`${testFile} in testset ${testset.name}: ${msg}`, 4);
+          report.updateTestVerdict(
+            targetSolution,
+            testset.name,
+            parseTestIndex(testFile),
+            'WA',
+            msg
+          );
           verdictTracker.didWA = true;
           break;
         }

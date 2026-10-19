@@ -1,8 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 /* eslint-disable @typescript-eslint/no-unsafe-return */
-/* eslint-disable @typescript-eslint/unbound-method */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as actions from '../src/actions';
 import * as steps from '../src/steps';
 import * as utils from '../src/helpers/utils';
@@ -10,6 +10,9 @@ import * as formatter from '../src/formatter';
 import * as testset from '../src/helpers/testset';
 import * as solution from '../src/helpers/solution';
 import * as createTemplate from '../src/helpers/create-template';
+import * as compileCache from '../src/helpers/compile-cache';
+import { report } from '../src/report';
+import type { LocalSolution } from '../src/types';
 import fs from 'fs';
 
 vi.mock('../src/steps');
@@ -17,10 +20,36 @@ vi.mock('../src/helpers/utils');
 vi.mock('../src/helpers/testset');
 vi.mock('../src/helpers/solution');
 vi.mock('../src/helpers/create-template');
+vi.mock('../src/helpers/compile-cache');
 vi.mock('../src/formatter');
 vi.mock('fs');
 
+interface ReportDoc {
+  schemaVersion: number;
+  polymanVersion: string;
+  command: string;
+  ok: boolean;
+  solution?: string;
+  tag?: string | null;
+  tests?: unknown[];
+  summary?: unknown;
+  errors?: string[];
+  failedStep?: string | null;
+  steps?: { name: string; ok: boolean; errors: string[] }[];
+  solutions?: unknown[];
+}
+
+const writtenJson = (): ReportDoc => {
+  const calls = vi.mocked(fs.writeSync).mock.calls;
+  expect(calls).toHaveLength(1);
+  return JSON.parse(String(calls[0][1])) as ReportDoc;
+};
+
 describe('actions.ts', () => {
+  afterEach(() => {
+    report.reset();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.spyOn(process, 'exit').mockImplementation((() => {}) as any);
@@ -28,8 +57,11 @@ describe('actions.ts', () => {
     vi.mocked(utils.isNumeric).mockImplementation((s: string) =>
       /^[0-9]+$/.test(s)
     );
+    vi.mocked(utils.isCppSource).mockImplementation((f: string) =>
+      /\.(cpp|cc|cxx)$/.test(f)
+    );
     vi.mocked(testset.findTestset).mockImplementation(
-      (_sets: any, name: string) => ({ name }) as any
+      (_sets: any, name: string) => ({ name })
     );
     vi.mocked(solution.findMatchingSolutions).mockImplementation(
       (sols: any) => sols || []
@@ -70,7 +102,7 @@ describe('actions.ts', () => {
   describe('listAvailableCheckersAction', () => {
     it('should warn when no checker files found', () => {
       vi.mocked(fs.existsSync).mockReturnValue(true);
-      vi.mocked(fs.readdirSync).mockReturnValue([] as any);
+      vi.mocked(fs.readdirSync).mockReturnValue([]);
       actions.listAvailableCheckersAction();
       expect(formatter.fmt.warning).toHaveBeenCalled();
     });
@@ -84,7 +116,7 @@ describe('actions.ts', () => {
         'readme.txt',
       ] as any);
       vi.mocked(fs.readFileSync).mockReturnValue(
-        '// Description: number compare\nint main() {}\n' as any
+        '// Description: number compare\nint main() {}\n'
       );
       actions.listAvailableCheckersAction();
       expect(fs.readFileSync).toHaveBeenCalled();
@@ -94,7 +126,7 @@ describe('actions.ts', () => {
     it('should handle checker file with no description', () => {
       vi.mocked(fs.existsSync).mockReturnValue(true);
       vi.mocked(fs.readdirSync).mockReturnValue(['x.cpp'] as any);
-      vi.mocked(fs.readFileSync).mockReturnValue('int main() {}\n' as any);
+      vi.mocked(fs.readFileSync).mockReturnValue('int main() {}\n');
       actions.listAvailableCheckersAction();
       expect(formatter.fmt.log).toHaveBeenCalled();
     });
@@ -262,6 +294,66 @@ describe('actions.ts', () => {
       expect(formatter.fmt.errorBox).toHaveBeenCalled();
       expect(process.exit).toHaveBeenCalledWith(1);
     });
+
+    it('should not write a report without --json', async () => {
+      vi.mocked(utils.readConfigFile).mockReturnValue(cfg);
+      await actions.runSolutionAction('main', 'all');
+      expect(fs.writeSync).not.toHaveBeenCalled();
+      expect(formatter.fmt.setOutput).not.toHaveBeenCalled();
+    });
+
+    it('should emit a run JSON report on success with --json', async () => {
+      const mainSolution: LocalSolution = {
+        name: 'main',
+        source: 'main.cpp',
+        tag: 'MA',
+        sourceType: 'cpp.g++17',
+      };
+      vi.mocked(utils.readConfigFile).mockReturnValue(cfg);
+      vi.mocked(steps.stepRunSolutionsOnAllTestsets).mockImplementationOnce(
+        async () => {
+          report.recordTest(mainSolution, {
+            testset: 'ts1',
+            index: 1,
+            verdict: 'OK',
+            timeMs: 7,
+            message: '',
+          });
+          await Promise.resolve();
+        }
+      );
+      await actions.runSolutionAction('main', 'all', undefined, { json: true });
+      expect(formatter.fmt.setOutput).toHaveBeenCalledWith('stderr');
+      const doc = writtenJson();
+      expect(doc).toMatchObject({
+        schemaVersion: 1,
+        command: 'run',
+        ok: true,
+        solution: 'main',
+        tag: 'MA',
+        tests: [
+          { testset: 'ts1', index: 1, verdict: 'OK', timeMs: 7, message: '' },
+        ],
+        summary: { total: 1, byVerdict: { OK: 1 } },
+        errors: [],
+      });
+      expect(typeof doc.polymanVersion).toBe('string');
+      expect(process.exit).not.toHaveBeenCalled();
+    });
+
+    it('should emit a failed run JSON report with the error when a step throws', async () => {
+      vi.mocked(utils.readConfigFile).mockReturnValue(cfg);
+      vi.mocked(steps.stepCompileSolutions).mockRejectedValueOnce(
+        new Error('g++ exploded')
+      );
+      await actions.runSolutionAction('main', 'ts1', '4', { json: true });
+      const doc = writtenJson();
+      expect(doc.ok).toBe(false);
+      expect(doc.command).toBe('run');
+      expect(doc.errors).toContain('g++ exploded');
+      expect(doc.tests).toEqual([]);
+      expect(process.exit).toHaveBeenCalledWith(1);
+    });
   });
 
   describe('testWhatAction', () => {
@@ -327,6 +419,180 @@ describe('actions.ts', () => {
       expect(formatter.fmt.errorBox).toHaveBeenCalled();
       expect(process.exit).toHaveBeenCalledWith(1);
     });
+
+    it('should stop before running anything when timeLimitMultipliers is invalid', async () => {
+      const config = { timeLimitMultipliers: { java: 0 } };
+      vi.mocked(utils.readConfigFile).mockReturnValue(config as any);
+      vi.mocked(solution.validateTimeLimitMultipliers).mockImplementationOnce(
+        () => {
+          throw new Error(
+            'Invalid timeLimitMultipliers.java in Config.json: 0'
+          );
+        }
+      );
+      await actions.fullVerificationAction();
+      expect(solution.validateTimeLimitMultipliers).toHaveBeenCalledWith(
+        config
+      );
+      expect(steps.stepCompileGeneratorsForTestsets).not.toHaveBeenCalled();
+      expect(steps.stepRunSolutionsForVerification).not.toHaveBeenCalled();
+      expect(formatter.fmt.successBox).not.toHaveBeenCalled();
+      expect(formatter.fmt.errorBox).toHaveBeenCalledWith(
+        'VERIFICATION FAILED!'
+      );
+      expect(process.exit).toHaveBeenCalledWith(1);
+    });
+
+    it('should print the compile cache summary on success and failure', async () => {
+      vi.mocked(utils.readConfigFile).mockReturnValue({} as any);
+      await actions.fullVerificationAction();
+      expect(compileCache.logCacheSummary).toHaveBeenCalledTimes(1);
+
+      vi.mocked(utils.readConfigFile).mockImplementation(() => {
+        throw new Error('z');
+      });
+      await actions.fullVerificationAction();
+      expect(compileCache.logCacheSummary).toHaveBeenCalledTimes(2);
+    });
+
+    it('should emit a verify JSON report listing every step on success', async () => {
+      const main: LocalSolution = {
+        name: 'main',
+        source: 'main.cpp',
+        tag: 'MA',
+        sourceType: 'cpp.g++17',
+      };
+      const wa: LocalSolution = {
+        name: 'wa',
+        source: 'wa.cpp',
+        tag: 'WA',
+        sourceType: 'cpp.g++17',
+      };
+      vi.mocked(utils.readConfigFile).mockReturnValue({
+        solutions: [main, wa],
+      } as any);
+      vi.mocked(steps.stepRunSolutionsForVerification).mockImplementationOnce(
+        async () => {
+          report.recordTest(main, {
+            testset: 'tests',
+            index: 1,
+            verdict: 'OK',
+            timeMs: 2,
+            message: '',
+          });
+          report.setSolutionOutcome(main, true, 'Main solution ran');
+          report.recordTest(wa, {
+            testset: 'tests',
+            index: 1,
+            verdict: 'OK',
+            timeMs: 3,
+            message: '',
+          });
+          await Promise.resolve();
+        }
+      );
+      vi.mocked(
+        steps.stepVerifySolutionsAgainstMainCorrect
+      ).mockImplementationOnce(async () => {
+        report.updateTestVerdict(wa, 'tests', 1, 'WA', 'expected 1 found 2');
+        report.setSolutionOutcome(wa, true, 'Behaves as expected');
+        await Promise.resolve();
+      });
+
+      await actions.fullVerificationAction({ json: true });
+
+      const doc = writtenJson();
+      expect(doc.command).toBe('verify');
+      expect(doc.ok).toBe(true);
+      expect(doc.failedStep).toBeNull();
+      expect(doc.steps!.map(s => s.name)).toEqual([
+        'read-config',
+        'compile-generators',
+        'generate-tests',
+        'compile-validator',
+        'test-validator',
+        'validate-tests',
+        'compile-checker',
+        'test-checker',
+        'compile-solutions',
+        'run-solutions',
+        'verify-solutions',
+      ]);
+      expect(doc.steps!.every(s => s.ok)).toBe(true);
+      expect(doc.solutions).toEqual([
+        {
+          name: 'main',
+          tag: 'MA',
+          matchesTag: true,
+          reason: 'Main solution ran',
+          tests: [
+            {
+              testset: 'tests',
+              index: 1,
+              verdict: 'OK',
+              timeMs: 2,
+              message: '',
+            },
+          ],
+        },
+        {
+          name: 'wa',
+          tag: 'WA',
+          matchesTag: true,
+          reason: 'Behaves as expected',
+          tests: [
+            {
+              testset: 'tests',
+              index: 1,
+              verdict: 'WA',
+              timeMs: 3,
+              message: 'expected 1 found 2',
+            },
+          ],
+        },
+      ]);
+      expect(process.exit).not.toHaveBeenCalled();
+    });
+
+    it('should emit a failed verify JSON report naming the aborting step', async () => {
+      vi.mocked(utils.readConfigFile).mockReturnValue({} as any);
+      vi.mocked(steps.stepTestValidator).mockRejectedValueOnce(
+        new Error('Some validator tests failed')
+      );
+
+      await actions.fullVerificationAction({ json: true });
+
+      const doc = writtenJson();
+      expect(doc.ok).toBe(false);
+      expect(doc.failedStep).toBe('test-validator');
+      expect(doc.steps!.map(s => s.name)).toEqual([
+        'read-config',
+        'compile-generators',
+        'generate-tests',
+        'compile-validator',
+        'test-validator',
+      ]);
+      expect(doc.steps![4]).toEqual({
+        name: 'test-validator',
+        ok: false,
+        errors: ['Some validator tests failed'],
+      });
+      expect(doc.solutions).toEqual([]);
+      expect(steps.stepValidateGeneratedTests).not.toHaveBeenCalled();
+      expect(process.exit).toHaveBeenCalledWith(1);
+    });
+
+    it('should attribute a Config.json read failure to read-config', async () => {
+      vi.mocked(utils.readConfigFile).mockImplementationOnce(() => {
+        throw new Error('ENOENT Config.json');
+      });
+      await actions.fullVerificationAction({ json: true });
+      const doc = writtenJson();
+      expect(doc.failedStep).toBe('read-config');
+      expect(doc.steps).toEqual([
+        { name: 'read-config', ok: false, errors: ['ENOENT Config.json'] },
+      ]);
+    });
   });
 
   describe('listTestsetsAction', () => {
@@ -379,6 +645,97 @@ describe('actions.ts', () => {
         throw new Error('p');
       });
       actions.listSolutionsAction();
+      expect(formatter.fmt.errorBox).toHaveBeenCalled();
+      expect(process.exit).toHaveBeenCalledWith(1);
+    });
+  });
+
+  describe('cacheStatusAction', () => {
+    const entry = (source: string, binarySize: number) =>
+      ({
+        source,
+        binarySize,
+        compileMs: 2500,
+        lastUsedAt: new Date('2026-09-24T10:15:00Z'),
+      }) as any;
+
+    it('should report an empty cache', () => {
+      vi.mocked(compileCache.listCacheEntries).mockReturnValue([]);
+      actions.cacheStatusAction();
+      expect(formatter.fmt.info).toHaveBeenCalledWith(
+        expect.stringContaining('Cache is empty')
+      );
+      expect(formatter.fmt.log).not.toHaveBeenCalled();
+    });
+
+    it('should list every cached binary', () => {
+      vi.mocked(compileCache.listCacheEntries).mockReturnValue([
+        entry('solutions/main.cpp', 100),
+        entry('generators/gen.cpp', 200),
+      ]);
+      vi.mocked(compileCache.formatBytes).mockImplementation(n => `${n} B`);
+      vi.mocked(compileCache.formatDuration).mockReturnValue('2.5s');
+      for (const colour of ['dim', 'highlight', 'primary'] as const) {
+        vi.mocked(formatter.fmt[colour]).mockImplementation(t => t);
+      }
+
+      actions.cacheStatusAction();
+
+      expect(formatter.fmt.info).toHaveBeenCalledWith(
+        expect.stringContaining('cached binaries')
+      );
+      expect(compileCache.formatBytes).toHaveBeenCalledWith(300);
+      expect(formatter.fmt.log).toHaveBeenCalledTimes(2);
+      expect(formatter.fmt.log).toHaveBeenCalledWith(
+        expect.stringMatching(/last used \d{4}-\d{2}-\d{2} \d{2}:\d{2}$/)
+      );
+    });
+
+    it('should show when a binary was last used in local time', () => {
+      const originalTz = process.env['TZ'];
+      process.env['TZ'] = 'Asia/Kolkata'; // UTC+05:30, no daylight saving
+      try {
+        vi.mocked(compileCache.listCacheEntries).mockReturnValue([
+          entry('solutions/main.cpp', 100),
+        ]);
+        vi.mocked(formatter.fmt.dim).mockImplementation(t => t);
+
+        actions.cacheStatusAction();
+
+        expect(formatter.fmt.log).toHaveBeenCalledWith(
+          expect.stringContaining('last used 2026-09-24 15:45')
+        );
+      } finally {
+        if (originalTz === undefined) delete process.env['TZ'];
+        else process.env['TZ'] = originalTz;
+      }
+    });
+
+    it('should handle errors', () => {
+      vi.mocked(compileCache.listCacheEntries).mockImplementation(() => {
+        throw new Error('EACCES');
+      });
+      actions.cacheStatusAction();
+      expect(formatter.fmt.errorBox).toHaveBeenCalled();
+      expect(process.exit).toHaveBeenCalledWith(1);
+    });
+  });
+
+  describe('cacheClearAction', () => {
+    it('should clear the cache and report the count', () => {
+      vi.mocked(compileCache.clearCache).mockReturnValue(3);
+      actions.cacheClearAction();
+      expect(compileCache.clearCache).toHaveBeenCalled();
+      expect(formatter.fmt.success).toHaveBeenCalledWith(
+        expect.stringContaining('3 entries removed')
+      );
+    });
+
+    it('should handle errors', () => {
+      vi.mocked(compileCache.clearCache).mockImplementation(() => {
+        throw new Error('EBUSY');
+      });
+      actions.cacheClearAction();
       expect(formatter.fmt.errorBox).toHaveBeenCalled();
       expect(process.exit).toHaveBeenCalledWith(1);
     });
@@ -455,7 +812,7 @@ describe('actions.ts', () => {
       vi.mocked(steps.stepReadCredentials).mockReturnValue({
         apiKey: 'k',
         secret: 's',
-      } as any);
+      });
       vi.mocked(steps.stepInitializeSDK).mockReturnValue({} as any);
     });
 
@@ -502,7 +859,7 @@ describe('actions.ts', () => {
     beforeEach(() => {
       vi.mocked(steps.stepReadCredentials).mockReturnValue({} as any);
       vi.mocked(steps.stepInitializeSDK).mockReturnValue({} as any);
-      vi.mocked(steps.stepGetProblemId).mockReturnValue(123 as any);
+      vi.mocked(steps.stepGetProblemId).mockReturnValue(123);
     });
 
     it('should pull all by default', async () => {
@@ -610,6 +967,44 @@ describe('actions.ts', () => {
       expect(steps.stepUpdateConfigWithProblemId).toHaveBeenCalled();
     });
 
+    it('should forward --yes and --name to the creation steps', async () => {
+      vi.mocked(steps.stepReadConfig).mockReturnValue({
+        name: 'from-config',
+      } as any);
+      vi.mocked(steps.stepPromptCreateProblem).mockResolvedValue(true);
+      vi.mocked(steps.stepGetValidProblemName).mockResolvedValue('two-sum');
+      vi.mocked(steps.stepCreateProblemOnPolygon).mockResolvedValue(5);
+      await actions.remotePushProblemAction('./prob', {
+        yes: true,
+        name: 'two-sum',
+      });
+      expect(steps.stepPromptCreateProblem).toHaveBeenCalledWith(
+        expect.any(Number),
+        { yes: true }
+      );
+      expect(steps.stepGetValidProblemName).toHaveBeenCalledWith(
+        expect.any(Number),
+        expect.anything(),
+        'from-config',
+        { explicitName: 'two-sum' }
+      );
+      expect(steps.stepCreateProblemOnPolygon).toHaveBeenCalledWith(
+        expect.any(Number),
+        expect.anything(),
+        'two-sum'
+      );
+    });
+
+    it('should not prompt at all when Config.json already has a problemId', async () => {
+      vi.mocked(steps.stepReadConfig).mockReturnValue({
+        problemId: 42,
+        name: 'p',
+      } as any);
+      await actions.remotePushProblemAction('./prob', { yes: true });
+      expect(steps.stepPromptCreateProblem).not.toHaveBeenCalled();
+      expect(steps.stepGetValidProblemName).not.toHaveBeenCalled();
+    });
+
     it('should cancel push if user declines new problem creation', async () => {
       vi.mocked(steps.stepReadConfig).mockReturnValue({
         name: 'newprob',
@@ -645,16 +1040,16 @@ describe('actions.ts', () => {
     beforeEach(() => {
       vi.mocked(steps.stepReadCredentials).mockReturnValue({} as any);
       vi.mocked(steps.stepInitializeSDK).mockReturnValue({} as any);
-      vi.mocked(steps.stepGetProblemId).mockReturnValue(7 as any);
+      vi.mocked(steps.stepGetProblemId).mockReturnValue(7);
       vi.mocked(steps.stepFetchProblemInfo).mockResolvedValue({} as any);
       vi.mocked(steps.stepFetchStatements).mockResolvedValue({} as any);
-      vi.mocked(steps.stepFetchSolutions).mockResolvedValue([] as any);
+      vi.mocked(steps.stepFetchSolutions).mockResolvedValue([]);
       vi.mocked(steps.stepFetchFiles).mockResolvedValue([] as any);
-      vi.mocked(steps.stepFetchPackages).mockResolvedValue([] as any);
+      vi.mocked(steps.stepFetchPackages).mockResolvedValue([]);
       vi.mocked(steps.stepFetchChecker).mockResolvedValue({} as any);
       vi.mocked(steps.stepFetchValidator).mockResolvedValue({} as any);
-      vi.mocked(steps.stepFetchGenerators).mockReturnValue([] as any);
-      vi.mocked(steps.stepFetchSampleTests).mockResolvedValue([] as any);
+      vi.mocked(steps.stepFetchGenerators).mockReturnValue([]);
+      vi.mocked(steps.stepFetchSampleTests).mockResolvedValue([]);
     });
 
     it('should view problem details', async () => {
@@ -677,7 +1072,7 @@ describe('actions.ts', () => {
     beforeEach(() => {
       vi.mocked(steps.stepReadCredentials).mockReturnValue({} as any);
       vi.mocked(steps.stepInitializeSDK).mockReturnValue({} as any);
-      vi.mocked(steps.stepGetProblemId).mockReturnValue(11 as any);
+      vi.mocked(steps.stepGetProblemId).mockReturnValue(11);
     });
 
     it('should commit changes', async () => {
@@ -698,7 +1093,7 @@ describe('actions.ts', () => {
     beforeEach(() => {
       vi.mocked(steps.stepReadCredentials).mockReturnValue({} as any);
       vi.mocked(steps.stepInitializeSDK).mockReturnValue({} as any);
-      vi.mocked(steps.stepGetProblemId).mockReturnValue(13 as any);
+      vi.mocked(steps.stepGetProblemId).mockReturnValue(13);
     });
 
     it('should build package successfully', async () => {
@@ -706,7 +1101,7 @@ describe('actions.ts', () => {
         id: 1,
         state: 'READY',
         comment: 'done',
-      } as any);
+      });
       await actions.remotePackageProblemAction('./p', 'standard');
       expect(steps.stepValidatePackageType).toHaveBeenCalled();
       expect(formatter.fmt.successBox).toHaveBeenCalled();
