@@ -346,8 +346,11 @@ prompts:
              merge's pipeline on the default branch stops at the manual job
              service:promote:production, that it waits for a person to click it
              once service:check:candidate has passed (the production check and
-             the rollback run on their own after that), and mentioning
-             @@maintainers@@ so GitLab notifies them. Leave it out otherwise.
+             the rollback run on their own after that), that the person who
+             merges watches the merge's pipeline: when service:check:candidate
+             passes, its last line ("NEXT STEP:") links the promote job to
+             click, and mentioning @@maintainers@@ so GitLab notifies them.
+             Leave it out otherwise.
            Then put everything else inside
            <details><summary>Details: findings, evidence, risk</summary> ... </details>
            with a blank line after the summary line, so it stays readable for

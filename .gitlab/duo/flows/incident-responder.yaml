@@ -216,7 +216,9 @@ prompts:
         11. Comment on the incident with the rollback MR. Then one line: "Next:
             once the rollback MR's pipeline passes, a person mentions
             `@@@reviewer_account@@` on it for its first review (GitLab doesn't
-            start flows for an agent's push)." Keep that mention inside backticks, so your note doesn't mention the reviewer itself. Then say that once it is merged, promoted by a person and checked in production, someone on
+            start flows for an agent's push)." Keep that mention inside backticks, so your note doesn't mention the reviewer itself. Then say that the person who merges watches the merge's pipeline:
+            when service:check:candidate passes, its last line ("NEXT STEP:")
+            links the promote job to click. Once it is merged, promoted by a person and checked in production, someone on
             the team mentions you here so you record both on the timeline. If the cause is in the
             application code (not CI, the monitor or the infrastructure), say that
             a real fix comes next: someone on the team opens a fix issue that links this

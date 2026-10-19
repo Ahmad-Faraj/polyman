@@ -177,6 +177,17 @@ describe("the project's Duo flows", () => {
     expect(renderFlow(read('mr-reviewer.yaml'), values).replace(/\s+/g, ' ')).toContain('mentioning @HamzaHassanain, @Mazen-Ghanaym, @Ahmad-Faraj so GitLab notifies them');
   });
 
+  // 19 Oct: !136's promote waited three hours; the candidate log named the job, but nobody was told to read it
+  it("the person who merges is told to watch the merge's pipeline for the NEXT STEP line that links promote", () => {
+    const line = 'the person who merges watches the merge\'s pipeline: when service:check:candidate passes, its last line ("NEXT STEP:") links the promote job to click';
+    for (const file of ['mr-reviewer.yaml', 'incident-responder.yaml']) {
+      expect(renderFlow(read(file), values).replace(/\s+/g, ' ').toLowerCase()).toContain(line.toLowerCase());
+    }
+    // the reviewer's line still says it only for merges that release the service
+    const reviewer = promptOf('mr-reviewer.yaml');
+    expect(reviewer.indexOf(line.replace(/^t/, 'that t'))).toBeGreaterThan(reviewer.indexOf('"After merge", only when the diff touches'));
+  });
+
   it('the code reviewer looks for errors that disappear, and a quiet pass in a gate is P1', () => {
     expect(flat('mr-reviewer.yaml')).toContain('Look hard at errors that disappear');
     expect(flat('mr-reviewer.yaml')).toContain('In a check, a gate or a guard, a failure that passes quietly is P1.');
