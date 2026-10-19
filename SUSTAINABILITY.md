@@ -12,14 +12,14 @@ low and a high end (method below).
 
 | Review depth (set by the risk score) | Reviews | Model calls | Tokens | gCO2e per review, low-high |
 |---|---|---|---|---|
-| high: security, code and test specialists | 105 | 38 | 1.62M | 6.5-54.4 |
-| medium: code and test specialists | 26 | 30 | 1.23M | 4.9-43.3 |
-| low: one light review | 16 | 7 | 0.35M | 1.2-10.0 |
+| high: security, code and test specialists | 105 | 38 | 1.62M | 6.8-56.2 |
+| medium: code and test specialists | 26 | 30 | 1.23M | 5.0-44.8 |
+| low: one light review | 16 | 7 | 0.35M | 1.2-10.4 |
 
 Medians per review, Oct 16 to 18, before the cuts below. After them (reviewer 1.0.17, 9 full reviews) a full
 review takes about 21 calls and 490k tokens, and about 6 GitLab credits instead of 11.
 
-- **Inference is most of it.** The runner is about 2.4 g of a high review; the
+- **Inference is most of it.** The runner is about 1.9 g of a high review on average; the
   model calls are the rest. A carbon number that counts only CI misses most of
   what agents emit.
 - **Depth follows risk: a low-risk review takes about 1/5 of the calls and
@@ -74,12 +74,12 @@ Reviews by risk tier, median per review:
 
 | Tier | Reviews | Model calls | Tokens | of which cache reads | gCO2e per review, low-high | gCO2e per 1M tokens, low-high |
 |---|---|---|---|---|---|---|
-| high | 105 | 38 | 1.62M | 1.28M | 6.5-54.4 | 3.4-27.7 |
-| medium | 26 | 30 | 1.23M | 0.91M | 4.9-43.3 | 4.2-33.2 |
-| low | 16 | 7 | 0.35M | 0.27M | 1.2-10.0 | 2.6-22.6 |
+| high | 105 | 38 | 1.62M | 1.28M | 6.8-56.2 | 3.5-28.6 |
+| medium | 26 | 30 | 1.23M | 0.91M | 5.0-44.8 | 4.3-34.4 |
+| low | 16 | 7 | 0.35M | 0.27M | 1.2-10.4 | 2.7-23.4 |
 
 - **The reviewer is 94% of every token our agents used.** Builds, fixes and incidents together are 6%. Review depth, and which reviews run at all, is where savings are.
-- **Counted calls narrow the range.** A high review averages 43.7 counted calls (7.7-63.1 g). Our first estimate (Oct 16-17, 43 high reviews) bounded them from the log at 41-99 calls (7.9-141.6 g): its low end holds, and its high end counted every checkpoint as a call.
+- **Counted calls narrow the range.** A high review averages 43.7 counted calls (8.0-65.2 g). Our first estimate (Oct 16-17, 43 high reviews) bounded them from the log at 41-99 calls (7.9-141.6 g): its low end holds, and its high end counted every checkpoint as a call.
 - **Most input is a cache read.** That's 79% of a high review's tokens, and its uncached input is under 100 tokens. Output is about 3%. A per-token energy figure that assumes every input token is computed afresh would overstate this workload, so the energy stays per call (below), and none of the figures is measured for this model.
 - **The security reviewer carries 38% of a high review's tokens with 27% of its calls.** It has the largest input per call: the scanner findings it pulled for the whole branch. Since !98 it gets only the findings on the lines the MR wrote.
 - **The small model made the test reviewer dearer, so it went back.** !99 moved it to `claude-haiku-4-5`; in the 4 full reviews that followed it made 18 to 93 calls where it had made a median of 9, and edited files during reviews it was told only to report on. !107 put it back on the default model.
@@ -123,7 +123,7 @@ SCI (Software Carbon Intensity, ISO/IEC 21031:2024): `(E x I + M) per R`.
   tokens; agent calls carry the prompt, the event and the work so far).
   Neither is measured for the Claude model our flows use. The low end pairs
   the fewest calls with 0.24 Wh, the high end the most calls with 2.5 Wh.
-  Grid intensity: the runner's (560 gCO2e/kWh); the flows' tool-call ids
+  Grid intensity: us-east1's, 579 gCO2e/kWh (Google's 2025 region data; 560 in 2023); the flows' tool-call ids
   suggest the model is served on Google Cloud, but the region isn't published.
 - **Embodied emissions**: per vCPU-hour for the runner; not included for the
   model's hardware.
@@ -135,11 +135,14 @@ manifest, [sustainability/agent-reviews.yml](sustainability/agent-reviews.yml)
 
     npx -y -p @grnsft/if@1.1.1 if-run -m sustainability/agent-reviews.yml
 
-`if-run` sums each tier's reviews: for the high tier it prints carbon-low
-340.4 and carbon-high 6088.3 g, which over 43 reviews is the 7.9-141.6 g per
-review of that first estimate (low tier: 6.0 and 130.1 g over 6). It calls
-`lsb_release`, so a minimal container needs that installed. To rebuild the manifest from the job logs (read-only, needs a
-token): `GITLAB_TOKEN=... node engine/src/cli/agent-footprint.ts <project path> --manifest sustainability/agent-reviews.yml`.
+`if-run` sums each tier's reviews, with every model call counted: for the high tier
+it prints carbon-low 838.6 and carbon-high 6848.7 g, which over 105 reviews is the
+8.0-65.2 g per review above (medium: 147.3 and 1175.9 g over 26; low: 22.9 and
+198.3 g over 16). It calls `lsb_release`, so a minimal container needs that
+installed, and `npm list` in its working directory, so run it after `npm ci` or
+from another folder. To rebuild the manifest from the committed sessions (no
+token): `node engine/src/cli/review-manifest.ts`. A test fails if the committed
+manifest and `sustainability/agent-tokens.json` drift apart.
 
 ## What's not here yet
 
