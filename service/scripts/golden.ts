@@ -216,7 +216,18 @@ export async function runGolden(
   const listing: RouteCall = { route: 'GET /api/samples', ok: listed.ok, seconds: (Date.now() - sentAt) / 1000 };
   calls.push(listing);
   if (!listed.ok) throw new Error(`GET /api/samples answered HTTP ${listed.status}`);
-  const offered = new Set(((await listed.json()) as { name: string }[]).map((s) => s.name));
+  const text = await listed.text();
+  let names: string[];
+  try {
+    const list = JSON.parse(text) as unknown;
+    if (!Array.isArray(list)) throw new Error('not a list');
+    names = list.map((s: { name?: unknown }) => String(s?.name));
+  } catch {
+    // a 200 that isn't the sample list is a failed request, not a working route
+    listing.ok = false;
+    throw new Error(`GET /api/samples answered HTTP ${listed.status} without a JSON list: ${text.slice(0, 120)}`);
+  }
+  const offered = new Set(names);
   listing.seconds = (Date.now() - sentAt) / 1000;
   // a list without one of the samples is a wrong answer from this route
   listing.ok = [...expected.keys()].every((name) => offered.has(name));

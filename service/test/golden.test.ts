@@ -258,6 +258,81 @@ describe('the fire drill, end to end', () => {
   });
 });
 
+describe('golden.ts --traffic, end to end', () => {
+  /**
+   * Runs the real script against a stand-in service. `answer` gives the
+   * sample list's status and body; `wrong` names a sample the service judges
+   * the other way round.
+   */
+  async function trafficRun(opts: { list?: (names: string[]) => [number, string]; wrong?: string } = {}) {
+    const { execFile } = await import('node:child_process');
+    const want = expectedSamples();
+    const server = createServer((req, res) => {
+      const url = req.url ?? '';
+      if (url === '/api/samples') {
+        const [status, body] = opts.list?.([...want.keys()]) ?? [200, JSON.stringify([...want.keys()].map((name) => ({ name })))];
+        return void res.writeHead(status).end(body);
+      }
+      // POST /api/samples/NAME/verify, or POST /api/verify with the first sample zipped
+      const name = url === '/api/verify' ? [...want.keys()][0] : decodeURIComponent(url.split('/')[3] ?? '');
+      const w = want.get(name)!;
+      const problem = {
+        type: 'problem',
+        ok: name === opts.wrong ? !w.ok : w.ok,
+        seconds: 1,
+        report: { solutions: Object.entries(w.solutions).map(([n, matchesTag]) => ({ name: n, matchesTag })) },
+        readiness: w.readinessFailures.map((id) => ({ id, ok: false })),
+      };
+      res.writeHead(200).end(`${JSON.stringify(problem)}\n{"type":"done","ok":true}\n`);
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    const dir = mkdtempSync(join(tmpdir(), 'traffic-test-'));
+    try {
+      const script = new URL('../scripts/golden.ts', import.meta.url).pathname;
+      const code = await new Promise<number>((resolve) =>
+        execFile(process.execPath, ['--disable-warning=ExperimentalWarning', script, base, '--traffic', join(dir, 't.json')], (err) =>
+          resolve(err ? ((err as { code?: number }).code ?? 1) : 0),
+        ),
+      );
+      const routes = JSON.parse(readFileSync(join(dir, 't.json'), 'utf8')).routes as Record<string, { count: number; errorRate: number }>;
+      return { code, routes, samples: [...want.keys()] };
+    } finally {
+      server.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  it('passes a service that answers every sample correctly, with all three routes measured', async () => {
+    const r = await trafficRun();
+    expect(r.code).toBe(0);
+    expect(Object.keys(r.routes).sort()).toEqual(['GET /api/samples', 'POST /api/samples/:name/verify', 'POST /api/verify']);
+    for (const stats of Object.values(r.routes)) expect(stats.errorRate).toBe(0);
+  });
+
+  it('fails one wrongly judged sample and counts it against the verify route', async () => {
+    const samples = [...expectedSamples().keys()];
+    // not the first sample, which also goes through the upload route
+    const r = await trafficRun({ wrong: samples.at(-1) });
+    expect(samples.length).toBeGreaterThan(1);
+    expect(r.code).toBe(1);
+    expect(r.routes['POST /api/samples/:name/verify'].errorRate).toBeGreaterThan(0);
+    expect(r.routes['GET /api/samples'].errorRate).toBe(0);
+  });
+
+  it('fails when the sample list answers 500', async () => {
+    const r = await trafficRun({ list: () => [500, 'oops'] });
+    expect(r.code).toBe(1);
+    expect(r.routes['GET /api/samples']).toMatchObject({ count: 1, errorRate: 1 });
+  });
+
+  it('fails when the sample list answers 200 with something that is not JSON', async () => {
+    const r = await trafficRun({ list: () => [200, '<html>maintenance</html>'] });
+    expect(r.code).toBe(1);
+    expect(r.routes['GET /api/samples']).toMatchObject({ count: 1, errorRate: 1 });
+  });
+});
+
 describe('the production-check job script, run in sh', () => {
   /**
    * Runs the job's script with stand-ins for node, curl and npm that log how
