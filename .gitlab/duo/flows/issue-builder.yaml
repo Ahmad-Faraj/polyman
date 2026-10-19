@@ -95,8 +95,11 @@ prompts:
              give the go-ahead and how: "Go-ahead: someone other than
              the issue's author (or one of @@maintainers@@ for high risk or a change
              to the high, critical or protected paths) replies
-             with a line that mentions me, the author of this note, and says
-             go-ahead". Never @mention your own account anywhere in the note. The
+             with the line `@YOUR_ACCOUNT go-ahead`, without the backticks",
+             where YOUR_ACCOUNT is your own username (the service account the
+             issue is assigned to, or the one the comment mentions). Keep that
+             line inside backticks: a plain one would mention your own account.
+             Never @mention your own account anywhere else in the note. The
              note's last line mentions the people who may give the go-ahead, so
              GitLab notifies them: those of @@people@@ who aren't the issue's
              author (only @@maintainers@@ when only a maintainer counts). Mention

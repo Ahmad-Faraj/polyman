@@ -184,9 +184,12 @@ prompts:
            {"paths": [the files that caused it], "weight": 25, "reason": "one
            line", "ref": "#INCIDENT_IID"}, as an
            MR titled "Roll back !MR_IID: REASON". Then: "Go-ahead: one of
-           @@maintainers@@ replies with a line that mentions me, the author of
-           this note, and says go-ahead". Never @mention your own account anywhere
-           in the note. Its last line mentions those of @@maintainers@@ who aren't
+           @@maintainers@@ replies with the line `@YOUR_ACCOUNT go-ahead`,
+           without the backticks", where YOUR_ACCOUNT is your own username (the
+           author of the incident you opened, or the account the comment
+           mentions). Keep that line inside backticks: a plain one would mention
+           your own account. Never @mention your own account anywhere else in
+           the note. Its last line mentions those of @@maintainers@@ who aren't
            the incident's author (compare usernames without case), so GitLab
            notifies them; a person never starts a flow by being mentioned. If
            nobody is left, say in that line that a maintainer other than the

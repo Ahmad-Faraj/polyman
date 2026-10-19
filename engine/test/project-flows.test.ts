@@ -111,6 +111,14 @@ describe("the project's Duo flows", () => {
     expect(renderFlow(read('pipeline-fixer.yaml'), values)).toContain('`@ai-fixer go-ahead`');
   });
 
+  // #82: "Go Ahead!" didn't count because the builder's proposal gave no exact line to copy
+  it.each(['issue-builder.yaml', 'incident-responder.yaml'])('%s gives the exact go-ahead line to copy, in backticks', (file) => {
+    const prompt = renderFlow(read(file), values).replace(/\s+/g, ' ');
+    expect(prompt).toContain('replies with the line `@YOUR_ACCOUNT go-ahead`, without the backticks", where YOUR_ACCOUNT is your own username');
+    expect(prompt).toContain('Keep that line inside backticks: a plain one would mention your own account.');
+    expect(prompt).not.toContain('a line that mentions me, the author of this note, and says go-ahead');
+  });
+
   // a bare @GitLabDuo in a note mentions GitLab Duo, which answers "Something went wrong" (!134, !137)
   it('no flow writes a bare @GitLabDuo; the Code Review hint is a quick action in backticks', () => {
     for (const file of files) {
