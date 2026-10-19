@@ -214,15 +214,17 @@ export function pushOutputTail(output, secrets = [], lines = 40) {
 
 /**
  * One line for the JUnit failure message: the items polyman lists under
- * "PUSH COMPLETED WITH ERRORS", or else the last few lines of the output.
+ * "PUSH COMPLETED WITH ERRORS", or else (no marker, or nothing but the box
+ * after it) the last few lines of the output.
  */
 export function pushFailureSummary(tail, max = 600) {
-  const lines = tail.split('\n');
-  const start = lines.findIndex(l => l.includes('PUSH COMPLETED WITH ERRORS'));
-  const picked = (start >= 0 ? lines.slice(start + 1) : lines.slice(-5))
+  const lines = tail
+    .split('\n')
     .map(l => l.replace(/[\u2500-\u257f]/g, '').trim())
-    .filter(Boolean)
-    .join(' | ');
+    .filter(Boolean);
+  const start = lines.findIndex(l => l.includes('PUSH COMPLETED WITH ERRORS'));
+  const after = start >= 0 ? lines.slice(start + 1) : [];
+  const picked = (after.length ? after : lines.slice(-5)).join(' | ');
   return picked.length > max ? `${picked.slice(0, max - 3)}...` : picked;
 }
 
