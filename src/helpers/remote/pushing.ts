@@ -165,6 +165,10 @@ export async function uploadChecker(
 
     // Custom checker - upload file first, then set it
     const checkerPath = insideProblem(problemDir, checker.source);
+    // Resolve the tests path now so a refusal leaves nothing half-uploaded.
+    const testsPath = checker.testsFilePath
+      ? insideProblem(problemDir, checker.testsFilePath)
+      : undefined;
     if (!fs.existsSync(checkerPath)) {
       throw new Error(`Checker file not found: ${checker.source}`);
     }
@@ -182,8 +186,7 @@ export async function uploadChecker(
     await sdk.setChecker(problemId, filename);
 
     // Upload checker tests if available
-    if (checker.testsFilePath) {
-      const testsPath = insideProblem(problemDir, checker.testsFilePath);
+    if (testsPath) {
       if (fs.existsSync(testsPath)) {
         try {
           const testsContent = fs.readFileSync(testsPath, 'utf-8');
@@ -298,6 +301,10 @@ export async function uploadValidator(
 
   try {
     const validatorPath = insideProblem(problemDir, config.validator.source);
+    // Resolve the tests path now so a refusal leaves nothing half-uploaded.
+    const testsPath = config.validator.testsFilePath
+      ? insideProblem(problemDir, config.validator.testsFilePath)
+      : undefined;
     if (!fs.existsSync(validatorPath)) {
       throw new Error(`Validator file not found: ${config.validator.source}`);
     }
@@ -315,11 +322,7 @@ export async function uploadValidator(
     await sdk.setValidator(problemId, filename);
 
     // Upload validator tests if available
-    if (config.validator.testsFilePath) {
-      const testsPath = insideProblem(
-        problemDir,
-        config.validator.testsFilePath
-      );
+    if (testsPath) {
       if (fs.existsSync(testsPath)) {
         try {
           const testsContent = fs.readFileSync(testsPath, 'utf-8');

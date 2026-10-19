@@ -1930,9 +1930,8 @@ describe('pushing.ts', () => {
       expect(mocks.saveFile).not.toHaveBeenCalled();
     });
 
-    it('should not read checker tests outside the folder', async () => {
+    it('should upload nothing when checker tests are outside the folder', async () => {
       const { sdk, mocks } = buildSdk();
-      mockedExistsSync.mockImplementation(p => !String(p).includes('..'));
       const cfg = asConfig({
         checker: {
           name: 'check',
@@ -1943,7 +1942,35 @@ describe('pushing.ts', () => {
       await expect(pushing.uploadChecker(sdk, 1, 'dir', cfg)).rejects.toThrow(
         /Refusing path outside the problem folder/
       );
+      expect(mocks.saveFile).not.toHaveBeenCalled();
+      expect(mocks.setChecker).not.toHaveBeenCalled();
       expect(mocks.saveCheckerTest).not.toHaveBeenCalled();
+    });
+
+    it('should upload nothing when validator tests are outside the folder', async () => {
+      const { sdk, mocks } = buildSdk();
+      const failures: string[] = [];
+      const cfg = asConfig({
+        validator: {
+          name: 'val',
+          source: 'val.cpp',
+          testsFilePath: outside,
+        },
+      });
+      const result = await pushing.uploadValidator(
+        sdk,
+        1,
+        'dir',
+        cfg,
+        failures
+      );
+      expect(result).toBe(0);
+      expect(mocks.saveFile).not.toHaveBeenCalled();
+      expect(mocks.setValidator).not.toHaveBeenCalled();
+      expect(mocks.saveValidatorTest).not.toHaveBeenCalled();
+      expect(failures).toEqual([
+        `validator: Refusing path outside the problem folder: ${outside}`,
+      ]);
     });
 
     it('should not read a validator outside the folder', async () => {
