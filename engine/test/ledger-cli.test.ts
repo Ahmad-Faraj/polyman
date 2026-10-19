@@ -51,9 +51,10 @@ const REVIEWER = 'ai-mr-reviewer-group_e50080';
 /**
  * The repo above, plus a closed agent MR !8 on branch `first`: the builder's
  * accepted push, then a reviewer push nobody approved. A person merged !9 from
- * the accepted commit, or from the refused one on top of it.
+ * the accepted commit, or from the refused one on top of it. With `other`, the
+ * builder's MR !10 on branch `other` merged then too.
  */
-function moved(from: 'accepted' | 'refused') {
+function moved(from: 'accepted' | 'refused', other?: string) {
   const r = repo();
   const commit = (at: string, file: string, message: string) => {
     writeFileSync(join(r.dir, file), message);
@@ -64,19 +65,54 @@ function moved(from: 'accepted' | 'refused') {
   r.git('2026-10-17T22:30:00Z', 'checkout', '-qb', 'first', r.base);
   const accepted = commit('2026-10-17T22:30:00Z', 'b.txt', 'fix: the other change (#30)');
   const refused = commit('2026-10-17T23:10:00Z', 'c.txt', 'tests nobody approved');
-  r.git('2026-10-17T23:20:00Z', 'checkout', '-q', 'main');
-  r.git('2026-10-17T23:20:00Z', 'merge', '-q', '--no-ff', '-m', "Merge branch 'moved'", from === 'accepted' ? accepted : refused);
+  r.git('2026-10-17T22:40:00Z', 'checkout', '-qb', 'other', r.base);
+  const third = commit('2026-10-17T22:40:00Z', 'd.txt', 'fix: a third change (#40)');
+  // the merges into main, in the order they happened
+  const merges = [{ at: '2026-10-17T23:20:00Z', branch: 'moved', sha: from === 'accepted' ? accepted : refused }, ...(other ? [{ at: other, branch: 'other', sha: third }] : [])];
+  const merged: Record<string, string> = {};
+  for (const m of merges.sort((a, b) => a.at.localeCompare(b.at))) {
+    r.git(m.at, 'checkout', '-q', 'main');
+    r.git(m.at, 'merge', '-q', '--no-ff', '-m', `Merge branch '${m.branch}'`, m.sha);
+    merged[m.branch] = r.git(m.at, 'rev-parse', 'HEAD');
+  }
   const carrier = { iid: 9, state: 'merged', merged_at: '2026-10-17T23:20:00.000Z', target_branch: 'main' };
   const closed = { iid: 8, state: 'closed', merged_at: null, target_branch: 'main' };
-  const push = (at: string, author: string, fromSha: string | null, to: string) => ({
+  const push = (at: string, author: string, fromSha: string | null, to: string, ref = 'first') => ({
     created_at: at,
     author: { username: author },
-    push_data: { ref: 'first', ref_type: 'branch', action: fromSha ? 'pushed' : 'created', commit_from: fromSha, commit_to: to, commit_count: 1 },
+    push_data: { ref, ref_type: 'branch', action: fromSha ? 'pushed' : 'created', commit_from: fromSha, commit_to: to, commit_count: 1 },
   });
+  // !10, a builder MR with its own go-ahead, merged at `other`
+  const mr10 = {
+    '/merge_requests/10': {
+      iid: 10,
+      state: 'merged',
+      author: { username: 'Mazen-Ghanaym' },
+      created_at: '2026-10-17T22:41:00.000Z',
+      merged_at: other,
+      closed_at: null,
+      source_branch: 'other',
+      sha: third,
+      merge_commit_sha: merged.other,
+      squash_commit_sha: null,
+      diff_refs: { base_sha: r.base, head_sha: third, start_sha: r.base },
+      head_pipeline: { id: 102 },
+    },
+    '/pipelines/102/jobs': [
+      { id: 9, name: 'autonomy:assess', status: 'success' },
+      { id: 10, name: 'autonomy:goahead', status: 'success' },
+    ],
+    '/jobs/9/artifacts/risk-report.json': { score: 10, tier: 'low' },
+    '/merge_requests/10/pipelines': [{ id: 102, sha: third, created_at: '2026-10-17T22:41:00.000Z' }],
+    '/merge_requests/10/notes': [],
+    '/merge_requests/10/closes_issues': [{ iid: 40, author: { username: 'Ahmad-Faraj' } }],
+    '/issues/40/notes': [note(21, '22:35:00', BUILDER, 'Proposal for #40:\n\n**Change**\n- d.txt'), note(22, '22:36:00', 'Mazen-Ghanaym', `@${BUILDER} go-ahead`)],
+  };
   const routes = {
     '/merge_requests': [
       { iid: 7, source_branch: 'fix' },
       { iid: 8, source_branch: 'first' },
+      ...(other ? [{ iid: 10, source_branch: 'other' }] : []),
     ],
     '/merge_requests/8': {
       iid: 8,
@@ -99,6 +135,7 @@ function moved(from: 'accepted' | 'refused') {
         push_data: { ref: 'fix', ref_type: 'branch', action: 'created', commit_from: null, commit_to: r.head, commit_count: 1 },
       },
       push('2026-10-17T22:30:30.000Z', BUILDER, null, accepted),
+      ...(other ? [push('2026-10-17T22:40:30.000Z', BUILDER, null, third, 'other')] : []),
       push('2026-10-17T23:10:30.000Z', REVIEWER, accepted, refused),
     ],
     '/pipelines/101/jobs': [
@@ -112,8 +149,9 @@ function moved(from: 'accepted' | 'refused') {
     '/issues/30/notes': [note(11, '22:20:00', BUILDER, 'Proposal for #30:\n\n**Change**\n- b.txt'), note(12, '22:25:00', 'HamzaHassanain', `@${BUILDER} go-ahead`)],
     [`/repository/commits/${accepted}/merge_requests`]: [carrier, closed],
     [`/repository/commits/${refused}/merge_requests`]: from === 'refused' ? [carrier, closed] : [closed],
+    ...(other ? mr10 : {}),
   };
-  return { ...r, accepted, refused, routes };
+  return { ...r, accepted, refused, routes, push };
 }
 
 const note = (id: number, at: string, author: string, body: string, updated = at) => ({
@@ -415,6 +453,98 @@ describe('autonomy:ledger against a git repo and a stand-in for GitLab', () => {
       m.git('2026-10-18T09:00:00Z', 'commit', '-qam', 'policy: a later change');
       const { ledger } = await run(m, { routes: m.routes, env: { CI_DEFAULT_BRANCH: 'main' } });
       expect(ledger().records[1]).toMatchObject({ mr: 8, accepted: true, go_ahead: { by: 'HamzaHassanain' } });
+    });
+
+    it("leaves the closed MR out, instead of judging it by today's policy, when no commit on main is older than its close", async () => {
+      const m = moved('accepted');
+      const routes = { ...m.routes, '/merge_requests/8': { ...m.routes['/merge_requests/8'], closed_at: '2026-10-17T09:00:00.000Z' } };
+      const { code, text, ledger } = await run(m, { routes, env: { CI_DEFAULT_BRANCH: 'main' } });
+      expect(code).toBe(0);
+      expect(ledger().records.map((r) => r.mr)).toEqual([7]);
+      expect(text).toContain("not in the ledger: !8: closed at 2026-10-17T09:00:00Z, before any commit on HEAD, so the policy it was closed under can't be read");
+    });
+
+    it('keeps a closed MR with no closed_at in the open list, and says so', async () => {
+      const m = moved('accepted');
+      const routes = { ...m.routes, '/merge_requests/8': { ...m.routes['/merge_requests/8'], closed_at: null } };
+      const { code, text, ledger } = await run(m, { routes, env: { CI_DEFAULT_BRANCH: 'main' } });
+      expect(code).toBe(0);
+      expect(ledger().records.map((r) => r.mr)).toEqual([7]);
+      expect(text).toContain("warning: !8 is closed but GitLab gives no closed_at, so its pushes can't be matched to a merge on the default branch and stay in the open list");
+      expect(text).toMatch(/open !8 push at 2026-10-17T22:30:30Z/);
+    });
+
+    it('leaves out a push on the same branch after the close: the guard never judged it on !8', async () => {
+      const m = moved('accepted');
+      // a push back to the commit that already reached main, so it would be carried too
+      const routes = { ...m.routes, '/events': [...m.routes['/events'], m.push('2026-10-17T23:40:00.000Z', REVIEWER, m.refused, m.accepted)] };
+      const { code, text, ledger } = await run(m, { routes, env: { CI_DEFAULT_BRANCH: 'main' } });
+      expect(code).toBe(0);
+      expect(ledger().records.map((r) => [r.mr, r.pushed_at])).toEqual([
+        [7, '2026-10-17T22:13:04Z'],
+        [8, '2026-10-17T22:30:30Z'],
+      ]);
+      expect(text).not.toContain('2026-10-17T23:40:00Z');
+    });
+
+    it("chains a carried push after an MR merged between its carrier's merge and its close", async () => {
+      // !9 merges at 23:20, !10 at 23:25 and !8 closes at 23:30: a run at 23:27 could have published !10 already
+      const m = moved('accepted', '2026-10-17T23:25:00Z');
+      const { code, ledger } = await run(m, { routes: m.routes, env: { CI_DEFAULT_BRANCH: 'main' } });
+      expect(code).toBe(0);
+      expect(ledger().records.map((r) => [r.mr, r.merged_at])).toEqual([
+        [7, '2026-10-17T23:00:52Z'],
+        [10, '2026-10-17T23:25:00Z'],
+        [8, '2026-10-17T23:20:00Z'],
+      ]);
+    });
+
+    it("chains a carried push at its carrier's merge when its MR closed before that merge", async () => {
+      // !8 closes at 23:15, !10 merges at 23:17 and !9 at 23:20: nothing carried !8's push before 23:20
+      const m = moved('accepted', '2026-10-17T23:17:00Z');
+      const routes = { ...m.routes, '/merge_requests/8': { ...m.routes['/merge_requests/8'], closed_at: '2026-10-17T23:15:00.000Z' } };
+      const { code, ledger } = await run(m, { routes, env: { CI_DEFAULT_BRANCH: 'main' } });
+      expect(code).toBe(0);
+      expect(ledger().records.map((r) => r.mr)).toEqual([7, 10, 8]);
+    });
+
+    it("takes a closed MR's tier from the published ledger once its risk-report.json expired", async () => {
+      const m = moved('accepted');
+      const env = { CI_DEFAULT_BRANCH: 'main' };
+      const first = (await run(m, { routes: m.routes, env })).ledger();
+      const expired = { ...m.routes, '/jobs/7/artifacts/risk-report.json': undefined };
+      const { code, ledger } = await run(m, { routes: expired, env, published: first });
+      expect(code).toBe(0);
+      expect(ledger().records[1]).toMatchObject({ mr: 8, tier: 'low' });
+    });
+
+    it("judges a closed MR as high, with a warning, when its risk-report.json expired and nothing published has its tier", async () => {
+      const m = moved('accepted');
+      const expired = { ...m.routes, '/jobs/7/artifacts/risk-report.json': undefined };
+      const { code, text, ledger } = await run(m, { routes: expired, env: { CI_DEFAULT_BRANCH: 'main' } });
+      expect(code).toBe(0);
+      expect(text).toContain('warning: !8 has no risk tier yet; judged as high, as the guard does');
+      expect(ledger().records[1]).toMatchObject({ mr: 8, tier: 'high' });
+    });
+
+    it('judges a closed MR the guard never ran on, as refused, and chains its pushes that reached main', async () => {
+      const m = moved('accepted');
+      const routes = { ...m.routes, '/merge_requests/8': { ...m.routes['/merge_requests/8'], head_pipeline: null } };
+      const { code, text, ledger } = await run(m, { routes, env: { CI_DEFAULT_BRANCH: 'main' } });
+      expect(code).toBe(0);
+      expect(ledger().records[1]).toMatchObject({ mr: 8, carried_by: { mr: 9 }, accepted: false, guard: { pipeline: null, job: null, status: 'none' } });
+      expect(text).not.toMatch(/not in the ledger: !8/);
+    });
+
+    it('takes as carrier the first merge into the default branch by another MR', async () => {
+      const m = moved('accepted');
+      const mr = (iid: number, state: string, at: string, target_branch = 'main') => ({ iid, state, merged_at: `2026-10-17T${at}.000Z`, target_branch });
+      // each of the others would come first if it counted
+      const listed = [mr(11, 'merged', '23:50:00'), mr(8, 'merged', '23:01:00'), mr(12, 'opened', '23:02:00'), mr(13, 'merged', '23:03:00', 'release'), mr(9, 'merged', '23:20:00')];
+      const routes = { ...m.routes, [`/repository/commits/${m.accepted}/merge_requests`]: listed };
+      const { code, ledger } = await run(m, { routes, env: { CI_DEFAULT_BRANCH: 'main' } });
+      expect(code).toBe(0);
+      expect(ledger().records[1]).toMatchObject({ mr: 8, carried_by: { mr: 9 }, merged_at: '2026-10-17T23:20:00Z' });
     });
   });
 });

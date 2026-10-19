@@ -160,6 +160,17 @@ describe('comparing the rebuilt ledger with the published one', () => {
     expect(compare(ledger, rebuilt).join()).toMatch(/record 1 .* changed: accepted was true, now false/);
   });
 
+  it('fails when a record lands between published ones, even though every published record still comes back', async () => {
+    const { ledger, records } = await build();
+    const mr = (iid: number) => ({ ...records[0], mr: iid, mr_url: `${WEB}/-/merge_requests/${iid}` });
+    const published = chain(ledger.project, ledger.since, [mr(7), mr(9)]);
+    // a carried push of !8 sorted before !9, which a run had already published
+    const rebuilt = chain(ledger.project, ledger.since, [mr(7), { ...mr(8), carried_by: { mr: 83, mr_url: `${WEB}/-/merge_requests/83` } }, mr(9)]);
+    const problems = compare(published, rebuilt);
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toMatch(/^record 2 \(!9, push at 2026-10-17T22:13:04Z by @ai-issue-builder\S*\) changed: carried_by was .*; mr was 9, now 8; mr_url was/);
+  });
+
   it('fails when a published record is gone', async () => {
     const { ledger } = await build();
     const empty = chain(ledger.project, ledger.since, []);

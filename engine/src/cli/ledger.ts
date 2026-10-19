@@ -126,19 +126,27 @@ async function main() {
   const skipped: string[] = [];
   for (const mr of mrs.sort((a, b) => Date.parse(a.merged_at ?? a.created_at) - Date.parse(b.merged_at ?? b.created_at))) {
     const merged = mr.state === 'merged' && mr.merged_at;
+    const closed = mr.state === 'closed' && mr.closed_at;
+    if (mr.state === 'closed' && !mr.closed_at) console.warn(`warning: !${mr.iid} is closed but GitLab gives no closed_at, so its pushes can't be matched to a merge on the default branch and stay in the open list`);
     // what the guard saw: the pushes in its window (`after` leaves out the day
-    // it names) and, for a merged MR, up to the merge (a branch name can be used again later)
+    // it names) and, for a merged or closed MR, up to the merge or the close (a
+    // branch name can be used again later, and a push after the close was never judged on this MR)
     const window = windows.get(mr.iid) ?? from;
     const start = Date.parse(window) + 86_400_000;
-    const seen = events.filter((e) => Date.parse(e.created_at) >= start && (!merged || Date.parse(e.created_at) <= Date.parse(mr.merged_at!)));
+    const end = merged ? mr.merged_at : closed ? mr.closed_at : null;
+    const seen = events.filter((e) => Date.parse(e.created_at) >= start && (!end || Date.parse(e.created_at) <= Date.parse(end)));
     // the policy the guard read: the target branch's when the MR was merged (the
     // commit before the merge); for a closed MR, whose pushes can still be
     // chained through the MR that carried them, the default branch's when it was
     // closed, so a later policy change can't re-judge a published record; now,
     // for an MR still open
-    const closed = mr.state === 'closed' && mr.closed_at;
     const mergeSha = mr.merge_commit_sha ?? mr.squash_commit_sha;
     const closedRef = closed ? git('rev-list', '-1', '--first-parent', `--before=${mr.closed_at}`, chainRef) : '';
+    if (closed && !closedRef) {
+      // today's policy would re-judge it, so it isn't judged at all
+      skipped.push(`!${mr.iid}: closed at ${second(mr.closed_at!)}, before any commit on ${chainRef}, so the policy it was closed under can't be read`);
+      continue;
+    }
     const policyRef = merged ? (mergeSha ? `${mergeSha}^1` : mr.diff_refs?.base_sha) : closedRef || env.LEDGER_POLICY_REF || 'HEAD';
     let policy: string;
     try {
