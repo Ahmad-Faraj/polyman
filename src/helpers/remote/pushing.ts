@@ -8,7 +8,7 @@ import path from 'path';
 import { CheckerTest, PolygonSDK, ValidatorTest } from '../../polygon';
 import type ConfigFile from '../../types';
 import { fmt } from '../../formatter';
-import { isCppSource, logError, throwError } from '../utils';
+import { insideProblem, isCppSource, logError, throwError } from '../utils';
 import { normalizeLineEndingsFromSystemToRemote } from './utils';
 import { LocalTestset, TestOptions } from '../../types';
 import { readScriptText, toPolygonScript } from '../script-parser';
@@ -105,7 +105,7 @@ export async function uploadSolutions(
 
   for (const solution of config.solutions) {
     try {
-      const solutionPath = path.resolve(problemDir, solution.source);
+      const solutionPath = insideProblem(problemDir, solution.source);
       if (!fs.existsSync(solutionPath)) {
         throw new Error(`Solution file not found: ${solution.source}`);
       }
@@ -164,7 +164,11 @@ export async function uploadChecker(
     }
 
     // Custom checker - upload file first, then set it
-    const checkerPath = path.resolve(problemDir, checker.source);
+    const checkerPath = insideProblem(problemDir, checker.source);
+    // Resolve the tests path now so a refusal leaves nothing half-uploaded.
+    const testsPath = checker.testsFilePath
+      ? insideProblem(problemDir, checker.testsFilePath)
+      : undefined;
     if (!fs.existsSync(checkerPath)) {
       throw new Error(`Checker file not found: ${checker.source}`);
     }
@@ -182,8 +186,7 @@ export async function uploadChecker(
     await sdk.setChecker(problemId, filename);
 
     // Upload checker tests if available
-    if (checker.testsFilePath) {
-      const testsPath = path.resolve(problemDir, checker.testsFilePath);
+    if (testsPath) {
       if (fs.existsSync(testsPath)) {
         try {
           const testsContent = fs.readFileSync(testsPath, 'utf-8');
@@ -297,7 +300,11 @@ export async function uploadValidator(
   }
 
   try {
-    const validatorPath = path.resolve(problemDir, config.validator.source);
+    const validatorPath = insideProblem(problemDir, config.validator.source);
+    // Resolve the tests path now so a refusal leaves nothing half-uploaded.
+    const testsPath = config.validator.testsFilePath
+      ? insideProblem(problemDir, config.validator.testsFilePath)
+      : undefined;
     if (!fs.existsSync(validatorPath)) {
       throw new Error(`Validator file not found: ${config.validator.source}`);
     }
@@ -315,11 +322,7 @@ export async function uploadValidator(
     await sdk.setValidator(problemId, filename);
 
     // Upload validator tests if available
-    if (config.validator.testsFilePath) {
-      const testsPath = path.resolve(
-        problemDir,
-        config.validator.testsFilePath
-      );
+    if (testsPath) {
       if (fs.existsSync(testsPath)) {
         try {
           const testsContent = fs.readFileSync(testsPath, 'utf-8');
@@ -397,7 +400,7 @@ export async function uploadGenerators(
 
   for (const generator of config.generators) {
     try {
-      const genPath = path.resolve(problemDir, generator.source);
+      const genPath = insideProblem(problemDir, generator.source);
       if (!fs.existsSync(genPath)) {
         throw new Error(`Generator file not found: ${generator.source}`);
       }
@@ -457,7 +460,7 @@ export async function uploadStatements(
 
       // Read each statement component file
       if (statement.legend) {
-        const legendPath = path.resolve(problemDir, statement.legend);
+        const legendPath = insideProblem(problemDir, statement.legend);
 
         if (fs.existsSync(legendPath)) {
           statementData['legend'] = normalizeLineEndingsFromSystemToRemote(
@@ -467,7 +470,7 @@ export async function uploadStatements(
       }
 
       if (statement.input) {
-        const inputPath = path.resolve(problemDir, statement.input);
+        const inputPath = insideProblem(problemDir, statement.input);
         if (fs.existsSync(inputPath)) {
           statementData['input'] = normalizeLineEndingsFromSystemToRemote(
             fs.readFileSync(inputPath, 'utf-8')
@@ -476,7 +479,7 @@ export async function uploadStatements(
       }
 
       if (statement.output) {
-        const outputPath = path.resolve(problemDir, statement.output);
+        const outputPath = insideProblem(problemDir, statement.output);
         if (fs.existsSync(outputPath)) {
           statementData['output'] = normalizeLineEndingsFromSystemToRemote(
             fs.readFileSync(outputPath, 'utf-8')
@@ -485,7 +488,7 @@ export async function uploadStatements(
       }
 
       if (statement.notes) {
-        const notesPath = path.resolve(problemDir, statement.notes);
+        const notesPath = insideProblem(problemDir, statement.notes);
         if (fs.existsSync(notesPath)) {
           statementData['notes'] = normalizeLineEndingsFromSystemToRemote(
             fs.readFileSync(notesPath, 'utf-8')
@@ -494,7 +497,7 @@ export async function uploadStatements(
       }
 
       if (statement.tutorial) {
-        const tutorialPath = path.resolve(problemDir, statement.tutorial);
+        const tutorialPath = insideProblem(problemDir, statement.tutorial);
         if (fs.existsSync(tutorialPath)) {
           statementData['tutorial'] = normalizeLineEndingsFromSystemToRemote(
             fs.readFileSync(tutorialPath, 'utf-8')
@@ -503,7 +506,10 @@ export async function uploadStatements(
       }
 
       if (statement.interaction) {
-        const interactionPath = path.resolve(problemDir, statement.interaction);
+        const interactionPath = insideProblem(
+          problemDir,
+          statement.interaction
+        );
         if (fs.existsSync(interactionPath)) {
           statementData['interaction'] = normalizeLineEndingsFromSystemToRemote(
             fs.readFileSync(interactionPath, 'utf-8')
@@ -512,7 +518,7 @@ export async function uploadStatements(
       }
 
       if (statement.scoring) {
-        const scoringPath = path.resolve(problemDir, statement.scoring);
+        const scoringPath = insideProblem(problemDir, statement.scoring);
         if (fs.existsSync(scoringPath)) {
           statementData['scoring'] = normalizeLineEndingsFromSystemToRemote(
             fs.readFileSync(scoringPath, 'utf-8')
@@ -608,6 +614,12 @@ export async function uploadTestsets(
       // not cwd, so push works from any directory.
       const scriptText = readScriptText(testset, problemDir);
 
+      // Likewise refuse manual test paths outside the problem folder before
+      // anything is cleared on Polygon.
+      const manualPaths = (testset.manualTests ?? []).map(m =>
+        insideProblem(problemDir, m.input)
+      );
+
       await clearTestset(sdk, problemId, testset.name, failures);
 
       if (testset.groupsEnabled) {
@@ -623,7 +635,7 @@ export async function uploadTestsets(
       const manualPromises = createManualTestsPromises(
         sdk,
         problemId,
-        problemDir,
+        manualPaths,
         testset
       );
       try {
@@ -745,12 +757,12 @@ async function clearTestset(
 function createManualTestsPromises(
   sdk: PolygonSDK,
   problemId: number,
-  problemDir: string,
+  manualPaths: string[],
   testset: LocalTestset
 ): Array<Promise<void>> {
   const promises: Array<Promise<void>> = [];
-  for (const m of testset.manualTests ?? []) {
-    const testPath = path.resolve(problemDir, m.input);
+  for (const [position, m] of (testset.manualTests ?? []).entries()) {
+    const testPath = manualPaths[position];
     if (!fs.existsSync(testPath)) {
       throw new Error(`Manual test file not found: ${m.input}`);
     }

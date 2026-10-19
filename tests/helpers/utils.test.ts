@@ -131,6 +131,60 @@ describe('utils.ts', () => {
     });
   });
 
+  describe('insideProblem', () => {
+    const dir = path.resolve('problem-dir');
+
+    it('should resolve a plain relative path inside the folder', () => {
+      expect(utils.insideProblem(dir, 'file.txt')).toBe(
+        path.join(dir, 'file.txt')
+      );
+    });
+
+    it('should resolve a nested relative path', () => {
+      expect(utils.insideProblem(dir, 'sub/dir/file')).toBe(
+        path.join(dir, 'sub', 'dir', 'file')
+      );
+    });
+
+    it('should allow ".." inside the folder when it stays inside', () => {
+      expect(utils.insideProblem(dir, 'a/../b.txt')).toBe(
+        path.join(dir, 'b.txt')
+      );
+    });
+
+    it('should allow names that merely start with two dots', () => {
+      expect(utils.insideProblem(dir, '..x')).toBe(path.join(dir, '..x'));
+      expect(utils.insideProblem(dir, '..notes.tex')).toBe(
+        path.join(dir, '..notes.tex')
+      );
+    });
+
+    it('should refuse a path that climbs out of the folder', () => {
+      expect(() => utils.insideProblem(dir, '../x')).toThrow(
+        'Refusing path outside the problem folder: ../x'
+      );
+      expect(() => utils.insideProblem(dir, '..')).toThrow(/Refusing path/);
+      expect(() => utils.insideProblem(dir, 'sub/../../x')).toThrow(
+        /Refusing path/
+      );
+      expect(() => utils.insideProblem(dir, '../../.ssh/id_rsa')).toThrow(
+        /Refusing path/
+      );
+    });
+
+    it('should refuse an absolute path outside the folder', () => {
+      const outside = path.resolve(dir, '..', 'elsewhere', 'file.txt');
+      expect(() => utils.insideProblem(dir, outside)).toThrow(
+        `Refusing path outside the problem folder: ${outside}`
+      );
+    });
+
+    it('should accept an absolute path that is inside the folder', () => {
+      const inside = path.join(dir, 'a.txt');
+      expect(utils.insideProblem(dir, inside)).toBe(inside);
+    });
+  });
+
   describe('filterTestsByRange', () => {
     const testFiles = ['test1.txt', 'test2.txt', 'test3.txt', 'not-test.txt'];
     it('should return all tests if no range is specified', () => {

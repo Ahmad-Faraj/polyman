@@ -1,3 +1,4 @@
+import fs from 'fs';
 import path from 'path';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as testset from '../../src/helpers/testset';
@@ -11,8 +12,13 @@ vi.mock('fs');
 vi.mock('../../src/formatter');
 
 describe('testset.ts', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
+    // utils is auto-mocked; the path guard must be the real one here.
+    const actual = await vi.importActual<
+      typeof import('../../src/helpers/utils')
+    >('../../src/helpers/utils');
+    vi.mocked(utils.insideProblem).mockImplementation(actual.insideProblem);
   });
 
   describe('ensureTestsetsExist', () => {
@@ -70,6 +76,27 @@ describe('testset.ts', () => {
       expect(testset.getTestIndicesForGroup(ts, 'all').sort()).toEqual([
         1, 2, 3, 5,
       ]);
+    });
+  });
+
+  describe('scriptFile outside the problem folder', () => {
+    // These helpers take no baseDir, so the guard resolves against the cwd.
+    const outside: LocalTestset = {
+      name: 'main',
+      generatorScript: { scriptFile: '../x.txt' },
+      manualTests: [{ input: './m.in', index: 1 }],
+    };
+
+    it('getTestIndicesForGroup throws', () => {
+      expect(() => testset.getTestIndicesForGroup(outside, 'all')).toThrow(
+        /outside the problem folder/
+      );
+    });
+
+    it('getAllTestIndices throws', () => {
+      expect(() => testset.getAllTestIndices(outside)).toThrow(
+        /outside the problem folder/
+      );
     });
   });
 
@@ -226,6 +253,36 @@ describe('testset.ts', () => {
       const out = testset.listTestsets([ts])[0];
       expect(out).toContain('ts1: 2 tests');
       expect(out).toContain('groups: g1');
+    });
+
+    it('swallows an outside scriptFile and counts only manual tests', () => {
+      // Pins current behaviour: the refusal from readScriptText is caught by
+      // the try/catch in listTestsets, so no error is shown; the count falls
+      // back to the number of manual tests.
+      // The script file "exists" and has three tests, so if the guard let the
+      // path through the count would be 5, not 2.
+      vi.mocked(fs.existsSync).mockReturnValue(true);
+      vi.mocked(fs.readFileSync).mockReturnValue(
+        'gen 1 > 1\ngen 2 > 2\ngen 3 > 3'
+      );
+      const ts: LocalTestset = {
+        name: 'ts1',
+        generatorScript: { scriptFile: '../x.txt' },
+        manualTests: [
+          { input: './a.in', index: 4 },
+          { input: './b.in', index: 5 },
+        ],
+      };
+      let out = '';
+      try {
+        expect(() => {
+          out = testset.listTestsets([ts])[0];
+        }).not.toThrow();
+        expect(out).toContain('ts1: 2 tests');
+      } finally {
+        vi.mocked(fs.existsSync).mockReset();
+        vi.mocked(fs.readFileSync).mockReset();
+      }
     });
 
     it('handles testsets with no script and no groups', () => {

@@ -3,6 +3,7 @@ import * as generator from '../../src/helpers/generator';
 import { executor } from '../../src/executor';
 import * as utils from '../../src/helpers/utils';
 import fs from 'fs';
+import path from 'path';
 import type {
   LocalGenerator,
   LocalTestset,
@@ -155,6 +156,28 @@ describe('compileGeneratorsForTestsets', () => {
     expect(utils.compileCPP).toHaveBeenCalledTimes(2);
   });
 
+  it('refuses a scriptFile outside the problem folder', async () => {
+    // compileGeneratorsForTestsets passes no baseDir, so the guard resolves
+    // against the cwd.
+    await expect(
+      generator.compileGeneratorsForTestsets(
+        [{ name: 'a', generatorScript: { scriptFile: '../x.txt' } }],
+        [{ name: 'gen', source: 'gen.cpp' }]
+      )
+    ).rejects.toThrow(/outside the problem folder/);
+    expect(utils.compileCPP).not.toHaveBeenCalled();
+  });
+
+  it('reads an in-folder scriptFile', async () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue('gen 1 > 1');
+    await generator.compileGeneratorsForTestsets(
+      [{ name: 'a', generatorScript: { scriptFile: 'scripts/a.txt' } }],
+      [{ name: 'gen', source: 'gen.cpp' }]
+    );
+    expect(utils.compileCPP).toHaveBeenCalledWith('gen.cpp');
+  });
+
   it('throws when a script references an undefined generator', async () => {
     await expect(
       generator.compileGeneratorsForTestsets(
@@ -281,6 +304,39 @@ describe('resolveTestsetTests', () => {
     ]);
     expect(result.map(t => t.index)).toEqual([1, 2, 3]);
     expect(result[0].source.kind).toBe('manual');
+  });
+
+  it('refuses a scriptFile outside the problem folder', () => {
+    const ts: LocalTestset = {
+      name: 'main',
+      generatorScript: { scriptFile: '../x.txt' },
+    };
+    expect(() =>
+      generator.resolveTestsetTests(
+        ts,
+        [{ name: 'gen', source: 'gen.cpp' }],
+        '/problem'
+      )
+    ).toThrow(/outside the problem folder/);
+  });
+
+  it('resolves an in-folder scriptFile against baseDir', () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue('gen 1 > 1');
+    const ts: LocalTestset = {
+      name: 'main',
+      generatorScript: { scriptFile: 'scripts/a.txt' },
+    };
+    const result = generator.resolveTestsetTests(
+      ts,
+      [{ name: 'gen', source: 'gen.cpp' }],
+      '/problem'
+    );
+    expect(result.map(t => t.index)).toEqual([1]);
+    expect(fs.readFileSync).toHaveBeenCalledWith(
+      path.resolve('/problem', 'scripts/a.txt'),
+      'utf-8'
+    );
   });
 
   it('throws when the script references an undefined generator', () => {

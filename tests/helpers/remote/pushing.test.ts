@@ -1889,4 +1889,247 @@ describe('pushing.ts', () => {
       expect(result.testsCount).toBe(1);
     });
   });
+  describe('paths outside the problem folder', () => {
+    const outside = '../../.ssh/id_rsa';
+
+    beforeEach(() => {
+      mockedExistsSync.mockReturnValue(true);
+      mockedReadFileSync.mockReturnValue('secret');
+    });
+
+    it('should not read or upload a solution outside the folder', async () => {
+      const { sdk, mocks } = buildSdk();
+      const failures: string[] = [];
+      const cfg = asConfig({
+        solutions: [{ name: 'sol', source: outside, tag: 'MA' }],
+      });
+      const result = await pushing.uploadSolutions(
+        sdk,
+        1,
+        'dir',
+        cfg,
+        failures
+      );
+      expect(result).toBe(0);
+      expect(mockedReadFileSync).not.toHaveBeenCalled();
+      expect(mocks.saveSolution).not.toHaveBeenCalled();
+      expect(failures).toEqual([
+        `solution sol: Refusing path outside the problem folder: ${outside}`,
+      ]);
+    });
+
+    it('should throw for a checker outside the folder', async () => {
+      const { sdk, mocks } = buildSdk();
+      const cfg = asConfig({
+        checker: { name: 'check', source: '../check.cpp' },
+      });
+      await expect(pushing.uploadChecker(sdk, 1, 'dir', cfg)).rejects.toThrow(
+        'Refusing path outside the problem folder: ../check.cpp'
+      );
+      expect(mockedReadFileSync).not.toHaveBeenCalled();
+      expect(mocks.saveFile).not.toHaveBeenCalled();
+    });
+
+    it('should upload nothing when checker tests are outside the folder', async () => {
+      const { sdk, mocks } = buildSdk();
+      const cfg = asConfig({
+        checker: {
+          name: 'check',
+          source: 'check.cpp',
+          testsFilePath: outside,
+        },
+      });
+      await expect(pushing.uploadChecker(sdk, 1, 'dir', cfg)).rejects.toThrow(
+        /Refusing path outside the problem folder/
+      );
+      expect(mocks.saveFile).not.toHaveBeenCalled();
+      expect(mocks.setChecker).not.toHaveBeenCalled();
+      expect(mocks.saveCheckerTest).not.toHaveBeenCalled();
+    });
+
+    it('should upload nothing when validator tests are outside the folder', async () => {
+      const { sdk, mocks } = buildSdk();
+      const failures: string[] = [];
+      const cfg = asConfig({
+        validator: {
+          name: 'val',
+          source: 'val.cpp',
+          testsFilePath: outside,
+        },
+      });
+      const result = await pushing.uploadValidator(
+        sdk,
+        1,
+        'dir',
+        cfg,
+        failures
+      );
+      expect(result).toBe(0);
+      expect(mocks.saveFile).not.toHaveBeenCalled();
+      expect(mocks.setValidator).not.toHaveBeenCalled();
+      expect(mocks.saveValidatorTest).not.toHaveBeenCalled();
+      expect(failures).toEqual([
+        `validator: Refusing path outside the problem folder: ${outside}`,
+      ]);
+    });
+
+    it('should not read a validator outside the folder', async () => {
+      const { sdk, mocks } = buildSdk();
+      const failures: string[] = [];
+      const cfg = asConfig({
+        validator: { name: 'val', source: '../val.cpp' },
+      });
+      const result = await pushing.uploadValidator(
+        sdk,
+        1,
+        'dir',
+        cfg,
+        failures
+      );
+      expect(result).toBe(0);
+      expect(mockedReadFileSync).not.toHaveBeenCalled();
+      expect(mocks.saveFile).not.toHaveBeenCalled();
+      expect(failures).toEqual([
+        'validator: Refusing path outside the problem folder: ../val.cpp',
+      ]);
+    });
+
+    it('should not read a generator outside the folder', async () => {
+      const { sdk, mocks } = buildSdk();
+      const failures: string[] = [];
+      const cfg = asConfig({
+        generators: [{ name: 'gen', source: '../gen.cpp' }],
+      });
+      await pushing.uploadGenerators(sdk, 1, 'dir', cfg, failures);
+      expect(mockedReadFileSync).not.toHaveBeenCalled();
+      expect(mocks.saveFile).not.toHaveBeenCalled();
+      expect(failures).toEqual([
+        'generator gen: Refusing path outside the problem folder: ../gen.cpp',
+      ]);
+    });
+
+    it.each([
+      'legend',
+      'input',
+      'output',
+      'notes',
+      'tutorial',
+      'interaction',
+      'scoring',
+    ])('should not read statement %s outside the folder', async field => {
+      const { sdk, mocks } = buildSdk();
+      const failures: string[] = [];
+      const cfg = asConfig({
+        name: 'Prob',
+        statements: {
+          english: { encoding: 'UTF-8', name: 'Prob', [field]: outside },
+        },
+      });
+      await pushing.uploadStatements(sdk, 1, 'dir', cfg, failures);
+      expect(mockedReadFileSync).not.toHaveBeenCalled();
+      expect(mocks.saveStatement).not.toHaveBeenCalled();
+      expect(failures).toEqual([
+        `statement english: Refusing path outside the problem folder: ${outside}`,
+      ]);
+    });
+
+    it('should refuse an absolute solution path outside the folder', async () => {
+      const { sdk, mocks } = buildSdk();
+      const failures: string[] = [];
+      const cfg = asConfig({
+        solutions: [{ name: 'sol', source: '/etc/passwd', tag: 'MA' }],
+      });
+      const result = await pushing.uploadSolutions(
+        sdk,
+        1,
+        'dir',
+        cfg,
+        failures
+      );
+      expect(result).toBe(0);
+      expect(mockedReadFileSync).not.toHaveBeenCalled();
+      expect(mocks.saveSolution).not.toHaveBeenCalled();
+      expect(failures).toEqual([
+        'solution sol: Refusing path outside the problem folder: /etc/passwd',
+      ]);
+    });
+
+    it('should refuse an absolute statement path outside the folder', async () => {
+      const { sdk, mocks } = buildSdk();
+      const failures: string[] = [];
+      const cfg = asConfig({
+        name: 'Prob',
+        statements: {
+          english: {
+            encoding: 'UTF-8',
+            name: 'Prob',
+            legend: '/etc/passwd',
+          },
+        },
+      });
+      await pushing.uploadStatements(sdk, 1, 'dir', cfg, failures);
+      expect(mockedReadFileSync).not.toHaveBeenCalled();
+      expect(mocks.saveStatement).not.toHaveBeenCalled();
+      expect(failures).toEqual([
+        'statement english: Refusing path outside the problem folder: /etc/passwd',
+      ]);
+    });
+
+    it('should not read a manual test outside the folder', async () => {
+      const { sdk, mocks } = buildSdk();
+      const failures: string[] = [];
+      const cfg = asConfig({
+        testsets: [
+          { name: 'tests', manualTests: [{ input: '../t.txt', index: 1 }] },
+        ],
+      });
+      await pushing.uploadTestsets(sdk, 1, 'dir', cfg, failures);
+      expect(mocks.saveTest).not.toHaveBeenCalled();
+      expect(failures).toEqual([
+        'testset tests: Refusing path outside the problem folder: ../t.txt',
+      ]);
+    });
+
+    it('should refuse a generator scriptFile outside the folder', async () => {
+      const { sdk, mocks } = buildSdk();
+      const failures: string[] = [];
+      const cfg = asConfig({
+        testsets: [{ name: 'tests', generatorScript: { scriptFile: '../x' } }],
+      });
+      await pushing.uploadTestsets(sdk, 1, 'dir', cfg, failures);
+      expect(mocks.saveScript).not.toHaveBeenCalled();
+      expect(failures).toEqual([
+        'testset tests: Refusing path outside the problem folder: ../x',
+      ]);
+    });
+
+    it('should refuse a manual test outside the folder before clearing the testset', async () => {
+      const { sdk, mocks } = buildSdk();
+      const cfg = asConfig({
+        testsets: [
+          {
+            name: 'tests',
+            manualTests: [
+              { input: 'ok.txt', index: 1 },
+              { input: '../t.txt', index: 2 },
+            ],
+          },
+        ],
+      });
+      await pushing.uploadTestsets(sdk, 1, 'dir', cfg, []);
+      expect(mocks.enableGroups).not.toHaveBeenCalled();
+      expect(mocks.saveScript).not.toHaveBeenCalled();
+      expect(mocks.saveTest).not.toHaveBeenCalled();
+    });
+
+    it('should still read a file whose name starts with two dots', async () => {
+      const { sdk, mocks } = buildSdk();
+      const cfg = asConfig({
+        solutions: [{ name: 'sol', source: '..sol.cpp', tag: 'MA' }],
+      });
+      const result = await pushing.uploadSolutions(sdk, 1, 'dir', cfg);
+      expect(result).toBe(1);
+      expect(mocks.saveSolution).toHaveBeenCalled();
+    });
+  });
 });
