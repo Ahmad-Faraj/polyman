@@ -76,8 +76,11 @@ agents:
   fixer_account: ai-pipeline-fixer-gitlab-ai-hackathon_b1d814
 
 monitor:
-  # filled in with the verify service (#19)
-  measured_routes: []
+  # the verify service routes service/scripts/golden.ts sends requests to in
+  # service:check:production; it writes their numbers to traffic.json and the
+  # monitor checks the review's watch list against them. Named as the reviewer
+  # must name them: method and the route as service/src/app.ts declares it.
+  measured_routes: ["GET /api/samples", "POST /api/samples/:name/verify", "POST /api/verify"]
   # failing one of these means production is affected (the incident responder
   # opens an incident). Only jobs that run once production serves the new
   # release: a failed candidate deploy or check never got traffic, so those

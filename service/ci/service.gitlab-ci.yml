@@ -173,6 +173,12 @@ service:promote:production:
 # DRILL from it), click the manual promote, and this check fails on purpose
 # after the switch, so the rollback and the incident run for real. Only a
 # pipeline a person starts in the UI can run the drill, not a push or the API.
+#
+# After the samples, the release monitor (engine/src/cli/monitor.ts) checks
+# the routes the review of the merged MR said to watch (its ```watch block)
+# against what golden.ts measured (traffic.json), and writes
+# health-report.json. Either one failing fails the job, so the rollback and
+# the incident follow the same way.
 service:check:production:
   extends: .service:release
   stage: deploy
@@ -181,10 +187,24 @@ service:check:production:
   script:
     - |
       if [ "${DRILL:-}" = production-check ] && [ "$CI_PIPELINE_SOURCE" = web ]; then set -- --drill; else set --; fi
-      node --disable-warning=ExperimentalWarning service/scripts/golden.ts "$SERVICE_URL" --json golden.json "$@"
+      golden=0
+      node --disable-warning=ExperimentalWarning service/scripts/golden.ts "$SERVICE_URL" --json golden.json --traffic traffic.json "$@" || golden=$?
+      # the MR this commit merged; the job token's reads fall back to the
+      # public API, as engine/src/gitlab.ts does
+      api="$CI_API_V4_URL/projects/$CI_PROJECT_ID/repository/commits/$CI_COMMIT_SHA/merge_requests"
+      mrs=$(curl -sf -H "JOB-TOKEN: $CI_JOB_TOKEN" "$api" || curl -sf "$api" || echo '[]')
+      RELEASE_MR_IID=$(printf '%s' "$mrs" | node -e 'const m = JSON.parse(require("fs").readFileSync(0, "utf8")).find((m) => m.state === "merged"); if (m) console.log(m.iid)' || true)
+      monitor=0
+      if [ -n "$RELEASE_MR_IID" ]; then
+        export RELEASE_MR_IID
+        { npm ci --prefix engine --no-audit --no-fund --loglevel=error && node engine/src/cli/monitor.ts traffic.json; } || monitor=$?
+      else
+        echo "no merged MR for ${CI_COMMIT_SHA:-this commit}, so no review to read a watch list from: the monitor didn't run"
+      fi
+      if [ "$golden" != 0 ] || [ "$monitor" != 0 ]; then exit 1; fi
   artifacts:
     when: always
-    paths: [golden.json]
+    paths: [golden.json, traffic.json, health-report.json]
 
 # Production got the samples wrong after the switch: send traffic back to the
 # revision that served before. Does nothing if the switch never happened.

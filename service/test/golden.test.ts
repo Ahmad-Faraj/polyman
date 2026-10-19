@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { compare, expectedSamples, readStream, runGolden, zipFolder } from '../scripts/golden.ts';
+import { compare, expectedSamples, readStream, runGolden, trafficFrom, zipFolder, type RouteCall } from '../scripts/golden.ts';
 import { unzip } from '../src/unzip.ts';
 
 const expected = { ok: false, solutions: { main: true, first_only: false }, readinessFailures: [] };
@@ -84,8 +84,66 @@ describe('runGolden against a stand-in service', () => {
 
   it('fails when the sample list itself fails', async () => {
     const s = await serve(() => [500, 'oops']);
-    await expect(runGolden(s.base, want, 0, null)).rejects.toThrow('HTTP 500');
+    const calls: RouteCall[] = [];
+    await expect(runGolden(s.base, want, 0, null, calls)).rejects.toThrow('HTTP 500');
     s.close();
+    expect(calls).toMatchObject([{ route: 'GET /api/samples', ok: false }]);
+  });
+
+  it('records each answered request by route, a wrong answer as failed, and not the 429s', async () => {
+    const two = new Map([...want, ['b', { ok: false, solutions: { main: true }, readinessFailures: [] }]]);
+    let posts = 0;
+    const s = await serve((url) => (url === '/api/samples' ? [200, '[{"name":"a"},{"name":"b"}]'] : ++posts === 1 ? [429, 'busy'] : [200, answer]));
+    const calls: RouteCall[] = [];
+    await runGolden(s.base, two, 0, null, calls);
+    s.close();
+    expect(calls.map((c) => [c.route, c.ok])).toEqual([
+      ['GET /api/samples', true],
+      ['POST /api/samples/:name/verify', true],
+      ['POST /api/samples/:name/verify', false],
+    ]);
+  });
+
+  it('counts a sample list without one of the samples as a wrong answer', async () => {
+    const s = await serve(() => [200, '[]']);
+    const calls: RouteCall[] = [];
+    await runGolden(s.base, want, 0, null, calls);
+    s.close();
+    expect(calls).toMatchObject([{ route: 'GET /api/samples', ok: false }]);
+  });
+});
+
+describe('the traffic file', () => {
+  it('gives each route its request count, share of failed answers and p95 time', () => {
+    const calls = [
+      { route: 'GET /api/samples', ok: true, seconds: 0.05 },
+      ...[1, 2, 3, 4].map((s) => ({ route: 'POST /api/samples/:name/verify', ok: s !== 3, seconds: s })),
+    ];
+    expect(trafficFrom(calls)).toEqual({
+      'GET /api/samples': { count: 1, errorRate: 0, p95Ms: 50 },
+      'POST /api/samples/:name/verify': { count: 4, errorRate: 0.25, p95Ms: 4000 },
+    });
+    expect(trafficFrom([])).toEqual({});
+  });
+
+  it('names exactly the routes .autonomy.yml says are measured, as the service declares them', async () => {
+    const config = readFileSync(new URL('../../.autonomy.yml', import.meta.url), 'utf8');
+    const measured = JSON.parse(config.match(/^ {2}measured_routes: (\[.*\])$/m)![1]) as string[];
+    const answer = '{"type":"problem","ok":true,"seconds":1,"report":{"solutions":[]},"readiness":[]}\n{"type":"done","ok":true}\n';
+    // the upload route zips a real sample folder, so use one that exists
+    const sample = [...expectedSamples().keys()][0];
+    const offered = new Map([[sample, { ok: true, solutions: {}, readinessFailures: [] }]]);
+    const server = createServer((req, res) => res.writeHead(200).end(req.url === '/api/samples' ? JSON.stringify([{ name: sample }]) : answer));
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const calls: RouteCall[] = [];
+    await runGolden(`http://127.0.0.1:${(server.address() as AddressInfo).port}`, offered, 0, sample, calls);
+    server.close();
+    expect(Object.keys(trafficFrom(calls)).sort()).toEqual([...measured].sort());
+    const app = readFileSync(new URL('../src/app.ts', import.meta.url), 'utf8');
+    for (const route of measured) {
+      const [method, path] = route.split(' ');
+      expect(app).toMatch(new RegExp(`app\\.${method.toLowerCase()}(<[^>]*>)?\\('${path}'`));
+    }
   });
 });
 
@@ -141,14 +199,13 @@ describe('the production-check fire drill', () => {
     const ci = readFileSync(new URL('../ci/service.gitlab-ci.yml', import.meta.url), 'utf8');
     const job = ci.slice(ci.indexOf('service:check:production:'), ci.indexOf('service:rollback:production:'));
     expect(job).toContain('[ "${DRILL:-}" = production-check ] && [ "$CI_PIPELINE_SOURCE" = web ]');
-    expect(job).toContain('golden.json "$@"');
+    expect(job).toContain('traffic.json "$@"');
   });
 });
 
 describe('the fire drill, end to end', () => {
   it('golden.ts --drill says so first, fails only the turned-around sample, and still writes the json', async () => {
     const { execFile } = await import('node:child_process');
-    const { existsSync } = await import('node:fs');
     const want = expectedSamples();
     // a service that judges every sample exactly as the repository expects
     const server = createServer((req, res) => {
@@ -202,8 +259,12 @@ describe('the fire drill, end to end', () => {
 });
 
 describe('the production-check job script, run in sh', () => {
-  async function args(env: Record<string, string>) {
-    const { execFileSync } = await import('node:child_process');
+  /**
+   * Runs the job's script with stand-ins for node, curl and npm that log how
+   * they were called. The real node still parses the MR list.
+   */
+  async function run(env: Record<string, string>) {
+    const { spawnSync } = await import('node:child_process');
     const { chmodSync, writeFileSync } = await import('node:fs');
     const ci = readFileSync(new URL('../ci/service.gitlab-ci.yml', import.meta.url), 'utf8');
     const job = ci.slice(ci.indexOf('service:check:production:'), ci.indexOf('service:rollback:production:'));
@@ -212,26 +273,66 @@ describe('the production-check job script, run in sh', () => {
     const end = lines.findIndex((l) => l.trim() === 'artifacts:');
     const script = lines.slice(start, end).map((l) => l.replace(/^ {6}/, '')).join('\n');
     const dir = mkdtempSync(join(tmpdir(), 'drill-sh-'));
+    const log = join(dir, 'log');
+    const stub = (name: string, body: string) => {
+      writeFileSync(join(dir, name), `#!/bin/sh\n${body}\n`);
+      chmodSync(join(dir, name), 0o755);
+    };
     try {
-      // a stand-in node that prints the arguments it got, one per line
-      writeFileSync(join(dir, 'node'), '#!/bin/sh\nfor a in "$@"; do echo "$a"; done\n');
-      chmodSync(join(dir, 'node'), 0o755);
-      const out = execFileSync('sh', ['-ec', script], { env: { PATH: `${dir}:/usr/bin:/bin`, SERVICE_URL: 'https://prod.example', ...env }, encoding: 'utf8' });
-      return out.trim().split('\n');
+      stub(
+        'node',
+        `case "$*" in
+  *golden.ts*) echo "golden $*" >> "${log}"; exit \${GOLDEN_EXIT:-0} ;;
+  *monitor.ts*) echo "monitor $* RELEASE_MR_IID=$RELEASE_MR_IID" >> "${log}"; exit \${MONITOR_EXIT:-0} ;;
+esac
+exec "${process.execPath}" "$@"`,
+      );
+      stub('curl', `echo "curl $*" >> "${log}"; printf '%s' "$MRS"`);
+      stub('npm', `echo "npm $*" >> "${log}"`);
+      const r = spawnSync('sh', ['-ec', script], {
+        env: { PATH: `${dir}:/usr/bin:/bin`, SERVICE_URL: 'https://prod.example', CI_API_V4_URL: 'https://gitlab.example/api/v4', CI_PROJECT_ID: '7', CI_COMMIT_SHA: 'abc123', CI_JOB_TOKEN: 'tok', MRS: '[{"iid":12,"state":"opened"},{"iid":14,"state":"merged"}]', ...env },
+        encoding: 'utf8',
+      });
+      const calls = existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n') : [];
+      return { code: r.status, out: r.stdout + r.stderr, calls, golden: calls.find((c) => c.startsWith('golden '))?.slice('golden '.length).split(' ') };
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   }
 
   it('adds --drill only for DRILL=production-check in a pipeline started from the UI', async () => {
-    const base = ['--disable-warning=ExperimentalWarning', 'service/scripts/golden.ts', 'https://prod.example', '--json', 'golden.json'];
-    expect(await args({ DRILL: 'production-check', CI_PIPELINE_SOURCE: 'web' })).toEqual([...base, '--drill']);
+    const base = ['--disable-warning=ExperimentalWarning', 'service/scripts/golden.ts', 'https://prod.example', '--json', 'golden.json', '--traffic', 'traffic.json'];
+    expect((await run({ DRILL: 'production-check', CI_PIPELINE_SOURCE: 'web' })).golden).toEqual([...base, '--drill']);
     for (const source of ['push', 'api', 'trigger', 'schedule', 'pipeline']) {
-      expect(await args({ DRILL: 'production-check', CI_PIPELINE_SOURCE: source })).toEqual(base);
+      expect((await run({ DRILL: 'production-check', CI_PIPELINE_SOURCE: source })).golden).toEqual(base);
     }
-    expect(await args({ CI_PIPELINE_SOURCE: 'web' })).toEqual(base);
-    expect(await args({ DRILL: 'other', CI_PIPELINE_SOURCE: 'web' })).toEqual(base);
-    expect(await args({ DRILL: '', CI_PIPELINE_SOURCE: 'web' })).toEqual(base);
+    expect((await run({ CI_PIPELINE_SOURCE: 'web' })).golden).toEqual(base);
+    expect((await run({ DRILL: 'other', CI_PIPELINE_SOURCE: 'web' })).golden).toEqual(base);
+    expect((await run({ DRILL: '', CI_PIPELINE_SOURCE: 'web' })).golden).toEqual(base);
+  });
+
+  it('runs the monitor on the traffic file for the merged MR of this commit, with the job token', async () => {
+    const r = await run({});
+    expect(r.code).toBe(0);
+    expect(r.calls[1]).toBe('curl -sf -H JOB-TOKEN: tok https://gitlab.example/api/v4/projects/7/repository/commits/abc123/merge_requests');
+    expect(r.calls).toContain('npm ci --prefix engine --no-audit --no-fund --loglevel=error');
+    expect(r.calls.at(-1)).toBe('monitor engine/src/cli/monitor.ts traffic.json RELEASE_MR_IID=14');
+  });
+
+  it('fails when the samples or the monitor fail, and runs the monitor even when the samples failed', async () => {
+    const golden = await run({ GOLDEN_EXIT: '1' });
+    expect(golden.code).toBe(1);
+    expect(golden.calls.at(-1)).toMatch(/^monitor /);
+    expect((await run({ MONITOR_EXIT: '1' })).code).toBe(1);
+    expect((await run({ GOLDEN_EXIT: '1', MONITOR_EXIT: '1' })).code).toBe(1);
+  });
+
+  it('without a merged MR it says so, skips the monitor and keeps the samples result', async () => {
+    const none = await run({ MRS: '[]' });
+    expect(none.code).toBe(0);
+    expect(none.out).toContain('no merged MR for abc123');
+    expect(none.calls.some((c) => c.startsWith('monitor '))).toBe(false);
+    expect((await run({ MRS: '[]', GOLDEN_EXIT: '1' })).code).toBe(1);
   });
 });
 

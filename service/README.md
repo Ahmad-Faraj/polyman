@@ -142,10 +142,12 @@ With Google Cloud set up (below), the default branch also releases it:
    commit on the default branch changed the service again (that newer
    pipeline has the newer candidate, so this job ends without a switch). A
    later merge that only touched docs or the corpus does not block it. Then
-   `service:check:production` runs the samples again on the public URL.
-6. If production gets them wrong, `service:rollback:production` moves traffic
-   back to the revision that served before, and fails loudly if there is
-   none.
+   `service:check:production` runs the samples again on the public URL, and
+   the release monitor (`engine/src/cli/monitor.ts`) checks the routes the
+   review of the merged MR said to watch against what those requests did.
+6. If production gets them wrong, or a watched route is over its limit,
+   `service:rollback:production` moves traffic back to the revision that
+   served before, and fails loudly if there is none.
 
 CI signs in to Google Cloud with the job's OIDC token through Workload
 Identity Federation, so no Google key is stored in GitLab.
