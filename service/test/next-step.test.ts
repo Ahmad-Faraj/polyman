@@ -18,6 +18,8 @@ interface Repo {
   serviceDiff?: 'same' | 'changed' | 'error';
   /** the pipeline's jobs as the API lists them; undefined when every lookup fails */
   jobs?: { id: number; name: string }[];
+  /** a cloudrun.conf to use instead of the real one */
+  conf?: string;
 }
 
 function run(repo: Repo) {
@@ -40,7 +42,16 @@ esac`,
   );
   if (repo.jobs) writeFileSync(join(work, 'jobs.json'), JSON.stringify(repo.jobs));
   stub('curl', repo.jobs ? `cat "${work}/jobs.json"` : 'exit 22');
-  const res = spawnSync('sh', [SCRIPT], {
+  let script = SCRIPT;
+  if (repo.conf !== undefined) {
+    // the script reads cloudrun.conf next to itself
+    const deploy = join(work, 'deploy');
+    mkdirSync(deploy);
+    script = join(deploy, 'next-step.sh');
+    writeFileSync(script, readFileSync(SCRIPT, 'utf8'));
+    writeFileSync(join(deploy, 'cloudrun.conf'), repo.conf);
+  }
+  const res = spawnSync('sh', [script], {
     cwd: work,
     encoding: 'utf8',
     env: {
@@ -93,6 +104,15 @@ describe('next-step.sh after the candidate passed', () => {
       expect(r.out).toContain('The promote job checks again');
       expect(r.out).toContain('/-/jobs/42');
     }
+  });
+
+  it('skips the comparison when SERVICE_PATHS cannot be read, instead of diffing the whole tree', () => {
+    const r = run({ mainHead: 'newer', serviceDiff: 'changed', jobs, conf: "SERVICE=polyman-verify\nSERVICE_PATHS='service src'\n" });
+    expect(r.status).toBe(0);
+    expect(r.out).toContain('NEXT STEP: could not read SERVICE_PATHS');
+    expect(r.out).toContain('https://gitlab.example/p/-/jobs/42');
+    expect(r.out).not.toContain("don't promote");
+    expect(r.calls).not.toContain('git diff');
   });
 
   it('falls back to the pipeline link when the job lookup fails', () => {

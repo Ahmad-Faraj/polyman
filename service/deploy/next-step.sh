@@ -30,7 +30,10 @@ if git fetch --quiet --depth=1 "$CI_REPOSITORY_URL" "refs/heads/$CI_DEFAULT_BRAN
   HEAD=$(git rev-parse FETCH_HEAD 2>/dev/null)
 fi
 
-if [ -n "$HEAD" ] && [ "$HEAD" != "$CI_COMMIT_SHA" ]; then
+if [ -n "$HEAD" ] && [ "$HEAD" != "$CI_COMMIT_SHA" ] && [ -z "$SERVICE_PATHS" ]; then
+  # an empty path list would make git diff compare the whole tree
+  say "could not read SERVICE_PATHS from cloudrun.conf, so it is not known whether $CI_DEFAULT_BRANCH ($HEAD) changed the service again. The promote job checks again and refuses if this is not the newest release."
+elif [ -n "$HEAD" ] && [ "$HEAD" != "$CI_COMMIT_SHA" ]; then
   CHANGED=0
   # shellcheck disable=SC2086 # one path per word
   git diff --quiet "$CI_COMMIT_SHA" "$HEAD" -- $SERVICE_PATHS 2>/dev/null || CHANGED=$?
