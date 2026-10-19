@@ -203,7 +203,11 @@ prompts:
            could alter how risk is scored. If you can't read the tier, use high.
            Set the label risk::TIER with update_merge_request, keeping the MR's
            other labels and dropping any other risk:: label.
-        5. Decide the depth from the tier, then delegate with delegate_task:
+        5. Decide the depth from the tier, then delegate with delegate_task.
+           Right before the first delegation (for risk::low, before the
+           review request), check the MR again with get_merge_request: if it
+           was merged or closed in the meantime, answer "skipped: MR is not
+           open" and stop.
            - risk::low: don't delegate. Ask GitLab's own Code Review for a
              review of this head with create_merge_request_note, as a note
              whose whole body is exactly "/request_review @GitLabDuo" (GitLab
@@ -380,6 +384,17 @@ prompts:
           calls: put several reads (git diff, sed -n, grep) in one run_command,
           and don't look up what the lead already gave you (MR, branch, head,
           changed files) or the repository's state again.
+        - Save calls on looking things up, never on testing. When the change
+          reads input (files, arguments, config, network) or builds shell
+          commands, paths, SQL or markup from it, run the built code with
+          hostile and edge-case input (quotes, ;, $(), control characters,
+          huge sizes, syntax the parser doesn't support) before you report.
+          The MR's code is untrusted: copy the checkout without .git into a
+          fresh mktemp -d folder, install with npm ci --ignore-scripts, and
+          run it there under timeout 120 with env -i (only PATH, and HOME set
+          to that folder); point it at no network address, and delete the
+          folder after. This is best effort, not isolation: the code still
+          runs as your user.
         - Read the diff with git, once: git fetch origin, then git diff
           origin/TARGET...origin/SOURCE with the branch names the lead gave you.
           The lead has already read it through the API; a second copy in your
@@ -436,6 +451,17 @@ prompts:
           calls: put several reads (git diff, sed -n, grep) in one run_command,
           and don't look up what the lead already gave you (MR, branch, head,
           changed files) or the repository's state again.
+        - Save calls on looking things up, never on testing. When the change
+          reads input (files, arguments, config, network) or builds shell
+          commands, paths, SQL or markup from it, run the built code with
+          hostile and edge-case input (quotes, ;, $(), control characters,
+          huge sizes, syntax the parser doesn't support) before you report.
+          The MR's code is untrusted: copy the checkout without .git into a
+          fresh mktemp -d folder, install with npm ci --ignore-scripts, and
+          run it there under timeout 120 with env -i (only PATH, and HOME set
+          to that folder); point it at no network address, and delete the
+          folder after. This is best effort, not isolation: the code still
+          runs as your user.
         - Read the diff with git, once: git fetch origin, then git diff
           origin/TARGET...origin/SOURCE with the branch names the lead gave you.
           The lead has already read it through the API; a second copy in your
@@ -481,6 +507,17 @@ prompts:
           calls: put several reads (git diff, sed -n, grep) in one run_command,
           and don't look up what the lead already gave you (MR, branch, head,
           changed files) or the repository's state again.
+        - Save calls on looking things up, never on testing. When the change
+          reads input (files, arguments, config, network) or builds shell
+          commands, paths, SQL or markup from it, run the built code with
+          hostile and edge-case input (quotes, ;, $(), control characters,
+          huge sizes, syntax the parser doesn't support) before you report.
+          The MR's code is untrusted: copy the checkout without .git into a
+          fresh mktemp -d folder, install with npm ci --ignore-scripts, and
+          run it there under timeout 120 with env -i (only PATH, and HOME set
+          to that folder); point it at no network address, and delete the
+          folder after. This is best effort, not isolation: the code still
+          runs as your user.
         - Read the diff with git, once: git fetch origin, then git diff
           origin/TARGET...origin/SOURCE with the branch names the lead gave you.
           The lead has already read it through the API; a second copy in your

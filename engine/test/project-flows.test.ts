@@ -141,6 +141,19 @@ describe("the project's Duo flows", () => {
     expect(flat('mr-reviewer.yaml')).toContain('In a check, a gate or a guard, a failure that passes quietly is P1.');
   });
 
+  it('specialists save calls on lookups, never on testing, and run MR code only in a throwaway sandbox', () => {
+    const text = flat('mr-reviewer.yaml');
+    expect(text.split('Save calls on looking things up, never on testing.').length - 1).toBe(3);
+    expect(text.split("The MR's code is untrusted: copy the checkout without .git into a fresh mktemp -d folder, install with npm ci --ignore-scripts").length - 1).toBe(3);
+    expect(text.split('This is best effort, not isolation: the code still runs as your user.').length - 1).toBe(3);
+  });
+
+  it('the lead checks the MR is still open right before it delegates or asks for a low-risk review', () => {
+    const text = flat('mr-reviewer.yaml');
+    expect(text).toContain('Right before the first delegation (for risk::low, before the review request), check the MR again with get_merge_request');
+    expect(text).toContain('answer "skipped: MR is not open" and stop');
+  });
+
   it('a reviewer specialist never pushes in a review, only in a fix round with a named go-ahead', () => {
     const text = flat('mr-reviewer.yaml');
     expect(text.split("Push only when the lead's instructions say this is a fix round and name the go-ahead note it runs on.").length - 1).toBe(3);
