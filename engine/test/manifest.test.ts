@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
-import { footprintArgs, ifManifest } from '../src/manifest.ts';
+import { countedRuns, footprintArgs, ifManifest } from '../src/manifest.ts';
 import { DEFAULT_SCI, sessionGrams } from '../src/sci.ts';
 
 describe('Impact Framework manifest', () => {
@@ -22,7 +22,7 @@ describe('Impact Framework manifest', () => {
     const d = m.tree.children['low-risk-reviews'].defaults;
     // (2 vCPU x (0.71 + 0.5 x (4.26 - 0.71)) W / 1000 + 8 GB x 0.000392) x PUE 1.1
     expect(d['runner-kw']).toBeCloseTo(((2 * (0.71 + 0.5 * 3.55)) / 1000 + 8 * 0.000392) * 1.1, 12);
-    expect(d).toMatchObject({ 'embodied-g-per-hour': 2.4, 'grid-g-per-kwh': 560 });
+    expect(d).toMatchObject({ 'embodied-g-per-hour': 2.4, 'grid-g-per-kwh': 579 });
     expect(d['kwh-per-call-low']).toBeCloseTo(0.00024, 12);
     expect(d['kwh-per-call-high']).toBeCloseTo(0.0025, 12);
   });
@@ -53,10 +53,27 @@ describe('Impact Framework manifest', () => {
     expect(Object.keys(parse(ifManifest(new Map([['unknown', []]]), DEFAULT_SCI)).tree.children)).toEqual(['unknown-risk-reviews']);
   });
 
-  it('the committed manifest has the reviews the table in SUSTAINABILITY.md counts', () => {
+  it('the committed manifest has the reviews the table in SUSTAINABILITY.md counts, with counted calls', () => {
     const committed = parse(readFileSync('../sustainability/agent-reviews.yml', 'utf8'));
-    expect(committed.tree.children['high-risk-reviews'].inputs).toHaveLength(43);
-    expect(committed.tree.children['low-risk-reviews'].inputs).toHaveLength(6);
+    expect(committed.tree.children['high-risk-reviews'].inputs).toHaveLength(105);
+    expect(committed.tree.children['medium-risk-reviews'].inputs).toHaveLength(26);
+    expect(committed.tree.children['low-risk-reviews'].inputs).toHaveLength(16);
+    expect(committed.description).toMatch(/counted from each session's checkpoint/);
+    for (const input of committed.tree.children['high-risk-reviews'].inputs) expect(input['model-calls-low']).toBe(input['model-calls-high']);
+  });
+
+  it('builds the reviews from counted sessions: reviewer sessions that reviewed, with a known tier, low = high', () => {
+    const session = (tier: string, calls: number, extra = {}) => ({ at: `2026-10-18T10:0${calls % 10}:00Z`, flow: 'mr-reviewer', tier, skipped: false, seconds: 60, total: { calls }, ...extra });
+    const runs = countedRuns([
+      session('low', 7),
+      session('high', 38),
+      session('high', 2, { skipped: true }),
+      session('unknown', 2),
+      session('medium', 30, { flow: 'issue-builder' }),
+    ]);
+    expect([...runs.keys()]).toEqual(['high', 'low']);
+    expect(runs.get('high')).toEqual([{ at: '2026-10-18T10:08:00Z', seconds: 60, calls: { low: 38, high: 38 } }]);
+    expect(parse(ifManifest(runs, DEFAULT_SCI, 'counted')).description).toMatch(/counted from each session's checkpoint/);
   });
 });
 
