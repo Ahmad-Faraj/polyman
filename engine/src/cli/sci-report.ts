@@ -8,23 +8,29 @@
  * pipelines, or on the default branch its last 10 successful push pipelines.
  * That part reads the GitLab API and is skipped with a warning if it can't.
  *
+ * Exit codes: 0 the figures agree, 1 the Impact Framework disagrees (the
+ * report is still written), 2 bad arguments or input.
+ *
  *   node engine/src/cli/sci-report.ts [--sessions sustainability/agent-tokens.json] [--if if-output.yaml] [--out sci] [--ci]
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parse } from 'yaml';
 import { loadConfig } from '../config.ts';
-import { finishedJobs, GitLab } from '../gitlab.ts';
-import { footprint, type SciCoefficients } from '../sci.ts';
-import { type CiFootprint, type SessionRecord, checkIfRun, markdownSummary, metricsText, renderSciPage, summarize } from '../sci-report.ts';
-import { median } from '../tokens.ts';
+import { GitLab, GitLabError } from '../gitlab.ts';
+import { type CiFootprint, type SessionRecord, checkIfRun, ciFootprint, invalidInput, markdownSummary, metricsText, renderSciPage, summarize } from '../sci-report.ts';
+
+function fail(message: string): never {
+  console.error(message);
+  process.exit(2);
+}
 
 const argv = process.argv.slice(2);
 const opt = (name: string, fallback?: string) => {
   const i = argv.indexOf(name);
   if (i < 0) return fallback;
   const value = argv[i + 1];
-  if (!value || value.startsWith('--')) throw new Error(`${name} needs a value`);
+  if (!value || value.startsWith('--')) fail(`${name} needs a value`);
   return value;
 };
 const sessionsFile = opt('--sessions', 'sustainability/agent-tokens.json')!;
@@ -32,49 +38,34 @@ const ifFile = opt('--if');
 const outDir = opt('--out', 'sci')!;
 const env = process.env;
 
-const data = JSON.parse(readFileSync(sessionsFile, 'utf8')) as { sessions: SessionRecord[]; coefficients?: { gridGramsPerKwh?: number } };
-if (!Array.isArray(data.sessions)) throw new Error(`${sessionsFile} has no "sessions" list (write it with agent-tokens.ts --json)`);
-const coefficients = loadConfig().sustainability;
-const summary = summarize(data.sessions, coefficients, data.coefficients?.gridGramsPerKwh);
-const check = ifFile ? checkIfRun(parse(readFileSync(ifFile, 'utf8')), data.sessions, coefficients) : null;
-
-async function ciFootprint(c: SciCoefficients): Promise<CiFootprint | null> {
-  const gl = new GitLab();
-  const current = Number(env.CI_PIPELINE_ID);
-  let ids: number[];
-  let scope: string;
-  if (env.CI_MERGE_REQUEST_IID) {
-    const all = await gl.get<{ id: number; status: string }[]>(`/:project/merge_requests/${env.CI_MERGE_REQUEST_IID}/pipelines?per_page=100`);
-    ids = all.filter((p) => p.id !== current && ['success', 'failed', 'canceled'].includes(p.status)).map((p) => p.id);
-    scope = `!${env.CI_MERGE_REQUEST_IID}'s ${ids.length} finished pipeline${ids.length === 1 ? '' : 's'} before this one`;
-  } else if (env.CI_COMMIT_BRANCH) {
-    const all = await gl.get<{ id: number }[]>(`/:project/pipelines?ref=${encodeURIComponent(env.CI_COMMIT_BRANCH)}&status=success&source=push&per_page=11`);
-    ids = all.map((p) => p.id).filter((id) => id !== current).slice(0, 10);
-    scope = `the last ${ids.length} successful push pipelines on ${env.CI_COMMIT_BRANCH}`;
-  } else return null;
-  if (!ids.length) return null;
-  const perPipeline: number[] = [];
-  const jobs = [];
-  for (const id of ids) {
-    const js = await finishedJobs(gl, [id]);
-    jobs.push(...js);
-    perPipeline.push(footprint(js, c).totalGrams);
+const read = <T>(file: string, what: string, parser: (text: string) => T): T => {
+  try {
+    return parser(readFileSync(file, 'utf8'));
+  } catch (err) {
+    fail(`can't read ${what} in ${file}: ${(err as Error).message}`);
   }
-  return { scope, pipelines: ids.length, footprint: footprint(jobs, c), perPipelineGrams: median(perPipeline) };
-}
+};
+const data = read(sessionsFile, 'the sessions', JSON.parse) as { sessions: SessionRecord[]; coefficients?: { gridGramsPerKwh?: number } } | null;
+const coefficients = loadConfig().sustainability;
+const invalid = invalidInput(data?.sessions, coefficients, data?.coefficients?.gridGramsPerKwh);
+if (invalid || !data) fail(`${sessionsFile} or .autonomy.yml: ${invalid}`);
+const summary = summarize(data.sessions, coefficients, data.coefficients?.gridGramsPerKwh);
+const check = ifFile ? checkIfRun(read(ifFile, "if-run's output", parse), data.sessions, coefficients) : null;
 
 let ci: CiFootprint | null = null;
 if (argv.includes('--ci')) {
   try {
-    ci = await ciFootprint(coefficients);
+    ci = await ciFootprint(new GitLab(), env, coefficients);
   } catch (err) {
-    console.warn(`warning: no CI footprint this time, the GitLab API answered: ${(err as Error).message}`);
+    // only the API is best effort: an answer it refused, or no answer at all
+    const offline = err instanceof TypeError && err.message === 'fetch failed';
+    if (!(err instanceof GitLabError) && !offline) throw err;
+    console.warn(`warning: no CI footprint this time, the GitLab API answered: ${err.message}`);
   }
 }
 
 mkdirSync(outDir, { recursive: true });
-const ciMetric = env.CI_MERGE_REQUEST_IID ? 'sci_ci_mr_runner_gco2e' : 'sci_ci_main_last10_runner_gco2e';
-writeFileSync(join(outDir, 'metrics.txt'), metricsText(summary, ci, ciMetric));
+writeFileSync(join(outDir, 'metrics.txt'), metricsText(summary, ci));
 writeFileSync(join(outDir, 'sci-report.json'), JSON.stringify({ functionalUnit: 'one merge request review', ...summary, impactFramework: check, ci }, null, 2) + '\n');
 writeFileSync(
   join(outDir, 'index.html'),

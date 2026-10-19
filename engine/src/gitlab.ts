@@ -78,12 +78,15 @@ export interface PipelineJob {
   duration: number | null;
 }
 
-/** Finished jobs (with a runner duration) across the given pipelines. */
-export async function finishedJobs(gl: GitLab, pipelineIds: number[]) {
+/** Finished jobs (with a runner duration) across the given pipelines, every page of them. */
+export async function finishedJobs(gl: Pick<GitLab, 'get'>, pipelineIds: number[]) {
   const jobs: { name: string; duration: number }[] = [];
   for (const id of pipelineIds) {
-    const page = await gl.get<PipelineJob[]>(`/:project/pipelines/${id}/jobs?per_page=100&include_retried=true`);
-    for (const j of page) if (j.duration) jobs.push({ name: j.name, duration: j.duration });
+    for (let n = 1; ; n++) {
+      const page = await gl.get<PipelineJob[]>(`/:project/pipelines/${id}/jobs?per_page=100&include_retried=true&page=${n}`);
+      for (const j of page) if (j.duration) jobs.push({ name: j.name, duration: j.duration });
+      if (page.length < 100) break;
+    }
   }
   return jobs;
 }
