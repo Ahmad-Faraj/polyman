@@ -60,7 +60,7 @@ release:next-check:
   extends: .npm-release
   needs: [release:npm-next]
   script:
-    - if [ "$RELEASE_VERSION" = none ]; then echo "nothing was published"; exit 0; fi
+    - 'if [ "$RELEASE_VERSION" = none ]; then echo "nothing was published"; echo "NEXT STEP: nothing to promote; to release, merge a version bump in package.json first"; exit 0; fi'
     - apt-get update -qq && apt-get install -y -qq default-jdk-headless python-is-python3 >/dev/null
     # npm's CDN can take a moment to serve a new version
     - for i in $(seq 1 30); do npm i --prefix /tmp/next --no-audit --no-fund "polyman-cli@$RELEASE_VERSION" && break; sleep 10; done
@@ -69,6 +69,8 @@ release:next-check:
     - node corpus/run.mjs --polyman /tmp/next/node_modules/polyman-cli/dist/cli.js --junit corpus/out/next/junit.xml || true
     - 'if [ -n "$POLYGON_API_KEY" ]; then node corpus/polygon-roundtrip.mjs --all --polyman /tmp/next/node_modules/polyman-cli/dist/cli.js --junit corpus/out/next/junit-polygon.xml || echo "the round trip on next failed: see its report (evidence, not yet a gate)"; fi'
     - node corpus/regressions.mjs corpus/out/latest/summary.json corpus/out/next/summary.json
+    # reached only when next has no regression against latest
+    - 'echo "NEXT STEP: polyman-cli@$RELEASE_VERSION on next judges as well as latest or better. @$GITLAB_USER_LOGIN (who merged the version bump) or another maintainer runs release:promote in this pipeline to make it latest: $CI_PIPELINE_URL"'
   artifacts:
     when: always
     expire_in: 1 year
@@ -93,7 +95,7 @@ release:promote:
     deployment_tier: production
     url: https://www.npmjs.com/package/polyman-cli
   script:
-    - if [ "$RELEASE_VERSION" = none ]; then echo "nothing was published"; exit 0; fi
+    - 'if [ "$RELEASE_VERSION" = none ]; then echo "nothing was published"; echo "NEXT STEP: nothing to promote; to release, merge a version bump in package.json first"; exit 0; fi'
     - npm config set -- "//registry.npmjs.org/:_authToken" "$NPM_TOKEN"
     - npm dist-tag add "polyman-cli@$RELEASE_VERSION" latest
 
@@ -124,7 +126,7 @@ release:evidence:
     # (a job-level variable can't override a project variable, so unset it)
     - unset NPM_TOKEN
     - rm -f release-links.jsonl && touch release-links.jsonl
-    - if [ "$RELEASE_VERSION" = none ]; then echo "nothing was published"; exit 0; fi
+    - 'if [ "$RELEASE_VERSION" = none ]; then echo "nothing was published"; echo "NEXT STEP: nothing to promote; to release, merge a version bump in package.json first"; exit 0; fi'
     - mkdir -p evidence
     - cp corpus/out/next/report.html evidence/corpus-verdicts-next.html
     - cp corpus/out/latest/report.html evidence/corpus-verdicts-latest.html || true
@@ -174,7 +176,7 @@ release:gitlab:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push" && $NPM_RELEASE == "1"
       changes: [package.json]
   script:
-    - if [ "$RELEASE_VERSION" = none ]; then echo "nothing was published"; exit 0; fi
+    - 'if [ "$RELEASE_VERSION" = none ]; then echo "nothing was published"; echo "NEXT STEP: nothing to promote; to release, merge a version bump in package.json first"; exit 0; fi'
     # one --assets-link per evidence file release:evidence kept
     - |
       touch release-links.jsonl

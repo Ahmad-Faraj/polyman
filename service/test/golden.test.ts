@@ -477,6 +477,25 @@ printf '%s' "$MRS" > "$out"; printf '%s' "\${MR_CODE:-200}"`,
     expect((await run({ VERSION: '{"commit":"b8511ddf"}' })).out).toContain('serves commit b8511ddf');
   });
 
+  it('ends every way out with a NEXT STEP line that says who does what', async () => {
+    expect((await run({})).out).toContain('NEXT STEP: nothing to click: production serves abc1234 and passed its check.');
+    // a rollback MR: the person who merged it goes back to the incident
+    const rollback = await run({ MRS: '[{"iid":15,"state":"merged","labels":["incident"],"merge_user":{"username":"HamzaHassanain"}}]' });
+    expect(rollback.code).toBe(0);
+    expect(rollback.out).toContain('NEXT STEP: production serves abc1234 and passed its check. @HamzaHassanain (who merged !15) mentions the incident responder on the incident this rollback is for, so it records Verified.');
+    const unnamed = await run({ MRS: '[{"iid":15,"state":"merged","labels":["incident"]}]' });
+    expect(unnamed.out).toContain('the person who merged this change mentions the incident responder');
+    for (const env of [{ GOLDEN_EXIT: '1' }, { VERSION: '{"commit":"b8511ddf"}' }] as Record<string, string>[]) {
+      const r = await run(env);
+      expect(r.code).toBe(1);
+      expect(r.out).toContain('NEXT STEP: nobody promotes again: service:rollback:production moves traffic back by itself');
+    }
+    const broken = await run({ NPM_EXIT: '1', CI_JOB_URL: 'https://gitlab.example/p/-/jobs/5' });
+    expect(broken.code).toBe(3);
+    expect(broken.out).toContain('NEXT STEP: a maintainer reads monitor.txt in this job\'s artifacts (https://gitlab.example/p/-/jobs/5/artifacts/browse)');
+    expect((await run({ PROMOTED: 'false' })).out).toContain("NEXT STEP: nothing to do in this pipeline: the newer main pipeline's candidate is the one to promote");
+  });
+
   it('checks nothing, as a warning, when the promote switched nothing', async () => {
     const r = await run({ PROMOTED: 'false', DRILL: 'production-check', CI_PIPELINE_SOURCE: 'web' });
     expect(r.code).toBe(3);

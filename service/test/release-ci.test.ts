@@ -143,6 +143,11 @@ describe('no manual job keeps a failed main pipeline from showing as failed', ()
     expect(gitlab).not.toContain('allow_failure');
   });
 
+  it('release:next-check ends by naming who runs release:promote, only after the regression gate passed', () => {
+    const check = job('release:next-check', read('.gitlab/ci/release.gitlab-ci.yml'));
+    expect(check).toMatch(/node corpus\/regressions\.mjs .*\n(\s+#.*\n)*\s+- 'echo "NEXT STEP: .*@\$GITLAB_USER_LOGIN \(who merged the version bump\) or another maintainer runs release:promote in this pipeline .*: \$CI_PIPELINE_URL"'\n/);
+  });
+
   it('canary:publish still runs only when a person clicks it, on a push to the default branch', () => {
     const publish = job('canary:publish', read('.gitlab/ci/canary.gitlab-ci.yml'));
     expect(rules(publish)).toEqual(['- if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"\n      when: manual']);
