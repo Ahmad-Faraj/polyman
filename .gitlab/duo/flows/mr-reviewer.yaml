@@ -294,11 +294,13 @@ prompts:
              they fixed, in one line.
            - "Watch after release": the one to three signals that would show this
              change is broken in production, each as route + signal + limit, for
-             example "POST /verify error rate above 2%" or "POST /verify p95
-             latency above 3000 ms". Then repeat them in a fenced code block whose
-             language is "watch", holding a JSON list like
-             [{"route":"POST /verify","signal":"error_rate","max":0.02}]
-             Allowed signals: error_rate (0-1) and p95_ms. The release monitor checks
+             example "POST /api/verify error rate above 2%". Then repeat them in
+             a fenced code block whose language is "watch", holding a JSON list like
+             [{"route":"POST /api/verify","signal":"error_rate","max":0.02}]
+             Allowed signals: error_rate (0-1) and p95_ms. The production check
+             sends one to four requests per route, and a verify call takes 20-35 s
+             even when healthy, so prefer error_rate; set p95_ms only well above
+             that (60000 or more). The release monitor checks
              exactly these after deploying, so pick what really matters for this change.
              It only sends traffic to these routes, so only pick from them:
              @@measured_routes@@. If what matters isn't covered, or nothing is
