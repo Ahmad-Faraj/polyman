@@ -6,6 +6,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as actions from '../src/actions';
 import * as steps from '../src/steps';
 import * as utils from '../src/helpers/utils';
+import { NonInteractiveError } from '../src/helpers/errors';
 import * as formatter from '../src/formatter';
 import * as testset from '../src/helpers/testset';
 import * as solution from '../src/helpers/solution';
@@ -882,6 +883,27 @@ describe('actions.ts', () => {
     beforeEach(() => {
       vi.mocked(steps.stepReadCredentials).mockReturnValue({} as any);
       vi.mocked(steps.stepInitializeSDK).mockReturnValue({} as any);
+    });
+
+    it('should exit 2 when the push needs a prompt but stdin is not a terminal', async () => {
+      vi.mocked(steps.stepReadConfig).mockReturnValue({ name: 'p' } as any);
+      vi.mocked(steps.stepPromptCreateProblem).mockRejectedValue(
+        new NonInteractiveError('stdin is not a terminal; pass --yes')
+      );
+      await actions.remotePushProblemAction('./prob');
+      expect(formatter.fmt.error).toHaveBeenCalledWith(
+        expect.stringContaining('pass --yes')
+      );
+      expect(process.exit).toHaveBeenCalledWith(2);
+    });
+
+    it('should still exit 1 for other push errors', async () => {
+      vi.mocked(steps.stepReadConfig).mockReturnValue({ name: 'p' } as any);
+      vi.mocked(steps.stepPromptCreateProblem).mockRejectedValue(
+        new Error('boom')
+      );
+      await actions.remotePushProblemAction('./prob');
+      expect(process.exit).toHaveBeenCalledWith(1);
     });
 
     it('should push existing problem with all sections', async () => {

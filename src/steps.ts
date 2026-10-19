@@ -85,6 +85,7 @@ import {
 import { copyTemplate } from './helpers/create-template';
 import { downloadFile } from './helpers/testlib-download';
 import { printable } from './helpers/printable';
+import { NonInteractiveError } from './helpers/errors';
 import { logError, readConfigFile, stdinIsInteractive } from './helpers/utils';
 import {
   fetchStatements,
@@ -1520,7 +1521,7 @@ export async function stepPromptCreateProblem(
   }
 
   if (!stdinIsInteractive()) {
-    throw new Error(
+    throw new NonInteractiveError(
       'stdin is not a terminal; pass --yes (and --name <name>) to create a new Polygon problem non-interactively'
     );
   }
@@ -1625,7 +1626,7 @@ export async function stepGetValidProblemName(
 
       if (!isValidName) {
         if (!interactive) {
-          throw new Error(
+          throw new NonInteractiveError(
             `stdin is not a terminal; pass --name <name> to create a new Polygon problem non-interactively. ${PROBLEM_NAME_RULE}`
           );
         }

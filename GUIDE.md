@@ -70,6 +70,7 @@
    - [Solution Execution](#solution-execution)
    - [Testing Components](#testing-components)
    - [Full Verification](#full-verification)
+   - [Running Without a Terminal](#running-without-a-terminal)
 
 10. [Remote Operations (Polygon Integration)](#remote-operations-polygon-integration)
     - [Setup and Registration](#setup-and-registration)
@@ -1805,6 +1806,26 @@ polyman generate --testset tests --index 5
 polyman validate --testset tests --index 5
 polyman run main --testset tests --index 5
 ```
+
+---
+
+### Running Without a Terminal
+
+Every command can be run by another program (an agent, a CI job) with no terminal attached. Three rules hold for all of them:
+
+- **No waiting for input.** When stdin is not a terminal, a command never prompts. If it needs an answer it stops with exit code `2` and names the flag to pass. Today only `polyman remote push` can ask: pass `--yes` to confirm creating a new Polygon problem and `--name <name>` to choose its name.
+- **No colors when output is not for a person.** Colors are off when `NO_COLOR` is set to a non-empty value (see [no-color.org](https://no-color.org)), when stdout is not a terminal, and when `POLYMAN_AGENT=1`. This also overrides `FORCE_COLOR`.
+- **`POLYMAN_AGENT=1`** is set by agent runners. It turns colors off and is the switch any spinner or line-redrawing progress bar must obey: in agent mode there are none, only plain lines. polyman prints no spinners or redrawing progress bars today.
+
+```bash
+# headless push of a new problem
+POLYMAN_AGENT=1 polyman remote push . --yes --name two-sum < /dev/null
+
+# plain output for a log file
+NO_COLOR=1 polyman verify > verify.log 2>&1
+```
+
+Exit codes: `0` success, `1` failure, `2` the command needed input it could not ask for.
 
 ---
 

@@ -82,6 +82,7 @@ import { logTemplateCreationSuccess } from './helpers/create-template';
 import { findTestset, listTestsets } from './helpers/testset';
 import { findMatchingSolutions } from './helpers/solution';
 import { readConfigFile, isNumeric, isCppSource } from './helpers/utils';
+import { EXIT_NON_INTERACTIVE, NonInteractiveError } from './helpers/errors';
 import {
   clearCache,
   formatBytes,
@@ -1673,7 +1674,9 @@ export const remotePushProblemAction = async (
     fmt.errorBox('FAILED TO PUSH PROBLEM!');
     fmt.error(`${message}`);
     fmt.newLine();
-    process.exit(1);
+    process.exit(
+      error instanceof NonInteractiveError ? EXIT_NON_INTERACTIVE : 1
+    );
   }
 };
 

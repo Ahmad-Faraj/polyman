@@ -16,6 +16,7 @@ import * as checker from '../src/helpers/checker';
 import * as solution from '../src/helpers/solution';
 import * as testset from '../src/helpers/testset';
 import * as utils from '../src/helpers/utils';
+import { NonInteractiveError } from '../src/helpers/errors';
 import * as remoteUtils from '../src/helpers/remote/utils';
 import * as pulling from '../src/helpers/remote/pulling';
 import * as pushing from '../src/helpers/remote/pushing';
@@ -1504,6 +1505,9 @@ describe('steps.ts', () => {
       await expect(steps.stepPromptCreateProblem(1)).rejects.toThrow(
         /stdin is not a terminal; pass --yes/
       );
+      await expect(steps.stepPromptCreateProblem(1)).rejects.toBeInstanceOf(
+        NonInteractiveError
+      );
     });
 
     it('prompts on a terminal and accepts yes', async () => {
@@ -1586,6 +1590,9 @@ describe('steps.ts', () => {
 
     it('fails fast when headless and no usable name is available', async () => {
       vi.mocked(utils.stdinIsInteractive).mockReturnValue(false);
+      await expect(
+        steps.stepGetValidProblemName(1, sdkWith([]), undefined)
+      ).rejects.toBeInstanceOf(NonInteractiveError);
       await expect(
         steps.stepGetValidProblemName(1, sdkWith([]), undefined)
       ).rejects.toThrow(/pass --name <name>/);

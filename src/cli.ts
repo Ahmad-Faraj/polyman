@@ -41,6 +41,9 @@ import {
 } from './completion';
 import { printComprehensiveHelp } from './help';
 import { setCacheEnabled } from './helpers/compile-cache';
+import { configureTerminal } from './terminal';
+
+configureTerminal();
 
 const program = new Command();
 
