@@ -124,7 +124,7 @@ C++ builds are cached in `.polyman/cache/` inside the problem directory. A sourc
 
 ### Terminal colors
 
-Output colors are tuned for dark terminals by default. On a light background, set `POLYMAN_THEME=light`; any other value falls back to the dark theme. Set `NO_COLOR=1` (see [no-color.org](https://no-color.org)) to turn colors off.
+Output colors are tuned for dark terminals by default. On a light background, set `POLYMAN_THEME=light`; any other value falls back to the dark theme. Set `NO_COLOR=1` (see [no-color.org](https://no-color.org)) to turn colors off. `NO_COLOR` wins over `FORCE_COLOR` and `POLYMAN_THEME`. See [GUIDE.md](GUIDE.md#terminal-colors).
 
 ### Scripting and AI agents
 

@@ -1754,6 +1754,20 @@ Entries unused for 30 days are removed, and the cache is capped at 256 MB (least
 
 **Limitations.** Java solutions are always compiled with `javac`. Headers pulled in through angle brackets (`#include <...>`) are treated as part of the compiler, so after editing a system header, run `polyman cache clear`.
 
+### Terminal Colors
+
+The default colors are made for dark terminals. Two environment variables change them:
+
+- `POLYMAN_THEME=light` uses colors that are easy to read on a white or light background. Any other value uses the dark theme.
+- `NO_COLOR=1` (any non-empty value, see [no-color.org](https://no-color.org)) turns all colors off. This is useful for logs and CI.
+
+```bash
+POLYMAN_THEME=light polyman verify
+NO_COLOR=1 polyman verify > verify.log
+```
+
+`NO_COLOR` wins over everything else: with `NO_COLOR=1`, polyman prints no colors even if `FORCE_COLOR` or `POLYMAN_THEME` is set. `FORCE_COLOR` only controls how many colors the terminal gets (16, 256 or true color); `POLYMAN_THEME` picks the palette inside that.
+
 ---
 
 ### Tips for Efficient Workflow
