@@ -24,6 +24,7 @@ components:
       - "get_pipeline_failing_jobs"
       - "get_job_logs"
       - "list_all_merge_request_notes"
+      - "gitlab_api_get"
       - "create_merge_request_note"
       - "read_file"
       - "read_files"
