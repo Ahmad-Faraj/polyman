@@ -16,14 +16,17 @@ low and a high end (method below).
 | medium: code and test specialists | 26 | 30 | 1.23M | 5.0-44.8 |
 | low: one light review | 16 | 7 | 0.35M | 1.2-10.4 |
 
-Medians per review, Oct 16 to 18, before the cuts below. After them (reviewer 1.0.17, 9 full reviews) a full
-review takes about 21 calls and 490k tokens, and about 6 GitLab credits instead of 11, on mostly small MRs.
-Median credits per full review by reviewer version (to Oct 19 20:03 UTC): before the cuts 11.1 (n=72),
-1.0.17 5.8 (n=9), 1.0.18 7.6 (n=12), 1.0.21 7.6 (n=6), 1.0.22-1.0.25 8.6 (n=13).
-The later versions spend more on purpose: since !116 the specialists save calls on lookups, never on
-testing, which costs about 1 to 1.3 credits more per full review at the same MR size. About as much
-again comes from bigger MRs (651 changed lines on average for 1.0.22-1.0.25, 114 for 1.0.17), and the
-rest from re-reviews people asked for. The split is a rough fit over 40 reviews.
+Medians per review, Oct 16 18:58 to Oct 18 17:39 UTC, before the cuts below (from the committed
+[sustainability/agent-tokens.json](sustainability/agent-tokens.json)). After them (reviewer 1.0.17, 9 full
+reviews, Oct 18 17:58 to 23:26 UTC) a full review takes a median of 21 calls and 493k input tokens, and about
+5.8 GitLab credits instead of 11.1 (72 full reviews before), on mostly small MRs.
+Median credits per full review by reviewer version, counted from every session's checkpoints to Oct 19 20:03 UTC:
+before the cuts 11.1 (n=72), 1.0.17 5.8 (n=9), 1.0.18 7.6 (n=12), 1.0.21 7.6 (n=6), 1.0.22-1.0.24 8.6 (n=13).
+The later versions spend more, partly on purpose: since !116 the specialists save calls on lookups, never on
+testing. Their test runs went from a median of 3 to 9 per full review and their calls from 14 to 24 (1.0.17
+against 1.0.22-1.0.24), while the lead stayed at 7 to 8 calls. The later reviews were also of bigger MRs
+(651 changed lines on average, against 114) and mostly re-reviews (10 of 13, 9 of them asked for by a
+person), so we don't split the rise between testing and MR size.
 
 - **Inference is most of it.** The runner is about 1.9 g of a high review on average; the
   model calls are the rest. A carbon number that counts only CI misses most of
@@ -33,17 +36,23 @@ rest from re-reviews people asked for. The split is a rough fit over 40 reviews.
   size, new scanner findings on the lines it wrote), so a small documentation or
   test change doesn't get three specialists.
 - **Sessions that didn't do their job.** Of 176 reviewer sessions before
-  reviewer 1.0.17 (to Oct 18 17:47 UTC), 73 ended without their purpose: 30
-  stopped early at about 2 calls each, 26 finished after the MR had merged, 10
-  never posted their note, 7 repeated a head already reviewed. That was 31% of
-  the reviewer's credits. The reviewer now re-checks that the MR is open before
-  it delegates. Since 1.0.17 (to Oct 19 18:23 UTC) it is 18 of 84 sessions: 13
-  are designed 2-call skips, 3 posted no note, 2 repeated a head when a
-  pipeline event and a mention raced. Without the designed skips that is 6.4%
-  of the credits.
-- **Re-reviews: no saving to claim.** Since !132 a pipeline event on an
-  already-reviewed MR stops after 2 calls (9 times to Oct 19 18:23 UTC). But
-  re-reviews people asked for were 16 of 27 reviews after it, and 56% of the
+  reviewer 1.0.17 (Oct 16 18:58 to Oct 18 17:39 UTC), 73 ended without their
+  purpose: 32 stopped at the start without a review, 26 finished after the MR
+  had merged, 10 never posted their note, and 5 more repeated a head already
+  reviewed. That was 31% of the reviewer's credits. The reviewer now skips MRs
+  that aren't open and re-checks before it delegates (!106, !116). From 1.0.17
+  to Oct 19 20:03 UTC it is 20 of 88 sessions, but 14 of those are short stops
+  (2 calls or fewer, 12 of them on an MR already reviewed, the stop !132
+  designed). The real waste is 6 sessions: 3 failed on platform errors before
+  posting, 2 repeated a head when a pipeline event and a mention started in the
+  same minute, and 1 finished after a person merged the MR. That is 8% of the
+  reviewer's credits, against 31% before.
+- **Re-reviews: no saving to claim.** Before !132 (Oct 16 18:58 to Oct 19
+  12:51 UTC), a later review of an MR already reviewed was 62 of 164 reviews,
+  39% of the reviewer's input tokens and 37% of its credits. Since !132 a
+  pipeline event on an already-reviewed MR stops after 2 calls (8 of 12 such
+  sessions to Oct 19 20:03 UTC). But people asked for re-reviews: in the same
+  hours they were 17 of 30 reviews (15 started by a mention) and 53% of the
   reviewer's credits.
 - **A person's go-ahead decides whether a step runs at all.** An agent proposes
   first (a few turns) and builds only on a go-ahead; a proposal nobody approves
@@ -52,27 +61,35 @@ rest from re-reviews people asked for. The split is a rough fit over 40 reviews.
 
 ## Per delivered fix
 
-A review is only part of a fix. Functional unit two: **one judge-found bug fixed by agents on a person's go-ahead**, from the proposal to the merge: issue-builder's sessions (proposal and build), and every review, fix-round and GitLab Code Review session on its MR. Sessions as of 2026-10-18 14:30 UTC; same method as above.
+A review is only part of a fix. Functional unit two: **one judge-found bug fixed by agents on a person's go-ahead**, from the proposal to the merge: issue-builder's sessions (proposal and build), and every review, fix-round and GitLab Code Review session on its MR. Counted from every session's checkpoints to Oct 19 20:03 UTC, for the 15 issue-builder fixes merged by then; sessions are matched by issue (issue-builder) and by MR or branch (reviews). Credits are estimated as above.
 
-| Issue | MR | Sessions | Runner gCO2e | Total gCO2e, low-high |
+| Issue | MR | Sessions (issue-builder + reviews) | Model calls | Credits (estimated) |
 |---|---|---|---|---|
-| #22 Python without `python` | !26 | 4 | 0.9 | 3.3-88 |
-| #4 light theme | !54 | 3 | 1.0 | 3.6-77 |
-| #12 Windows paths in tests | !50 | 4 | 1.5 | 5.0-122 |
-| #13 outdated docs (one fix round) | !51 | 5 | 1.6 | 6.8-177 |
-| #21 judge every test | !73 | 7 | 3.3 | 13-325 |
-| #31 FreeMarker (one fix round) | !67, !83 | 10 | 5.4 | 19-465 |
-| #8 shell completion | !59 | 11 | 25 | 66-865 |
+| #22 | !26 | 5 (2 + 3) | 31 | 8.0 |
+| #12 | !50 | 3 (2 + 1) | 32 | 8.9 |
+| #13 | !51 | 5 (2 + 3) | 58 | 16.1 |
+| #4 | !54 | 3 (2 + 1) | 24 | 6.7 |
+| #8 | !59 | 9 (2 + 7) | 270 | 75.0 |
+| #21 | !73 | 3 (2 + 1) | 59 | 16.4 |
+| #31 | !67, !83 | 9 (2 + 7) | 143 | 39.7 |
+| #26 | !74, !87 | 7 (3 + 4) | 130 | 36.1 |
+| #24 | !72, !86 | 6 (2 + 4) | 156 | 43.3 |
+| #28 | !85, !92 | 5 (3 + 2) | 130 | 36.1 |
+| #25 | !75, !95 | 9 (2 + 7) | 253 | 70.3 |
+| #58 | !101 | 2 (2 + 0) | 16 | 4.4 |
+| #62 | !136 | 9 (2 + 7) | 145 | 40.3 |
+| #82 | !143 | 6 (3 + 3) | 79 | 21.9 |
+| #29 | !146 | 3 (2 + 1) | 27 | 7.5 |
 
-**A merged fix, median: 6.8-177 gCO2e, of which the runner is 1.6 g.** What drives it is the number of review sessions, not the build: #8 had nine. (Session-to-issue matching is by the issue's "started session" notes; a session it can't place isn't counted, so these lean low.)
+**A merged fix, median: 5 sessions, 79 model calls, about 22 credits.** What drives it is the number of review sessions, not the build: #8, #31, #25 and #62 had seven each. (One #26 session recorded no usage, so its calls lean low.)
 
-**The go-ahead decides what runs at all.** issue-builder posted proposals on 22 issues (to Oct 19); 20 became a build. Two never pushed code: one nobody approved (#10), and one where the agent stopped when `npm audit fix` hit an npm error, as its proposal said it would (#63). On #28 a maintainer revised the first proposal before any code was written (it would have stopped judging at the first PE). Each avoided build saves a build and its reviews, about one row of the table above. With a person deciding each step, a wrong or unwanted change costs a proposal (a few model calls), not a fix plus its reviews.
+**The go-ahead decides what runs at all.** issue-builder posted proposals on 23 issues (its issue notes, to Oct 19 20:50 UTC); 21 became an MR. Two never pushed code: one nobody approved (#10), and one where the agent stopped when `npm audit fix` hit an npm error, as its proposal said it would (#63). On #28 a maintainer revised the first proposal before any code was written (it would have stopped judging at the first PE). Each avoided build saves a build and its reviews, about one row of the table above. With a person deciding each step, a wrong or unwanted change costs a proposal (a few model calls), not a fix plus its reviews.
 
 ## Per token, with the calls counted (SCI for AI)
 
 [SCI for AI](https://github.com/Green-Software-Foundation/sci-ai/blob/dev/SPEC.md) (Green Software Foundation) draws the consumer's boundary around inference and orchestration. It takes a language model's functional unit per token and an agentic workload's per workflow execution: here, one review. Each session's checkpoint holds every model reply with its usage, so this section counts the calls instead of bounding them from the log, and splits the tokens into four classes: uncached input, cache writes, cache reads and output.
 
-232 sessions, from Oct 16 18:58 to Oct 18 17:39 UTC (2 more had no checkpoint):
+232 sessions, from Oct 16 18:58 to Oct 18 17:39 UTC (all in the committed sessions file; `node engine/src/cli/sci-report.ts` prints these tables from it):
 
 | Flow | Sessions | Model calls | Tokens | Cache reads | Output |
 |---|---|---|---|---|---|
@@ -91,14 +108,14 @@ Reviews by risk tier, median per review:
 | low | 16 | 7 | 0.35M | 0.27M | 1.2-10.4 | 2.7-23.4 |
 
 - **The reviewer is 94% of every token our agents used.** Builds, fixes and incidents together are 6%. Review depth, and which reviews run at all, is where savings are.
-- **Counted calls narrow the range.** A high review averages 43.7 counted calls (8.0-65.2 g). Our first estimate (Oct 16-17, 43 high reviews) bounded them from the log at 41-99 calls (7.9-141.6 g): its low end holds, and its high end counted every checkpoint as a call.
-- **Most input is a cache read.** That's 79% of a high review's tokens, and its uncached input is under 100 tokens. Output is about 3%. A per-token energy figure that assumes every input token is computed afresh would overstate this workload, so the energy stays per call (below), and none of the figures is measured for this model.
+- **Counted calls narrow the range.** A high review averages 43.7 counted calls (8.0-65.2 g).
+- **Most input is a cache read.** That's 79% of a high review's tokens (1.28M of 1.62M, medians), and its uncached input is under 100 tokens. Output is about 3%. A per-token energy figure that assumes every input token is computed afresh would overstate this workload, so the energy stays per call (below), and none of the figures is measured for this model.
 - **The security reviewer carries 38% of a high review's tokens with 27% of its calls.** It has the largest input per call: the scanner findings it pulled for the whole branch. Since !98 it gets only the findings on the lines the MR wrote.
-- **The small model made the test reviewer dearer, so it went back.** !99 moved it to `claude-haiku-4-5`; in the 4 full reviews that followed it made 18 to 93 calls where it had made a median of 9, and edited files during reviews it was told only to report on. !107 put it back on the default model.
+- **The small model made the test reviewer dearer, so it went back.** !99 moved it to `claude-haiku-4-5`; in the 5 full reviews that followed it made 18 to 93 calls (median 43) where it had made a median of 9 (72 full reviews before), and a full review took a median of 57 calls instead of 40. It also edited files during reviews it was told only to report on. !107 put it back on the default model.
 
 ### What the cuts did (Oct 18)
 
-The reviewer changed in two releases of the flow, at 16:41 and 17:47 UTC: !98 (only the scanner findings on the lines the MR wrote), !100 (the specialists chain their reads into fewer calls), !102 (the diff is read once, with git), !106 (the lead reads the tier and the assess job from the pipeline event) and !107 (above). Counted the same way as the table above, a full review:
+The reviewer changed in two releases of the flow, at 16:41 and 17:47 UTC: !98 (only the scanner findings on the lines the MR wrote), !100 (the specialists chain their reads into fewer calls), !102 (the diff is read once, with git), !106 (the lead reads the tier and the assess job from the pipeline event) and !107 (above). Counted the same way as the table above, but from every session to Oct 19 20:03 UTC (the committed file stops at Oct 18 17:39), a full review:
 
 | | Reviews | Model calls | Input tokens | GitLab credits |
 |---|---|---|---|---|
@@ -106,11 +123,11 @@ The reviewer changed in two releases of the flow, at 16:41 and 17:47 UTC: !98 (o
 | after the cuts (reviewer 1.0.17, median) | 9 | 21 | 493k | about 5.8 |
 | 1.0.18 (!116: never save on testing) | 12 | 27.5 | 791k | about 7.6 |
 | 1.0.21 | 6 | 27.5 | 907k | about 7.6 |
-| 1.0.22-1.0.25 (to Oct 19 20:03 UTC) | 13 | 31 | 1.16M | about 8.6 |
+| 1.0.22-1.0.24 (to Oct 19 20:03 UTC) | 13 | 31 | 1.16M | about 8.6 |
 
-Credits are model calls divided by 3.6: that's what the calls of the sessions Mazen started came to on Mazen's GitLab credits usage on Oct 17 and 18 (3.58 and 3.55 calls per credit), against the 3.2 the price list gives. On Oct 19 it was 3.09, so these credits may be up to about 15% low.
+Credits are model calls divided by 3.6: that's what the calls of the sessions Mazen started came to against his billed credits (GitLab's credits usage API, read Oct 19 20:50 UTC): 1,022 calls for 285.3 credits on Oct 17 (3.58 per credit) and 1,126 calls for 317.4 credits on Oct 18 (3.55). Oct 19 is not closed and its partial counts came to about 3.0, so these credits may be up to about 20% low.
 
-The nine reviews after the cuts were on small MRs (median 52 lines). The cuts also cost depth: on frozen copies of earlier MRs, re-reviewed with the new flow, the reviews found 4 of the 7 findings the earlier reviews of the same heads had found, and missed a command injection. !116 asks the specialists to save calls on lookups, never on testing; that is about 1 to 1.3 credits of the later rise, and bigger MRs about as much again. On the frozen copy of !59, reviewer 1.0.22 found the original P1 again for about 5.3 credits, against 13.1 for the original review (!145, one run).
+The nine reviews after the cuts were on small MRs (median 52 lines). The cuts also cost depth: on frozen copies of three earlier MRs (!110, !111, !113), reviewer 1.0.17 found 5 of the 10 findings the original reviews of the same heads had found, and missed a command injection (P1) in !59. !116 asks the specialists to save calls on lookups, never on testing; on the frozen copy of !67 (!124), reviewer 1.0.18 then found 4 of its 5 findings, against 3 of 5 for 1.0.17. On a new frozen copy of !59 (!145, one run), reviewer 1.0.22 found the P1 again with a working exploit, in 19 calls (about 5.3 credits): the same as the 1.0.17 review that missed it, and against 47 calls (about 13.1 credits) for the original review.
 
 The data per session (pipeline, workflow, MR, tier, runner seconds, tokens by class and by role) is in [sustainability/agent-tokens.json](sustainability/agent-tokens.json). To rebuild it (read-only, needs a token that can read job logs and agent sessions):
 
