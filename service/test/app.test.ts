@@ -286,6 +286,28 @@ describe('a browser on another site posting to the API', () => {
     expect((await post({ host: HOST, origin: 'https://evil.example' }, '/a%70i/verify')).statusCode).toBe(403);
   });
 
+  it('refuses a foreign Origin with a query string, and on a real multipart upload', async () => {
+    const foreign = { host: HOST, origin: 'https://evil.example' };
+    expect((await post(foreign, '/api/verify?x=1')).statusCode).toBe(403);
+    const up = multipartBody(await zipOf({ ...problem('') }));
+    const upload = (url: string, headers: Record<string, string>) =>
+      app.inject({ method: 'POST', url, payload: up.payload, headers: { ...up.headers, ...headers } });
+    for (const url of ['/api/verify', '/api/verify?x=1', '/%61pi/verify']) {
+      const res = await upload(url, foreign);
+      expect(res.statusCode).toBe(403);
+      expect(res.json().error).toContain('cross-site');
+    }
+  });
+
+  it('verifies a real zip upload with no Origin, and with a matching Origin', async () => {
+    const up = multipartBody(await zipOf({ ...problem('') }));
+    for (const extra of [{}, { origin: `https://${HOST}` }]) {
+      const res = await app.inject({ method: 'POST', url: '/api/verify', payload: up.payload, headers: { ...up.headers, host: HOST, ...extra } });
+      expect(res.statusCode).toBe(200);
+      expect(events(res.body).at(-1)).toMatchObject({ type: 'done', ok: true });
+    }
+  });
+
   it('refuses Origin: null, an unparseable Origin, a non-http scheme and an Origin with no Host', async () => {
     expect((await post({ host: HOST, origin: 'null' })).statusCode).toBe(403);
     expect((await post({ host: HOST, origin: 'not a url' })).statusCode).toBe(403);
