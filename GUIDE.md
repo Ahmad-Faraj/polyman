@@ -246,7 +246,9 @@ my-problem/
 { "timeLimit": 1000, "timeLimitMultipliers": { "java": 2, "python": 3 } }
 ```
 
-A Java solution then runs locally with `2000ms` and a Python one with `3000ms`; C++ keeps `1000ms` unless you list `cpp` too. The scaled limit is printed when a run starts, e.g. `Time Limit: 2000ms (x2 for java)`. Polygon has no per-language limits, so `polyman remote push` still sends the plain `timeLimit` — the scaling never changes the problem itself. Omitting the field keeps every solution on the declared limit, exactly as before. A factor must be a positive number; anything else is an error rather than a silent 1.
+A Java solution then runs locally with `2000ms` and a Python one with `3000ms`; C++ keeps `1000ms` unless you list `cpp` too. The scaled limit is printed when a run starts, e.g. `Time Limit: 2000ms (x2 for java)`. Polygon has no per-language limits, so `polyman remote push` still sends the plain `timeLimit` — the scaling never changes the problem itself. Omitting the field keeps every solution on the declared limit, exactly as before. The language comes from the file extension (`.cpp`/`.cc`/`.cxx`, `.java`, `.py`), the same way polyman picks how to run the file locally; `sourceType` does not change it.
+
+`run`, `test` and `verify` check the field before anything runs and stop with an error if it is wrong: a key other than `cpp`, `java` or `python`, a factor that is not a positive number (including `null`), a value that is not an object, or a factor that makes the limit bigger than `2147483647ms`.
 
 ### Statements
 

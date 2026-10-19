@@ -82,6 +82,7 @@ import {
   runSolutionOnGroup,
   testSolutionAgainstMainCorrect,
   startTheComparisonProcess,
+  validateTimeLimitMultipliers,
 } from './helpers/solution';
 import { copyTemplate } from './helpers/create-template';
 import { downloadFile } from './helpers/testlib-download';
@@ -366,6 +367,7 @@ export function stepValidateConfigForSolutions(
   fmt.step(stepNum, 'Validating Configuration');
   validateSolutionsExist(config.solutions);
   ensureTestsetsExist(config.testsets);
+  validateTimeLimitMultipliers(config);
   fmt.info(
     `  ${fmt.infoIcon()} Solutions: ${fmt.highlight(matchingSolutions.length.toString())}`
   );
@@ -489,6 +491,7 @@ export function stepValidateConfigForSolutionTest(
   const config = readConfigFile();
   validateSolutionsExist(config.solutions);
   ensureMainSolutionExists(config.solutions);
+  validateTimeLimitMultipliers(config);
 
   const mainSolution = getMainSolution(config.solutions);
   const targetSolution = config.solutions.find(s => s.name === what);

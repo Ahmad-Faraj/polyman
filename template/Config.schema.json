@@ -44,7 +44,7 @@
     "timeLimit": {
       "type": "integer",
       "minimum": 1,
-      "description": "Time limit in milliseconds, applied to every solution."
+      "description": "Time limit in milliseconds, applied to every solution. For local runs it can be scaled per language with timeLimitMultipliers."
     },
     "timeLimitMultipliers": {
       "type": "object",
