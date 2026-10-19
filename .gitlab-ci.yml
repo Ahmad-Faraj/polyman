@@ -45,6 +45,8 @@ include:
   - template: Jobs/Dependency-Scanning.gitlab-ci.yml
   # risk score, guard and flow checks on merge requests (engine/README.md)
   - local: engine/ci/autonomy.gitlab-ci.yml
+  # the agents' carbon (SCI): metrics in the MR widget, a page on Pages at /sci/
+  - local: engine/ci/autonomy-sci.gitlab-ci.yml
   # the verify web service (#19): its tests, image, sample check and Cloud Run deploy
   - local: service/ci/service.gitlab-ci.yml
   # golden + mutant corpus: real compilers judging real solutions (corpus/README.md)
@@ -114,8 +116,8 @@ build:
 
 # API docs (TypeDoc) → GitLab Pages. typedoc.json still writes to docs/; Pages serves public/.
 # The go-ahead ledger from autonomy:ledger (an earlier stage, so its artifacts
-# are here) goes to /ledger/. If that job failed, this one doesn't run and
-# Pages keeps the last published ledger.
+# are here) goes to /ledger/, and the SCI page from autonomy:sci to /sci/. If
+# either job failed, this one doesn't run and Pages keeps the last published ones.
 pages:
   extends: .node
   stage: deploy
@@ -123,6 +125,7 @@ pages:
     - npm run docs
     - mv docs public
     - cp -r ledger public/ledger
+    - cp -r sci public/sci
   artifacts:
     paths: [public]
   rules:

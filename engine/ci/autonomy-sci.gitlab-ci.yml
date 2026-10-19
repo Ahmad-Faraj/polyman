@@ -1,0 +1,49 @@
+# The carbon of the agents' work as CI shows it (SUSTAINABILITY.md). Include it
+# next to autonomy.gitlab-ci.yml, which defines .autonomy:node; it needs a
+# stage assess.
+#
+# autonomy:sci reads the counted agent sessions (sustainability/agent-tokens.json)
+# and .autonomy.yml's coefficients, and:
+#   - fails if the committed Impact Framework manifest isn't what that data
+#     and those coefficients give
+#   - runs the Green Software Foundation's Impact Framework (if-run) on the
+#     manifest and fails if any review's carbon differs from engine/src/sci.ts
+#   - measures CI's own runner footprint from job times: this MR's finished
+#     pipelines, or the last 10 push pipelines on the default branch
+#   - writes a metrics report (the MR widget shows each figure against the
+#     target branch), a page (Pages copies sci/ to /sci/) and a summary in the log
+# No token beyond CI_JOB_TOKEN; the job times come from the public API when the
+# job token can't read them, and that part is skipped with a warning if it fails.
+
+autonomy:sci:
+  extends: .autonomy:node
+  stage: assess
+  needs: []
+  variables:
+    IF_VERSION: "1.1.1"
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  script:
+    - node engine/src/cli/review-manifest.ts sustainability/agent-tokens.json /tmp/agent-reviews.yml
+    - |
+      if ! diff -q sustainability/agent-reviews.yml /tmp/agent-reviews.yml >/dev/null; then
+        echo "sustainability/agent-reviews.yml isn't what sustainability/agent-tokens.json and .autonomy.yml give:" >&2
+        diff -u sustainability/agent-reviews.yml /tmp/agent-reviews.yml | head -40 >&2
+        echo "rebuild it: node engine/src/cli/review-manifest.ts" >&2
+        exit 1
+      fi
+    # if-run reads the OS name with lsb_release
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends lsb-release >/dev/null
+    - mkdir -p sci
+    # from outside the checkout: if-run records `npm list` of its working
+    # directory, which fails on the project's package.json (not installed here)
+    - (cd /tmp && npx -y -p "@grnsft/if@$IF_VERSION" if-run -m "$CI_PROJECT_DIR/sustainability/agent-reviews.yml" -o "$CI_PROJECT_DIR/sci/if-output")
+    - node engine/src/cli/sci-report.ts --if sci/if-output.yaml --out sci --ci
+  artifacts:
+    when: always
+    expire_in: 30 days
+    expose_as: SCI report
+    paths: [sci/]
+    reports:
+      metrics: sci/metrics.txt

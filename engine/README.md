@@ -129,6 +129,13 @@ The release jobs (`ci/autonomy-release.gitlab-ci.yml`: release evidence,
 production checks, rollback, carbon per change) come with the release work
 (#15, #19).
 
+`ci/autonomy-sci.gitlab-ci.yml` (job `autonomy:sci`) shows the agents' carbon
+on every MR and on the default branch: it checks the committed Impact Framework
+manifest against its data, reruns it with `if-run` and compares every review
+with `src/sci.ts`, and measures CI's own runner time. The figures go to the MR
+widget as a metrics report and to Pages at `/sci/`
+(`node engine/src/cli/sci-report.ts` writes them, no token needed).
+
 ## Running it locally
 
 Needs Node 22.18 or newer (the scripts are TypeScript run directly by Node).

@@ -128,6 +128,13 @@ SCI (Software Carbon Intensity, ISO/IEC 21031:2024): `(E x I + M) per R`.
 - **Embodied emissions**: per vCPU-hour for the runner; not included for the
   model's hardware.
 
+CI does this on every MR and on `main` (job `autonomy:sci`): it rebuilds the
+manifest from the sessions and fails if the committed one differs, runs
+`if-run` on it and fails if any review's carbon differs from `engine/src/sci.ts`,
+and measures CI's own runner footprint. The MR widget shows the figures against
+`main` (metrics report), and the page is on Pages at
+[/sci/](https://showcase-ce2cdc.gitlab.io/sci/).
+
 Recompute it yourself, no token needed: every review's inputs and every step
 of the arithmetic are in an [Impact Framework](https://if.greensoftware.foundation/)
 manifest, [sustainability/agent-reviews.yml](sustainability/agent-reviews.yml)
