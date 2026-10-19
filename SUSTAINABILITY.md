@@ -18,8 +18,12 @@ low and a high end (method below).
 
 Medians per review, Oct 16 to 18, before the cuts below. After them (reviewer 1.0.17, 9 full reviews) a full
 review takes about 21 calls and 490k tokens, and about 6 GitLab credits instead of 11, on mostly small MRs.
-Since !116 (save on lookups, never on testing) full reviews of 300+ line MRs take about
-27-31 calls and 7.6-8.5 credits (30 reviews, to Oct 19 18:23 UTC).
+Median credits per full review by reviewer version (to Oct 19 20:03 UTC): before the cuts 11.1 (n=72),
+1.0.17 5.8 (n=9), 1.0.18 7.6 (n=12), 1.0.21 7.6 (n=6), 1.0.22-1.0.25 8.6 (n=13).
+The later versions spend more on purpose: since !116 the specialists save calls on lookups, never on
+testing, which costs about 1 to 1.3 credits more per full review at the same MR size. About as much
+again comes from bigger MRs (651 changed lines on average for 1.0.22-1.0.25, 114 for 1.0.17), and the
+rest from re-reviews people asked for. The split is a rough fit over 40 reviews.
 
 - **Inference is most of it.** The runner is about 1.9 g of a high review on average; the
   model calls are the rest. A carbon number that counts only CI misses most of
@@ -100,11 +104,13 @@ The reviewer changed in two releases of the flow, at 16:41 and 17:47 UTC: !98 (o
 |---|---|---|---|---|
 | before !98 (median) | 72 | 40 | 1.69M | about 11 |
 | after the cuts (reviewer 1.0.17, median) | 9 | 21 | 493k | about 5.8 |
-| since !116 (1.0.18-1.0.23, mostly 300+ line MRs) | 30 | 27.5-30.5 | 791k-1.16M | about 7.6-8.5 |
+| 1.0.18 (!116: never save on testing) | 12 | 27.5 | 791k | about 7.6 |
+| 1.0.21 | 6 | 27.5 | 907k | about 7.6 |
+| 1.0.22-1.0.25 (to Oct 19 20:03 UTC) | 13 | 31 | 1.16M | about 8.6 |
 
 Credits are model calls divided by 3.6: that's what the calls of the sessions Mazen started came to on Mazen's GitLab credits usage on Oct 17 and 18 (3.58 and 3.55 calls per credit), against the 3.2 the price list gives. On Oct 19 it was 3.09, so these credits may be up to about 15% low.
 
-The nine reviews after the cuts were on small MRs (median 52 lines). The cuts also cost depth: on frozen copies of earlier MRs, re-reviewed with the new flow, the reviews found 4 of the 7 findings the earlier reviews of the same heads had found, and missed a command injection. !116 asks the specialists to save calls on lookups, never on testing, which is why the later full reviews cost more. On the frozen copy of !59, reviewer 1.0.22 found the original P1 again for about 5.3 credits, against 13.1 for the original review (!145, one run).
+The nine reviews after the cuts were on small MRs (median 52 lines). The cuts also cost depth: on frozen copies of earlier MRs, re-reviewed with the new flow, the reviews found 4 of the 7 findings the earlier reviews of the same heads had found, and missed a command injection. !116 asks the specialists to save calls on lookups, never on testing; that is about 1 to 1.3 credits of the later rise, and bigger MRs about as much again. On the frozen copy of !59, reviewer 1.0.22 found the original P1 again for about 5.3 credits, against 13.1 for the original review (!145, one run).
 
 The data per session (pipeline, workflow, MR, tier, runner seconds, tokens by class and by role) is in [sustainability/agent-tokens.json](sustainability/agent-tokens.json). To rebuild it (read-only, needs a token that can read job logs and agent sessions):
 
