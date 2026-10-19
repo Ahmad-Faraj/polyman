@@ -14,7 +14,9 @@ import path from 'path';
 import { fmt } from './formatter';
 import type {
   JsonReport,
+  ListReport,
   LocalSolution,
+  PathReport,
   RunReport,
   SolutionResult,
   SolutionTag,
@@ -58,8 +60,18 @@ interface SolutionEntry {
   tests: TestResult[];
 }
 
+type SimpleKind = 'path' | 'list';
+
+interface SimpleOutput {
+  kind: SimpleKind;
+  startedAt: number;
+  path: string;
+  items: unknown[];
+}
+
 interface ActiveReport {
-  command: 'run' | 'verify';
+  command: string;
+  simple: SimpleOutput | null;
   requestedSolution: string;
   requestedTag: SolutionTag | null;
   steps: StepResult[];
@@ -92,6 +104,34 @@ export class ReportCollector {
   /** Begin collecting a `verify` report. */
   startVerify(): void {
     this.start('verify', '');
+  }
+
+  /**
+   * Begin collecting a report for a command that returns a single path
+   * (`new`, `download-testlib`). Attach it with `setPath`.
+   */
+  startPath(command: string): void {
+    this.start(command, '', 'path');
+  }
+
+  /**
+   * Begin collecting a report for a command that returns a list
+   * (`list ...`). Attach the items with `setItems`.
+   */
+  startList(command: string): void {
+    this.start(command, '', 'list');
+  }
+
+  /** Sets the `path` of a path report. */
+  setPath(value: string): void {
+    if (!this.active?.simple) return;
+    this.active.simple.path = value;
+  }
+
+  /** Sets the `items` of a list report. */
+  setItems(items: unknown[]): void {
+    if (!this.active?.simple) return;
+    this.active.simple.items = items;
   }
 
   /**
@@ -228,9 +268,17 @@ export class ReportCollector {
     fmt.setErrorSink(null);
   }
 
-  private start(command: 'run' | 'verify', requestedSolution: string): void {
+  private start(
+    command: string,
+    requestedSolution: string,
+    simpleKind: SimpleKind | null = null
+  ): void {
     this.active = {
       command,
+      simple:
+        simpleKind === null
+          ? null
+          : { kind: simpleKind, startedAt: Date.now(), path: '', items: [] },
       requestedSolution,
       requestedTag: null,
       steps: [],
@@ -273,6 +321,27 @@ export class ReportCollector {
       polymanVersion: readPolymanVersion(),
       ok,
     };
+    if (active.simple) {
+      const common = {
+        ...base,
+        command: active.command,
+        exitCode: ok ? 0 : 1,
+        durationMs: Math.max(0, Date.now() - active.simple.startedAt),
+        errors: ok ? [] : [...active.errors],
+      };
+      if (active.simple.kind === 'path') {
+        const pathReport: PathReport = {
+          ...common,
+          path: active.simple.path,
+        };
+        return pathReport;
+      }
+      const listReport: ListReport = {
+        ...common,
+        items: active.simple.items,
+      };
+      return listReport;
+    }
     if (active.command === 'run') {
       const entries = Array.from(active.solutions.values());
       const multi = entries.length > 1;

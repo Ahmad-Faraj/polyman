@@ -243,6 +243,25 @@ describe('testset.ts', () => {
     });
   });
 
+  describe('describeTestsets', () => {
+    it('returns name, test count and group names as data', () => {
+      const ts: LocalTestset = {
+        name: 'ts1',
+        generatorScript: { script: 'gen 1 > 1\ngen 2 > 2' },
+        groups: [{ name: 'g1' }, { name: 'g2' }],
+      };
+      expect(testset.describeTestsets([ts])).toEqual([
+        { name: 'ts1', tests: 2, groups: ['g1', 'g2'] },
+      ]);
+    });
+
+    it('gives zero tests and no groups for an empty testset', () => {
+      expect(testset.describeTestsets([{ name: 'ts1' }])).toEqual([
+        { name: 'ts1', tests: 0, groups: [] },
+      ]);
+    });
+  });
+
   describe('listTestsets', () => {
     it('reports test count and group names', () => {
       const ts: LocalTestset = {
