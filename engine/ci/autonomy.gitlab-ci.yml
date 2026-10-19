@@ -187,23 +187,16 @@ autonomy:guard-mutation:
   extends: .autonomy:node
   stage: test
   needs: []
+  timeout: 30m
   variables:
     GUARD_MUTATION_FLOOR: '85'
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      # anything the mutated tests read: the engine, the policy, the flows
       changes:
-        - engine/src/goahead.ts
-        - engine/src/mutation.ts
-        - engine/src/cli/guard-mutation-score.ts
-        - engine/test/goahead.test.ts
-        - engine/test/ledger.test.ts
-        - engine/test/project-flows.test.ts
-        - engine/test/fixtures/**/*
-        - engine/stryker.guard.json
-        - engine/vitest.guard.config.ts
-        - engine/package.json
-        - engine/package-lock.json
-        - engine/ci/autonomy.gitlab-ci.yml
+        - engine/**/*
+        - .autonomy.yml
+        - .gitlab/duo/flows/**/*
   script:
     - cd engine
     - npm i --no-save --ignore-scripts --legacy-peer-deps --no-audit --no-fund --loglevel=error @stryker-mutator/core@9.6.1 "vite@$(node -p "require('./package-lock.json').packages['node_modules/vite'].version")"
