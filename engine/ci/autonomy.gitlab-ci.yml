@@ -173,3 +173,41 @@ autonomy:engine:
   script:
     - npm run typecheck --prefix engine
     - npm test --prefix engine
+
+# Who guards the guard: the go-ahead rules (src/goahead.ts) decide whether an
+# agent's push counts as approved, so their tests are mutation-tested like
+# polyman's verdict code. Stryker plants small bugs in the rules (a condition
+# made true, an anchor dropped from a regex) and counts how many the tests
+# catch; the score shows in the MR's metrics, and the job fails under the floor.
+# Merge requests only. Stryker's vitest runner doesn't support vitest 5 yet, so
+# each mutant runs `vitest run` (stryker.guard.json). Stryker is pinned and
+# installed without install scripts; --no-save would prune vitest's peer vite
+# unless it is named too.
+autonomy:guard-mutation:
+  extends: .autonomy:node
+  stage: test
+  needs: []
+  timeout: 30m
+  variables:
+    GUARD_MUTATION_FLOOR: '85'
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      # anything the mutated tests read: the engine, the policy, the flows
+      changes:
+        - engine/**/*
+        - .autonomy.yml
+        - .gitlab/duo/flows/**/*
+  script:
+    - cd engine
+    - npm i --no-save --ignore-scripts --legacy-peer-deps --no-audit --no-fund --loglevel=error @stryker-mutator/core@9.6.1 "vite@$(node -p "require('./package-lock.json').packages['node_modules/vite'].version")"
+    - npx stryker run stryker.guard.json
+    - node src/cli/guard-mutation-score.ts out/guard-mutation/mutation.json --floor "$GUARD_MUTATION_FLOOR" > ../guard-mutation-metrics.txt
+  after_script:
+    - cat guard-mutation-metrics.txt 2>/dev/null || true
+  artifacts:
+    when: always
+    expire_in: 30 days
+    expose_as: 'Guard mutation report'
+    paths: [engine/out/guard-mutation/]
+    reports:
+      metrics: guard-mutation-metrics.txt

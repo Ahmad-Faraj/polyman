@@ -266,3 +266,91 @@ describe('governance globs', () => {
     expect(matches('enginex/a.ts', 'engine/**')).toBe(false);
   });
 });
+
+// Each case below pins a rule that mutation testing showed no test held: with the
+// rule's condition replaced (by `true`, a looser regex, a dropped filter), every
+// other test still passed.
+describe('rules the guard relied on without a test (found by mutation testing)', () => {
+  const proposal = note('10:00', AGENT, 'Review of abc1234: not ready to approve\n\nProposed fixes: ...');
+  const goAhead = note('10:05', 'Ahmad-Faraj', `@${AGENT} go-ahead`);
+  const push = { at: '2026-10-17T10:10:00Z', pusher: AGENT };
+
+  it("only the pushing agent's own proposal counts, not a person's note that reads like one", () => {
+    const lookalike = note('10:07', 'Ahmad-Faraj', 'Review of abc1234: not ready to approve');
+    expect(goAheadFor(push, [proposal, goAhead, lookalike], low, config).ok).toBe(true);
+    const v = goAheadFor(push, [lookalike, note('10:08', 'Mazen-Ghanaym', `@${AGENT} go-ahead`)], { ...low, requesters: [] }, config);
+    expect(!v.ok && v.reason).toMatch(/wrote no proposal before the push/);
+  });
+
+  it('a proposal the agent posts after the push is for the next step, not this one', () => {
+    const next = note('10:20', AGENT, 'Review of def5678: not ready to approve');
+    const v = goAheadFor(push, [proposal, goAhead, next], low, config);
+    expect(v.ok && v.proposal.id).toBe(proposal.id);
+  });
+
+  it('an edit to the proposal after the push changes nothing for that push', () => {
+    const editedLater = { ...proposal, updated_at: '2026-10-17T10:30:00Z' };
+    expect(goAheadFor(push, [editedLater, goAhead], low, config).ok).toBe(true);
+  });
+
+  it('answers the proposal last touched before the push, even if another was created later', () => {
+    const first = { ...note('09:00', AGENT, 'Review of abc1234: not ready to approve'), updated_at: '2026-10-17T09:50:00Z' };
+    const second = note('09:30', AGENT, 'Review of abc1234: not ready to approve');
+    const ok = note('09:55', 'Ahmad-Faraj', `@${AGENT} go-ahead`);
+    const v = goAheadFor(push, [first, second, ok], low, config);
+    expect(v.ok && v.proposal.id).toBe(first.id);
+  });
+
+  it("tells people from agents by the account's whole name, not a piece of it", () => {
+    for (const u of ['kai-chen', 'ghostwriter', 'theghost', 'xGitLabDuo', 'GitLabDuoFan', 'mr-duo-fan', 'robot_arm']) expect(isPerson(u)).toBe(true);
+    for (const u of ['bot', 'ai-helper', 'duo-workflow', 'service_account_x']) expect(isPerson(u)).toBe(false);
+  });
+
+  it("a fence closes only on a line that is the fence, so a go-ahead inside it never counts", () => {
+    expect(saysGoAhead(`\`\`\`\nsee \`\`\`\n@${AGENT} go-ahead\n\`\`\``, AGENT)).toBe(false);
+    expect(saysGoAhead(`~~~\nsee ~~~\n@${AGENT} go-ahead\n~~~`, AGENT)).toBe(false);
+    // three backticks inside a sentence open nothing
+    expect(saysGoAhead(`Use \`\`\` for code.\n@${AGENT} go-ahead`, AGENT)).toBe(true);
+  });
+
+  it('a line of only spaces ends a quote, so the go-ahead after it counts', () => {
+    expect(saysGoAhead(`> what the agent proposed\n   \n@${AGENT} go-ahead`, AGENT)).toBe(true);
+  });
+
+  it('keeps a known tier as it is', () => {
+    expect(tierFrom('low')).toBe('low');
+    expect(tierFrom('high')).toBe('high');
+  });
+
+  it('a go-ahead in the same second as the push is not before it', () => {
+    expect(goAheadFor(push, [proposal, note('10:10', 'Ahmad-Faraj', `@${AGENT} go-ahead`)], low, config).ok).toBe(false);
+  });
+
+  it("a go-ahead in the same second as the proposal doesn't answer it", () => {
+    expect(goAheadFor(push, [proposal, note('10:00', 'Ahmad-Faraj', `@${AGENT} go-ahead`)], low, config).ok).toBe(false);
+  });
+
+  it('a go-ahead last edited in the same second as the push still counts', () => {
+    const edited = { ...goAhead, updated_at: '2026-10-17T10:10:00Z' };
+    expect(goAheadFor(push, [proposal, edited], low, config).ok).toBe(true);
+  });
+
+  it('a proposal edited in the same second as the push keeps its time', () => {
+    const edited = { ...proposal, updated_at: '2026-10-17T10:10:00Z' };
+    expect(goAheadFor(push, [edited, goAhead], low, config).ok).toBe(true);
+  });
+
+  it('records the latest of several valid go-aheads, and the latest of proposals posted together', () => {
+    const p1 = note('10:00', AGENT, 'Review of abc1234: not ready to approve');
+    const p2 = note('10:00', AGENT, 'Review of abc1234: not ready to approve');
+    const first = note('10:03', 'Ahmad-Faraj', `@${AGENT} go-ahead`);
+    const second = note('10:06', 'HamzaHassanain', `@${AGENT} go-ahead`);
+    const v = goAheadFor(push, [p1, p2, first, second], low, config);
+    expect(v.ok && [v.note.id, v.proposal.id]).toEqual([second.id, p2.id]);
+  });
+
+  it("ignores a tag push that shares the branch's name", () => {
+    const tag: PushEvent = { created_at: '2026-10-17T10:00:00Z', author: { username: AGENT }, push_data: { ref: 'fix', ref_type: 'tag', action: 'created', commit_from: null, commit_to: 'z' } };
+    expect(branchPushes([tag], 'fix')).toEqual([]);
+  });
+});

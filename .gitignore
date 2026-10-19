@@ -9,3 +9,5 @@ coverage/
 
 # worktrees created by AI agents (git worktree add under .claude/)
 .claude/worktrees/
+# written by autonomy:guard-mutation
+guard-mutation-metrics.txt
