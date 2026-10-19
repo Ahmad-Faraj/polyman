@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { type OpenMr, missingReviews, reviewedShasFrom } from '../src/reviews.ts';
+import { type OpenMr, missingBecause, missingReviews, reviewedShasFrom } from '../src/reviews.ts';
 
 const now = new Date('2026-10-17T12:00:00Z');
 const mr = (o: Partial<OpenMr> = {}): OpenMr => ({
@@ -29,6 +29,13 @@ describe('MRs missing a review of their head', () => {
     expect(missingReviews([mr({ pipeline: { sha: 'older0000', status: 'success', finishedAt: '2026-10-17T10:00:00Z' } })], now, [])).toEqual([]);
     expect(missingReviews([mr({ pipeline: { sha: 'abc12345def', status: 'success', finishedAt: '2026-10-17T11:30:00Z' } })], now, [])).toEqual([]);
     expect(missingReviews([mr({ pipeline: null })], now, [])).toEqual([]);
+  });
+
+  it('tells a first review that never came apart from a later head that waits for a mention', () => {
+    expect(missingBecause(mr())).toBe('no review yet');
+    const later = mr({ reviewedShas: ['0ld0ld00'] });
+    expect(missingReviews([later], now, [])).toEqual([later]);
+    expect(missingBecause(later)).toBe('waits for a mention');
   });
 
   it('waits while a reviewer session that started after the pipeline is still running', () => {

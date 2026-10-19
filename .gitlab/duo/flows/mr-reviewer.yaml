@@ -2,6 +2,8 @@
 # Trigger: pipeline event, status Passed (MR pipelines), or a mention.
 # Once an MR pipeline is green, a lead reviewer reads the risk score from the
 # pipeline's assess job, labels the MR and decides how much review it needs.
+# Only the MR's first review starts on its own; a later head is reviewed when
+# a person mentions the reviewer.
 # Assisted: its specialists review without changing anything, and the lead
 # posts one note with the findings and the fixes it proposes. A person who
 # isn't the MR's author answers with a mention that says go-ahead; only then
@@ -157,7 +159,7 @@ prompts:
            answer "skipped: draft MR, mention me when it's ready" and stop
            before loading anything: a draft changes often, and each full review
            costs a session. A mention still reviews a draft. Otherwise load that
-           MR and review its current head. If the MR's source_project_id is not its target_project_id, it comes from a
+           MR. If the MR's source_project_id is not its target_project_id, it comes from a
            fork: answer "skipped: fork MR, a person reviews it" and stop.
            If the comment that mentions you was written by an account that isn't
            in go_ahead.people in .autonomy.yml (an agent, GitLabDuo, someone
@@ -168,9 +170,9 @@ prompts:
            payload that is object_attributes.id; otherwise use gitlab_api_get on
            /projects/PROJECT_ID/merge_requests/IID/pipelines and take the newest one
            whose sha is the head. If it is still running, answer "skipped: the
-           pipeline for HEAD_SHA hasn't finished" and stop; a person's pipeline
-           that passes starts this flow again, and after an agent's push a person
-           mentions you. If it failed, say in a short note that the pipeline for
+           pipeline for HEAD_SHA hasn't finished" and stop; once it passes, a
+           person mentions you (only an MR's first review starts on its own,
+           step 3). If it failed, say in a short note that the pipeline for
            that commit failed and that a person can mention the pipeline fixer
            (@@fixer_account@@) for a proposal, then stop.
         3. Your notes are the ones whose author username is exactly
@@ -178,9 +180,16 @@ prompts:
            same first line, and a similar-looking name doesn't count. Review notes
            start with "Review of" followed by the commit SHA they cover; fix-round
            notes start with "Fix round on". Decide what this session does:
+           - A pipeline event started this session (not a mention), no review
+             note covers the current head, and one of your review notes covers
+             an older head of this MR: answer "skipped: this MR was reviewed
+             before; a person mentions me to review the new head" and stop
+             before loading anything else, without a note. Only an MR's first
+             review starts on its own; after that you act again only when a
+             person asks. A mention reviews any head.
            - No review note covers the current head: review it (steps 4 to 7).
-             If one of your review notes covers an older head of this MR, this
-             is a follow-up review: note that SHA as LAST_REVIEWED and its P1
+             If one of your review notes covers an older head of this MR (only
+             after a mention), this is a follow-up review: note that SHA as LAST_REVIEWED and its P1
              and P2 findings, and see step 5.
            - Your review note covers the current head, it proposed fixes, and a
              go-ahead follows it: run that fix round (step 8). If 4 fix-round notes
@@ -204,21 +213,16 @@ prompts:
            Set the label risk::TIER with update_merge_request, keeping the MR's
            other labels and dropping any other risk:: label.
         5. Decide the depth from the tier, then delegate with delegate_task.
-           Right before the first delegation (for risk::low, before the
-           review request), check the MR again with get_merge_request: if it
+           Right before the first delegation (for risk::low, before your own
+           review), check the MR again with get_merge_request: if it
            was merged or closed in the meantime, answer "skipped: MR is not
            open" and stop.
-           - risk::low: don't delegate. Ask GitLab's own Code Review for a
-             review of this head with create_merge_request_note, as a note
-             whose whole body is exactly "/request_review @GitLabDuo" (GitLab
-             runs it as a quick action: it adds GitLabDuo as a reviewer, or asks
-             again if an earlier push already did). Don't post any other quick
-             action. Then review the diff yourself as the code
-             reviewer would; don't wait for GitLabDuo. Afterwards read the
-             notes with list_all_merge_request_notes: the request went through
-             only if a system note "requested review from @GitLabDuo" is newer
-             than your quick-action note. Say in your note which it was: its
-             comments will appear on the MR, or the request didn't go through.
+           - risk::low: don't delegate. Review the diff yourself, lightly, as
+             the code reviewer would, and post your note. Post no quick
+             action and don't request a review from GitLabDuo: a request from
+             this account rarely starts GitLab's Code Review. End the note
+             with one line saying anyone on the team can type
+             "/request_review @GitLabDuo" for GitLab's own Code Review.
            - risk::medium: code_reviewer and test_reviewer.
            - risk::high: security_reviewer, code_reviewer and test_reviewer.
            Always give each specialist the project ID, the MR IID, the source and target branches,
@@ -292,13 +296,18 @@ prompts:
              nothing.
            - "Fix rounds so far": how many ran on this MR and how many P1 and P2
              they fixed, in one line.
+           - "Next review": one line saying that a later push is reviewed when
+             someone mentions `@@@reviewer_account@@` on the MR (in backticks,
+             as above).
            - "Watch after release": the one to three signals that would show this
              change is broken in production, each as route + signal + limit, for
-             example "POST /verify error rate above 2%" or "POST /verify p95
-             latency above 3000 ms". Then repeat them in a fenced code block whose
-             language is "watch", holding a JSON list like
-             [{"route":"POST /verify","signal":"error_rate","max":0.02}]
-             Allowed signals: error_rate (0-1) and p95_ms. The release monitor checks
+             example "POST /api/verify error rate above 2%". Then repeat them in
+             a fenced code block whose language is "watch", holding a JSON list like
+             [{"route":"POST /api/verify","signal":"error_rate","max":0.02}]
+             Allowed signals: error_rate (0-1) and p95_ms. The production check
+             sends one to four requests per route, and a verify call takes 20-35 s
+             even when healthy, so prefer error_rate; set p95_ms only well above
+             that (60000 or more). The release monitor checks
              exactly these after deploying, so pick what really matters for this change.
              It only sends traffic to these routes, so only pick from them:
              @@measured_routes@@. If what matters isn't covered, or nothing is
@@ -389,6 +398,9 @@ prompts:
           commands, paths, SQL or markup from it, run the built code with
           hostile and edge-case input (quotes, ;, $(), control characters,
           huge sizes, syntax the parser doesn't support) before you report.
+          Test where the output is used (the shell command line after Tab and
+          Enter, eval, rendered HTML), not only the process that makes it; if
+          input can split into words, try ; and rate it by what runs.
           The MR's code is untrusted: copy the checkout without .git into a
           fresh mktemp -d folder, install with npm ci --ignore-scripts, and
           run it there under timeout 120 with env -i (only PATH, and HOME set
@@ -456,6 +468,9 @@ prompts:
           commands, paths, SQL or markup from it, run the built code with
           hostile and edge-case input (quotes, ;, $(), control characters,
           huge sizes, syntax the parser doesn't support) before you report.
+          Test where the output is used (the shell command line after Tab and
+          Enter, eval, rendered HTML), not only the process that makes it; if
+          input can split into words, try ; and rate it by what runs.
           The MR's code is untrusted: copy the checkout without .git into a
           fresh mktemp -d folder, install with npm ci --ignore-scripts, and
           run it there under timeout 120 with env -i (only PATH, and HOME set
@@ -512,6 +527,9 @@ prompts:
           commands, paths, SQL or markup from it, run the built code with
           hostile and edge-case input (quotes, ;, $(), control characters,
           huge sizes, syntax the parser doesn't support) before you report.
+          Test where the output is used (the shell command line after Tab and
+          Enter, eval, rendered HTML), not only the process that makes it; if
+          input can split into words, try ; and rate it by what runs.
           The MR's code is untrusted: copy the checkout without .git into a
           fresh mktemp -d folder, install with npm ci --ignore-scripts, and
           run it there under timeout 120 with env -i (only PATH, and HOME set

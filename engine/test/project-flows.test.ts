@@ -129,11 +129,29 @@ describe("the project's Duo flows", () => {
     expect(text).toContain('A mention still reviews a draft.');
   });
 
+  // re-reviews were about half of all agent usage: only the first review starts on its own (Assisted)
+  it('a pipeline event reviews an MR once; a later head waits for a person to mention the reviewer', () => {
+    const body = promptOf('mr-reviewer.yaml');
+    expect(body).toContain(
+      'A pipeline event started this session (not a mention), no review note covers the current head, and one of your review notes covers an older head of this MR: answer "skipped: this MR was reviewed before; a person mentions me to review the new head" and stop before loading anything else, without a note.',
+    );
+    expect(body).toContain('A mention reviews any head.');
+    // the skip comes before the rule that starts a review, and the follow-up review stays for mentions
+    expect(body.indexOf('skipped: this MR was reviewed before')).toBeLessThan(body.indexOf('No review note covers the current head: review it'));
+    expect(body).toContain('(only after a mention), this is a follow-up review');
+    // nothing still promises that a passing pipeline starts another review
+    expect(body).not.toContain("a person's pipeline that passes starts this flow again");
+    // the note tells people how to get the next review, without mentioning the reviewer itself
+    expect(body.indexOf('"Next review"')).toBeGreaterThan(-1);
+    expect(body.indexOf('"Next review"')).toBeLessThan(body.indexOf('<details>'));
+    expect(renderFlow(read('mr-reviewer.yaml'), values).replace(/\s+/g, ' ')).toContain('a later push is reviewed when someone mentions `@ai-reviewer` on the MR');
+  });
+
   it('the review note tells the maintainers to promote a merge that releases the service', () => {
     const text = flat('mr-reviewer.yaml');
     expect(text).toContain('"After merge", only when the diff touches service/, src/, assets/, template/, package.json or package-lock.json');
     expect(text).toContain('service:promote:production');
-    expect(renderFlow(read('mr-reviewer.yaml'), values).replace(/\s+/g, ' ')).toContain('mentioning @HamzaHassanain, @Mazen-Ghanaym so GitLab notifies them');
+    expect(renderFlow(read('mr-reviewer.yaml'), values).replace(/\s+/g, ' ')).toContain('mentioning @HamzaHassanain, @Mazen-Ghanaym, @Ahmad-Faraj so GitLab notifies them');
   });
 
   it('the code reviewer looks for errors that disappear, and a quiet pass in a gate is P1', () => {
@@ -146,12 +164,25 @@ describe("the project's Duo flows", () => {
     expect(text.split('Save calls on looking things up, never on testing.').length - 1).toBe(3);
     expect(text.split("The MR's code is untrusted: copy the checkout without .git into a fresh mktemp -d folder, install with npm ci --ignore-scripts").length - 1).toBe(3);
     expect(text.split('This is best effort, not isolation: the code still runs as your user.').length - 1).toBe(3);
+    // from the !59 benchmark: completion output looked harmless; the bug was what bash ran after Tab and Enter
+    expect(text.split('Test where the output is used (the shell command line after Tab and Enter, eval, rendered HTML), not only the process that makes it; if input can split into words, try ; and rate it by what runs.').length - 1).toBe(3);
   });
 
-  it('the lead checks the MR is still open right before it delegates or asks for a low-risk review', () => {
+  it('the lead checks the MR is still open right before it delegates or reviews a low-risk MR itself', () => {
     const text = flat('mr-reviewer.yaml');
-    expect(text).toContain('Right before the first delegation (for risk::low, before the review request), check the MR again with get_merge_request');
+    expect(text).toContain('Right before the first delegation (for risk::low, before your own review), check the MR again with get_merge_request');
     expect(text).toContain('answer "skipped: MR is not open" and stop');
+  });
+
+  it('at risk::low the lead reviews lightly itself and posts no quick action; a person can still ask GitLab Code Review', () => {
+    const text = flat('mr-reviewer.yaml');
+    const low = text.slice(text.indexOf('- risk::low:'), text.indexOf('- risk::medium:'));
+    expect(low).toContain("don't delegate. Review the diff yourself, lightly");
+    expect(low).toContain("Post no quick action and don't request a review from GitLabDuo");
+    expect(low).toContain('anyone on the team can type "/request_review @GitLabDuo"');
+    // the only mention of the quick action is the line telling people they can type it
+    expect(text.split('/request_review').length - 1).toBe(1);
+    expect(text).not.toContain('requested review from @GitLabDuo');
   });
 
   it('a reviewer specialist never pushes in a review, only in a fix round with a named go-ahead', () => {

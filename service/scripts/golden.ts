@@ -6,10 +6,14 @@
  * against the image built in the pipeline, against the candidate revision
  * before it gets traffic, and against production after the switch.
  *
- *   node service/scripts/golden.ts https://verify.example.run.app [--json report.json]
+ *   node service/scripts/golden.ts https://verify.example.run.app [--json report.json] [--traffic traffic.json]
  *
  * One sample also goes through the upload route (/api/verify) as a zip, the
  * way visitors send problems, so the gate covers that path too.
+ *
+ * --traffic also writes what each route did (requests, share of wrong or
+ * failed answers, p95 time) in the shape engine/src/cli/monitor.ts reads, so
+ * the release monitor can check the routes the review asked it to watch.
  *
  * Exits 1 if any sample differs or is missing from the service, or the
  * service can't be reached; 2 on bad usage.
@@ -30,6 +34,20 @@ export interface SampleResult {
   ok: boolean;
   seconds: number;
   differences: string[];
+}
+
+/** One request golden.ts sent, by route as .autonomy.yml (monitor.measured_routes) names it. */
+export interface RouteCall {
+  route: string;
+  /** false when the request failed or the answer was wrong */
+  ok: boolean;
+  seconds: number;
+}
+
+export interface RouteStats {
+  count: number;
+  errorRate: number;
+  p95Ms: number;
 }
 
 interface ProblemEvent {
@@ -99,18 +117,37 @@ export function expectedSamples(dir = fileURLToPath(new URL('../samples/', impor
   return out;
 }
 
+/** The calls grouped by route, as monitor.ts expects them in traffic.json. */
+export function trafficFrom(calls: RouteCall[]): Record<string, RouteStats> {
+  const routes: Record<string, RouteStats> = {};
+  for (const route of [...new Set(calls.map((c) => c.route))]) {
+    const mine = calls.filter((c) => c.route === route);
+    const ms = mine.map((c) => c.seconds * 1000).sort((a, b) => a - b);
+    routes[route] = {
+      count: mine.length,
+      errorRate: mine.filter((c) => !c.ok).length / mine.length,
+      // nearest rank: with few requests this is the slowest one
+      p95Ms: Math.round(ms[Math.ceil(ms.length * 0.95) - 1]),
+    };
+  }
+  return routes;
+}
+
 const timeout = (ms: number) => AbortSignal.timeout(ms);
 const samplesDir = fileURLToPath(new URL('../samples/', import.meta.url));
 
 /**
  * A request, waiting out 429s: on a live service real visitors may hold every
  * instance (a whole contest can take most of an hour), and a busy service is
- * not a broken one. 15 s apart, for up to an hour by default.
+ * not a broken one. 15 s apart, for up to an hour by default. `sentAt` is when
+ * the answered request went out, so the time spent waiting isn't counted as
+ * the route being slow.
  */
-async function whenFree(url: string, init: RequestInit = {}, waitMs = 15_000, tries = 240): Promise<Response> {
+async function whenFree(url: string, init: RequestInit = {}, waitMs = 15_000, tries = 240): Promise<{ res: Response; sentAt: number }> {
   for (let i = 1; ; i++) {
+    const sentAt = Date.now();
     const res = await fetch(url, { ...init, signal: timeout(init.method === 'POST' ? 60 * 60_000 : 30_000) });
-    if (res.status !== 429 || i >= tries) return res;
+    if (res.status !== 429 || i >= tries) return { res, sentAt };
     await res.body?.cancel();
     await new Promise((r) => setTimeout(r, waitMs));
   }
@@ -164,11 +201,36 @@ export function zipFolder(dir: string, prefix: string): Buffer {
   return Buffer.concat([...local, dirBytes, end]);
 }
 
-/** `uploadSample`: which sample also goes through the upload route (default: the first; null: none). */
-export async function runGolden(base: string, expected = expectedSamples(), waitMs?: number, uploadSample?: string | null): Promise<SampleResult[]> {
-  const listed = await whenFree(`${base}/api/samples`, {}, waitMs);
+/**
+ * `uploadSample`: which sample also goes through the upload route (default: the first; null: none).
+ * `calls` gets every request that was answered, for the traffic file.
+ */
+export async function runGolden(
+  base: string,
+  expected = expectedSamples(),
+  waitMs?: number,
+  uploadSample?: string | null,
+  calls: RouteCall[] = [],
+): Promise<SampleResult[]> {
+  const { res: listed, sentAt } = await whenFree(`${base}/api/samples`, {}, waitMs);
+  const listing: RouteCall = { route: 'GET /api/samples', ok: listed.ok, seconds: (Date.now() - sentAt) / 1000 };
+  calls.push(listing);
   if (!listed.ok) throw new Error(`GET /api/samples answered HTTP ${listed.status}`);
-  const offered = new Set(((await listed.json()) as { name: string }[]).map((s) => s.name));
+  const text = await listed.text();
+  let names: string[];
+  try {
+    const list = JSON.parse(text) as unknown;
+    if (!Array.isArray(list)) throw new Error('not a list');
+    names = list.map((s: { name?: unknown }) => String(s?.name));
+  } catch {
+    // a 200 that isn't the sample list is a failed request, not a working route
+    listing.ok = false;
+    throw new Error(`GET /api/samples answered HTTP ${listed.status} without a JSON list: ${text.slice(0, 120)}`);
+  }
+  const offered = new Set(names);
+  listing.seconds = (Date.now() - sentAt) / 1000;
+  // a list without one of the samples is a wrong answer from this route
+  listing.ok = [...expected.keys()].every((name) => offered.has(name));
 
   const results: SampleResult[] = [];
   for (const [name, want] of expected) {
@@ -177,7 +239,7 @@ export async function runGolden(base: string, expected = expectedSamples(), wait
     if (!offered.has(name)) {
       differences = ['the service does not offer this sample'];
     } else {
-      differences = await check(`${base}/api/samples/${encodeURIComponent(name)}/verify`, {}, want, waitMs);
+      differences = await check(`${base}/api/samples/${encodeURIComponent(name)}/verify`, {}, want, waitMs, 'POST /api/samples/:name/verify', calls);
     }
     results.push({ sample: name, ok: differences.length === 0, seconds: (Date.now() - started) / 1000, differences });
   }
@@ -188,31 +250,38 @@ export async function runGolden(base: string, expected = expectedSamples(), wait
     const started = Date.now();
     const body = new FormData();
     body.append('problem', new Blob([new Uint8Array(zipFolder(join(samplesDir, upload), upload))], { type: 'application/zip' }), `${upload}.zip`);
-    const differences = await check(`${base}/api/verify`, { body }, expected.get(upload)!, waitMs);
+    const differences = await check(`${base}/api/verify`, { body }, expected.get(upload)!, waitMs, 'POST /api/verify', calls);
     results.push({ sample: `${upload} (uploaded as a zip)`, ok: differences.length === 0, seconds: (Date.now() - started) / 1000, differences });
   }
   return results;
 }
 
-async function check(url: string, init: RequestInit, want: Expected, waitMs?: number): Promise<string[]> {
-  const res = await whenFree(url, { ...init, method: 'POST' }, waitMs);
+async function check(url: string, init: RequestInit, want: Expected, waitMs: number | undefined, route: string, calls: RouteCall[]): Promise<string[]> {
+  const { res, sentAt } = await whenFree(url, { ...init, method: 'POST' }, waitMs);
   const text = await res.text();
-  if (!res.ok) return [`HTTP ${res.status}: ${text.slice(0, 200)}`];
-  const { problem, problems } = readStream(text);
-  return [...problems, ...compare(want, problem)];
+  let differences = [`HTTP ${res.status}: ${text.slice(0, 200)}`];
+  if (res.ok) {
+    const { problem, problems } = readStream(text);
+    differences = [...problems, ...compare(want, problem)];
+  }
+  calls.push({ route, ok: differences.length === 0, seconds: (Date.now() - sentAt) / 1000 });
+  return differences;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const base = (process.argv[2] ?? '').replace(/\/$/, '');
   if (!/^https?:\/\//.test(base)) {
-    console.error('usage: golden.ts BASE_URL [--json FILE] [--drill]');
+    console.error('usage: golden.ts BASE_URL [--json FILE] [--traffic FILE] [--drill]');
     process.exit(2);
   }
   const jsonAt = process.argv.indexOf('--json');
+  const trafficAt = process.argv.indexOf('--traffic');
+  const calls: RouteCall[] = [];
   // the sample a drill turned around, recorded so the incident responder can tell a drill from an outage
   let drilled: string | undefined;
   const write = (body: object) => {
     if (jsonAt > 0) writeFileSync(process.argv[jsonAt + 1], JSON.stringify({ base, ...(drilled ? { drill: drilled } : {}), ...body }, null, 2));
+    if (trafficAt > 0) writeFileSync(process.argv[trafficAt + 1], JSON.stringify({ base, routes: trafficFrom(calls) }, null, 2));
   };
   let expected = expectedSamples();
   if (process.argv.includes('--drill') && expected.size) {
@@ -228,7 +297,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   }
   let results: SampleResult[];
   try {
-    results = await runGolden(base, expected);
+    results = await runGolden(base, expected, undefined, undefined, calls);
   } catch (err) {
     console.error(`could not check ${base}: ${(err as Error).message}`);
     write({ error: (err as Error).message });

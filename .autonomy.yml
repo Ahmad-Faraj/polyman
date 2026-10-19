@@ -76,8 +76,11 @@ agents:
   fixer_account: ai-pipeline-fixer-gitlab-ai-hackathon_b1d814
 
 monitor:
-  # filled in with the verify service (#19)
-  measured_routes: []
+  # the verify service routes service/scripts/golden.ts sends requests to in
+  # service:check:production; it writes their numbers to traffic.json and the
+  # monitor checks the review's watch list against them. Named as the reviewer
+  # must name them: method and the route as service/src/app.ts declares it.
+  measured_routes: ["GET /api/samples", "POST /api/samples/:name/verify", "POST /api/verify"]
   # failing one of these means production is affected (the incident responder
   # opens an incident). Only jobs that run once production serves the new
   # release: a failed candidate deploy or check never got traffic, so those
@@ -101,11 +104,12 @@ go_ahead:
     - HamzaHassanain
     - Ahmad-Faraj
     - Mazen-Ghanaym
-  # two, so high-risk work never waits on one person and an issue one of them
-  # filed can still get the other's go-ahead (never the requester's)
+  # all three, so high-risk work never waits on one person. The requester
+  # still never counts, so every high-risk step needs one of the other two.
   maintainers:
     - HamzaHassanain
     - Mazen-Ghanaym
+    - Ahmad-Faraj
   low: anyone
   medium: anyone
   high: maintainers
@@ -118,4 +122,6 @@ sustainability:
   memory_gb: 8
   utilization: 0.5
   pue: 1.1
-  grid_gco2e_per_kwh: 560
+  # us-east1's grid in 2025 (Google, region-carbon-info data/yearly/2025.csv:
+  # 579.44 gCO2e/kWh; it was 560 in the 2023 data)
+  grid_gco2e_per_kwh: 579

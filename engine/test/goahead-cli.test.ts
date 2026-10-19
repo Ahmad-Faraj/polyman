@@ -169,7 +169,18 @@ describe('autonomy:goahead against a git repo and a stand-in for GitLab', () => 
   });
 
   it('fails a high-risk push whose go-ahead came from a teammate who is not the maintainer', async () => {
-    const { code, text } = await run({ tier: 'high', notes: () => [proposal, goAhead()], events: (r) => [push('10:10', AGENT, r.base, r.shas[0])] });
+    const r = repo(1);
+    const git = (...a: string[]) => execFileSync('git', a, { cwd: r.dir, encoding: 'utf8' }).trim();
+    // this project lists all three as maintainers, so the target branch here lists only Hamza
+    git('checkout', '-q', '-b', 'target', r.base);
+    const before = readFileSync(join(r.dir, '.autonomy.yml'), 'utf8');
+    const policy = before.replace(/^ {2}maintainers:\n(?: {4}- .*\n)+/m, '  maintainers:\n    - HamzaHassanain\n');
+    expect(policy).not.toBe(before);
+    writeFileSync(join(r.dir, '.autonomy.yml'), policy);
+    git('-c', 'user.name=h', '-c', 'user.email=h@x', 'commit', '-qam', 'Hamza only');
+    const target = git('rev-parse', 'HEAD');
+    git('checkout', '-q', r.shas[0]);
+    const { code, text } = await runIn(r, { tier: 'high', notes: () => [proposal, goAhead()], events: () => [push('10:10', AGENT, r.base, r.shas[0])], env: { AUTONOMY_POLICY_REF: target } });
     expect(text).toMatch(/not a maintainer; high risk needs @HamzaHassanain/);
     expect(code).toBe(1);
   });

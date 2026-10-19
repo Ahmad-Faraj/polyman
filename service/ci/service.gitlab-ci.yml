@@ -160,6 +160,11 @@ service:promote:production:
   environment:
     name: verify/production
     url: $SERVICE_URL
+  # exit 3: a newer pipeline has the candidate, so nothing was switched. The
+  # job shows as a warning, not as a deployment of this commit, and the
+  # pipeline doesn't fail (no rollback, no incident).
+  allow_failure:
+    exit_codes: [3]
   script:
     - sh service/deploy/cloudrun.sh promote
   artifacts:
@@ -173,18 +178,87 @@ service:promote:production:
 # DRILL from it), click the manual promote, and this check fails on purpose
 # after the switch, so the rollback and the incident run for real. Only a
 # pipeline a person starts in the UI can run the drill, not a push or the API.
+#
+# First, production must serve this commit (/api/version), or the samples
+# would check another release. After the samples, the release monitor
+# (engine/src/cli/monitor.ts) checks the routes the review of the merged MR
+# said to watch (its ```watch block) against what golden.ts measured
+# (traffic.json), and writes health-report.json.
+#
+# Exit 1 (rollback and incident): production serves another commit, a sample
+# came back wrong, or the monitor found a watched route over its limit.
+# Exit 3 (a warning; the release stays): the samples passed but the monitor
+# couldn't run (the MR lookup or the monitor itself failed), or the promote
+# switched nothing. monitor.txt says which.
 service:check:production:
   extends: .service:release
   stage: deploy
   image: node:22
   needs: [service:promote:production]
+  allow_failure:
+    exit_codes: [3]
   script:
     - |
+      note() { echo "$1" | tee -a monitor.txt; }
+      if [ "${PROMOTED:-}" = false ]; then
+        note "not checked: this pipeline's promote switched nothing (a newer pipeline has the candidate), so production does not serve ${CI_COMMIT_SHORT_SHA:-this commit}"
+        exit 3
+      fi
+      # the commit production serves (APP_COMMIT, the short SHA the candidate
+      # was deployed with), a few tries while the switch settles
+      serves_this() { case "$1" in ???????*) case "$CI_COMMIT_SHA" in "$1"*) return 0 ;; esac ;; esac; return 1; }
+      for i in 1 2 3; do
+        live=$(curl -sf "$SERVICE_URL/api/version" | node -e 'try { console.log(JSON.parse(require("fs").readFileSync(0, "utf8")).commit ?? "") } catch {}' || true)
+        serves_this "$live" && break
+        [ "$i" = 3 ] || sleep "${VERSION_WAIT:-5}"
+      done
+      if ! serves_this "$live"; then
+        echo "production at $SERVICE_URL serves commit ${live:-(unreadable /api/version)}, not $CI_COMMIT_SHORT_SHA, which this pipeline promoted: the switch did not take, so this release is not live" >&2
+        exit 1
+      fi
+      echo "production serves $live, the commit this pipeline promoted"
       if [ "${DRILL:-}" = production-check ] && [ "$CI_PIPELINE_SOURCE" = web ]; then set -- --drill; else set --; fi
-      node --disable-warning=ExperimentalWarning service/scripts/golden.ts "$SERVICE_URL" --json golden.json "$@"
+      golden=0
+      node --disable-warning=ExperimentalWarning service/scripts/golden.ts "$SERVICE_URL" --json golden.json --traffic traffic.json "$@" || golden=$?
+      # The MR this commit merged; the job token's reads fall back to the
+      # public API, as engine/src/gitlab.ts does. A commit with no merged MR (a
+      # person's direct push) has no review to read a watch list from; a
+      # lookup that fails is not the same and must show.
+      api="$CI_API_V4_URL/projects/$CI_PROJECT_ID/repository/commits/$CI_COMMIT_SHA/merge_requests"
+      lookup() { curl -sS -o mrs.json -w '%{http_code}' "$@" "$api" 2>>lookup.err || printf ' (curl exit %s)' "$?"; }
+      code=$(lookup -H "JOB-TOKEN: $CI_JOB_TOKEN")
+      [ "$code" = 200 ] || code=$(lookup)
+      monitor=
+      if [ "$code" != 200 ]; then
+        monitor=broken
+        note "WARNING: the release monitor did not run: looking up the merged MR for $CI_COMMIT_SHA failed (HTTP $code$(head -c 200 lookup.err 2>/dev/null | tr '\n' ' '))"
+      elif ! iid=$(node -e 'const m = JSON.parse(require("fs").readFileSync("mrs.json", "utf8")).find((m) => m.state === "merged"); if (m) console.log(m.iid)'); then
+        monitor=broken
+        note "WARNING: the release monitor did not run: the merged-MR lookup for $CI_COMMIT_SHA answered something that is not an MR list: $(head -c 200 mrs.json)"
+      elif [ -z "$iid" ]; then
+        monitor=skipped
+        note "no merged MR for $CI_COMMIT_SHA (a direct push?), so no review to read a watch list from: the monitor didn't run"
+      elif ! npm ci --prefix engine --no-audit --no-fund --loglevel=error; then
+        monitor=broken
+        note "WARNING: the release monitor did not run: installing the engine (npm ci) failed"
+      else
+        rm -f health-report.json
+        m=0; RELEASE_MR_IID=$iid node engine/src/cli/monitor.ts traffic.json || m=$?
+        # a route over its limit exits 1 after writing a failed result to
+        # health-report.json; anything else non-zero is the monitor not running
+        if [ "$m" = 0 ]; then
+          monitor=ok; note "the release monitor checked !$iid's watch list: every signal within its limit"
+        elif [ "$m" = 1 ] && node -e 'process.exit(JSON.parse(require("fs").readFileSync("health-report.json", "utf8")).results.some((r) => !r.ok) ? 0 : 1)' 2>/dev/null; then
+          monitor=failed; note "the release monitor found a watched signal over its limit (!$iid, health-report.json)"
+        else
+          monitor=broken; note "WARNING: the release monitor for !$iid could not finish (exit $m, no failed result in health-report.json): not a verdict on this release"
+        fi
+      fi
+      if [ "$golden" != 0 ] || [ "$monitor" = failed ]; then exit 1; fi
+      if [ "$monitor" = broken ]; then echo "the samples passed, so the release stays; a person should look at why the monitor didn't run" >&2; exit 3; fi
   artifacts:
     when: always
-    paths: [golden.json]
+    paths: [golden.json, traffic.json, health-report.json, monitor.txt]
 
 # Production got the samples wrong after the switch: send traffic back to the
 # revision that served before. Does nothing if the switch never happened.
