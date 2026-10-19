@@ -12,6 +12,8 @@ describe('isSupportedNodeVersion', () => {
     ['18.20.4', false],
     ['20.20.1', true],
     ['22.23.3', true],
+    ['v22.12.0', true],
+    ['v20.18.1', false],
   ])('%s -> %s', (version, expected) => {
     expect(isSupportedNodeVersion(version)).toBe(expected);
   });
