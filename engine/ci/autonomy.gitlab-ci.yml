@@ -173,3 +173,32 @@ autonomy:engine:
   script:
     - npm run typecheck --prefix engine
     - npm test --prefix engine
+
+# Who guards the guard: the go-ahead rules (src/goahead.ts) decide whether an
+# agent's push counts as approved, so their tests are mutation-tested like
+# polyman's verdict code. Stryker plants small bugs in the rules (a condition
+# made true, an anchor dropped from a regex) and counts how many the tests
+# catch; the score shows in the MR's metrics. Runs when the rules or their tests
+# change. Stryker's vitest runner doesn't support vitest 5 yet, so each mutant
+# runs `vitest run` (stryker.guard.json).
+autonomy:guard-mutation:
+  extends: .autonomy:node
+  stage: test
+  needs: []
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" || $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: [engine/src/goahead.ts, engine/test/goahead.test.ts, engine/stryker.guard.json, engine/vitest.guard.config.ts]
+  script:
+    - cd engine
+    # --no-save prunes vitest's peer vite unless it is named too
+    - npm i --no-save --legacy-peer-deps --no-audit --no-fund --loglevel=error @stryker-mutator/core@9 "vite@$(node -p "require('./package-lock.json').packages['node_modules/vite'].version")"
+    - npx stryker run stryker.guard.json
+    - node ci/guard-mutation-score.mjs out/guard-mutation/mutation.json > ../guard-mutation-metrics.txt
+    - cat ../guard-mutation-metrics.txt
+  artifacts:
+    when: always
+    expire_in: 90 days
+    expose_as: 'Guard mutation report'
+    paths: [engine/out/guard-mutation/]
+    reports:
+      metrics: guard-mutation-metrics.txt
