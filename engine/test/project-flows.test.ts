@@ -133,7 +133,7 @@ describe("the project's Duo flows", () => {
   it('a pipeline event reviews an MR once; a later head waits for a person to mention the reviewer', () => {
     const body = promptOf('mr-reviewer.yaml');
     expect(body).toContain(
-      'A pipeline event started this session (not a mention), no review note covers the current head, and one of your review notes covers an older head of this MR: answer "skipped: this MR was reviewed before; a person mentions me to review the new head" and stop before loading anything else, without a note.',
+      'A pipeline event started this session (not a mention), no review note covers the current head, and one of your review notes covers an older head of this MR: answer "skipped: this MR was reviewed before; a person mentions me to review the new head" and stop without reading anything more, without a note.',
     );
     expect(body).toContain('A mention reviews any head.');
     // the skip comes before the rule that starts a review, and the follow-up review stays for mentions
@@ -168,10 +168,25 @@ describe("the project's Duo flows", () => {
     expect(text.split('Test where the output is used (the shell command line after Tab and Enter, eval, rendered HTML), not only the process that makes it; if input can split into words, try ; and rate it by what runs.').length - 1).toBe(3);
   });
 
-  it('the lead checks the MR is still open right before it delegates or reviews a low-risk MR itself', () => {
+  // #61: 26 of 107 reviews were posted after their MR merged; the check stays, inside the last read turn
+  it('the lead checks the MR is still open in its last read turn, right before it delegates or reviews a low-risk MR itself', () => {
     const text = flat('mr-reviewer.yaml');
-    expect(text).toContain('Right before the first delegation (for risk::low, before your own review), check the MR again with get_merge_request');
+    expect(text).toContain('The get_merge_request in your last read turn is that check, so delegate (for risk::low, start your own review) in the turn right after it');
+    expect(text).toContain('put get_merge_request again in the last of them, never in a turn of its own');
     expect(text).toContain('answer "skipped: MR is not open" and stop');
+    expect(text).not.toContain('check the MR again with get_merge_request');
+  });
+
+  // each lead turn is a billed call: one read turn for a pipeline payload, label with the note, nothing read after delegating
+  it('the lead reads in one turn, labels in the note turn and reads nothing after it delegates', () => {
+    const text = flat('mr-reviewer.yaml');
+    expect(text).toContain('so your first turn holds all of these at once: get_merge_request, list_all_merge_request_notes, list_merge_request_diffs, get_job_logs on the autonomy:assess job');
+    expect(text).toContain('From your first delegation on, read nothing more');
+    expect(text).toContain('delegate_task must be the only tool call in its turn');
+    expect(text).toContain('Set the label risk::TIER with update_merge_request in the same turn as your note (step 7), not in a turn of its own');
+    expect(text).toContain('Post one note on the MR with create_merge_request_note, in one turn together with the label from step 4.');
+    // the read rules come before the steps, so they apply to every path (review, follow-up, fix round)
+    expect(text.indexOf('Every turn you take is a billed model call')).toBeLessThan(text.indexOf('1. The input is'));
   });
 
   it('at risk::low the lead reviews lightly itself and posts no quick action; a person can still ask GitLab Code Review', () => {
