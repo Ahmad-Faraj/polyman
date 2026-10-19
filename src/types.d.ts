@@ -822,7 +822,34 @@ interface VerifyReport extends ReportBase {
   solutions: SolutionResult[];
 }
 
-type JsonReport = RunReport | VerifyReport;
+/**
+ * Report emitted by `polyman new <dir> --json` and
+ * `polyman download-testlib --json`.
+ * @interface PathReport
+ * @property {string} path - Absolute path of the created directory or file
+ */
+interface PathReport extends ReportBase {
+  command: string;
+  exitCode: number;
+  durationMs: number;
+  errors: string[];
+  path: string;
+}
+
+/**
+ * Report emitted by `polyman list <what> --json`.
+ * @interface ListReport
+ * @property {unknown[]} items - The listed entries as data
+ */
+interface ListReport extends ReportBase {
+  command: string;
+  exitCode: number;
+  durationMs: number;
+  errors: string[];
+  items: unknown[];
+}
+
+type JsonReport = RunReport | VerifyReport | PathReport | ListReport;
 
 // ==================== Exports ====================
 
@@ -884,6 +911,8 @@ export {
   SolutionResult,
   RunReport,
   VerifyReport,
+  PathReport,
+  ListReport,
   JsonReport,
 };
 

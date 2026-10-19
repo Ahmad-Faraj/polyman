@@ -79,7 +79,7 @@ import {
 } from './steps';
 
 import { logTemplateCreationSuccess } from './helpers/create-template';
-import { findTestset, listTestsets } from './helpers/testset';
+import { describeTestsets, findTestset, listTestsets } from './helpers/testset';
 import { findMatchingSolutions } from './helpers/solution';
 import { readConfigFile, isNumeric, isCppSource } from './helpers/utils';
 import {
@@ -104,6 +104,9 @@ import fs from 'fs';
  * Generator.cpp, Validator.cpp, and directory structure.
  *
  * @param {string} directory - Name of directory to create
+ * @param {{ json?: boolean }} [options] - With `json`, print a JSON report
+ *   (with the absolute `path` created) to stdout and human output to stderr.
+ *   The command never prompts.
  *
  * @throws {Error} If directory creation fails
  * @throws {Error} If template copying fails
@@ -113,7 +116,13 @@ import fs from 'fs';
  * createTemplateAction('my-problem');
  * // Creates: my-problem/ with full template structure
  */
-export const createTemplateAction = (directory: string) => {
+export const createTemplateAction = (
+  directory: string,
+  options: { json?: boolean } = {}
+) => {
+  if (options.json) {
+    report.startPath('new');
+  }
   fmt.section('📁 CREATE NEW PROBLEM TEMPLATE');
 
   try {
@@ -128,11 +137,15 @@ export const createTemplateAction = (directory: string) => {
     // Final success message
     fmt.successBox('TEMPLATE CREATED SUCCESSFULLY!');
     logTemplateCreationSuccess(directory);
+    report.setPath(path.resolve(process.cwd(), directory));
+    report.finish(true);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     fmt.errorBox('TEMPLATE CREATION FAILED!');
     fmt.error(`${message}`);
     fmt.newLine();
+    report.fail(message);
+    report.finish(false);
     process.exit(1);
   }
 };
@@ -141,6 +154,9 @@ export const createTemplateAction = (directory: string) => {
  * Lists all available standard checker programs from assets/checkers directory.
  * Displays checker names and descriptions extracted from file comments.
  * Helps users choose appropriate checkers for their Config.json.
+ *
+ * @param {{ json?: boolean }} [options] - With `json`, print the checkers as
+ *   `{ name, description }` items in a JSON report on stdout.
  *
  * @throws {Error} If checkers directory doesn't exist
  * @throws {Error} If reading checker files fails
@@ -154,7 +170,12 @@ export const createTemplateAction = (directory: string) => {
  * //   3. ncmp.cpp       → Number comparison
  * //   ... etc
  */
-export const listAvailableCheckersAction = () => {
+export const listAvailableCheckersAction = (
+  options: { json?: boolean } = {}
+) => {
+  if (options.json) {
+    report.startList('list checkers');
+  }
   fmt.section('📋 AVAILABLE CHECKERS');
 
   try {
@@ -171,6 +192,7 @@ export const listAvailableCheckersAction = () => {
 
     if (checkerFiles.length === 0) {
       fmt.warning(`${fmt.warningIcon()} No checker files found`);
+      report.finish(true);
       return;
     }
 
@@ -179,6 +201,7 @@ export const listAvailableCheckersAction = () => {
     );
     fmt.newLine();
 
+    const items: { name: string; description: string }[] = [];
     for (const [index, file] of checkerFiles.entries()) {
       const filePath = path.join(checkersDir, file);
       const content = fs.readFileSync(filePath, 'utf-8');
@@ -198,6 +221,7 @@ export const listAvailableCheckersAction = () => {
       }
 
       const checkerName = file;
+      items.push({ name: checkerName, description });
       fmt.log(
         `  ${fmt.primary((index + 1).toString().padStart(2, ' ') + '.')} ${fmt.highlight(checkerName.padEnd(15))} ${fmt.dim('→')} ${description}`
       );
@@ -209,12 +233,15 @@ export const listAvailableCheckersAction = () => {
     );
     fmt.newLine();
 
-    // Listing complete
+    report.setItems(items);
+    report.finish(true);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     fmt.errorBox('FAILED TO LIST CHECKERS!');
     fmt.error(`${message}`);
     fmt.newLine();
+    report.fail(message);
+    report.finish(false);
     process.exit(1);
   }
 };
@@ -223,6 +250,9 @@ export const listAvailableCheckersAction = () => {
  * Downloads testlib.h from the official GitHub repository.
  * Saves the file to the current working directory and provides
  * platform-specific installation instructions for system-wide usage.
+ *
+ * @param {{ json?: boolean }} [options] - With `json`, print a JSON report
+ *   (with the absolute `path` of testlib.h) to stdout.
  *
  * @returns {Promise<void>} Resolves when download and save complete
  *
@@ -235,7 +265,12 @@ export const listAvailableCheckersAction = () => {
  * // Downloads testlib.h to current directory
  * // Shows installation instructions for /usr/include or /usr/local/include
  */
-export const downloadTestlibAction = async () => {
+export const downloadTestlibAction = async (
+  options: { json?: boolean } = {}
+) => {
+  if (options.json) {
+    report.startPath('download-testlib');
+  }
   fmt.section('📥 DOWNLOAD TESTLIB.H');
 
   try {
@@ -246,6 +281,7 @@ export const downloadTestlibAction = async () => {
 
     // step 2: Save to current directory
     stepSaveTestlibToDirectory(stepNum++, testlibContent);
+    report.setPath(path.join(process.cwd(), 'testlib.h'));
 
     // Final success message
     fmt.successBox('TESTLIB.H DOWNLOADED SUCCESSFULLY!');
@@ -282,11 +318,14 @@ export const downloadTestlibAction = async () => {
       `  ${fmt.infoIcon()} ${fmt.dim('After installation, you can use')} #include <testlib.h> ${fmt.dim('in your C++ files')}`
     );
     fmt.newLine();
+    report.finish(true);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     fmt.errorBox('TESTLIB DOWNLOAD FAILED!');
     fmt.error(`${message}`);
     fmt.newLine();
+    report.fail(message);
+    report.finish(false);
     process.exit(1);
   }
 };
@@ -946,15 +985,19 @@ export const fullVerificationAction = async (
  * //   1. tests: 15 tests, groups: samples, main
  * //   2. stress: 100 tests, groups: none
  */
-export const listTestsetsAction = () => {
+export const listTestsetsAction = (options: { json?: boolean } = {}) => {
+  if (options.json) {
+    report.startList('list testsets');
+  }
   fmt.section('📋 AVAILABLE TESTSETS');
 
   try {
     const config = readConfigFile();
-    const descriptions = listTestsets(config.testsets!);
+    const testsets = config.testsets!;
+    const descriptions = listTestsets(testsets);
 
     fmt.info(
-      `  ${fmt.infoIcon()} Found ${fmt.highlight(config.testsets!.length.toString())} testset(s)`
+      `  ${fmt.infoIcon()} Found ${fmt.highlight(testsets.length.toString())} testset(s)`
     );
     fmt.newLine();
 
@@ -966,12 +1009,15 @@ export const listTestsetsAction = () => {
 
     fmt.newLine();
 
-    // Listing complete
+    if (options.json) report.setItems(describeTestsets(testsets));
+    report.finish(true);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     fmt.errorBox('FAILED TO LIST TESTSETS!');
     fmt.error(`${message}`);
     fmt.newLine();
+    report.fail(message);
+    report.finish(false);
     process.exit(1);
   }
 };
@@ -992,7 +1038,10 @@ export const listTestsetsAction = () => {
  * //   2. wa-sol     → ./solutions/wa.cpp         (WA - Wrong Answer)
  * //   3. tle-sol    → ./solutions/tle.py         (TL - Time Limit)
  */
-export const listSolutionsAction = () => {
+export const listSolutionsAction = (options: { json?: boolean } = {}) => {
+  if (options.json) {
+    report.startList('list solutions');
+  }
   fmt.section('📋 AVAILABLE SOLUTIONS');
 
   try {
@@ -1001,6 +1050,7 @@ export const listSolutionsAction = () => {
     if (!config.solutions || config.solutions.length === 0) {
       fmt.warning(`${fmt.warningIcon()} No solutions found in Config.json`);
       fmt.newLine();
+      report.finish(true);
       return;
     }
 
@@ -1032,12 +1082,21 @@ export const listSolutionsAction = () => {
 
     fmt.newLine();
 
-    // Listing complete
+    report.setItems(
+      config.solutions.map(solution => ({
+        name: solution.name,
+        source: solution.source,
+        tag: solution.tag,
+      }))
+    );
+    report.finish(true);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     fmt.errorBox('FAILED TO LIST SOLUTIONS!');
     fmt.error(`${message}`);
     fmt.newLine();
+    report.fail(message);
+    report.finish(false);
     process.exit(1);
   }
 };
@@ -1058,7 +1117,10 @@ export const listSolutionsAction = () => {
  * //   2. gen-max       → ./generators/gen-max.cpp
  * //   3. gen-special   → ./generators/gen-special.py
  */
-export const listGeneratorsAction = () => {
+export const listGeneratorsAction = (options: { json?: boolean } = {}) => {
+  if (options.json) {
+    report.startList('list generators');
+  }
   fmt.section('📋 AVAILABLE GENERATORS');
 
   try {
@@ -1067,6 +1129,7 @@ export const listGeneratorsAction = () => {
     if (!config.generators || config.generators.length === 0) {
       fmt.warning(`${fmt.warningIcon()} No generators found in Config.json`);
       fmt.newLine();
+      report.finish(true);
       return;
     }
 
@@ -1083,12 +1146,20 @@ export const listGeneratorsAction = () => {
 
     fmt.newLine();
 
-    // Listing complete
+    report.setItems(
+      config.generators.map(generator => ({
+        name: generator.name,
+        source: generator.source,
+      }))
+    );
+    report.finish(true);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     fmt.errorBox('FAILED TO LIST GENERATORS!');
     fmt.error(`${message}`);
     fmt.newLine();
+    report.fail(message);
+    report.finish(false);
     process.exit(1);
   }
 };

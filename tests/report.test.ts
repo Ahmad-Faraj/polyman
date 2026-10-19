@@ -350,6 +350,58 @@ describe('report.ts', () => {
     });
   });
 
+  describe('simple command reports', () => {
+    it('renders a path report with the issue fields', () => {
+      collector.startPath('new');
+      collector.setPath('/tmp/prob');
+      collector.finish(true);
+      expect(written()).toMatchObject({
+        schemaVersion: 1,
+        command: 'new',
+        ok: true,
+        exitCode: 0,
+        errors: [],
+        path: '/tmp/prob',
+      });
+      const doc = written() as { durationMs: number; polymanVersion: string };
+      expect(doc.durationMs).toBeGreaterThanOrEqual(0);
+      expect(typeof doc.polymanVersion).toBe('string');
+    });
+
+    it('renders a list report', () => {
+      collector.startList('list generators');
+      collector.setItems([{ name: 'gen', source: 'gen.cpp' }]);
+      collector.finish(true);
+      expect(written()).toMatchObject({
+        command: 'list generators',
+        ok: true,
+        exitCode: 0,
+        items: [{ name: 'gen', source: 'gen.cpp' }],
+      });
+    });
+
+    it('renders a failure with exitCode 1 and plain-text errors', () => {
+      collector.startList('list solutions');
+      collector.fail('\u001b[31mbroken\u001b[39m');
+      collector.finish(false);
+      expect(written()).toMatchObject({
+        ok: false,
+        exitCode: 1,
+        errors: ['broken'],
+        items: [],
+      });
+    });
+
+    it('ignores setPath and setItems for other reports', () => {
+      collector.startVerify();
+      collector.setPath('/x');
+      collector.setItems([1]);
+      collector.finish(true);
+      expect(written()).toMatchObject({ command: 'verify' });
+      expect(written()).not.toHaveProperty('path');
+    });
+  });
+
   describe('finish', () => {
     it('writes exactly once even if called twice', () => {
       collector.startVerify();

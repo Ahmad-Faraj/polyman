@@ -14,6 +14,7 @@ import * as compileCache from '../src/helpers/compile-cache';
 import { report } from '../src/report';
 import type { LocalSolution } from '../src/types';
 import fs from 'fs';
+import path from 'path';
 
 vi.mock('../src/steps');
 vi.mock('../src/helpers/utils');
@@ -1193,6 +1194,200 @@ describe('actions.ts', () => {
       await actions.remotePackageProblemAction('./p', 'unknown');
       expect(formatter.fmt.errorBox).toHaveBeenCalled();
       expect(process.exit).toHaveBeenCalledWith(1);
+    });
+  });
+
+  describe('--json for new, download-testlib and list', () => {
+    const doc = (): Record<string, unknown> =>
+      writtenJson() as unknown as Record<string, unknown>;
+
+    beforeEach(() => {
+      vi.mocked(steps.stepCreateDirectoryStructure).mockReset();
+      vi.mocked(steps.stepDownloadTestlib).mockReset();
+      vi.mocked(utils.readConfigFile).mockReset();
+    });
+
+    it('new --json reports the created path and never prompts', () => {
+      actions.createTemplateAction('prob', { json: true });
+      expect(formatter.fmt.setOutput).toHaveBeenCalledWith('stderr');
+      expect(doc()).toMatchObject({
+        schemaVersion: 1,
+        command: 'new',
+        ok: true,
+        exitCode: 0,
+        path: '/mock/cwd/prob',
+        errors: [],
+      });
+      expect(typeof doc()['durationMs']).toBe('number');
+      expect(steps.stepPromptCreateProblem).not.toHaveBeenCalled();
+    });
+
+    it('new --json reports a failure with a message', () => {
+      vi.mocked(steps.stepCreateDirectoryStructure).mockImplementation(() => {
+        throw new Error('EEXIST');
+      });
+      actions.createTemplateAction('prob', { json: true });
+      report.finish(false);
+      expect(doc()).toMatchObject({
+        command: 'new',
+        ok: false,
+        exitCode: 1,
+        errors: ['EEXIST'],
+      });
+      expect(process.exit).toHaveBeenCalledWith(1);
+    });
+
+    it('new without --json writes no report', () => {
+      actions.createTemplateAction('prob');
+      expect(fs.writeSync).not.toHaveBeenCalled();
+    });
+
+    it('download-testlib --json reports the path of testlib.h', async () => {
+      vi.mocked(steps.stepDownloadTestlib).mockResolvedValue('code');
+      await actions.downloadTestlibAction({ json: true });
+      expect(doc()).toMatchObject({
+        command: 'download-testlib',
+        ok: true,
+        exitCode: 0,
+        path: path.join('/mock/cwd', 'testlib.h'),
+      });
+    });
+
+    it('download-testlib --json reports a failure', async () => {
+      vi.mocked(steps.stepDownloadTestlib).mockRejectedValue(
+        new Error('network')
+      );
+      await actions.downloadTestlibAction({ json: true });
+      expect(doc()).toMatchObject({
+        command: 'download-testlib',
+        ok: false,
+        exitCode: 1,
+        errors: ['network'],
+      });
+    });
+
+    it('list checkers --json returns name and description', () => {
+      vi.mocked(fs.existsSync).mockReturnValue(true);
+      vi.mocked(fs.readdirSync).mockReturnValue([
+        'ncmp.cpp',
+        'testlib.h',
+      ] as any);
+      vi.mocked(fs.readFileSync).mockReturnValue(
+        '// Description: number compare\nint main() {}\n' as any
+      );
+      actions.listAvailableCheckersAction({ json: true });
+      expect(doc()).toMatchObject({
+        command: 'list checkers',
+        ok: true,
+        exitCode: 0,
+        items: [{ name: 'ncmp.cpp', description: 'number compare' }],
+      });
+    });
+
+    it('list checkers --json gives an empty list when none found', () => {
+      vi.mocked(fs.existsSync).mockReturnValue(true);
+      vi.mocked(fs.readdirSync).mockReturnValue([] as any);
+      actions.listAvailableCheckersAction({ json: true });
+      expect(doc()).toMatchObject({ ok: true, items: [] });
+    });
+
+    it('list checkers --json reports a missing directory', () => {
+      vi.mocked(fs.existsSync).mockReturnValue(false);
+      actions.listAvailableCheckersAction({ json: true });
+      expect(doc()).toMatchObject({
+        ok: false,
+        exitCode: 1,
+        errors: ['Checkers directory not found'],
+      });
+    });
+
+    it('list testsets --json returns name, tests and groups', () => {
+      vi.mocked(utils.readConfigFile).mockReturnValue({
+        testsets: [{ name: 'ts1' }],
+      } as any);
+      vi.mocked(testset.listTestsets).mockReturnValue(['ts1: 3 tests']);
+      vi.mocked(testset.describeTestsets).mockReturnValue([
+        { name: 'ts1', tests: 3, groups: ['samples'] },
+      ]);
+      actions.listTestsetsAction({ json: true });
+      expect(doc()).toMatchObject({
+        command: 'list testsets',
+        ok: true,
+        items: [{ name: 'ts1', tests: 3, groups: ['samples'] }],
+      });
+    });
+
+    it('list testsets --json fails without a readable Config.json', () => {
+      vi.mocked(utils.readConfigFile).mockImplementation(() => {
+        throw new Error('no Config.json');
+      });
+      actions.listTestsetsAction({ json: true });
+      expect(doc()).toMatchObject({
+        command: 'list testsets',
+        ok: false,
+        exitCode: 1,
+        errors: ['no Config.json'],
+      });
+    });
+
+    it('list solutions --json returns name, source and tag', () => {
+      vi.mocked(utils.readConfigFile).mockReturnValue({
+        solutions: [{ name: 'main', source: 'sol/main.cpp', tag: 'MA' }],
+      } as any);
+      actions.listSolutionsAction({ json: true });
+      expect(doc()).toMatchObject({
+        command: 'list solutions',
+        ok: true,
+        items: [{ name: 'main', source: 'sol/main.cpp', tag: 'MA' }],
+      });
+    });
+
+    it('list solutions --json gives an empty list for no solutions', () => {
+      vi.mocked(utils.readConfigFile).mockReturnValue({ solutions: [] } as any);
+      actions.listSolutionsAction({ json: true });
+      expect(doc()).toMatchObject({ ok: true, exitCode: 0, items: [] });
+    });
+
+    it('list solutions --json fails without a readable Config.json', () => {
+      vi.mocked(utils.readConfigFile).mockImplementation(() => {
+        throw new Error('no Config.json');
+      });
+      actions.listSolutionsAction({ json: true });
+      expect(doc()).toMatchObject({ ok: false, exitCode: 1 });
+      expect(doc()['errors']).toEqual(['no Config.json']);
+    });
+
+    it('list generators --json returns name and source', () => {
+      vi.mocked(utils.readConfigFile).mockReturnValue({
+        generators: [{ name: 'gen', source: 'gen/gen.cpp' }],
+      } as any);
+      actions.listGeneratorsAction({ json: true });
+      expect(doc()).toMatchObject({
+        command: 'list generators',
+        ok: true,
+        items: [{ name: 'gen', source: 'gen/gen.cpp' }],
+      });
+    });
+
+    it('list generators --json gives an empty list for no generators', () => {
+      vi.mocked(utils.readConfigFile).mockReturnValue({} as any);
+      actions.listGeneratorsAction({ json: true });
+      expect(doc()).toMatchObject({ ok: true, items: [] });
+    });
+
+    it('list generators --json fails without a readable Config.json', () => {
+      vi.mocked(utils.readConfigFile).mockImplementation(() => {
+        throw new Error('no Config.json');
+      });
+      actions.listGeneratorsAction({ json: true });
+      expect(doc()).toMatchObject({ ok: false, exitCode: 1 });
+      expect(doc()['errors']).toEqual(['no Config.json']);
+    });
+
+    it('list without --json writes no report', () => {
+      vi.mocked(utils.readConfigFile).mockReturnValue({ solutions: [] } as any);
+      actions.listSolutionsAction();
+      expect(fs.writeSync).not.toHaveBeenCalled();
     });
   });
 });

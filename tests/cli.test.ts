@@ -36,11 +36,31 @@ describe('cli.ts', () => {
 
   it('should register new command', async () => {
     await loadCli(['new', 'prob']);
-    expect(actions.createTemplateAction).toHaveBeenCalledWith(
-      'prob',
-      expect.anything(),
-      expect.anything()
-    );
+    expect(actions.createTemplateAction).toHaveBeenCalledWith('prob', {
+      json: false,
+    });
+  });
+
+  it('should pass --json to new', async () => {
+    await loadCli(['new', 'prob', '--json']);
+    expect(actions.createTemplateAction).toHaveBeenCalledWith('prob', {
+      json: true,
+    });
+  });
+
+  it('should pass --json to download-testlib', async () => {
+    await loadCli(['download-testlib', '--json']);
+    expect(actions.downloadTestlibAction).toHaveBeenCalledWith({ json: true });
+  });
+
+  it.each([
+    ['checkers', 'listAvailableCheckersAction'],
+    ['testsets', 'listTestsetsAction'],
+    ['solutions', 'listSolutionsAction'],
+    ['generators', 'listGeneratorsAction'],
+  ] as const)('should pass --json to list %s', async (what, action) => {
+    await loadCli(['list', what, '--json']);
+    expect(actions[action]).toHaveBeenCalledWith({ json: true });
   });
 
   it('should register generate command', async () => {
@@ -50,7 +70,9 @@ describe('cli.ts', () => {
 
   it('should register list checkers command', async () => {
     await loadCli(['list', 'checkers']);
-    expect(actions.listAvailableCheckersAction).toHaveBeenCalled();
+    expect(actions.listAvailableCheckersAction).toHaveBeenCalledWith({
+      json: false,
+    });
   });
 
   it('should register download-testlib command', async () => {

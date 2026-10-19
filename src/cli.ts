@@ -89,7 +89,13 @@ const NO_CACHE_DESCRIPTION =
 program
   .command('new <directory>')
   .description('Create a new problem template in the specified directory')
-  .action(createTemplateAction);
+  .option(
+    '--json',
+    'Print a JSON report to stdout (human output goes to stderr)'
+  )
+  .action((directory: string, options: { json?: boolean }) => {
+    createTemplateAction(directory, { json: options.json === true });
+  });
 
 /**
  * Command: download-testlib
@@ -102,7 +108,13 @@ program
 program
   .command('download-testlib')
   .description('Download testlib.h to the current directory')
-  .action(downloadTestlibAction);
+  .option(
+    '--json',
+    'Print a JSON report to stdout (human output goes to stderr)'
+  )
+  .action(async (options: { json?: boolean }) => {
+    await downloadTestlibAction({ json: options.json === true });
+  });
 
 // ============================================================================
 // LIST COMMANDS
@@ -121,7 +133,13 @@ const list = program.command('list').description('List local resources');
 list
   .command('checkers')
   .description('List all available standard checkers')
-  .action(listAvailableCheckersAction);
+  .option(
+    '--json',
+    'Print a JSON report to stdout (human output goes to stderr)'
+  )
+  .action((options: { json?: boolean }) => {
+    listAvailableCheckersAction({ json: options.json === true });
+  });
 
 /**
  * Command: list testsets
@@ -134,7 +152,13 @@ list
 list
   .command('testsets')
   .description('List all testsets in the configuration')
-  .action(listTestsetsAction);
+  .option(
+    '--json',
+    'Print a JSON report to stdout (human output goes to stderr)'
+  )
+  .action((options: { json?: boolean }) => {
+    listTestsetsAction({ json: options.json === true });
+  });
 
 /**
  * Command: list solutions
@@ -147,7 +171,13 @@ list
 list
   .command('solutions')
   .description('List all solutions in the configuration')
-  .action(listSolutionsAction);
+  .option(
+    '--json',
+    'Print a JSON report to stdout (human output goes to stderr)'
+  )
+  .action((options: { json?: boolean }) => {
+    listSolutionsAction({ json: options.json === true });
+  });
 
 /**
  * Command: list generators
@@ -160,7 +190,13 @@ list
 list
   .command('generators')
   .description('List all generators in the configuration')
-  .action(listGeneratorsAction);
+  .option(
+    '--json',
+    'Print a JSON report to stdout (human output goes to stderr)'
+  )
+  .action((options: { json?: boolean }) => {
+    listGeneratorsAction({ json: options.json === true });
+  });
 
 // ============================================================================
 // GENERATE COMMAND
