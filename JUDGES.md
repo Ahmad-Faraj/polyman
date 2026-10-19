@@ -2,6 +2,8 @@
 
 polyman is an MIT command-line tool that people who set programming-contest problems use to check that every solution gets the right verdict. On GitLab, Duo agents maintain it one step at a time: each step waits for a go-ahead from a person who didn't ask for the work, and nothing ships until checks that are neither an LLM nor ours agree it still judges correctly. Every link below opens without logging in. GitLab shows agent session pages only to signed-in members, so three sessions are rendered from the API in the wiki: [#21 from proposal to review](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/wikis/Session-replay-21), [the #45 incident](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/wikis/Session-replay-45), and [a review agent told "REPORT ONLY: do not push" pushing anyway](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/wikis/Session-replay-67).
 
+
+**Why it matters now:** every problem polyman creates ships instructions for AI coding agents that call `polyman verify` "the bar for 'done'" ([template/instructions/commands/verify.md](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/blob/main/template/instructions/commands/verify.md)) and offer `verify --json` "for agents and scripts". In the release people installed, 3.0.0, that JSON marked tests the checker never judged as `OK` ([#21](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues/21)), and `remote push` printed ✓ and exited 0 while uploads failed ([#25](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues/25)). The signal agents were told to trust was wrong. So here, every layer that decides something has a judge that isn't an LLM, and every step an agent takes waits for a person who didn't ask.
 ## 60 seconds
 
 1. [#45](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues/45): on Oct 18 at 03:20 UTC an agent opened an incident: the nightly judges had caught the published `polyman-cli@3.0.0` accepting wrong solutions.
@@ -52,9 +54,15 @@ Judge finds a bug → issue with evidence → agent proposes → someone else's 
 - **The pattern carries over**: any tool whose output people can't check by eye (a linter, a grader, a scanner, a compiler) can be maintained this way: an outside oracle on every change and every night, agents that propose, and a go-ahead from someone who didn't ask. The policy is one file, [`.autonomy.yml`](.autonomy.yml).
 
 ### Innovation
-- **"Who judges the judge?"**: polyman judges solutions; we judge polyman with oracles an agent can't talk its way past, and the agent's reviewer is benchmarked against later-confirmed findings too ([#61](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues/61)).
-- **The go-ahead decides who, by risk**: the risk score (paths, size, scanner findings on the lines an MR wrote) chooses who may approve and how deep the review goes.
-- **Agents caught by their own guard**, six times on Oct 18, each on real work, each handled without merging the unapproved push ([README](README.md#what-people-did-per-loop)).
+**A judge for every judge**, none of them an LLM:
+1. polyman judges contestants' solutions;
+2. real compilers, the problem platform's own copy, and mutation testing judge polyman (the corpus, the round trip, `corpus:mutation`);
+3. a CI guard judges every agent push: no go-ahead from someone who didn't ask, no push ([refused on !67](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17265270744));
+4. mutation testing judges the guard: of 324 bugs planted in the go-ahead rules, the tests catch 295, 91% ([!128](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/128));
+5. a frozen-MR benchmark judges the review agent: the same MRs at the same head, old reviewer against new, scored against findings people later confirmed ([#61](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues/61));
+6. the public ledger lets anyone judge us: every accepted agent push and its go-ahead, chained by SHA-256 ([ledger](https://showcase-ce2cdc.gitlab.io/ledger/)).
+
+Also: **the go-ahead decides who, by risk** (the risk score picks who may approve and how deep the review goes), and **a prompt is not a control**: review specialists told "REPORT ONLY: do not push" pushed six times on Oct 18, and the guard refused each one ([replay](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/wikis/Session-replay-67)).
 
 ### Presentation
 The video (under 3 minutes) follows one bug from the nightly incident to the release people install, including a refusal. The [README](README.md) has the per-loop table and a claim → evidence table; [Stages](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/wikis/Stages) has every DevSecOps stage with links.
@@ -68,7 +76,9 @@ The video (under 3 minutes) follows one bug from the nightly incident to the rel
 | Finding | Change | Measured gain |
 |---|---|---|
 | A carbon number from CI alone misses most of an agent's footprint | count model calls per session, not runner minutes | inference is 76-97% of a review's estimated total |
-| Every review got three specialists | review depth follows the risk score | a low-risk review costs 1/6 to 1/8 of a high-risk one |
+| Every review got three specialists | review depth follows the risk score | a low-risk review takes about 1/5 of the calls and tokens of a high-risk one |
+| A full review read more than it needed | the review cuts of Oct 18 (!100, !102, !105, !116) | about 11 GitLab credits and 1.69M tokens per full review before, about 6 credits and 490k tokens after (median of 9 reviews) |
+| Sessions that did nothing useful (stopped early, finished after the merge, repeated a head) | the reviewer checks the MR is still open before it delegates | 73 of 195 reviewer sessions, about 29% of its credits, before; 0 of 19 since |
 | Reviewer sessions woke for pipelines that weren't theirs | filter triggers to their own event | 49% of reviewer sessions were wasted wake-ups before the filter (sandbox) |
 | Re-reviews of a new head were half of all tokens | re-review only what changed since the last reviewed head (!105) | the reviewer is 94% of all agent tokens, re-reviews half of those |
 | Specialists gathered context call by call | fewer, larger lookups (!100, !102) | same MRs, frozen at the same head: 43% fewer calls, 55% fewer tokens (1.28M → 0.57M per review), about the same findings (n=3, [#61](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues/61)); at our measured 3.4-27.7 gCO2e per million tokens, about 4.4-35 g → 1.9-16 g per review |
@@ -80,4 +90,6 @@ Anyone can recompute the per-review numbers: `npx -y -p @grnsft/if@1.1.1 if-run 
 **Google Cloud**: Cloud Run, deployed by CI through Workload Identity Federation (no stored key); a candidate at 0% traffic is checked by the golden set, a person promotes, and a failed production check rolls back by itself ([drill](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17264159881) → [Incident #57](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues/57)).
 
 ## What isn't done, and why
+**How to read authorship here.** GitLab shows an agent-built MR as authored by the person who started the agent's session (composite identity), so "author merged their own MR" in the MR list usually means "the person who assigned the agent merged it". The agent is the one that pushed the commits: the guard and the [ledger](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/103) read who pushed from GitLab's push events. The 12 loops include five whose approved commits moved to a second MR after a refused push, which is why the published ledger counts fewer MRs until !103 (moved MRs) is merged. Since Oct 18 evening, a third person merges agent MRs.
+
 In the [README's honest limits](README.md#honest-limits). The short version: we have no Maintainer role, so code-owner approval, protected environments and a pipeline execution policy aren't on (the guard does that job); GitLab Code Review doesn't start when our agent asks for it (DCR4008); a person often merged an MR they had also approved the work for, which the rules allow but is weak separation, so from Oct 18 evening a third person merges.
