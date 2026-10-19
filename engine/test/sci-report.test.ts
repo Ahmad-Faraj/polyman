@@ -322,6 +322,35 @@ describe('ciFootprint', () => {
     expect(await ciFootprint(fake({}), {}, DEFAULT_SCI)).toBeNull();
   });
 
+  it('counts a canceled pipeline and takes the median per pipeline, not the mean', async () => {
+    const gl = fake({
+      '/:project/merge_requests/7/pipelines': [
+        { id: 1, status: 'canceled' },
+        { id: 2, status: 'success' },
+        { id: 3, status: 'failed' },
+      ],
+      '/:project/pipelines/1/jobs': jobs(1),
+      '/:project/pipelines/2/jobs': jobs(2),
+      '/:project/pipelines/3/jobs': jobs(9),
+    });
+    const ci = await ciFootprint(gl, { CI_MERGE_REQUEST_IID: '7', CI_PIPELINE_ID: '9' }, DEFAULT_SCI);
+    expect(ci!.pipelines).toBe(3);
+    expect(gl.seen[0]).toBe('/:project/merge_requests/7/pipelines?per_page=100');
+    // 1, 2 and 9 minutes: the median is 2, the mean would be 4
+    expect(ci!.perPipelineMinutes).toBe(2);
+    expect(ci!.perPipelineGrams).toBeCloseTo(footprint([{ name: 'a', duration: 120 }]).totalGrams, 12);
+  });
+
+  it("asks only for a branch's successful push pipelines, with the name encoded, and measures at most 10", async () => {
+    const gl = fake({
+      '/:project/pipelines?': Array.from({ length: 12 }, (_, i) => ({ id: 100 - i })),
+      '/:project/pipelines/': jobs(1),
+    });
+    const ci = await ciFootprint(gl, { CI_COMMIT_BRANCH: 'feat/x y', CI_PIPELINE_ID: '1' }, DEFAULT_SCI);
+    expect(gl.seen[0]).toBe('/:project/pipelines?ref=feat%2Fx%20y&status=success&source=push&per_page=11');
+    expect(ci).toMatchObject({ pipelines: 10, scope: 'the last 10 successful push pipelines on feat/x y' });
+  });
+
   it("on a branch, takes the last 10 successful push pipelines other than this one, and every page of their jobs", async () => {
     const gl = fake({
       '/:project/pipelines?ref=main': Array.from({ length: 11 }, (_, i) => ({ id: 100 - i })),
@@ -333,5 +362,29 @@ describe('ciFootprint', () => {
     expect(gl.seen).toContain('/:project/pipelines/99/jobs?per_page=100&include_retried=true&page=2');
     // 101 jobs in pipeline 99, one in each of the other nine
     expect(ci!.footprint.runnerSeconds).toBe((101 + 9) * 60);
+  });
+});
+
+describe('the page escapes every field', () => {
+  it('leaves no raw markup from any string it is given', () => {
+    const evil = '<x\'">';
+    const s = summarize([session({ flow: evil }), session({ tier: 'high' })], DEFAULT_SCI);
+    const html = renderSciPage({
+      summary: { ...s, from: evil, to: evil },
+      check: { version: evil, tiers: [{ tier: evil, reviews: 1, carbon: { low: 1, high: 1 } }], maxRelativeDiff: 0, mismatches: [] },
+      ci: { scope: evil, pipelines: 1, footprint: footprint([{ name: 'a', duration: 60 }]), perPipelineGrams: 1, perPipelineMinutes: 1 },
+      web: 'https://x/" onmouseover="a',
+      generatedAt: '2026-10-19T12:00:00Z',
+      commit: evil,
+      pipelineUrl: 'HTTPS://x/p',
+    });
+    expect(html).not.toContain('<x');
+    expect(html).not.toMatch(/" onmouseover="/);
+    expect(html).toContain('&lt;x&#39;&quot;&gt;');
+    expect(html).toContain('href="HTTPS://x/p"');
+  });
+
+  it('refuses counts too big for the arithmetic', () => {
+    expect(invalidInput([session({ seconds: 1e308 })], DEFAULT_SCI)).toMatch(/seconds 1e\+308, not a number/);
   });
 });

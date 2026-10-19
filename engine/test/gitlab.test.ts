@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { GitLab, GitLabError } from '../src/gitlab.ts';
+import { GitLab, GitLabError, finishedJobs } from '../src/gitlab.ts';
 
 const BASE = 'https://gitlab.test/api/v4';
 const baseEnv = { CI_API_V4_URL: BASE, CI_PROJECT_ID: 'group/proj' };
@@ -273,5 +273,38 @@ describe("GitLab.com's rate limit", () => {
     const err = (await new GitLab({ ...baseEnv, CI_JOB_TOKEN: 'job' }).get('/:project/merge_requests/7/notes').catch((e: unknown) => e)) as GitLabError;
     expect(err).toBeInstanceOf(GitLabError);
     expect(err.status).toBe(429);
+  });
+});
+
+describe('finishedJobs', () => {
+  const jobs = (n: number, duration: number | null = 30) => Array.from({ length: n }, (_, i) => ({ name: `j${i}`, status: 'success', duration }));
+  /** a client whose pages come from `pages[pipeline]`, in order */
+  const fake = (pages: Record<number, unknown[][]>) => {
+    const seen: string[] = [];
+    return {
+      seen,
+      get: async <T>(path: string) => {
+        seen.push(path);
+        const [, id, n] = path.match(/pipelines\/(\d+)\/jobs\?per_page=100&include_retried=true&page=(\d+)$/)!;
+        return (pages[Number(id)][Number(n) - 1] ?? []) as T;
+      },
+    };
+  };
+
+  it('asks for the next page only after a full one', async () => {
+    const full = fake({ 1: [jobs(100), []] });
+    expect(await finishedJobs(full, [1])).toHaveLength(100);
+    expect(full.seen).toEqual(['/:project/pipelines/1/jobs?per_page=100&include_retried=true&page=1', '/:project/pipelines/1/jobs?per_page=100&include_retried=true&page=2']);
+    const short = fake({ 1: [jobs(99)] });
+    expect(await finishedJobs(short, [1])).toHaveLength(99);
+    expect(short.seen).toHaveLength(1);
+  });
+
+  it('reads every page of every pipeline, and leaves out jobs with no runner time', async () => {
+    const gl = fake({ 1: [jobs(100), [...jobs(2), ...jobs(3, null), ...jobs(1, 0)]], 2: [jobs(4)] });
+    const got = await finishedJobs(gl, [1, 2]);
+    expect(got).toHaveLength(106);
+    expect(got.every((j) => j.duration === 30)).toBe(true);
+    expect(gl.seen).toHaveLength(3);
   });
 });

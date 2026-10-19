@@ -53,7 +53,9 @@ const summary = summarize(data.sessions, coefficients, data.coefficients?.gridGr
 const check = ifFile ? checkIfRun(read(ifFile, "if-run's output", parse), data.sessions, coefficients) : null;
 
 let ci: CiFootprint | null = null;
-if (argv.includes('--ci')) {
+if (argv.includes('--ci') && !(env.CI_API_V4_URL && env.CI_PROJECT_ID)) {
+  console.warn('warning: no CI footprint: CI_API_V4_URL and CI_PROJECT_ID are not set, so this is not a CI job');
+} else if (argv.includes('--ci')) {
   try {
     ci = await ciFootprint(new GitLab(), env, coefficients);
   } catch (err) {

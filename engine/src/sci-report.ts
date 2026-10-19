@@ -73,7 +73,8 @@ export interface SciSummary {
 
 const TIERS = ['high', 'medium', 'low'] as const;
 const TOKEN_FIELDS = ['calls', 'uncached', 'cacheWrite', 'cacheRead', 'output'] as const;
-const isCount = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0;
+// a count, small enough that the arithmetic stays finite
+const isCount = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= Number.MAX_SAFE_INTEGER;
 
 /**
  * Why these inputs can't give honest figures, or null if they can. Every
