@@ -168,14 +168,23 @@ describe('sci-report --ci', () => {
   });
 
   it('fails the job, not just warns, when the API answers in a shape the code does not expect', async () => {
-    const api = await serve(() => [200, {}]);
-    try {
-      const r = await runCi(mr(api.url), join(dir, 'ci-shape'));
-      expect(r.status).toBe(1);
-      expect(r.stderr).toMatch(/the CI footprint failed: GET .*\/merge_requests\/3\/pipelines\?per_page=100 did not return a list/);
-      expect(r.stderr).not.toContain('no CI footprint this time');
-    } finally {
-      api.close();
+    const pipelines = [{ id: 20, status: 'success' }];
+    // a list of pipelines that isn't one; jobs that aren't a list; a list holding no job (a TypeError in our code, not an outage)
+    for (const [name, jobs, says] of [
+      ['pipelines', null, /merge_requests\/3\/pipelines\?per_page=100 did not return a list/],
+      ['jobs', {}, /pipelines\/20\/jobs\?per_page=100&include_retried=true&page=1 did not return a list/],
+      ['job', [null], /Cannot read properties of null/],
+    ] as const) {
+      const api = await serve((url) => (url.includes('/merge_requests/3/pipelines') ? [200, name === 'pipelines' ? {} : pipelines] : [200, jobs]));
+      try {
+        const r = await runCi(mr(api.url), join(dir, `ci-shape-${name}`));
+        expect(r.status, name).toBe(1);
+        expect(r.stderr, name).toMatch(/the CI footprint failed: /);
+        expect(r.stderr, name).toMatch(says);
+        expect(r.stderr, name).not.toContain('no CI footprint this time');
+      } finally {
+        api.close();
+      }
     }
   });
 });

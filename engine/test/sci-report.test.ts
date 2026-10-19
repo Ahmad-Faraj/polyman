@@ -317,9 +317,11 @@ describe('ciFootprint', () => {
     expect(gl.seen.some((p) => p.includes('/pipelines/9/') || p.includes('/pipelines/3/'))).toBe(false);
   });
 
-  it('fails on an answer that is not a list, instead of measuring nothing', async () => {
-    const gl = fake({ '/:project/merge_requests/7/pipelines': {} as unknown as unknown[] });
-    await expect(ciFootprint(gl, { CI_MERGE_REQUEST_IID: '7', CI_PIPELINE_ID: '9' }, DEFAULT_SCI)).rejects.toThrow(/did not return a list: \{\}/);
+  it('fails on an answer that is not a list, instead of measuring nothing, on an MR and on a branch', async () => {
+    const mr = fake({ '/:project/merge_requests/7/pipelines': {} as unknown as unknown[] });
+    await expect(ciFootprint(mr, { CI_MERGE_REQUEST_IID: '7', CI_PIPELINE_ID: '9' }, DEFAULT_SCI)).rejects.toThrow(/merge_requests\/7\/pipelines\?per_page=100 did not return a list: \{\}/);
+    const branch = fake({ '/:project/pipelines?': {} as unknown as unknown[] });
+    await expect(ciFootprint(branch, { CI_COMMIT_BRANCH: 'main', CI_PIPELINE_ID: '9' }, DEFAULT_SCI)).rejects.toThrow(/pipelines\?ref=main&status=success&source=push&per_page=11 did not return a list/);
   });
 
   it('gives null when there is no earlier pipeline, or neither an MR nor a branch', async () => {

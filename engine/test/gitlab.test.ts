@@ -300,6 +300,10 @@ describe('finishedJobs', () => {
     expect(short.seen).toHaveLength(1);
   });
 
+  it('fails on a page that is not a list, instead of counting nothing', async () => {
+    await expect(finishedJobs(fake({ 1: [{} as unknown as unknown[]] }), [1])).rejects.toThrow(/jobs\?per_page=100&include_retried=true&page=1 did not return a list: \{\}/);
+  });
+
   it('reads every page of every pipeline, and leaves out jobs with no runner time', async () => {
     const gl = fake({ 1: [jobs(100), [...jobs(2), ...jobs(3, null), ...jobs(1, 0)]], 2: [jobs(4)] });
     const got = await finishedJobs(gl, [1, 2]);
