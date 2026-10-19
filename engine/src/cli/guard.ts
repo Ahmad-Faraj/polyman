@@ -19,8 +19,10 @@ const log = execFileSync('git', ['log', '--format=%x00%H%x09%an%x09%ae', '--name
   encoding: 'utf8',
 });
 const commits = parseGitLog(log);
-// The incident responder's rollback MR may add a lesson to the incidents file:
-// only when GitLab says the responder's account pushed, and only by appending.
+// The incident responder's rollback MR may add a lesson to the incidents file,
+// only by appending: in an MR pipeline when GitLab says the responder's account
+// pushed, and on the default branch after the merge, where the pipeline runs as
+// the person who merged and the MR's own guard already checked the push.
 const show = (rev: string) => {
   try {
     return execFileSync('git', ['show', `${rev}:${config.incidentsFile}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
@@ -28,7 +30,8 @@ const show = (rev: string) => {
     return undefined;
   }
 };
-const incidentAppend = isIncidentResponderLogin(env.GITLAB_USER_LOGIN) && onlyAppends(show(base), show('HEAD'));
+const onDefaultBranch = !!env.CI_COMMIT_BRANCH && env.CI_COMMIT_BRANCH === env.CI_DEFAULT_BRANCH;
+const incidentAppend = (isIncidentResponderLogin(env.GITLAB_USER_LOGIN) || onDefaultBranch) && onlyAppends(show(base), show('HEAD'));
 const violations = protectedPathViolations(commits, config.governance, (file) => incidentAppend && file === config.incidentsFile);
 
 if (!violations.length) {

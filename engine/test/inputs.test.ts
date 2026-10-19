@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { addedLines, addedLinesOf, changedFiles, securityFindings } from '../src/inputs.ts';
+import { addedLines, addedLinesOf, changedFiles, loadIncidents, securityFindings } from '../src/inputs.ts';
 
 describe('addedLines', () => {
   it('reads the new side of every hunk header in a -U0 diff', () => {
@@ -134,5 +134,33 @@ describe('securityFindings', () => {
     expect(reports).toEqual(['gl-dependency-scanning-report.json']);
     expect(findings).toMatchObject([{ scanner: 'dependency_scanning', severity: 'High', name: 'Prototype pollution in minimist', file: 'package-lock.json' }]);
     expect(findings[0].line).toBeUndefined();
+  });
+});
+
+describe('loadIncidents', () => {
+  it('keeps well-formed lessons and skips one with the wrong shape instead of failing', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'incidents-'));
+    const good = { paths: ['service/src/app.ts'], weight: 25, reason: 'production check failed', ref: '#70' };
+    writeFileSync(join(dir, 'incidents.json'), JSON.stringify([good, { files: ['x.ts'], weight: 25 }, { paths: ['y.ts'], weight: '25' }]));
+    expect(loadIncidents(join(dir, 'incidents.json'))).toEqual([good]);
+  });
+
+  it('reads null or a non-list as no lessons, and still filters a wrapped list', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'incidents-'));
+    const good = { paths: ['a.ts'], weight: 25, reason: 'r' };
+    const read = (value: unknown) => {
+      writeFileSync(join(dir, 'incidents.json'), JSON.stringify(value));
+      return loadIncidents(join(dir, 'incidents.json'));
+    };
+    expect(read(null)).toEqual([]);
+    expect(read({ incidents: {} })).toEqual([]);
+    expect(read({ incidents: [good, { files: ['b.ts'] }] })).toEqual([good]);
+  });
+
+  it('reads an empty list and a missing file as no lessons', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'incidents-'));
+    writeFileSync(join(dir, 'incidents.json'), '[]');
+    expect(loadIncidents(join(dir, 'incidents.json'))).toEqual([]);
+    expect(loadIncidents(join(dir, 'none.json'))).toEqual([]);
   });
 });
