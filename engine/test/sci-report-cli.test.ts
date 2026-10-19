@@ -1,8 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { loadConfig } from '../src/config.ts';
@@ -11,6 +11,7 @@ import { sessionGrams } from '../src/sci.ts';
 
 const CLI = resolve('src/cli/sci-report.ts');
 const dir = mkdtempSync(join(tmpdir(), 'sci-report-'));
+afterAll(() => rmSync(dir, { recursive: true, force: true }));
 // the node running the tests, which strips TypeScript types; without --ci it reads no API
 const NO_CI = { CI_API_V4_URL: '', CI_PROJECT_ID: '', CI_MERGE_REQUEST_IID: '', CI_COMMIT_BRANCH: '', CI_PIPELINE_ID: '' };
 const run = (...args: string[]) => spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', CLI, ...args], { encoding: 'utf8', env: { ...process.env, ...NO_CI, AUTONOMY_CONFIG: 'test/fixtures/autonomy.yml' } });
@@ -90,15 +91,18 @@ describe('sci-report', () => {
 describe('sci-report --ci', () => {
   /** runs the CLI without blocking, so a server in this process can answer it */
   const runCi = (env: Record<string, string>, out: string) =>
-    new Promise<{ status: number | null; stderr: string; metrics: string; json: { ci: unknown } }>((done) => {
+    new Promise<{ status: number | null; stderr: string; metrics: string | null; json: { ci: unknown } | null }>((done) => {
       const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', CLI, '--sessions', sessionsFile, '--out', out, '--ci'], {
         env: { ...process.env, ...NO_CI, AUTONOMY_CONFIG: 'test/fixtures/autonomy.yml', CI_JOB_TOKEN: 'job-token', ...env },
       });
       let stderr = '';
       child.stderr.on('data', (d) => (stderr += d));
-      child.on('close', (status) =>
-        done({ status, stderr, metrics: readFileSync(join(out, 'metrics.txt'), 'utf8'), json: JSON.parse(readFileSync(join(out, 'sci-report.json'), 'utf8')) }),
-      );
+      // a failed run writes no report
+      const read = (f: string) => (existsSync(join(out, f)) ? readFileSync(join(out, f), 'utf8') : null);
+      child.on('close', (status) => {
+        const json = read('sci-report.json');
+        done({ status, stderr, metrics: read('metrics.txt'), json: json === null ? null : JSON.parse(json) });
+      });
     });
   const serve = async (answer: (url: string) => [number, unknown]) => {
     const server = createServer((req, res) => {
@@ -123,7 +127,7 @@ describe('sci-report --ci', () => {
       expect(r.status, r.stderr).toBe(0);
       expect(r.metrics).toContain('sci_ci_runner_minutes_per_pipeline_median 1.5\n');
       expect(r.metrics).toMatch(/^sci_ci_runner_gco2e_per_pipeline_median \d/m);
-      expect(r.json.ci).toMatchObject({ pipelines: 2, scope: "!3's 2 finished pipelines before this one" });
+      expect(r.json?.ci).toMatchObject({ pipelines: 2, scope: "!3's 2 finished pipelines before this one" });
     } finally {
       api.close();
     }
@@ -141,17 +145,37 @@ describe('sci-report --ci', () => {
         expect(r.stderr).toMatch(/warning: no CI footprint this time, the GitLab API answered: /);
         expect(r.stderr).toMatch(says);
         expect(r.metrics).not.toMatch(/sci_ci_/);
-        expect(r.json.ci).toBeNull();
+        expect(r.json?.ci).toBeNull();
       }
     } finally {
       api.close();
     }
   });
 
-  it('says it is not a CI job, instead of a stack trace, when the API variables are not set', async () => {
-    const r = await runCi({}, join(dir, 'ci-none'));
-    expect(r.status).toBe(0);
-    expect(r.stderr).toContain('warning: no CI footprint: CI_API_V4_URL and CI_PROJECT_ID are not set');
-    expect(r.metrics).not.toMatch(/sci_ci_/);
+  it('says it is not a CI job, instead of a stack trace, when either API variable is missing', async () => {
+    for (const [name, env] of [
+      ['none', {}],
+      ['no project', { CI_API_V4_URL: 'http://127.0.0.1:9/api/v4' }],
+      ['no API URL', { CI_PROJECT_ID: '1' }],
+    ] as const) {
+      const r = await runCi({ ...env, CI_MERGE_REQUEST_IID: '3' }, join(dir, `ci-${name.replace(/ /g, '-')}`));
+      expect(r.status, name).toBe(0);
+      expect(r.stderr, name).toContain('warning: no CI footprint: CI_API_V4_URL and CI_PROJECT_ID are not set');
+      expect(r.stderr, name).not.toMatch(/\n\s+at /);
+      expect(r.metrics, name).not.toMatch(/sci_ci_/);
+      expect(r.json?.ci, name).toBeNull();
+    }
+  });
+
+  it('fails the job, not just warns, when the API answers in a shape the code does not expect', async () => {
+    const api = await serve(() => [200, {}]);
+    try {
+      const r = await runCi(mr(api.url), join(dir, 'ci-shape'));
+      expect(r.status).toBe(1);
+      expect(r.stderr).toMatch(/the CI footprint failed: GET .*\/merge_requests\/3\/pipelines\?per_page=100 did not return a list/);
+      expect(r.stderr).not.toContain('no CI footprint this time');
+    } finally {
+      api.close();
+    }
   });
 });

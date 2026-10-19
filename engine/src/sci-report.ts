@@ -392,14 +392,20 @@ ${coeff}
  */
 export async function ciFootprint(gl: Pick<GitLab, 'get'>, env: NodeJS.ProcessEnv, c: SciCoefficients): Promise<CiFootprint | null> {
   const current = Number(env.CI_PIPELINE_ID);
+  // an answer of the wrong shape is a bug to see, not an outage to skip
+  const list = async <T>(path: string) => {
+    const got = await gl.get<T[]>(path);
+    if (!Array.isArray(got)) throw new Error(`GET ${path} did not return a list: ${JSON.stringify(got).slice(0, 100)}`);
+    return got;
+  };
   let ids: number[];
   let scope: string;
   if (env.CI_MERGE_REQUEST_IID) {
-    const all = await gl.get<{ id: number; status: string }[]>(`/:project/merge_requests/${env.CI_MERGE_REQUEST_IID}/pipelines?per_page=100`);
+    const all = await list<{ id: number; status: string }>(`/:project/merge_requests/${env.CI_MERGE_REQUEST_IID}/pipelines?per_page=100`);
     ids = all.filter((p) => p.id !== current && ['success', 'failed', 'canceled'].includes(p.status)).map((p) => p.id);
     scope = `!${env.CI_MERGE_REQUEST_IID}'s ${ids.length} finished pipeline${ids.length === 1 ? '' : 's'} before this one`;
   } else if (env.CI_COMMIT_BRANCH) {
-    const all = await gl.get<{ id: number }[]>(`/:project/pipelines?ref=${encodeURIComponent(env.CI_COMMIT_BRANCH)}&status=success&source=push&per_page=11`);
+    const all = await list<{ id: number }>(`/:project/pipelines?ref=${encodeURIComponent(env.CI_COMMIT_BRANCH)}&status=success&source=push&per_page=11`);
     ids = all.map((p) => p.id).filter((id) => id !== current).slice(0, 10);
     scope = `the last ${ids.length} successful push pipelines on ${env.CI_COMMIT_BRANCH}`;
   } else return null;

@@ -61,7 +61,10 @@ if (argv.includes('--ci') && !(env.CI_API_V4_URL && env.CI_PROJECT_ID)) {
   } catch (err) {
     // only the API is best effort: an answer it refused, or no answer at all
     const offline = err instanceof TypeError && err.message === 'fetch failed';
-    if (!(err instanceof GitLabError) && !offline) throw err;
+    if (!(err instanceof GitLabError) && !offline) {
+      console.error(`the CI footprint failed: ${(err as Error).message}`);
+      process.exit(1);
+    }
     console.warn(`warning: no CI footprint this time, the GitLab API answered: ${err.message}`);
   }
 }

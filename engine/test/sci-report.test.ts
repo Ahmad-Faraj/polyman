@@ -317,6 +317,11 @@ describe('ciFootprint', () => {
     expect(gl.seen.some((p) => p.includes('/pipelines/9/') || p.includes('/pipelines/3/'))).toBe(false);
   });
 
+  it('fails on an answer that is not a list, instead of measuring nothing', async () => {
+    const gl = fake({ '/:project/merge_requests/7/pipelines': {} as unknown as unknown[] });
+    await expect(ciFootprint(gl, { CI_MERGE_REQUEST_IID: '7', CI_PIPELINE_ID: '9' }, DEFAULT_SCI)).rejects.toThrow(/did not return a list: \{\}/);
+  });
+
   it('gives null when there is no earlier pipeline, or neither an MR nor a branch', async () => {
     expect(await ciFootprint(fake({ '/:project/merge_requests/7/pipelines': [{ id: 9, status: 'success' }] }), { CI_MERGE_REQUEST_IID: '7', CI_PIPELINE_ID: '9' }, DEFAULT_SCI)).toBeNull();
     expect(await ciFootprint(fake({}), {}, DEFAULT_SCI)).toBeNull();
@@ -386,5 +391,7 @@ describe('the page escapes every field', () => {
 
   it('refuses counts too big for the arithmetic', () => {
     expect(invalidInput([session({ seconds: 1e308 })], DEFAULT_SCI)).toMatch(/seconds 1e\+308, not a number/);
+    expect(invalidInput([session({ seconds: Number.MAX_SAFE_INTEGER })], DEFAULT_SCI)).toBeNull();
+    expect(invalidInput([session({ seconds: 2 ** 53 })], DEFAULT_SCI)).toMatch(/seconds 9007199254740992, not a number/);
   });
 });
