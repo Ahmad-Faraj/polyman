@@ -53,6 +53,8 @@ export interface MrFacts {
   notes: Note[];
   /** the issues GitLab says the MR closes */
   closes: { iid: number; author: { username: string } }[];
+  /** a rollback MR's incident, linked with "Related to #N" (relatedIncident) */
+  related?: { iid: number; author: { username: string } }[];
   events: PushEvent[];
   /** the MR's commits (base..head) */
   commits: string[];
@@ -126,10 +128,13 @@ export async function checkMr(
   // write, so only an issue a person wrote shows someone asked
   // ...or, for a rollback, the incident the responder opened: its push still
   // needs a maintainer's go-ahead on that issue
-  const asked = closes.filter((i) => isPerson(i.author.username) || (isRollback(i.author.username) && isRollback(opener)));
+  // A rollback MR links its incident with "Related to #N" instead, so merging
+  // it doesn't close the incident before production is verified.
+  const incidents = isRollback(opener) ? (facts.related ?? []).filter((i) => isRollback(i.author.username)) : [];
+  const asked = [...closes.filter((i) => isPerson(i.author.username) || (isRollback(i.author.username) && isRollback(opener))), ...incidents];
   const issue = asked[0]?.iid ?? null;
   // whoever asked: the MR's author if a person opened it, and the issues' authors
-  const requesters = [...(isPerson(opener) ? [opener] : []), ...closes.map((i) => i.author.username)];
+  const requesters = [...(isPerson(opener) ? [opener] : []), ...closes.map((i) => i.author.username), ...incidents.map((i) => i.author.username)];
   // an agent's MR with no person's issue has nobody on record who asked, so anyone could approve their own idea
   if (!isPerson(opener) && !asked.length) {
     problems.push({
@@ -188,6 +193,19 @@ export async function checkMr(
     if (!verdict.ok) problems.push({ text: line, push });
   }
   return { requesters, pushes: new Set(by.values()).size, agentPushes: checks, problems };
+}
+
+/**
+ * The incident a rollback MR is for: the issue its description names on a line
+ * "Related to #N", if GitLab says that issue is an incident. Only read when the
+ * MR closes no issue; checkMr still only counts it for an MR the incident
+ * responder opened, on an incident the responder opened.
+ */
+export async function relatedIncident(gl: GitLab, description: string | null | undefined): Promise<{ iid: number; author: { username: string } }[]> {
+  const iid = /^Related to #(\d+)\b/im.exec(description ?? '')?.[1];
+  if (!iid) return [];
+  const issue = await gl.get<{ iid: number; issue_type?: string; author: { username: string } }>(`/:project/issues/${iid}`);
+  return issue.issue_type === 'incident' ? [{ iid: issue.iid, author: issue.author }] : [];
 }
 
 /** Every page of a list, or an error if there are more than `pages` of them. */

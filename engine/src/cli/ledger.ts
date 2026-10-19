@@ -27,7 +27,7 @@ import { join } from 'node:path';
 import { loadConfig } from '../config.ts';
 import { GitLab, GitLabError, required } from '../gitlab.ts';
 import { type PushEvent, branchPushes, isPerson, isProjectPerson, tierFrom } from '../goahead.ts';
-import { allPages, checkMr, eventsSince, gitRepo, notesOf } from '../goahead-mr.ts';
+import { allPages, checkMr, eventsSince, gitRepo, notesOf, relatedIncident } from '../goahead-mr.ts';
 import { type Carrier, type GuardRun, type Ledger, type LedgerRecord, type OpenPush, byMerge, carriedRecords, chain, compare, counters, flowOf, recordsFor, second, verifyChain } from '../ledger.ts';
 import { renderLedgerPage } from '../ledger-page.ts';
 
@@ -49,6 +49,7 @@ interface Mr {
   merged_at: string | null;
   closed_at: string | null;
   source_branch: string;
+  description?: string | null;
   sha: string;
   merge_commit_sha: string | null;
   squash_commit_sha: string | null;
@@ -200,6 +201,7 @@ async function main() {
         mr,
         notes: await notesOf(gl, 'mergeRequest', mr.iid),
         closes,
+        related: closes.length ? [] : await relatedIncident(gl, mr.description),
         events: seen,
         commits,
         since: window,

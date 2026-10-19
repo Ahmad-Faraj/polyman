@@ -42,5 +42,9 @@ if (!violations.length) {
     console.error(`${v.sha.slice(0, 8)} by ${v.agent} changed protected files: ${v.files.join(', ')}`);
   }
   console.error('Agents may not change the pipeline, the risk policy or the engine. Revert these changes or have a person make them.');
+  const maintainers = config.goAhead.maintainers.map((m) => `@${m}`).join(', ');
+  console.error(
+    `Next: ${maintainers ? `one of ${maintainers}` : 'a maintainer'} reverts these commits on the branch and, if the change is wanted, makes it in a commit of their own.`,
+  );
   process.exit(1);
 }

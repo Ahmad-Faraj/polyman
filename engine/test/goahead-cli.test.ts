@@ -83,6 +83,9 @@ interface Case {
   events: (r: { base: string; shas: string[] }) => unknown[];
   issueNotes?: unknown[];
   closes?: unknown[];
+  description?: string;
+  /** what GET /issues/22 answers */
+  issue?: unknown;
   api?: string;
   env?: Record<string, string>;
   onEvents?: (url: string) => void;
@@ -95,7 +98,8 @@ async function run(c: Case) {
 
 async function runIn(r: { dir: string; base: string; shas: string[] }, c: Case) {
   const api = await gitlab({
-    '/api/v4/projects/1/merge_requests/7': { author: { username: c.mrAuthor ?? 'Mazen-Ghanaym' }, created_at: '2026-10-17T09:00:00Z', description: 'Closes #22', source_branch: 'fix' },
+    '/api/v4/projects/1/merge_requests/7': { author: { username: c.mrAuthor ?? 'Mazen-Ghanaym' }, created_at: '2026-10-17T09:00:00Z', description: c.description ?? 'Closes #22', source_branch: 'fix' },
+    ...(c.issue ? { '/api/v4/projects/1/issues/22': c.issue } : {}),
     '/api/v4/projects/1/merge_requests/7/notes': c.notes?.(r) ?? [],
     '/api/v4/projects/1/events': c.events(r),
     '/api/v4/projects/1/merge_requests/7/closes_issues': c.closes ?? [{ iid: 22, author: { username: c.issueAuthor ?? 'Mazen-Ghanaym' } }],
@@ -159,6 +163,7 @@ describe('autonomy:goahead against a git repo and a stand-in for GitLab', () => 
   it('fails a planted agent push with no go-ahead', async () => {
     const { code, text } = await run({ notes: () => [proposal], events: (r) => [push('10:10', AGENT, r.base, r.shas[0])] });
     expect(text).toMatch(/no go-ahead mentioning @ai-mr-reviewer/);
+    expect(text).toMatch(/Next: a go-ahead can't be given after the push\. One of @\S+.* moves the commits that had one, unchanged, to a new MR and closes this one/);
     expect(code).toBe(1);
   });
 
@@ -243,6 +248,40 @@ describe('autonomy:goahead against a git repo and a stand-in for GitLab', () => 
     });
     expect(text).toMatch(/go-ahead in note 2 on #22 by @HamzaHassanain/);
     expect(code).toBe(0);
+  });
+
+  it('accepts a rollback MR that only says "Related to #N", so merging it leaves the incident open', async () => {
+    const RESPONDER = 'ai-incident-responder-group_0566ec';
+    const rollback = (issue_type: string) =>
+      run({
+        mrAuthor: RESPONDER,
+        closes: [],
+        description: 'Related to #22\n\nGo-ahead: note 2',
+        issue: { iid: 22, issue_type, author: { username: RESPONDER } },
+        issueNotes: [note(1, '08:00', RESPONDER, 'Rollback proposal for !9: ...'), note(2, '08:30', 'HamzaHassanain', `@${RESPONDER} go-ahead`)],
+        events: (r) => [push('08:45', RESPONDER, null, r.shas[0])],
+      });
+    const ok = await rollback('incident');
+    expect(ok.text).toMatch(/go-ahead in note 2 on #22 by @HamzaHassanain/);
+    expect(ok.code).toBe(0);
+    // a plain issue named that way holds no go-ahead for a rollback
+    const plain = await rollback('issue');
+    expect(plain.text).toMatch(/no issue it closes that a person wrote/);
+    expect(plain.code).toBe(1);
+  });
+
+  it("doesn't let another agent's MR lean on an incident it only says it is related to", async () => {
+    const RESPONDER = 'ai-incident-responder-group_0566ec';
+    const { code, text } = await run({
+      mrAuthor: BUILDER,
+      closes: [],
+      description: 'Related to #22',
+      issue: { iid: 22, issue_type: 'incident', author: { username: RESPONDER } },
+      issueNotes: [note(2, '08:30', 'HamzaHassanain', `@${AGENT} go-ahead`)],
+      events: (r) => [push('08:45', AGENT, null, r.shas[0])],
+    });
+    expect(text).toMatch(/no issue it closes that a person wrote/);
+    expect(code).toBe(1);
   });
 
   it("doesn't let another agent's MR lean on an issue the responder opened", async () => {

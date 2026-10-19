@@ -47,6 +47,8 @@ describe('guard', () => {
     const run = guard(base);
     expect(run.status).toBe(1);
     expect(run.stderr).toContain('engine/policy.ts');
+    // who does what next, by name
+    expect(run.stderr).toMatch(/Next: (one of @\S+|a maintainer).* reverts these commits on the branch and, if the change is wanted, makes it in a commit of their own\./);
   });
 
   describe('the incidents file', () => {

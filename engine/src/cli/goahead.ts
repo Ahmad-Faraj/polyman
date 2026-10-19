@@ -27,7 +27,7 @@ import { join } from 'node:path';
 import { loadConfig } from '../config.ts';
 import { GitLab, required } from '../gitlab.ts';
 import { type Note, type PushEvent, tierFrom } from '../goahead.ts';
-import { allPages, checkMr, eventsSince, gitRepo, notesOf } from '../goahead-mr.ts';
+import { allPages, checkMr, eventsSince, gitRepo, notesOf, relatedIncident } from '../goahead-mr.ts';
 
 const env = process.env;
 
@@ -74,7 +74,7 @@ async function main() {
   const commits = execFileSync('git', ['rev-list', `${base}..HEAD`], { encoding: 'utf8' }).split('\n').filter(Boolean);
 
   const gl = new GitLab();
-  const mr = await gl.get<{ author: { username: string }; created_at: string; source_branch: string }>(`/:project/merge_requests/${iid}`);
+  const mr = await gl.get<{ author: { username: string }; created_at: string; source_branch: string; description?: string | null }>(`/:project/merge_requests/${iid}`);
   const notes = await allPages<Note>(gl, `/:project/merge_requests/${iid}/notes?sort=asc&order_by=created_at`);
   // Pushes from two days before the MR's base commit on. That date comes from
   // the target branch, so unlike the MR's own commit dates no pusher sets it. A
@@ -86,7 +86,8 @@ async function main() {
   const events = await allPages<PushEvent>(gl, `/:project/events?action=pushed&after=${since}&sort=asc`, 100);
   const closes = await gl.get<{ iid: number; author: { username: string } }[]>(`/:project/merge_requests/${iid}/closes_issues`);
 
-  const check = await checkMr({ mr, notes, closes, events, commits, since, tier }, config, repo, (issue) => notesOf(gl, 'issue', issue));
+  const related = closes.length ? [] : await relatedIncident(gl, mr.description);
+  const check = await checkMr({ mr, notes, closes, related, events, commits, since, tier }, config, repo, (issue) => notesOf(gl, 'issue', issue));
   for (const c of check.agentPushes) if (c.verdict.ok) console.log(c.line);
 
   if (!check.problems.length) {
@@ -96,6 +97,10 @@ async function main() {
   for (const p of check.problems) console.error(p.text);
   console.error(
     `Assisted: an agent acts only on a person's go-ahead (a line that mentions it and says "go-ahead"), one per push, from someone who didn't ask for the work${tier === 'high' ? `, and for ${tier} risk only from ${config.goAhead.maintainers.map((m) => `@${m}`).join(', ') || 'a maintainer'}` : ''}.`,
+  );
+  const maintainers = config.goAhead.maintainers.map((m) => `@${m}`).join(', ');
+  console.error(
+    `Next: a go-ahead can't be given after the push. ${maintainers ? `One of ${maintainers}` : 'A maintainer'} moves the commits that had one, unchanged, to a new MR and closes this one; for anything still missing, the agent proposes again there and waits for a new go-ahead.`,
   );
   process.exit(1);
 }
