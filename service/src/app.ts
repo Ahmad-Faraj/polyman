@@ -53,6 +53,20 @@ const STATIC: Record<string, string> = {
 };
 const TYPES: Record<string, string> = { html: 'text/html; charset=utf-8', js: 'text/javascript; charset=utf-8', css: 'text/css; charset=utf-8' };
 
+/**
+ * Whether a POST to the API may run. A verification holds a whole instance
+ * for up to an hour, so on the public URL the API takes uploads from this
+ * service's own page only: a browser always sends Origin on a POST, and a
+ * request from another site, or a script with no Origin, is refused. Local
+ * hosts, the CI job service and tagged revision URLs (c-SHA---, where CI
+ * checks a candidate) stay open, so the checks keep working.
+ */
+export function fromOwnPage(host: string | undefined, origin: string | undefined): boolean {
+  const h = (host ?? '').toLowerCase();
+  if (!h.endsWith('.run.app') || h.includes('---')) return true;
+  return origin?.toLowerCase() === `https://${h}`;
+}
+
 export function buildApp(opts: AppOptions) {
   const maxUploadBytes = opts.maxUploadBytes ?? 20 * 1024 * 1024;
   const maxProblems = opts.maxProblems ?? 26;
@@ -61,6 +75,12 @@ export function buildApp(opts: AppOptions) {
   // requestTimeout: the whole upload must arrive within two minutes (it doesn't cover the streamed answer)
   const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? 'info' }, bodyLimit: 1024 * 1024, requestTimeout: 120_000 });
   app.register(multipart, { limits: { files: 1, fileSize: maxUploadBytes, fields: 0, parts: 1 } });
+
+  app.addHook('onRequest', async (req, reply) => {
+    if (req.method === 'POST' && req.url.startsWith('/api/') && !fromOwnPage(req.headers.host, req.headers.origin)) {
+      return reply.code(403).send({ error: 'the API takes uploads from the verify page; open it in a browser' });
+    }
+  });
 
   const polymanVersion = (() => {
     try {

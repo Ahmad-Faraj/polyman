@@ -260,3 +260,22 @@ describe('POST /api/samples/:name/verify', () => {
     expect((await app.inject({ method: 'POST', url: '/api/samples/..%2Fsamples/verify' })).statusCode).toBe(404);
   });
 });
+
+describe('uploads from other sites', () => {
+  const PUBLIC = 'polyman-verify-123.us-east1.run.app';
+
+  it('refuses a POST to the public URL from another site, or with no Origin', async () => {
+    for (const origin of ['https://elsewhere.example', undefined]) {
+      const res = await app.inject({ method: 'POST', url: '/api/samples/demo/verify', headers: { host: PUBLIC, ...(origin ? { origin } : {}) } });
+      expect(res.statusCode).toBe(403);
+    }
+  });
+
+  it('lets its own page, a tagged revision and local hosts through', async () => {
+    // "nope" isn't a sample: a 404 means the request got past the check
+    for (const headers of [{ host: PUBLIC, origin: `https://${PUBLIC}` }, { host: `c-abc1234---${PUBLIC}` }, { host: 'verify:8080' }]) {
+      const res = await app.inject({ method: 'POST', url: '/api/samples/nope/verify', headers });
+      expect(res.statusCode).toBe(404);
+    }
+  });
+});
