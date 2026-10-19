@@ -26,6 +26,7 @@ import {
 import { fmt } from '../formatter';
 import { report } from '../report';
 import { ensureCheckerExists, PresentationError, runChecker } from './checker';
+import { LimitExceededError } from '../errors';
 import type { LocalChecker } from '../types';
 import { getTestIndicesForGroup } from './testset';
 
@@ -769,6 +770,7 @@ export async function startTheComparisonProcess(
             ''
           );
         } catch (error) {
+          if (error instanceof LimitExceededError) throw error;
           const msg = error instanceof Error ? error.message : String(error);
           logError(`${testFile} in testset ${testset.name}: ${msg}`, 4);
           const isPE = error instanceof PresentationError;

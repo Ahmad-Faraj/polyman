@@ -5,6 +5,7 @@
  */
 
 import { fmt } from './formatter';
+import { LimitExceededError } from './errors';
 import { report } from './report';
 import type { Interface as ReadlineInterface } from 'readline';
 import type { PolygonSDK, Problem } from './polygon';
@@ -628,6 +629,7 @@ export async function stepVerifySolutionsAgainstMainCorrect(
       );
       report.setSolutionOutcome(solution, true, 'Behaves as expected');
     } catch (error) {
+      if (error instanceof LimitExceededError) throw error;
       didFail = true;
       report.setSolutionOutcome(solution, false, error);
       logError(error, 4);

@@ -24,6 +24,7 @@ import {
 import { DEFAULT_TIMEOUT, DEFAULT_MEMORY_LIMIT } from './utils';
 import { quoteShellArgument } from './shell';
 import { fmt } from '../formatter';
+import { LimitExceededError, PolymanError } from '../errors';
 
 /** Exit code testlib's `quitf(_wa, ...)` uses for a wrong answer. */
 const TESTLIB_WA_EXIT_CODE = 1;
@@ -83,7 +84,7 @@ export class PresentationError extends Error {
  *
  * @throws {PresentationError} If the checker was expected to return OK and exited with testlib's presentation-error code (2)
  * @throws {Error} If checker verdict doesn't match expected verdict (WRONG_ANSWER expects exit code 1, PRESENTATION_ERROR expects exit code 2)
- * @throws {Error} If checker exceeds time or memory limits (exits process)
+ * @throws {Error} If checker exceeds time or memory limits (throws a LimitExceededError)
  *
  * @example
  * await runChecker(
@@ -130,14 +131,18 @@ export async function runChecker(
           `${fmt.cross()} ${fmt.bold('Checker Unexpectedly Exceeded Time Limit!')} (${DEFAULT_TIMEOUT}ms)`
         );
         void executor.cleanup();
-        process.exit(1);
+        throw new LimitExceededError(
+          `Checker exceeded the time limit (${DEFAULT_TIMEOUT}ms)`
+        );
       },
       onMemoryExceeded: () => {
         fmt.error(
           `${fmt.cross()} ${fmt.bold('Checker Unexpectedly Exceeded Memory Limit!')} (${DEFAULT_MEMORY_LIMIT} MB)`
         );
         void executor.cleanup();
-        process.exit(1);
+        throw new LimitExceededError(
+          `Checker exceeded the memory limit (${DEFAULT_MEMORY_LIMIT} MB)`
+        );
       },
     }
   );
@@ -172,7 +177,11 @@ export function ensureCheckerExists(
   checker: LocalChecker | undefined
 ): asserts checker is LocalChecker {
   if (!checker) {
-    throw new Error('No checker defined in the configuration file.');
+    throw new PolymanError(
+      'No checker defined in the configuration file.',
+      2,
+      'Add a "checker" entry to Config.json'
+    );
   }
 }
 
@@ -297,6 +306,7 @@ export async function runCheckerTests(checker: LocalChecker) {
           test.expectedVerdict
         );
       } catch (error) {
+        if (error instanceof LimitExceededError) throw error;
         someFailed = true;
         fmt.error(
           `  ${fmt.cross()} Checker Test ${index + 1} failed:\n\t${(error as Error).message}, expected to be ${test.expectedVerdict}`
@@ -309,7 +319,7 @@ export async function runCheckerTests(checker: LocalChecker) {
     await executor.cleanup();
   }
 
-  if (someFailed) throw new Error('Some checker tests failed');
+  if (someFailed) throw new PolymanError('Some checker tests failed', 1);
 }
 
 /**

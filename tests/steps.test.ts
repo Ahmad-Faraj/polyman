@@ -17,6 +17,7 @@ import * as solution from '../src/helpers/solution';
 import * as testset from '../src/helpers/testset';
 import * as utils from '../src/helpers/utils';
 import { NonInteractiveError } from '../src/helpers/errors';
+import { LimitExceededError } from '../src/errors';
 import * as remoteUtils from '../src/helpers/remote/utils';
 import * as pulling from '../src/helpers/remote/pulling';
 import * as pushing from '../src/helpers/remote/pushing';
@@ -679,6 +680,21 @@ describe('steps.ts', () => {
         steps.stepVerifySolutionsAgainstMainCorrect(1, config)
       ).rejects.toThrow('Some solutions did not behave as expected');
       expect(utils.logError).toHaveBeenCalled();
+    });
+
+    it('should rethrow LimitExceededError immediately (fail-fast)', async () => {
+      const main = { name: 'main', source: 'm.cpp', tag: 'MA' };
+      const s1 = { name: 'b', source: 'b.cpp', tag: 'OK' };
+      const s2 = { name: 'c', source: 'c.cpp', tag: 'OK' };
+      const config = baseConfig({ solutions: [main, s1, s2] });
+      vi.mocked(solution.getMainSolution).mockReturnValue(main as any);
+      vi.mocked(solution.startTheComparisonProcess).mockRejectedValueOnce(
+        new LimitExceededError('checker exceeded time limit')
+      );
+      await expect(
+        steps.stepVerifySolutionsAgainstMainCorrect(1, config)
+      ).rejects.toBeInstanceOf(LimitExceededError);
+      expect(solution.startTheComparisonProcess).toHaveBeenCalledTimes(1);
     });
   });
 

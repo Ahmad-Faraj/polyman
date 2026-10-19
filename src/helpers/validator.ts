@@ -24,6 +24,7 @@ import {
 } from './utils';
 import { DEFAULT_TIMEOUT, DEFAULT_MEMORY_LIMIT } from './utils';
 import { fmt } from '../formatter';
+import { LimitExceededError, PolymanError } from '../errors';
 import { getTestIndicesForGroup } from './testset';
 
 /**
@@ -43,7 +44,11 @@ export async function compileValidator(
 ): Promise<void> {
   try {
     if (!validator.source) {
-      throw new Error('Validator has no source file specified');
+      throw new PolymanError(
+        'Validator has no source file specified',
+        2,
+        'Set "source" for the validator in Config.json'
+      );
     }
     await compileCPP(validator.source);
   } catch (error) {
@@ -63,7 +68,7 @@ export async function compileValidator(
  * @param {ValidatorVerdict} expectedVerdict - Expected verdict (VALID or INVALID)
  *
  * @throws {Error} If validator verdict doesn't match expected
- * @throws {Error} If validator exceeds time or memory limits (exits process)
+ * @throws {Error} If validator exceeds time or memory limits (throws a LimitExceededError)
  *
  * @example
  * await runValidator('./validator', 'tests/tests/test1.txt', 'VALID');
@@ -90,14 +95,18 @@ async function runValidator(
           `${fmt.cross()} ${fmt.bold('Validator Unexpectedly Exceeded Time Limit!')} (${DEFAULT_TIMEOUT}ms)`
         );
         void executor.cleanup();
-        process.exit(1);
+        throw new LimitExceededError(
+          `Validator exceeded the time limit (${DEFAULT_TIMEOUT}ms)`
+        );
       },
       onMemoryExceeded: () => {
         fmt.error(
           `${fmt.cross()} ${fmt.bold('Validator Unexpectedly Exceeded Memory Limit!')} (${DEFAULT_MEMORY_LIMIT} MB)`
         );
         void executor.cleanup();
-        process.exit(1);
+        throw new LimitExceededError(
+          `Validator exceeded the memory limit (${DEFAULT_MEMORY_LIMIT} MB)`
+        );
       },
     },
     testFilePath,
@@ -139,6 +148,7 @@ export async function validateSingleTest(
     try {
       await runValidator(compiledPath, testFilePath, 'VALID');
     } catch (error) {
+      if (error instanceof LimitExceededError) throw error;
       throw new Error(
         `Test ${testIndex} failed validation:\n\t${error instanceof Error ? error.message : 'Unknown error'}`
       );
@@ -184,6 +194,7 @@ export async function validateTestset(
       try {
         await runValidator(compiledPath, testFilePath, 'VALID');
       } catch (error) {
+        if (error instanceof LimitExceededError) throw error;
         someFailed = true;
         logError(
           new Error(
@@ -198,7 +209,7 @@ export async function validateTestset(
     await executor.cleanup();
   }
 
-  if (someFailed) throw new Error('Some tests failed validation');
+  if (someFailed) throw new PolymanError('Some tests failed validation', 1);
 }
 
 /**
@@ -239,6 +250,7 @@ export async function validateGroup(
       try {
         await runValidator(compiledPath, testFilePath, 'VALID');
       } catch (error) {
+        if (error instanceof LimitExceededError) throw error;
         someFailed = true;
         logError(
           new Error(
@@ -254,7 +266,10 @@ export async function validateGroup(
   }
 
   if (someFailed)
-    throw new Error(`Some tests in group ${groupName} failed validation`);
+    throw new PolymanError(
+      `Some tests in group ${groupName} failed validation`,
+      1
+    );
 }
 
 /**
@@ -278,13 +293,14 @@ export async function validateAllTestsets(
     try {
       await validateTestset(validator, testset.name);
     } catch (error) {
+      if (error instanceof LimitExceededError) throw error;
       logError(error);
       someFailed = true;
     }
   }
 
   if (someFailed) {
-    throw new Error('Some testsets failed validation');
+    throw new PolymanError('Some testsets failed validation', 1);
   }
 }
 
@@ -305,7 +321,11 @@ export function ensureValidatorExists(
   validator: LocalValidator | undefined
 ): asserts validator is LocalValidator {
   if (!validator) {
-    throw new Error('No validator defined in the configuration file.');
+    throw new PolymanError(
+      'No validator defined in the configuration file.',
+      2,
+      'Add a "validator" entry to Config.json'
+    );
   }
 }
 
@@ -401,6 +421,7 @@ export async function runValidatorTests(validator: LocalValidator) {
           expectedVerdict
         );
       } catch (error) {
+        if (error instanceof LimitExceededError) throw error;
         someFailed = true;
         fmt.error(
           `  ${fmt.cross()} Validator Test ${index + 1} failed:\n\t${(error as Error).message} expected to be ${expectedVerdict}`
@@ -413,7 +434,7 @@ export async function runValidatorTests(validator: LocalValidator) {
     await executor.cleanup();
   }
 
-  if (someFailed) throw new Error('Some validator tests failed');
+  if (someFailed) throw new PolymanError('Some validator tests failed', 1);
 }
 
 /**
