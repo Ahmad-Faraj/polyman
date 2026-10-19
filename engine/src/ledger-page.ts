@@ -37,7 +37,7 @@ export function renderLedgerPage({ ledger, open, runs, counters: c, web, generat
     .map(
       (r) => `<tr class="${r.accepted ? '' : 'refused'}">
 <td>${r.seq}</td>
-<td><a href="${esc(r.mr_url)}">!${r.mr}</a>${r.closes.length ? `<br><span class="muted">closes ${r.closes.map((i) => `<a href="${esc(web)}/-/issues/${i}">#${i}</a>`).join(', ')}</span>` : ''}</td>
+<td><a href="${esc(r.mr_url)}">!${r.mr}</a>${r.carried_by ? `<br><span class="muted">merged in</span> <a href="${esc(r.carried_by.mr_url)}">!${esc(r.carried_by.mr)}</a>` : ''}${r.closes.length ? `<br><span class="muted">closes ${r.closes.map((i) => `<a href="${esc(web)}/-/issues/${i}">#${i}</a>`).join(', ')}</span>` : ''}</td>
 <td>${esc(r.flow)}<br><span class="muted">${esc(r.pushed_at.replace('T', ' ').replace('Z', ''))}</span></td>
 <td>${r.commits.map((s) => sha(s, web)).join('<br>') || `<span class="muted">none, head</span> ${sha(r.head, web)}`}</td>
 <td>${note(r.proposal, 'note')}</td>
