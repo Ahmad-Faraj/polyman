@@ -64,14 +64,15 @@ governance paths and rollbacks, only a maintainer's counts (`go_ahead.maintainer
 another flow. Every agent commit ends with a `Go-ahead:` trailer naming the
 note that allowed it.
 
-- **mr-reviewer** (pipeline passed, or mentioned): reads the risk tier from the
+- **mr-reviewer** (an MR's first green pipeline, or mentioned): reads the risk tier from the
   pipeline name. Low risk: it adds GitLabDuo as a reviewer (GitLab's own Code
   Review; a flow can't start it with start_flow) and does a light pass itself;
   medium and high get the code, test and (high) security reviewers, who rate
   findings P1/P2/P3 with evidence without changing anything. Its note proposes
   the fixes for P1 and P2; on a go-ahead the specialists apply exactly those,
-  one round, and the new head's green pipeline starts the next review, up to 4
-  rounds. The note's short top says ready or not, what needs a person, the
+  one round, and once the new head's pipeline passes a person mentions the
+  reviewer for the next review, up to 4 rounds. Any later head is reviewed only
+  when a person mentions it. The note's short top says ready or not, what needs a person, the
   proposed fixes and who may give the go-ahead, and what to watch after
   release, with the evidence folded into a details block below it.
 - **pipeline-fixer** (pipeline failed, or mentioned): finds the cause and
