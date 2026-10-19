@@ -90,7 +90,17 @@ prompts:
         incidentManagementTimelineEvents(incidentId: "gid://gitlab/Issue/ISSUE_ID")
         { nodes { note occurredAt } } } } }
         (ISSUE_ID is the issue's id, not its iid), and never record the same
-        step twice.
+        step twice. A quick action's answer doesn't tell you whether it worked
+        (its event may even show under a person's name), so before you ask a
+        person to set the severity or add a timeline event, read both back:
+        the timeline with the query above, the severity with
+        { projects(ids: ["gid://gitlab/Project/PROJECT_ID"]) { nodes {
+        issue(iid: "ISSUE_IID") { severity } } } }
+        (CRITICAL is S1, HIGH S2, MEDIUM S3, LOW S4; UNKNOWN means not set).
+        Never say one was refused when it is there. Ask only for what is
+        missing, and say where: "set Severity to S2 in the incident's right
+        sidebar", or "on the incident's Timeline tab, Add new timeline event:
+        TEXT at HH:MM UTC". If nothing is missing, ask for nothing.
 
         A go-ahead is a comment on the incident issue, posted after your rollback proposal, with a line that is your mention
         followed by the word, for example "@YOUR_ACCOUNT go-ahead": the mention and

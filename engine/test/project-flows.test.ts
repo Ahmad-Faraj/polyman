@@ -301,6 +301,18 @@ describe("the project's Duo flows", () => {
     expect(prompt).toContain('never record the same step twice');
   });
 
+  // #65: every note said /timeline was refused while its events were there, and a person added a duplicate
+  it('the responder reads severity and timeline back and asks a person only for what is missing, saying where', () => {
+    const prompt = promptOf('incident-responder.yaml');
+    expect(prompt).toContain('{ projects(ids: ["gid://gitlab/Project/PROJECT_ID"]) { nodes { issue(iid: "ISSUE_IID") { severity } } } }');
+    expect(prompt).toContain('CRITICAL is S1, HIGH S2, MEDIUM S3, LOW S4; UNKNOWN means not set');
+    expect(prompt).toContain('before you ask a person to set the severity or add a timeline event, read both back');
+    expect(prompt).toContain('Never say one was refused when it is there. Ask only for what is missing, and say where');
+    expect(prompt).toContain("set Severity to S2 in the incident's right sidebar");
+    expect(prompt).toContain("on the incident's Timeline tab, Add new timeline event: TEXT at HH:MM UTC");
+    expect(prompt).toContain('If nothing is missing, ask for nothing.');
+  });
+
   it('the responder writes WHAT FAILED itself, so log text never reaches a quick action', () => {
     const prompt = flat('incident-responder.yaml');
     expect(prompt).toContain("WHAT FAILED is one short line (at most 80 characters) that you write from the failing job's name");
