@@ -280,6 +280,12 @@ describe('a browser on another site posting to the API', () => {
     expect((await post({ host: HOST, origin: 'https://evil.example' }, '/api/samples/demo/verify')).statusCode).toBe(403);
   });
 
+  it('refuses a foreign Origin on an encoded path (/%61pi/ is /api/ once decoded)', async () => {
+    expect((await post({ host: HOST, origin: 'https://evil.example' }, '/%61pi/verify')).statusCode).toBe(403);
+    expect((await post({ host: HOST, origin: 'https://evil.example' }, '/%61pi/samples/demo/verify')).statusCode).toBe(403);
+    expect((await post({ host: HOST, origin: 'https://evil.example' }, '/a%70i/verify')).statusCode).toBe(403);
+  });
+
   it('refuses Origin: null, an unparseable Origin, a non-http scheme and an Origin with no Host', async () => {
     expect((await post({ host: HOST, origin: 'null' })).statusCode).toBe(403);
     expect((await post({ host: HOST, origin: 'not a url' })).statusCode).toBe(403);

@@ -81,13 +81,14 @@ export function buildApp(opts: AppOptions) {
   let unclean: string | undefined;
 
   /**
-   * Refuses a browser on another site posting to the API. Only a request that
-   * carries an Origin is judged: scripts (curl, CI, the checks) send none and
+   * Refuses a browser on another site posting to the service. Every POST is
+   * judged whatever its path, because Fastify routes the decoded path and a raw
+   * prefix test is bypassed by /%61pi/. Only a request that carries an Origin is judged: scripts (curl, CI, the checks) send none and
    * pass. The Origin has to name this request's own host. The answer never
    * repeats the Origin.
    */
   app.addHook('onRequest', async (req, reply) => {
-    if (req.method !== 'POST' || !req.url.startsWith('/api/')) return;
+    if (req.method !== 'POST') return;
     const origin = req.headers.origin;
     if (origin === undefined) return;
     if (!originMatchesHost(origin, req.headers.host)) {
