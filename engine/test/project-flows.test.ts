@@ -129,6 +129,24 @@ describe("the project's Duo flows", () => {
     expect(text).toContain('A mention still reviews a draft.');
   });
 
+  // re-reviews were about half of all agent usage: only the first review starts on its own (Assisted)
+  it('a pipeline event reviews an MR once; a later head waits for a person to mention the reviewer', () => {
+    const body = promptOf('mr-reviewer.yaml');
+    expect(body).toContain(
+      'A pipeline event started this session (not a mention), no review note covers the current head, and one of your review notes covers an older head of this MR: answer "skipped: this MR was reviewed before; a person mentions me to review the new head" and stop before loading anything else, without a note.',
+    );
+    expect(body).toContain('A mention reviews any head.');
+    // the skip comes before the rule that starts a review, and the follow-up review stays for mentions
+    expect(body.indexOf('skipped: this MR was reviewed before')).toBeLessThan(body.indexOf('No review note covers the current head: review it'));
+    expect(body).toContain('(only after a mention), this is a follow-up review');
+    // nothing still promises that a passing pipeline starts another review
+    expect(body).not.toContain("a person's pipeline that passes starts this flow again");
+    // the note tells people how to get the next review, without mentioning the reviewer itself
+    expect(body.indexOf('"Next review"')).toBeGreaterThan(-1);
+    expect(body.indexOf('"Next review"')).toBeLessThan(body.indexOf('<details>'));
+    expect(renderFlow(read('mr-reviewer.yaml'), values).replace(/\s+/g, ' ')).toContain('a later push is reviewed when someone mentions `@ai-reviewer` on the MR');
+  });
+
   it('the review note tells the maintainers to promote a merge that releases the service', () => {
     const text = flat('mr-reviewer.yaml');
     expect(text).toContain('"After merge", only when the diff touches service/, src/, assets/, template/, package.json or package-lock.json');

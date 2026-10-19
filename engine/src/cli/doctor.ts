@@ -2,8 +2,9 @@
  * Checks that a project is set up for the flows: the policy, the flow files,
  * the flows in the AI Catalog (and that what is published there is what the
  * repo says), the agents' accounts, the approval rule, "pipelines must
- * succeed", that no open MR is missing the review its green pipeline should
- * have started, and that no personal token sits in the CI variables.
+ * succeed", that no open MR's green head is missing a review (the first one
+ * its pipeline should have started, or a later one that waits for a person's
+ * mention), and that no personal token sits in the CI variables.
  *
  * Run it from your machine with your own token; it only reads:
  *   GITLAB_TOKEN=... node engine/src/cli/doctor.ts [project path]
@@ -16,7 +17,7 @@ import { gitlabUrl, projectPathFrom, tokenFetch } from '../project.ts';
 import { loadConfig, type AutonomyConfig } from '../config.ts';
 import { checkFlow } from '../flows.ts';
 import { flowValues, renderFlow } from '../render.ts';
-import { type OpenMr, missingReviews, reviewedShasFrom } from '../reviews.ts';
+import { type OpenMr, missingBecause, missingReviews, reviewedShasFrom } from '../reviews.ts';
 
 type Status = 'ok' | 'warn' | 'fail';
 const results: { status: Status; what: string; detail?: string }[] = [];
@@ -149,7 +150,7 @@ for (let i = parts.length; i > 0 && !mustSucceed; i--) {
 }
 report(mustSucceed ? 'ok' : 'fail', 'pipelines must succeed', mustSucceed ? `set on the ${where}` : 'off: a red pipeline could be merged');
 
-// --- reviews: a reviewer session can end or crash without a note ---
+// --- reviews: a session can end without a note, and a later head waits for a mention ---
 try {
   const reviewer = config?.agents.reviewerAccount;
   const mrs = await rest<{ iid: number; sha: string; draft: boolean }[]>(`/projects/${enc}/merge_requests?state=opened&per_page=100`);
@@ -167,7 +168,11 @@ try {
     report('ok', 'reviews', `no open MR is missing a review of its head (${open.length} open${waiting})`);
   }
   for (const mr of missing) {
-    report('warn', `review of !${mr.iid}`, `the pipeline for ${mr.sha.slice(0, 8)} passed at ${mr.pipeline?.finishedAt} and no review covers that head; the session may have ended without a note. Mention @${reviewer} on the MR to start one`);
+    const why =
+      missingBecause(mr) === 'no review yet'
+        ? 'the session may have ended without a note'
+        : `the last review covers ${mr.reviewedShas[0].slice(0, 8)}, and a later head is reviewed only when a person mentions the reviewer, so don't merge before that`;
+    report('warn', `review of !${mr.iid}`, `the pipeline for ${mr.sha.slice(0, 8)} passed at ${mr.pipeline?.finishedAt} and no review covers that head; ${why}. Mention @${reviewer} on the MR to start one`);
   }
 } catch (err) {
   report('warn', 'reviews', `couldn't check: ${(err as Error).message}`);

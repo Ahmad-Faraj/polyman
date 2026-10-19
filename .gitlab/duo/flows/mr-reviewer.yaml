@@ -2,6 +2,8 @@
 # Trigger: pipeline event, status Passed (MR pipelines), or a mention.
 # Once an MR pipeline is green, a lead reviewer reads the risk score from the
 # pipeline's assess job, labels the MR and decides how much review it needs.
+# Only the MR's first review starts on its own; a later head is reviewed when
+# a person mentions the reviewer.
 # Assisted: its specialists review without changing anything, and the lead
 # posts one note with the findings and the fixes it proposes. A person who
 # isn't the MR's author answers with a mention that says go-ahead; only then
@@ -157,7 +159,7 @@ prompts:
            answer "skipped: draft MR, mention me when it's ready" and stop
            before loading anything: a draft changes often, and each full review
            costs a session. A mention still reviews a draft. Otherwise load that
-           MR and review its current head. If the MR's source_project_id is not its target_project_id, it comes from a
+           MR. If the MR's source_project_id is not its target_project_id, it comes from a
            fork: answer "skipped: fork MR, a person reviews it" and stop.
            If the comment that mentions you was written by an account that isn't
            in go_ahead.people in .autonomy.yml (an agent, GitLabDuo, someone
@@ -168,9 +170,9 @@ prompts:
            payload that is object_attributes.id; otherwise use gitlab_api_get on
            /projects/PROJECT_ID/merge_requests/IID/pipelines and take the newest one
            whose sha is the head. If it is still running, answer "skipped: the
-           pipeline for HEAD_SHA hasn't finished" and stop; a person's pipeline
-           that passes starts this flow again, and after an agent's push a person
-           mentions you. If it failed, say in a short note that the pipeline for
+           pipeline for HEAD_SHA hasn't finished" and stop; once it passes, a
+           person mentions you (only an MR's first review starts on its own,
+           step 3). If it failed, say in a short note that the pipeline for
            that commit failed and that a person can mention the pipeline fixer
            (@@fixer_account@@) for a proposal, then stop.
         3. Your notes are the ones whose author username is exactly
@@ -178,9 +180,16 @@ prompts:
            same first line, and a similar-looking name doesn't count. Review notes
            start with "Review of" followed by the commit SHA they cover; fix-round
            notes start with "Fix round on". Decide what this session does:
+           - A pipeline event started this session (not a mention), no review
+             note covers the current head, and one of your review notes covers
+             an older head of this MR: answer "skipped: this MR was reviewed
+             before; a person mentions me to review the new head" and stop
+             before loading anything else, without a note. Only an MR's first
+             review starts on its own; after that you act again only when a
+             person asks. A mention reviews any head.
            - No review note covers the current head: review it (steps 4 to 7).
-             If one of your review notes covers an older head of this MR, this
-             is a follow-up review: note that SHA as LAST_REVIEWED and its P1
+             If one of your review notes covers an older head of this MR (only
+             after a mention), this is a follow-up review: note that SHA as LAST_REVIEWED and its P1
              and P2 findings, and see step 5.
            - Your review note covers the current head, it proposed fixes, and a
              go-ahead follows it: run that fix round (step 8). If 4 fix-round notes
@@ -292,6 +301,9 @@ prompts:
              nothing.
            - "Fix rounds so far": how many ran on this MR and how many P1 and P2
              they fixed, in one line.
+           - "Next review": one line saying that a later push is reviewed when
+             someone mentions `@@@reviewer_account@@` on the MR (in backticks,
+             as above).
            - "Watch after release": the one to three signals that would show this
              change is broken in production, each as route + signal + limit, for
              example "POST /verify error rate above 2%" or "POST /verify p95
