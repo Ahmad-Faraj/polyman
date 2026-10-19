@@ -41,9 +41,20 @@ describe("the project's Duo flows", () => {
     expect(checkFlow(filled)).toEqual([]);
   });
 
+  // 20 Oct: after !165 the filled-in reviewer was 42,658 bytes and GitLab refused to sync it (40 KiB at most)
+  it.each(files)('%s stays under GitLab\'s 40 KiB definition limit once filled in, with room to grow', (file) => {
+    // the real account names, or stand-ins as long as GitLab's (about 45 characters), and catalog-sized flow IDs
+    const long = 'ai-account-name-gitlab-ai-hackathon-000000000';
+    const real = flowValues(
+      { ...config, agents: { ...config.agents, reviewerAccount: config.agents.reviewerAccount || long, fixerAccount: config.agents.fixerAccount || long } },
+      Object.fromEntries(HANDOFF_FLOWS.map((f) => [f, '9999999'])),
+    );
+    expect(Buffer.byteLength(renderFlow(read(file), real), 'utf8')).toBeLessThanOrEqual(39_000);
+  });
+
   it('the review note puts the decision on top and folds the evidence away', () => {
-    const prompt = read('mr-reviewer.yaml');
-    expect(prompt).toMatch(/Every open P1 is always listed here\. Beyond the P1s, list at most\s+three items/);
+    const prompt = flat('mr-reviewer.yaml');
+    expect(prompt).toMatch(/Every open P1 is always listed here\. Beyond the P1s, list at most three items/);
     expect(prompt).toMatch(/any open P1 or P2 means not ready/);
     // warnings that change whether to merge stay visible, above the fold
     expect(prompt.indexOf('"Before you merge"')).toBeGreaterThan(-1);
