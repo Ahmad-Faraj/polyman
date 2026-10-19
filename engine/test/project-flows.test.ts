@@ -134,11 +134,21 @@ describe("the project's Duo flows", () => {
       const prompt = promptOf(file);
       expect(prompt).toContain('Then one line: "Next:');
       expect(prompt).toContain("(GitLab doesn't start flows for an agent's push)");
-      expect(prompt).toContain("Keep that mention inside backticks, so your note doesn't mention the reviewer itself.");
+      expect(prompt).toContain("Keep the reviewer's mention inside backticks, so your note doesn't mention the reviewer itself.");
       const filled = renderFlow(read(file), values).replace(/\s+/g, ' ');
-      expect(filled).toMatch(/a person mentions `@ai-reviewer` on (the MR|it)/);
+      expect(filled).toMatch(/passes, mention `@ai-reviewer` on (the MR|it)/);
       // never a bare mention of the reviewer
       expect(filled.replace(/`[^`]*`/g, '')).not.toContain('@ai-reviewer');
+    },
+  );
+
+  // !146 waited with nobody told: the "Next:" line now mentions the person whose go-ahead built the push
+  it.each(['issue-builder.yaml', 'pipeline-fixer.yaml', 'incident-responder.yaml'])(
+    '%s addresses its "Next:" line to the person whose go-ahead built the push',
+    (file) => {
+      const prompt = promptOf(file);
+      expect(prompt).toMatch(/Then one line: "Next: @USERNAME, once the (rollback MR's )?pipeline passes, mention `@@@reviewer_account@@`/);
+      expect(prompt).toContain('USERNAME is the author of the go-ahead note this push ran on, as a plain @mention so GitLab notifies them.');
     },
   );
 
@@ -374,7 +384,7 @@ describe("the project's Duo flows", () => {
   });
 
   it("the fixer doesn't promise a review that GitLab won't start", () => {
-    expect(flat('pipeline-fixer.yaml')).toContain("once the pipeline passes, a person mentions `@@@reviewer_account@@` on the MR to review the new head (GitLab doesn't start flows for an agent's push)");
+    expect(flat('pipeline-fixer.yaml')).toContain("once the pipeline passes, mention `@@@reviewer_account@@` on the MR to review the new head (GitLab doesn't start flows for an agent's push)");
     expect(flat('pipeline-fixer.yaml')).not.toContain('the reviewer will review the new head');
   });
 

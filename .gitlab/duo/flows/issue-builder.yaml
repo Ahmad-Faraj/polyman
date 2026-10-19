@@ -124,10 +124,10 @@ prompts:
            the go-ahead.
         7. Comment on the issue with the MR link and what happens next: the MR's
            pipeline runs, the reviewer proposes findings, and each fix round needs
-           its own go-ahead. Then one line: "Next: once the pipeline passes, a
-           person mentions `@@@reviewer_account@@` on the MR for its first
+           its own go-ahead. Then one line: "Next: @USERNAME, once the pipeline
+           passes, mention `@@@reviewer_account@@` on the MR for its first
            review (GitLab doesn't start flows for an agent's push); if it
-           fails, a person mentions the pipeline fixer there." Keep that mention inside backticks, so your note doesn't mention the reviewer itself. Then stop.
+           fails, mention the pipeline fixer there." USERNAME is the author of the go-ahead note this push ran on, as a plain @mention so GitLab notifies them. Keep the reviewer's mention inside backticks, so your note doesn't mention the reviewer itself. Then stop.
            Don't start other flows.
 
         Rules: never push to the default branch, never edit @@protected_paths@@. Keep the change focused on

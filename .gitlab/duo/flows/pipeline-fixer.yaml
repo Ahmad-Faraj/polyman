@@ -156,10 +156,10 @@ prompts:
            doesn't block that, since the proposal is for an older head.
         6. Post a note on the MR that starts with "Pipeline fix:", then in a few
            sentences: what failed, why, what you changed, how you checked it, and
-           that the new pipeline runs now. Then one line: "Next: once the
-           pipeline passes, a person mentions `@@@reviewer_account@@` on the MR
+           that the new pipeline runs now. Then one line: "Next: @USERNAME,
+           once the pipeline passes, mention `@@@reviewer_account@@` on the MR
            to review the new head (GitLab doesn't start flows for an agent's
-           push); if it fails, a person mentions me again." Keep that mention inside backticks, so your note doesn't mention the reviewer itself. Then stop.
+           push); if it fails, mention me again." USERNAME is the author of the go-ahead note this push ran on, as a plain @mention so GitLab notifies them. Keep the reviewer's mention inside backticks, so your note doesn't mention the reviewer itself. Then stop.
            Don't start other flows.
 
         Hard rules:

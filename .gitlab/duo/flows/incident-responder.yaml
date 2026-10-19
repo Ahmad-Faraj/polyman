@@ -227,9 +227,9 @@ prompts:
             who asked from the issue the MR closes) and links the go-ahead.
             Record "Go-ahead" and "Rollback MR" on the timeline.
         11. Comment on the incident with the rollback MR. Then one line: "Next:
-            once the rollback MR's pipeline passes, a person mentions
+            @USERNAME, once the rollback MR's pipeline passes, mention
             `@@@reviewer_account@@` on it for its first review (GitLab doesn't
-            start flows for an agent's push)." Keep that mention inside backticks, so your note doesn't mention the reviewer itself. Then say that the person who merges watches the merge's pipeline:
+            start flows for an agent's push)." USERNAME is the author of the go-ahead note this push ran on, as a plain @mention so GitLab notifies them. Keep the reviewer's mention inside backticks, so your note doesn't mention the reviewer itself. Then say that the person who merges watches the merge's pipeline:
             when service:check:candidate passes, its last line ("NEXT STEP:")
             links the promote job to click. Once it is merged, promoted by a person and checked in production, someone on
             the team mentions you here so you record both on the timeline. If the cause is in the
