@@ -49,6 +49,32 @@ flowchart LR
 
 Judge finds a bug → issue with evidence → agent proposes → someone else's go-ahead → agent builds the MR → CI judges it, the guard checks the go-ahead → review agent reports, each fix round on its own go-ahead → a person merges → a person publishes to `next` → judged as installed → a person makes it `latest` → the nightly judges what people install → a failure wakes incident-responder. It ran for real: [12 loops merged](README.md#what-people-did-per-loop), then [3.0.1](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/releases/v3.0.1) shipped all eight judge-found fixes, 6 h 48 min after the first one merged.
 
+### Three loops on Oct 19, timed (UTC)
+
+**A failing pipeline, fixed by an agent after a refusal** ([!135](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/135)), 21 minutes from the red pipeline to the merge:
+- 13:06 pipeline-fixer proposes a fix for the failing `test: [20]` and `test: [22]` jobs.
+- 13:08 Ahmed, who opened the MR, says go-ahead. 13:09 the fixer refuses it: a requester can't approve their own work.
+- 13:14 Mazen gives the go-ahead. 13:17 the fixer pushes once; [`autonomy:goahead` accepts that push](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17285483032) on Mazen's note.
+- 13:25 the review says "ready to approve". 13:27 Mazen merges.
+
+**A bad change reaches production and the project learns from it** ([!127](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/127) → [Incident #65](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/work_items/65) → [!137](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/137) → [#82](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/work_items/82) → [!143](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/143)). This was a drill: we planted a change that refuses every upload without an `Origin` header, which breaks scripts and our own production check.
+- 13:18 the review agent flags it as a P1 ("on the public host, a POST with no Origin gets 403"). We merged it anyway at 13:28 to run the drill.
+- 13:36 the candidate check passes: the tagged revision URL is exempt, so only the public host shows the bug.
+- 13:44 a person promotes it. 13:45 [`service:check:production` fails](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17285820679) with 403. 13:46 [`service:rollback:production`](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17285820680) moves traffic back on its own. Production was wrong for about two minutes.
+- 14:04 incident-responder opens Incident #65 with the cause and a rollback proposal. A person had to start it, because the pipeline showed "blocked" rather than "failed" while an optional manual job waited; [!139](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/139) fixes that.
+- 14:08 Mazen's go-ahead. 14:11 the responder opens !137: the revert, plus an entry in `.autonomy/incidents.json` that weights `service/src/app.ts` by +25 because of #65.
+- 14:21 the review says "ready". 14:40 merged. 14:56 promoted. 14:58 [the production check passes](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17288464380). 15:08 the responder checks this against GitLab and records it.
+- 15:03 Ahmed files the proper fix (#82). 15:14 Hamza's go-ahead. 15:22 issue-builder opens !143.
+- 15:24 **the learning shows up**: [`autonomy:assess` on !143](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17289842520) scores it `risk 60/100 -> high`, with `+25 history: service/src/app.ts: Origin check on the public API refused every script and CI upload (403) (#65)`. Without the incident it would be medium. A high tier means a maintainer's go-ahead and the security reviewer.
+- 16:09 that security review finds a P1 in the new check (a percent-encoded path gets past it). 16:23 Mazen's go-ahead. 16:26 the fix round.
+
+**An issue through three fix rounds to the merge** ([#62](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/work_items/62) → [!136](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/136)), a path-traversal fix in `remote push`:
+- 12:30 issue-builder proposes. 12:57 Ahmed's go-ahead (Mazen filed the issue). 13:03 !136 opens.
+- 13:39 review: one P1 and three P2, all fixable by an agent. 13:48 go-ahead, 13:51 fix round 1.
+- 14:14 review: two test P2s left. 15:18 go-ahead, 15:23 fix round 2.
+- 15:42 review: one new test still passes without the guard it should pin. 16:24 go-ahead, 16:27 fix round 3.
+- 16:36 "ready to approve". 16:40 merged, and #62 closes. Each fix round ran on its own go-ahead, and each push was checked by the guard.
+
 ### Potential impact
 - **The audience is real**: problem setters who publish to a contest platform, where a wrong verdict means a broken contest. polyman was [announced to them](https://codeforces.com/blog/entry/148803) in November 2025; the first question was whether it can be trusted. About 1,950 npm downloads so far (downloads, not users).
 - **The problem was real**: the release people installed (3.0.0) judged deliberately wrong solutions as correct, and matched the true verdicts on 0 of our 5 problems, while all its unit tests passed. The judges found 8 bugs; all are fixed in 3.0.1.
@@ -78,7 +104,7 @@ The video (under 3 minutes) follows one bug from the nightly incident to the rel
 | Finding | Change | Measured gain |
 |---|---|---|
 | A carbon number from CI alone misses most of an agent's footprint | count model calls per session, not runner minutes | inference is 76-97% of a review's estimated total |
-| Every review got three specialists | review depth follows the risk score | a low-risk review takes about 1/5 of the calls and tokens of a high-risk one |
+| Every review got three specialists | review depth follows the risk score | a low-risk review takes about a fifth of the calls and tokens of a high-risk one, and about a third of the credits after the cuts made the full review cheaper |
 | A full review read more than it needed | the review cuts of Oct 18 (!100, !102, !105, !116) | about 11 GitLab credits and 1.69M tokens per full review before, about 6 credits and 490k tokens after (median of 9 reviews) |
 | Sessions that did nothing useful (stopped early, finished after the merge, repeated a head) | the reviewer checks the MR is still open before it delegates | 73 of 195 reviewer sessions, about 29% of its credits, before; 0 of 19 since |
 | Reviewer sessions woke for pipelines that weren't theirs | filter triggers to their own event | 49% of reviewer sessions were wasted wake-ups before the filter (sandbox) |
@@ -90,7 +116,7 @@ The video (under 3 minutes) follows one bug from the nightly incident to the rel
 
 Anyone can recompute the per-review numbers: `npx -y -p @grnsft/if@1.1.1 if-run -m sustainability/agent-reviews.yml`.
 
-**Google Cloud**: Cloud Run, deployed by CI through Workload Identity Federation (no stored key); a candidate at 0% traffic is checked by the golden set, a person promotes, and a failed production check rolls back by itself ([drill](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17264159881) → [Incident #57](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues/57)).
+**Google Cloud**: Cloud Run, deployed by CI through Workload Identity Federation (no stored key); a candidate at 0% traffic is checked by the golden set, a person promotes, and a failed production check rolls back by itself ([drill](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17264159881) → [Incident #57](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues/57); on Oct 19 a real bad change: [check fails](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17285820679) → [rollback](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17285820680) → [Incident #65](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/work_items/65), timed above).
 
 ## What isn't done, and why
 **How to read authorship here.** GitLab shows an agent-built MR as authored by the person who started the agent's session (composite identity), so "author merged their own MR" in the MR list usually means "the person who assigned the agent merged it". The agent is the one that pushed the commits: the guard and the [ledger](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/103) read who pushed from GitLab's push events. The 12 loops include five whose approved commits moved to a second MR after a refused push, which is why the published ledger counts fewer MRs until !103 (moved MRs) is merged. Since Oct 18 evening, a third person merges agent MRs.
