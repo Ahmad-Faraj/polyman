@@ -97,6 +97,8 @@ Credits are model calls divided by 3.6: that's what the calls of the sessions Ma
 
 Four reviews are few, and three of them were medium tier. The cuts also cost depth: on frozen copies of earlier MRs, re-reviewed with the new flow, the reviews found 4 of the 7 findings the earlier reviews of the same heads had found, and missed a command injection. !116 asks the specialists to save calls on lookups, never on testing; it is measured on the same frozen copies before any saving here counts as kept.
 
+**Every loop, on the ledger.** The [go-ahead ledger](https://showcase-ce2cdc.gitlab.io/ledger/) has one row per agent-built change a person merged, with the grams of that loop's agent sessions by this method: every session on its issue and MRs up to the merge, runner time plus counted model calls. CI's job token can't read the session checkpoints, so the counts are committed in [sustainability/loop-sessions.json](sustainability/loop-sessions.json) with the time they are counted up to, and the ledger job reads them. To refresh it from a session count (one row per `duo_workflow` pipeline): `node engine/src/cli/loop-sessions.ts <sessions.json>`.
+
 The data per session (pipeline, workflow, MR, tier, runner seconds, tokens by class and by role) is in [sustainability/agent-tokens.json](sustainability/agent-tokens.json). To rebuild it (read-only, needs a token that can read job logs and agent sessions):
 
     GITLAB_TOKEN=... node engine/src/cli/agent-tokens.ts <project path> --json sustainability/agent-tokens.json

@@ -147,6 +147,7 @@ function moved(from: 'accepted' | 'refused', other?: string) {
     '/merge_requests/8/notes': [],
     '/merge_requests/8/closes_issues': [{ iid: 30, author: { username: 'Ahmad-Faraj' } }],
     '/issues/30/notes': [note(11, '22:20:00', BUILDER, 'Proposal for #30:\n\n**Change**\n- b.txt'), note(12, '22:25:00', 'HamzaHassanain', `@${BUILDER} go-ahead`)],
+    '/merge_requests/9': { ...carrier, merged_by: { username: 'Ahmad-Faraj' } },
     [`/repository/commits/${accepted}/merge_requests`]: [carrier, closed],
     [`/repository/commits/${refused}/merge_requests`]: from === 'refused' ? [carrier, closed] : [closed],
     ...(other ? mr10 : {}),
@@ -199,6 +200,7 @@ async function run(
       author: { username: 'Mazen-Ghanaym' },
       created_at: '2026-10-17T22:13:10.000Z',
       merged_at: '2026-10-17T23:00:52.000Z',
+      merged_by: { username: 'HamzaHassanain' },
       source_branch: 'fix',
       sha: r.head,
       merge_commit_sha: r.merge,
@@ -248,7 +250,7 @@ async function run(
   const code = await new Promise<number | null>((ok) => child.on('close', ok));
   api.close();
   const read = (f: string) => readFileSync(join(out, f), 'utf8');
-  return { code, text, ledger: () => JSON.parse(read('ledger.json')) as Ledger, page: () => read('index.html') };
+  return { code, text, ledger: () => JSON.parse(read('ledger.json')) as Ledger, page: () => read('index.html'), loops: () => JSON.parse(read('loops.json')) };
 }
 
 describe('autonomy:ledger against a git repo and a stand-in for GitLab', () => {
@@ -275,6 +277,54 @@ describe('autonomy:ledger against a git repo and a stand-in for GitLab', () => {
       guard: { pipeline: 100, job: 6, status: 'success' },
     });
     expect(page()).toContain('<h1>Go-ahead ledger</h1>');
+  });
+
+  it('shows the merged MR as one loop, with its merger and the grams of its sessions', async () => {
+    const r = repo();
+    const sessions = join(r.dir, 'loop-sessions.json');
+    writeFileSync(
+      sessions,
+      JSON.stringify({
+        counted_up_to: '2026-10-18T00:00:00Z',
+        source: 'test',
+        sessions: [
+          { workflow: 1, pipeline: 1, at: '2026-10-17T22:09:00Z', flow: 'issue-builder', mr: null, issue: 22, seconds: 120, calls: 10 },
+          { workflow: 2, pipeline: 2, at: '2026-10-17T22:55:00Z', flow: 'mr-reviewer', mr: 7, issue: null, seconds: 60, calls: 20 },
+          { workflow: 3, pipeline: 3, at: '2026-10-17T22:55:00Z', flow: 'mr-reviewer', mr: 8, issue: null, seconds: 60, calls: 20 },
+        ],
+      }),
+    );
+    const { code, text, loops, page } = await run(r, {
+      issueNotes: [proposal, note(3, '21:00:00', 'Ahmad-Faraj', `@${BUILDER} go-ahead`), goAhead()],
+      env: { LOOP_SESSIONS: sessions },
+    });
+    expect(code).toBe(0);
+    const out = loops();
+    expect(out.sessions_counted_up_to).toBe('2026-10-18T00:00:00Z');
+    expect(out.loops).toHaveLength(1);
+    expect(out.loops[0]).toMatchObject({
+      mr: 7,
+      issues: [22],
+      requesters: ['Ahmad-Faraj'],
+      go_ahead: { note: 2, by: 'Mazen-Ghanaym' },
+      merged_by: 'HamzaHassanain',
+      minutes: 51,
+      fix_rounds: 0,
+      refused_go_aheads: [{ note: 3, by: 'Ahmad-Faraj' }],
+      giver_merged: false,
+      grams: { sessions: 2, uncounted: 0 },
+    });
+    expect(out.summary).toMatchObject({ loops: 1, approverNotRequester: 1, giverMerged: 0 });
+    expect(text).toContain('1 loop; go-ahead never from the requester (1/1); in 0 of 1 the go-ahead giver also merged;');
+    expect(page()).toContain('<h2>One row per loop</h2>');
+  });
+
+  it('shows the loops without grams when no session counts are committed', async () => {
+    const r = repo();
+    const { code, text, loops } = await run(r);
+    expect(code).toBe(0);
+    expect(text).toContain('so the loops are shown without grams');
+    expect(loops()).toMatchObject({ sessions_counted_up_to: null, loops: [{ mr: 7, grams: null }] });
   });
 
   it('passes when the published ledger comes back unchanged', async () => {
@@ -405,7 +455,7 @@ describe('autonomy:ledger against a git repo and a stand-in for GitLab', () => {
   describe('a closed MR whose commits a person moved to a merged MR (!8 -> !9)', () => {
     it('chains the accepted push with the go-ahead given on !8, after the close, and keeps the refused push open', async () => {
       const m = moved('accepted');
-      const { code, text, ledger, page } = await run(m, { routes: m.routes, env: { CI_DEFAULT_BRANCH: 'main' } });
+      const { code, text, ledger, page, loops } = await run(m, { routes: m.routes, env: { CI_DEFAULT_BRANCH: 'main' } });
       expect(code).toBe(0);
       const records = ledger().records;
       expect(records.map((r) => r.mr)).toEqual([7, 8]);
@@ -421,6 +471,8 @@ describe('autonomy:ledger against a git repo and a stand-in for GitLab', () => {
       expect(text).toContain(`!8 (merged in !9) push at 2026-10-17T22:30:30Z by @${BUILDER}: go-ahead in note 12 by @HamzaHassanain`);
       expect(text).toMatch(new RegExp(`open !8 push at 2026-10-17T23:10:30Z by @${REVIEWER}: refused`));
       expect(page()).toContain('<span class="muted">merged in</span> <a href="https://gitlab.com/group/showcase/-/merge_requests/9">!9</a>');
+      // the loop is !9, moved from !8, with the push refused on !8
+      expect(loops().loops[1]).toMatchObject({ mr: 9, moved_from: [8], merged_by: 'Ahmad-Faraj', issues: [30], refused_pushes: [{ mr: 8, agent: REVIEWER }] });
     });
 
     it('chains a refused push whose commit reached main too, as refused', async () => {
