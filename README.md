@@ -15,7 +15,7 @@
 
 ---
 
-**Quick Links** | [**GitLab Transcend: for judges**](JUDGES.md) • [Why?](#why-polyman) • [Installation](#installation) • [Quick Start](#quick-start) • [Commands](#commands) • [Tags](#solution-tags) • [Checkers](#standard-checkers) • [Structure](#project-structure) • [Config](#configuration) • [Docs](#documentation) • [Workflow](#workflow-summary) • [Issues](#common-issues) • [Support](#support) • [Contributing](#contributing) • [License](#license)
+**Quick Links** | [**Start here**](#start-here-from-an-issue-to-production) • [**GitLab Transcend: for judges**](JUDGES.md) • [Why?](#why-polyman) • [Installation](#installation) • [Quick Start](#quick-start) • [Commands](#commands) • [Tags](#solution-tags) • [Checkers](#standard-checkers) • [Structure](#project-structure) • [Config](#configuration) • [Docs](#documentation) • [Workflow](#workflow-summary) • [Issues](#common-issues) • [Support](#support) • [Contributing](#contributing) • [License](#license)
 
 </div>
 
@@ -29,6 +29,19 @@
 - **Live service:** [polyman-verify on Cloud Run](https://polyman-verify-ncvkutguda-ue.a.run.app) (`/health` answers `{"ok":true}`; it scales to zero, so the first request after idle takes about 20 s)
 - **Release:** [`polyman-cli` 3.0.1 on npm](https://www.npmjs.com/package/polyman-cli/v/3.0.1), with provenance. It shipped through the judged release jobs ([!47][mr47]): npm `next`, [judged as installed against 3.0.0](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17267989872), then `latest`. The [GitLab Release v3.0.1](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/releases/v3.0.1) carries the evidence. The publish and promote jobs are manual on purpose: a person clicks each one, so a "blocked" deployment on the environments page is a step nobody chose to take.
 - **Original repository:** [HamzaHassanain/polyman](https://github.com/HamzaHassanain/polyman), imported at [`dcb5779`](https://github.com/HamzaHassanain/polyman/commit/dcb5779705da91bc898cc456a0d96bd5d311cf41) ("release: 3.0.0", 2026-09-25), tagged `hackathon-start` here.
+
+### Start here: from an issue to production
+
+One change, start to finish. Each step says who acts and where GitLab tells them what comes next.
+
+1. **File an issue** that says when it is done ("Done when: ..."), and assign it to the issue builder (`ai-issue-builder-gitlab-ai-hackathon_e1c791`). You act; the builder answers on the issue with a proposal.
+2. **Give the go-ahead.** Someone who didn't file the issue replies with the exact line the proposal shows, `@<agent> go-ahead`, on a line of its own (a maintainer, if the proposal says so). The proposal names who may.
+3. **The builder opens the MR.** Its comment on the issue links the MR and ends with a "Next:" line that names who mentions `@ai-mr-reviewer-gitlab-ai-hackathon_e50080` on the MR once the pipeline passes.
+4. **Read each review.** It either names who merges (its "Merge" line: that maintainer approves and merges) or proposes fixes, and each fix round needs its own go-ahead.
+5. **After a merge that touches the service,** the person who merged opens the merge's pipeline. The last line of `service:check:candidate` names them and links the job: `NEXT STEP: ... To release it, @user (who merged !N) runs service:promote:production: <link>`. That person clicks it. If the line says a newer main pipeline exists, they promote that pipeline's candidate instead.
+6. **The production check and the rollback run by themselves.** If one fails, an incident opens and the responder's notes say who acts next.
+
+From here on, every step a person takes is announced in GitLab: read the newest note from an agent or the last lines of the job log. When something doesn't go as above, see [What to do when...](#what-to-do-when).
 
 ### All nine stages, and who does what in each
 
@@ -95,8 +108,13 @@ An agent proposes and waits. A person who didn't ask for the work replies `@<age
 - **An agent proposes something:** someone who didn't ask replies with the exact line the proposal shows, `@<agent> go-ahead`, on a line of its own. High risk, governance paths and rollbacks need a maintainer.
 - **An agent pushed to an MR:** its "Next:" line mentions whoever gave the go-ahead. When the pipeline passes, that person mentions `@ai-mr-reviewer-gitlab-ai-hackathon_e50080` on the MR; if it fails, `@ai-pipeline-fixer-gitlab-ai-hackathon_b1d814`. Only an MR's first review starts by itself.
 - **The review says "ready to approve" on the current head:** the maintainer its "Merge" line names (not the requester, not a go-ahead giver) approves and merges. Never approve a "not ready" head.
-- **You merged a change to `service/`, `src/`, `assets/`, `template/` or the package files:** open the merge's pipeline. When `service:check:candidate` passes, its last line (`NEXT STEP:`) links `service:promote:production`. Click it; the production check and the rollback run by themselves.
+- **You merged a change to `service/`, `src/`, `assets/`, `template/` or the package files:** open the merge's pipeline. When `service:check:candidate` passes, its last line (`NEXT STEP:`) names you ("@you (who merged !N)") and links `service:promote:production`. Click it; the production check and the rollback run by themselves.
 - **An incident opens:** a maintainer who didn't open it gives the go-ahead on the rollback proposal. Set the severity (right sidebar) or add a timeline event (Timeline tab) only if the responder asks. Mention the reviewer on the rollback MR, merge it, promote, then mention the responder on the incident. For the real fix, open an issue that links the incident and assign it to the issue builder.
+- **No "Review of" note within 20 minutes of a green MR pipeline:** the MR's author mentions `@ai-mr-reviewer-gitlab-ai-hackathon_e50080` on the MR.
+- **`autonomy:goahead` failed:** ask for a new go-ahead on the latest proposal. If an agent pushed without one, a maintainer moves the approved commits unchanged to a new MR.
+- **Releasing to npm:** merge a version bump in `package.json`. On the merge's pipeline a maintainer clicks `release:npm-next`, waits for `release:next-check` to pass, then clicks `release:promote`.
+- **The rollback job failed, or `service:check:production` ends with a warning:** a maintainer looks at the job log and the Cloud Run revisions before anything else merges.
+- **An agent opened a bug or a "Nightly judges" issue:** a maintainer triages it the same day. If it was transient, retry and close it; otherwise add "Done when" and assign it to the issue builder.
 - **Before a loop session:** run `GITLAB_TOKEN=... node engine/src/cli/doctor.ts`. It checks that the published flows match the repo; a stale one named the wrong maintainer on #62.
 
 ### What people did, per loop
