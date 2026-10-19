@@ -8,6 +8,8 @@
  *
  * Reads job logs, which needs a token with read access (run it locally):
  *   GITLAB_TOKEN=... node engine/src/cli/agent-footprint.ts [project] [--json] [--manifest file.yml]
+ * (The committed sustainability/agent-reviews.yml comes from counted calls,
+ * review-manifest.ts; --manifest here writes the older, log-bounded kind.)
  * --manifest also writes the reviews as an Impact Framework manifest, which
  * `npx -y -p @grnsft/if@1.1.1 if-run -m file.yml` recomputes without a token.
  */

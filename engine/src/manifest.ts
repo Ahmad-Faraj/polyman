@@ -24,7 +24,33 @@ const sum = (inputs: string[], output: string) => ({
   },
 });
 
-export function ifManifest(byTier: Map<string, ManifestRun[]>, c: SciCoefficients): string {
+/** One review as agent-tokens.ts saved it (--json): its tier and its counted model calls. */
+export interface CountedSession {
+  at: string;
+  flow: string;
+  tier: string;
+  skipped: boolean;
+  seconds: number;
+  total: { calls: number };
+}
+
+/**
+ * The reviews to put in the manifest, from counted sessions: mr-reviewer
+ * sessions that did review (not skipped) and have a known tier, grouped by
+ * tier, each with its counted calls as both the low and the high end.
+ */
+export function countedRuns(sessions: CountedSession[]): Map<string, ManifestRun[]> {
+  const byTier = new Map<string, ManifestRun[]>();
+  for (const tier of ['high', 'medium', 'low']) {
+    const runs = sessions
+      .filter((s) => s.flow === 'mr-reviewer' && !s.skipped && s.tier === tier)
+      .map((s) => ({ at: s.at, seconds: s.seconds, calls: { low: s.total.calls, high: s.total.calls } }));
+    if (runs.length) byTier.set(tier, runs);
+  }
+  return byTier;
+}
+
+export function ifManifest(byTier: Map<string, ManifestRun[]>, c: SciCoefficients, calls: 'bounded' | 'counted' = 'bounded'): string {
   const wattsPerVcpu = c.minWattsPerVcpu + c.utilization * (c.maxWattsPerVcpu - c.minWattsPerVcpu);
   const runnerKw = ((wattsPerVcpu * c.vcpus) / 1000 + c.memoryGb * c.memoryKwhPerGbHour) * c.pue;
   const children: Record<string, unknown> = {};
@@ -52,7 +78,7 @@ export function ifManifest(byTier: Map<string, ManifestRun[]>, c: SciCoefficient
   return stringify({
     name: 'agent review footprint',
     description:
-      'One merge request review by our Duo flows: runner time (measured) and model calls (bounded from the session log), turned into gCO2e. ' +
+      `One merge request review by our Duo flows: runner time (measured) and model calls (${calls === 'counted' ? "counted from each session's checkpoint" : 'bounded from the session log'}), turned into gCO2e. ` +
       `Energy per model call is a cited range (${INFERENCE_WH_PER_CALL.low}-${INFERENCE_WH_PER_CALL.high} Wh), not a measurement; see SUSTAINABILITY.md.`,
     tags: { kind: 'agents' },
     // per tier, summed over its reviews ("horizontal": the tiers' reviews don't share timestamps)
