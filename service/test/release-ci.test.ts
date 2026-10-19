@@ -80,3 +80,17 @@ describe('the rest of the release stays automatic', () => {
     expect(ci.match(/when: manual/g)).toHaveLength(1);
   });
 });
+
+describe('exit 3 is a warning, not a failure', () => {
+  it('the promote and the production check let exit 3 through, so a switch that did nothing starts no rollback', () => {
+    for (const name of ['service:promote:production', 'service:check:production']) {
+      expect(job(name), name).toMatch(/\n  allow_failure:\n    exit_codes: \[3\]\n/);
+    }
+  });
+
+  it('the rollback still runs on failure and is never allowed to fail', () => {
+    const rollback = job('service:rollback:production');
+    expect(rollback).toMatch(/when: on_failure/);
+    expect(rollback).not.toContain('allow_failure');
+  });
+});
