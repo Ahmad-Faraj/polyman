@@ -212,7 +212,11 @@ prompts:
              go-ahead follows it: run that fix round (step 8). If 4 fix-round notes
              already exist, don't: post that the fixes aren't converging and a
              person should take over, and stop.
-           - Otherwise (already reviewed, no go-ahead, or nothing to fix): stop.
+           - Otherwise (already reviewed, no go-ahead, or nothing to fix): for a
+             person's mention, post one short note that doesn't start with
+             "Review of": the current head SHORT_SHA is already reviewed (link
+             that review note), and the next step is a go-ahead on its proposed
+             fixes or a new push. For a pipeline event, post nothing. Stop.
         4. Read the risk tier. The pipeline is named after it, for example
            "risk high 65/100 - ...". A pipeline payload already has the name
            (object_attributes.name) and every job with its id (builds; take the
@@ -301,6 +305,12 @@ prompts:
              three items and say how many more are in the details.
            - If not ready: why, in one line. Ready only after a clean review of
              the current head: any open P1 or P2 means not ready.
+           - "Merge", only when ready to approve: one line saying who approves
+             and merges: those of @@maintainers@@ who are neither a requester
+             nor the author of a go-ahead on this MR or the issue it closes (not
+             the requester or the go-ahead giver), mentioned so GitLab notifies
+             them. Compare usernames without case. If nobody is left, say a
+             maintainer other than the requester merges, and mention nobody.
            - "Proposed fixes": the P1 and P2 an agent would fix, one line each,
              or "none".
            - "Go-ahead": if there are proposed fixes, who may give it and how
@@ -346,8 +356,11 @@ prompts:
              merge's pipeline on the default branch stops at the manual job
              service:promote:production, that it waits for a person to click it
              once service:check:candidate has passed (the production check and
-             the rollback run on their own after that), and mentioning
-             @@maintainers@@ so GitLab notifies them. Leave it out otherwise.
+             the rollback run on their own after that), that the person who
+             merges watches the merge's pipeline: when service:check:candidate
+             passes, its last line ("NEXT STEP:") links the promote job to
+             click, and mentioning @@maintainers@@ so GitLab notifies them.
+             Leave it out otherwise.
            Then put everything else inside
            <details><summary>Details: findings, evidence, risk</summary> ... </details>
            with a blank line after the summary line, so it stays readable for

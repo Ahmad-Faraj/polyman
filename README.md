@@ -89,6 +89,16 @@ An agent proposes and waits. A person who didn't ask for the work replies `@<age
 | A package as installed (canary, then npm `next`), judged by the corpus before `latest` | a person clicks each publish job | [canary 3.0.0-canary.335](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17262230241) → [judged](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17262230242): red, on #21 and #28; 3.0.1 on `next` → [judged](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17267989872): 5 of 5 → [Release v3.0.1](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/releases/v3.0.1) |
 | The live service: golden set on a candidate, then a production check | a person promotes; a failed check rolls back by itself; a rollback MR needs the maintainer | fire drill: [pipeline](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/pipelines/2959322051) → [rollback](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17260123329) → [incident #44][i44] |
 
+### What to do when...
+
+- **You want an agent to fix something:** file an issue that says when it is done, then assign it to the issue builder (`ai-issue-builder-gitlab-ai-hackathon_e1c791`).
+- **An agent proposes something:** someone who didn't ask replies with the exact line the proposal shows, `@<agent> go-ahead`, on a line of its own. High risk, governance paths and rollbacks need a maintainer.
+- **An agent pushed to an MR:** its "Next:" line mentions whoever gave the go-ahead. When the pipeline passes, that person mentions `@ai-mr-reviewer-gitlab-ai-hackathon_e50080` on the MR; if it fails, `@ai-pipeline-fixer-gitlab-ai-hackathon_b1d814`. Only an MR's first review starts by itself.
+- **The review says "ready to approve" on the current head:** the maintainer its "Merge" line names (not the requester, not a go-ahead giver) approves and merges. Never approve a "not ready" head.
+- **You merged a change to `service/`, `src/`, `assets/`, `template/` or the package files:** open the merge's pipeline. When `service:check:candidate` passes, its last line (`NEXT STEP:`) links `service:promote:production`. Click it; the production check and the rollback run by themselves.
+- **An incident opens:** a maintainer who didn't open it gives the go-ahead on the rollback proposal. Set the severity (right sidebar) or add a timeline event (Timeline tab) only if the responder asks. Mention the reviewer on the rollback MR, merge it, promote, then mention the responder on the incident. For the real fix, open an issue that links the incident and assign it to the issue builder.
+- **Before a loop session:** run `GITLAB_TOKEN=... node engine/src/cli/doctor.ts`. It checks that the published flows match the repo; a stale one named the wrong maintainer on #62.
+
 ### What people did, per loop
 
 | Loop | Agents | People |
@@ -136,7 +146,7 @@ Why some loops have two MRs: when an agent pushes without a go-ahead, the guard 
 ### Honest limits
 
 - 12 Assisted loops ran end to end, six with a fix round (#13, #8, #31, #24, #26, #25). In two (#8, #25) a person wrote the last fixes, and five moved to a new MR after a refused push (above).
-- Ahmed merged 11 of them himself, after the reviewer's note, under the team's merge-then-review rule. On !50, !51, !54, !59 and !101 the person who gave the go-ahead also merged. The guard only keeps the go-ahead away from whoever asked, so that's allowed, but it's weak separation: from the evening of Oct 18, a third person merges agent MRs.
+- Ahmed merged 11 of them himself, after the reviewer's note, under the team's merge-then-review rule. On !50, !51, !54, !59 and !101 the person who gave the go-ahead also merged. The guard only keeps the go-ahead away from whoever asked, so that's allowed, but it's weak separation. It happened again on Oct 19 (!135, !136), so the reviewer's "ready to approve" note now names who merges: a maintainer who neither asked for the work nor gave a go-ahead on it.
 - !101 merged with no review note on the MR.
 - On Oct 17 at 19:40 pipeline-fixer removed !5's planted line by itself, before the Assisted flows ([!17][mr17]) and the guard ([!19][mr19]) were on `main`. A person put it back on Oct 18 ([e4ed065](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/commit/e4ed065)), and [its pipeline](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/pipelines/2959983252) is red again on [`service:golden`](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17263548189). The guard now [refuses such a push](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17258462748).
 - GitLab Code Review didn't start when the reviewer flow asked for it (DCR4008 on !26 and !50); on !26 a person asked again and it ran.

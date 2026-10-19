@@ -111,6 +111,14 @@ describe("the project's Duo flows", () => {
     expect(renderFlow(read('pipeline-fixer.yaml'), values)).toContain('`@ai-fixer go-ahead`');
   });
 
+  // #82: "Go Ahead!" didn't count because the builder's proposal gave no exact line to copy
+  it.each(['issue-builder.yaml', 'incident-responder.yaml'])('%s gives the exact go-ahead line to copy, in backticks', (file) => {
+    const prompt = renderFlow(read(file), values).replace(/\s+/g, ' ');
+    expect(prompt).toContain('replies with the line `@YOUR_ACCOUNT go-ahead`, without the backticks", where YOUR_ACCOUNT is your own username');
+    expect(prompt).toContain('Keep that line inside backticks: a plain one would mention your own account.');
+    expect(prompt).not.toContain('a line that mentions me, the author of this note, and says go-ahead');
+  });
+
   // a bare @GitLabDuo in a note mentions GitLab Duo, which answers "Something went wrong" (!134, !137)
   it('no flow writes a bare @GitLabDuo; the Code Review hint is a quick action in backticks', () => {
     for (const file of files) {
@@ -126,11 +134,21 @@ describe("the project's Duo flows", () => {
       const prompt = promptOf(file);
       expect(prompt).toContain('Then one line: "Next:');
       expect(prompt).toContain("(GitLab doesn't start flows for an agent's push)");
-      expect(prompt).toContain("Keep that mention inside backticks, so your note doesn't mention the reviewer itself.");
+      expect(prompt).toContain("Keep the reviewer's mention inside backticks, so your note doesn't mention the reviewer itself.");
       const filled = renderFlow(read(file), values).replace(/\s+/g, ' ');
-      expect(filled).toMatch(/a person mentions `@ai-reviewer` on (the MR|it)/);
+      expect(filled).toMatch(/passes, mention `@ai-reviewer` on (the MR|it)/);
       // never a bare mention of the reviewer
       expect(filled.replace(/`[^`]*`/g, '')).not.toContain('@ai-reviewer');
+    },
+  );
+
+  // !146 waited with nobody told: the "Next:" line now mentions the person whose go-ahead built the push
+  it.each(['issue-builder.yaml', 'pipeline-fixer.yaml', 'incident-responder.yaml'])(
+    '%s addresses its "Next:" line to the person whose go-ahead built the push',
+    (file) => {
+      const prompt = promptOf(file);
+      expect(prompt).toMatch(/Then one line: "Next: @USERNAME, once the (rollback MR's )?pipeline passes, mention `@@@reviewer_account@@`/);
+      expect(prompt).toContain('USERNAME is the author of the go-ahead note this push ran on, as a plain @mention so GitLab notifies them.');
     },
   );
 
@@ -170,11 +188,61 @@ describe("the project's Duo flows", () => {
     expect(renderFlow(read('mr-reviewer.yaml'), values).replace(/\s+/g, ' ')).toContain('a later push is reviewed when someone mentions `@ai-reviewer` on the MR');
   });
 
+  // !137, 14:24: a second mention found the head reviewed and the session stopped without a word
+  it("a person's mention on an already-reviewed head gets one short note linking the review", () => {
+    const body = promptOf('mr-reviewer.yaml');
+    const otherwise = body.slice(body.indexOf('- Otherwise (already reviewed, no go-ahead, or nothing to fix)'), body.indexOf('4. Read the risk tier'));
+    expect(otherwise).toContain("for a person's mention, post one short note that doesn't start with \"Review of\"");
+    expect(otherwise).toContain('the current head SHORT_SHA is already reviewed (link that review note)');
+    expect(otherwise).toContain('the next step is a go-ahead on its proposed fixes or a new push');
+    expect(otherwise).toContain('For a pipeline event, post nothing. Stop.');
+    // the reply is not a review, so the go-ahead guard never takes it for a proposal
+    expect(isProposal('The current head 1a2b3c4d is already reviewed')).toBe(false);
+  });
+
   it('the review note tells the maintainers to promote a merge that releases the service', () => {
     const text = flat('mr-reviewer.yaml');
     expect(text).toContain('"After merge", only when the diff touches service/, src/, assets/, template/, package.json or package-lock.json');
     expect(text).toContain('service:promote:production');
     expect(renderFlow(read('mr-reviewer.yaml'), values).replace(/\s+/g, ' ')).toContain('mentioning @HamzaHassanain, @Mazen-Ghanaym, @Ahmad-Faraj so GitLab notifies them');
+  });
+
+  // 19 Oct: !136's promote waited three hours; the candidate log named the job, but nobody was told to read it
+  it("the person who merges is told to watch the merge's pipeline for the NEXT STEP line that links promote", () => {
+    const line = 'the person who merges watches the merge\'s pipeline: when service:check:candidate passes, its last line ("NEXT STEP:") links the promote job to click';
+    for (const file of ['mr-reviewer.yaml', 'incident-responder.yaml']) {
+      expect(renderFlow(read(file), values).replace(/\s+/g, ' ').toLowerCase()).toContain(line.toLowerCase());
+    }
+    // the reviewer's line still says it only for merges that release the service
+    const reviewer = promptOf('mr-reviewer.yaml');
+    expect(reviewer.indexOf(line.replace(/^t/, 'that t'))).toBeGreaterThan(reviewer.indexOf('"After merge", only when the diff touches'));
+  });
+
+  // 19 Oct: on !135 and !136 the go-ahead giver also merged; the note never said who merges
+  it('a ready review names who merges: a maintainer who neither asked nor gave a go-ahead', () => {
+    const body = promptOf('mr-reviewer.yaml');
+    const merge = body.slice(body.indexOf('- "Merge", only when ready to approve'), body.indexOf('- "Proposed fixes"'));
+    // above the fold, and only on a ready review
+    expect(body.indexOf('- "Merge", only when ready to approve')).toBeGreaterThan(-1);
+    expect(body.indexOf('- "Merge", only when ready to approve')).toBeLessThan(body.indexOf('<details>'));
+    expect(merge).toContain('neither a requester nor the author of a go-ahead on this MR or the issue it closes');
+    expect(merge).toContain('not the requester or the go-ahead giver');
+    expect(merge).toContain('If nobody is left, say a maintainer other than the requester merges, and mention nobody');
+    // the names come from .autonomy.yml's maintainers, never written into the flow
+    expect(merge).toContain('@@maintainers@@');
+    const filled = renderFlow(read('mr-reviewer.yaml'), values).replace(/\s+/g, ' ');
+    expect(filled).toContain(`who approves and merges: those of ${config.goAhead.maintainers.map((m) => `@${m}`).join(', ')} who are neither`);
+  });
+
+  // the README's "What to do when..." names the accounts to mention; they must be the ones the flows trust
+  it('the README tells people what to do at each step, with the accounts from .autonomy.yml', () => {
+    const readme = readFileSync('../README.md', 'utf8');
+    const section = readme.slice(readme.indexOf('### What to do when...'), readme.indexOf('### What people did, per loop'));
+    expect(section).toContain(`\`@${config.agents.reviewerAccount}\``);
+    expect(section).toContain(`\`@${config.agents.fixerAccount}\``);
+    for (const step of ['assign it to the issue builder', '`@<agent> go-ahead`', '"Merge" line', '`NEXT STEP:`', 'An incident opens', 'engine/src/cli/doctor.ts']) {
+      expect(section).toContain(step);
+    }
   });
 
   it('the code reviewer looks for errors that disappear, and a quiet pass in a gate is P1', () => {
@@ -266,6 +334,18 @@ describe("the project's Duo flows", () => {
     expect(prompt).toContain('never record the same step twice');
   });
 
+  // #65: every note said /timeline was refused while its events were there, and a person added a duplicate
+  it('the responder reads severity and timeline back and asks a person only for what is missing, saying where', () => {
+    const prompt = promptOf('incident-responder.yaml');
+    expect(prompt).toContain('{ projects(ids: ["gid://gitlab/Project/PROJECT_ID"]) { nodes { issue(iid: "ISSUE_IID") { severity } } } }');
+    expect(prompt).toContain('CRITICAL is S1, HIGH S2, MEDIUM S3, LOW S4; UNKNOWN means not set');
+    expect(prompt).toContain('before you ask a person to set the severity or add a timeline event, read both back');
+    expect(prompt).toContain('Never say one was refused when it is there. Ask only for what is missing, and say where');
+    expect(prompt).toContain("set Severity to S2 in the incident's right sidebar");
+    expect(prompt).toContain("on the incident's Timeline tab, Add new timeline event: TEXT at HH:MM UTC");
+    expect(prompt).toContain('If nothing is missing, ask for nothing.');
+  });
+
   it('the responder writes WHAT FAILED itself, so log text never reaches a quick action', () => {
     const prompt = flat('incident-responder.yaml');
     expect(prompt).toContain("WHAT FAILED is one short line (at most 80 characters) that you write from the failing job's name");
@@ -315,7 +395,7 @@ describe("the project's Duo flows", () => {
   });
 
   it("the fixer doesn't promise a review that GitLab won't start", () => {
-    expect(flat('pipeline-fixer.yaml')).toContain("once the pipeline passes, a person mentions `@@@reviewer_account@@` on the MR to review the new head (GitLab doesn't start flows for an agent's push)");
+    expect(flat('pipeline-fixer.yaml')).toContain("once the pipeline passes, mention `@@@reviewer_account@@` on the MR to review the new head (GitLab doesn't start flows for an agent's push)");
     expect(flat('pipeline-fixer.yaml')).not.toContain('the reviewer will review the new head');
   });
 

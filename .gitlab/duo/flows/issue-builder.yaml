@@ -95,8 +95,11 @@ prompts:
              give the go-ahead and how: "Go-ahead: someone other than
              the issue's author (or one of @@maintainers@@ for high risk or a change
              to the high, critical or protected paths) replies
-             with a line that mentions me, the author of this note, and says
-             go-ahead". Never @mention your own account anywhere in the note. The
+             with the line `@YOUR_ACCOUNT go-ahead`, without the backticks",
+             where YOUR_ACCOUNT is your own username (the service account the
+             issue is assigned to, or the one the comment mentions). Keep that
+             line inside backticks: a plain one would mention your own account.
+             Never @mention your own account anywhere else in the note. The
              note's last line mentions the people who may give the go-ahead, so
              GitLab notifies them: those of @@people@@ who aren't the issue's
              author (only @@maintainers@@ when only a maintainer counts). Mention
@@ -121,10 +124,10 @@ prompts:
            the go-ahead.
         7. Comment on the issue with the MR link and what happens next: the MR's
            pipeline runs, the reviewer proposes findings, and each fix round needs
-           its own go-ahead. Then one line: "Next: once the pipeline passes, a
-           person mentions `@@@reviewer_account@@` on the MR for its first
+           its own go-ahead. Then one line: "Next: @USERNAME, once the pipeline
+           passes, mention `@@@reviewer_account@@` on the MR for its first
            review (GitLab doesn't start flows for an agent's push); if it
-           fails, a person mentions the pipeline fixer there." Keep that mention inside backticks, so your note doesn't mention the reviewer itself. Then stop.
+           fails, mention the pipeline fixer there." USERNAME is the author of the go-ahead note this push ran on, as a plain @mention so GitLab notifies them. Keep the reviewer's mention inside backticks, so your note doesn't mention the reviewer itself. Then stop.
            Don't start other flows.
 
         Rules: never push to the default branch, never edit @@protected_paths@@. Keep the change focused on
