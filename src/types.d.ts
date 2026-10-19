@@ -484,12 +484,14 @@ interface ConfigFile {
  * @interface CompilerConfig
  * @property {string} [cpp] - C++ compiler executable (default: `g++`)
  * @property {string} [javac] - Java compiler executable (default: `javac`)
- * @property {string[]} [flags] - Extra flags appended to every C++ compile
+ * @property {string[]} [flags] - Extra flags for every C++ compile, one per
+ *   item, added after `-O2 -std=<cppStandard>`. A `-std=` flag here replaces
+ *   `cppStandard` and an `-O` flag replaces `-O2`.
  *
  * @example
  * {
  *   cpp: 'g++-15',
- *   flags: ['-O2', '-std=c++23']
+ *   flags: ['-Wall', '-std=gnu++20']
  * }
  */
 interface CompilerConfig {
