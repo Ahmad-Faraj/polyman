@@ -13,10 +13,12 @@
  * @returns true if the version is supported
  */
 export function isSupportedNodeVersion(version: string): boolean {
-  const [major = 0, minor = 0] = version.split('.').map(Number);
-  return (
-    (major === 20 && minor >= 19) || (major === 22 && minor >= 12) || major > 22
-  );
+  // accept process.version too ("v22.12.0"), not only process.versions.node
+  const [major = 0, minor = 0] = version
+    .replace(/^v/, '')
+    .split('.')
+    .map(Number);
+  return (major === 20 && minor >= 19) || (major >= 22 && minor >= 12);
 }
 
 if (!isSupportedNodeVersion(process.versions.node)) {
