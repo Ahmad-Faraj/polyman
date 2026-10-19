@@ -78,6 +78,7 @@ describe('cloudrun.sh promote', () => {
     const r = run('promote', { traffic: serving('rev-1', 'c-old1234', 'c-abc1234'), mainHead: 'abc1234full' }, { CANDIDATE_REVISION: 'rev-2' });
     expect(r.status).toBe(0);
     expect(r.dotenv).toContain('PREVIOUS_REVISION=rev-1');
+    expect(r.dotenv).toContain('PROMOTED=true');
     expect(r.switches[0]).toContain('--to-revisions rev-2=100');
     expect(r.switches[1]).toContain('--remove-tags c-old1234');
     expect(r.switches[1]).not.toContain('c-abc1234');
@@ -90,13 +91,14 @@ describe('cloudrun.sh promote', () => {
     expect(r.switches[0]).toContain('--to-revisions rev-2=100');
   });
 
-  it('ends without a switch, and without failing, when a newer commit changed the service again', () => {
+  it('ends without a switch, as a warning (exit 3) and not a deployment, when a newer commit changed the service again', () => {
     const r = run('promote', { traffic: serving('rev-1'), mainHead: 'newer', serviceDiff: 'changed' }, { CANDIDATE_REVISION: 'rev-2' });
-    expect(r.status).toBe(0);
-    expect(r.out).toContain('nothing to promote');
+    expect(r.status).toBe(3);
+    // the wording the incident responder recognises as a superseded release
+    expect(r.out).toContain('not promoting: main has moved on');
     expect(r.switches).toEqual([]);
-    // the production check runs on what serves now; the rollback has nothing to go back to
-    expect(r.dotenv).toBe('SERVICE_URL=https://polyman-verify-x.run.app\nPREVIOUS_REVISION=\n');
+    // the production check sees nothing was promoted; the rollback has nothing to go back to
+    expect(r.dotenv).toBe('SERVICE_URL=https://polyman-verify-x.run.app\nPREVIOUS_REVISION=\nPROMOTED=false\n');
   });
 
   it('refuses when it cannot compare this commit with main', () => {
