@@ -9,6 +9,8 @@ import {
   outcomeOf,
   polygonTargets,
   pushChecks,
+  pushFailureSummary,
+  pushOutputTail,
   regressions,
   scriptLines,
   selectProblems,
@@ -343,6 +345,45 @@ describe('round-trip checks', () => {
     expect(pushChecks(1, 0)).toEqual([
       expect.objectContaining({ name: 'push succeeded', ok: false }),
     ]);
+  });
+
+  it('puts what polyman said in the failure message', () => {
+    expect(pushChecks(1, 0, 'solution x: 502')[0].detail).toBe(
+      'polyman remote push exited 1: solution x: 502'
+    );
+  });
+
+  it('keeps a redacted tail of the push output', () => {
+    const output = [
+      'Uploading solutions',
+      '',
+      'GET /api/problem.info?apiKey=abc123&time=1&apiSig=deadbeef',
+      'secret s3cr3t leaked',
+      ...Array.from({ length: 50 }, (_, i) => `line ${i}`),
+    ].join('\n');
+    const tail = pushOutputTail(output, ['s3cr3t'], 60);
+    expect(tail).not.toMatch(/abc123|deadbeef|s3cr3t/);
+    expect(tail).toContain('apiKey=[REDACTED]');
+    expect(tail).toContain('secret [REDACTED] leaked');
+    expect(tail).not.toContain('\n\n');
+    expect(pushOutputTail(output, [], 3)).toBe('line 47\nline 48\nline 49');
+  });
+
+  it('summarises the failed items, or the last lines', () => {
+    const tail = [
+      'Uploading tests',
+      '╔══════════════════════════════╗',
+      '║  PUSH COMPLETED WITH ERRORS  ║',
+      '╚══════════════════════════════╝',
+      '  1 item(s) failed to upload:',
+      '   ✗ Solution acc.cpp: Polygon answered 502',
+      '  ℹ Problem ID: 605330',
+    ].join('\n');
+    expect(pushFailureSummary(tail)).toBe(
+      '1 item(s) failed to upload: | ✗ Solution acc.cpp: Polygon answered 502 | ℹ Problem ID: 605330'
+    );
+    expect(pushFailureSummary('a\nb\nc\nd\ne\nf')).toBe('b | c | d | e | f');
+    expect(pushFailureSummary('x'.repeat(700))).toHaveLength(600);
   });
 
   it('fails a push that exited 0 while Polygon differs (#25)', () => {
