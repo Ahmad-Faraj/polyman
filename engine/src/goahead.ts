@@ -190,6 +190,13 @@ export function allowedApprovers(step: Step, config: AutonomyConfig): { from: 'a
 export type Verdict = { ok: true; note: Note; proposal: Note } | { ok: false; reason: string; proposal?: Note };
 
 /**
+ * When a proposal counts from for a push at `at` (ms): its last edit if that
+ * came before the push, else when it was written. A go-ahead must come after it.
+ */
+export const proposalTime = (n: Note, at: number) =>
+  n.updated_at && time(n.updated_at) < at ? Math.max(time(n.created_at), time(n.updated_at)) : time(n.created_at);
+
+/**
  * A push by an agent is allowed when a person the step allows wrote a go-ahead
  * that mentions the agent, after the agent's latest proposal before the push
  * (counting edits made before the push), after the agent's previous push to the
@@ -203,7 +210,7 @@ export function goAheadFor(
   previousPush?: string,
 ): Verdict {
   const at = time(push.at);
-  const touched = (n: Note) => (n.updated_at && time(n.updated_at) < at ? Math.max(time(n.created_at), time(n.updated_at)) : time(n.created_at));
+  const touched = (n: Note) => proposalTime(n, at);
   const own = notes.filter(
     (n) => !n.system && time(n.created_at) < at && n.author.username.toLowerCase() === push.pusher.toLowerCase() && isProposal(n.body),
   );

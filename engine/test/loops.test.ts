@@ -181,6 +181,15 @@ describe('refusedGoAheads', () => {
     expect(refusedGoAheads(notes, r, at('11:00')).map((n) => n.id)).toEqual([11, 12]);
   });
 
+  it("starts after the proposal's last edit before the push, as the guard does", () => {
+    const proposal = (updated_at: string): Note => ({ ...note(1, at('11:50'), BUILDER, 'Proposal: fix it'), updated_at });
+    const goAheads = [note(11, at('11:51'), 'Ahmad-Faraj', `@${BUILDER} go-ahead`), note(12, at('11:55'), 'Ahmad-Faraj', `@${BUILDER} go-ahead`)];
+    // edited at 11:52, before the push at 12:03: the note at 11:51 was not a go-ahead for it
+    expect(refusedGoAheads([proposal(at('11:52')), ...goAheads], r).map((n) => n.id)).toEqual([12]);
+    // edited after the push: the guard counts from when it was written
+    expect(refusedGoAheads([proposal(at('12:10')), ...goAheads], r).map((n) => n.id)).toEqual([11, 12]);
+  });
+
   it('finds nothing for a push without a go-ahead', () => {
     expect(refusedGoAheads([note(11, at('11:51'), 'Ahmad-Faraj', `@${BUILDER} go-ahead`)], record({ go_ahead: null }))).toEqual([]);
   });

@@ -1,4 +1,4 @@
-import { type Note, isPerson, mentionOf, ownLines, saysGoAhead } from './goahead.ts';
+import { type Note, isPerson, mentionOf, ownLines, proposalTime, saysGoAhead } from './goahead.ts';
 import type { Ledger, LedgerRecord, NoteRef, OpenPush } from './ledger.ts';
 import { type SciCoefficients, sessionGrams } from './sci.ts';
 
@@ -109,7 +109,8 @@ const meantAsGoAhead = (line: string) =>
 
 /**
  * The go-aheads a person wrote for this push that didn't count: notes after
- * the agent's proposal (and after its previous push on the same thread,
+ * the agent's proposal (its last edit before the push, as the guard reads it,
+ * and after its previous push on the same thread,
  * `after`, as the guard reads it) and before the go-ahead that did count,
  * mentioning the agent, with a line of their own (not quoted, not in code)
  * that means "go ahead", but either not in the words the guard takes ("Go
@@ -118,7 +119,10 @@ const meantAsGoAhead = (line: string) =>
  */
 export function refusedGoAheads(notes: Note[], record: LedgerRecord, after?: string): Note[] {
   if (!record.go_ahead || !record.proposal) return [];
-  const from = Math.max(Date.parse(record.proposal.at), after ? Date.parse(after) : -Infinity);
+  // the guard counts from the proposal's last edit before the push, not from when it was written
+  const proposal = notes.find((n) => n.id === record.proposal!.note);
+  const proposed = proposal ? proposalTime(proposal, Date.parse(record.pushed_at)) : Date.parse(record.proposal.at);
+  const from = Math.max(proposed, after ? Date.parse(after) : -Infinity);
   const to = Date.parse(record.go_ahead.at);
   const lower = (s: string) => s.toLowerCase();
   const allowed = new Set(record.allowed_approvers.map(lower));
