@@ -118,17 +118,29 @@ describe('no manual job keeps a failed main pipeline from showing as failed', ()
     for (const file of files.slice(1)) expect(root).toContain(`local: ${file}`);
   });
 
-  it('every manual job is optional (allow_failure: true), except the production switch', () => {
+  it('lists every manual job, so a new one gets a decision here', () => {
     const found: string[] = [];
-    for (const file of files) {
-      const text = read(file);
-      for (const name of manualJobs(text)) {
-        found.push(name);
-        if (name === 'service:promote:production') continue;
-        expect(job(name, text), `${file} ${name}`).toMatch(/\n  allow_failure: true\n/);
-      }
-    }
+    for (const file of files) found.push(...manualJobs(read(file)));
     expect(found.sort()).toEqual(['canary:publish', 'release:npm-next', 'release:promote', 'service:promote:production']);
+  });
+
+  // canary:publish waits on every push to main: that is the job that kept the
+  // drill's pipeline "blocked", so it is optional.
+  it('canary:publish is optional (allow_failure: true)', () => {
+    expect(job('canary:publish', read('.gitlab/ci/canary.gitlab-ci.yml'))).toMatch(/\n  allow_failure: true\n/);
+  });
+
+  // The npm release jobs stay blocking: optional, a failed publish or promote
+  // would still let release:gitlab tag and release the version. Their
+  // pipelines only come from a package.json merge, run end to end by a person.
+  it('the npm publish and promote stay blocking, and the GitLab Release still needs them', () => {
+    const release = read('.gitlab/ci/release.gitlab-ci.yml');
+    for (const name of ['release:npm-next', 'release:promote']) {
+      expect(job(name, release), name).not.toMatch(/\n  allow_failure:/);
+    }
+    const gitlab = job('release:gitlab', release);
+    expect(gitlab).toMatch(/needs: \[release:npm-next, release:next-check, release:promote,/);
+    expect(gitlab).not.toContain('allow_failure');
   });
 
   it('canary:publish still runs only when a person clicks it, on a push to the default branch', () => {

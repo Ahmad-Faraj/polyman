@@ -25,9 +25,9 @@ release:npm-next:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push" && $NPM_RELEASE == "1"
       changes: [package.json]
       when: manual
-  # optional, like canary:publish: a blocking manual job would keep the
-  # pipeline "blocked" when the production check fails, and nothing reacts
-  allow_failure: true
+  # blocking on purpose (no allow_failure): a failed publish or promote must
+  # stop release:gitlab from tagging. Release pipelines only come from a
+  # package.json merge and a person runs them end to end.
   environment:
     name: npm-next
     deployment_tier: staging
@@ -85,9 +85,9 @@ release:promote:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push" && $NPM_RELEASE == "1"
       changes: [package.json]
       when: manual
-  # optional, like canary:publish: a blocking manual job would keep the
-  # pipeline "blocked" when the production check fails, and nothing reacts
-  allow_failure: true
+  # blocking on purpose (no allow_failure): a failed publish or promote must
+  # stop release:gitlab from tagging. Release pipelines only come from a
+  # package.json merge and a person runs them end to end.
   environment:
     name: npm-latest
     deployment_tier: production
