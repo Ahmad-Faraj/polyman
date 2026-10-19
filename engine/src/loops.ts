@@ -1,4 +1,4 @@
-import { type Note, isPerson, saysGoAhead } from './goahead.ts';
+import { type Note, isPerson, mentionOf, ownLines, saysGoAhead } from './goahead.ts';
 import type { Ledger, LedgerRecord, NoteRef, OpenPush } from './ledger.ts';
 import { type SciCoefficients, sessionGrams } from './sci.ts';
 
@@ -90,7 +90,8 @@ export function loopsOf(
         ...records.filter((r) => !r.accepted).map((r) => ({ mr: r.mr, agent: r.agent, pushed_at: r.pushed_at })),
         ...open.filter((p) => !p.accepted && ownMrs.has(p.mr)).map((p) => ({ mr: p.mr, agent: p.agent, pushed_at: p.pushed_at })),
       ].sort((a, b) => a.pushed_at.localeCompare(b.pushed_at)),
-      refused_go_aheads: refusedNotes(accepted),
+      // two pushes that share a proposal can both see the same note: it counts once
+      refused_go_aheads: [...new Map(refusedNotes(accepted).map((n) => [n.note, n])).values()],
       approver_not_requester: records.every((r) => r.approver_not_requester !== false),
       giver_merged: by !== null && go_aheads.some((g) => lower(g.by) === lower(by)),
     });
@@ -98,32 +99,48 @@ export function loopsOf(
   return loops.sort((a, b) => a.merged_at.localeCompare(b.merged_at) || a.mr - b.mr);
 }
 
-/** "go-ahead", "Go Ahead!", "go ahead." with the @mentions taken out: someone meant to give one. */
-const meantAsGoAhead = (line: string) => line.replace(/@[\w.-]+/g, ' ').toLowerCase().replace(/[^a-z]/g, '') === 'goahead';
+/** "go-ahead", "Go Ahead!", "go ahead." with the @mentions and inline code taken out: someone meant to give one. */
+const meantAsGoAhead = (line: string) =>
+  line
+    .replace(/(`+)[^`]*?\1/g, ' ')
+    .replace(/@[\w.-]+/g, ' ')
+    .toLowerCase()
+    .replace(/[^a-z]/g, '') === 'goahead';
 
 /**
  * The go-aheads a person wrote for this push that didn't count: notes after
- * the agent's proposal and before the go-ahead that did count, mentioning the
- * agent, with a line that means "go ahead", but either not in the words the
- * guard takes ("Go Ahead!") or from someone the step doesn't allow (the
- * requester). The agent waited for another one; the ledger shows both.
+ * the agent's proposal (and after its previous push on the same thread,
+ * `after`, as the guard reads it) and before the go-ahead that did count,
+ * mentioning the agent, with a line of their own (not quoted, not in code)
+ * that means "go ahead", but either not in the words the guard takes ("Go
+ * Ahead!") or from someone the step doesn't allow (the requester). The agent
+ * waited for another one; the ledger shows both.
  */
-export function refusedGoAheads(notes: Note[], record: LedgerRecord): Note[] {
+export function refusedGoAheads(notes: Note[], record: LedgerRecord, after?: string): Note[] {
   if (!record.go_ahead || !record.proposal) return [];
-  const from = Date.parse(record.proposal.at);
+  const from = Math.max(Date.parse(record.proposal.at), after ? Date.parse(after) : -Infinity);
   const to = Date.parse(record.go_ahead.at);
   const lower = (s: string) => s.toLowerCase();
   const allowed = new Set(record.allowed_approvers.map(lower));
   const requesters = new Set(record.requesters.map(lower));
-  const mention = new RegExp(`@${record.agent.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w.-])`, 'i');
+  const mention = mentionOf(record.agent);
   return notes.filter((n) => {
     const at = Date.parse(n.created_at);
     if (n.system || n.id === record.go_ahead!.note || at <= from || at >= to || !isPerson(n.author.username)) return false;
-    if (!n.body.split('\n').some((line) => mention.test(line) && meantAsGoAhead(line))) return false;
+    if (!ownLines(n.body).some((line) => mention.test(line.replace(/(`+)[^`]*?\1/g, ' ')) && meantAsGoAhead(line))) return false;
     const who = lower(n.author.username);
     // a go-ahead that would have counted, given earlier: not refused, only not the latest
     return !(saysGoAhead(n.body, record.agent) && allowed.has(who) && !requesters.has(who));
   });
+}
+
+/** When the same agent last pushed on the record's thread before it (the guard's other lower bound for a go-ahead), or undefined. */
+export function previousPush(records: LedgerRecord[], record: LedgerRecord): string | undefined {
+  return records
+    .filter((r) => r.agent === record.agent && r.thread.kind === record.thread.kind && r.thread.iid === record.thread.iid && r.pushed_at < record.pushed_at)
+    .map((r) => r.pushed_at)
+    .sort()
+    .pop();
 }
 
 /** One agent session, as counted from its checkpoint (calls null: no checkpoint to count). */
@@ -159,18 +176,33 @@ export interface LoopGrams {
 }
 
 /**
- * The agent sessions of a loop: every session on its issues or its MRs that
- * started before the merge (the proposal, the build, the reviews, the fix
- * rounds), turned into grams the way SUSTAINABILITY.md does: the runner's
- * measured time, plus the counted model calls at 0.24-2.5 Wh each, at the
- * grid intensity in `c`.
+ * The agent sessions of each loop, each session in one loop only, so the
+ * loops' grams add up: a session on one of a loop's MRs is that loop's; a
+ * session on an issue alone is the first loop on that issue to merge after the
+ * session started (an issue two merged MRs closed gives its proposal to the
+ * first). A session after the merge isn't the loop's. Each loop's sessions are
+ * turned into grams the way SUSTAINABILITY.md does: the runner's measured time,
+ * plus the counted model calls at 0.24-2.5 Wh each, at the grid intensity in `c`.
  */
-export function loopGrams(loop: Loop, file: SessionFile, c: SciCoefficients): LoopGrams {
-  const mrs = new Set([loop.mr, ...loop.moved_from]);
-  const issues = new Set(loop.issues);
-  const end = Date.parse(loop.merged_at);
-  const mine = file.sessions.filter((s) => Date.parse(s.at) <= end && ((s.mr !== null && mrs.has(s.mr)) || (s.issue !== null && issues.has(s.issue))));
-  const counted = mine.filter((s) => s.calls !== null);
+export function loopGrams(loops: Loop[], file: SessionFile, c: SciCoefficients): Map<number, LoopGrams> {
+  const byMerge = [...loops].sort((a, b) => a.merged_at.localeCompare(b.merged_at) || a.mr - b.mr);
+  const mine = new Map<number, Session[]>(loops.map((l) => [l.mr, []]));
+  const seen = new Set<number>();
+  for (const s of file.sessions) {
+    // a session listed twice is still one session
+    if (seen.has(s.workflow)) continue;
+    seen.add(s.workflow);
+    const byMr = s.mr !== null ? byMerge.find((l) => l.mr === s.mr || l.moved_from.includes(s.mr!)) : undefined;
+    const owner = byMr ?? (s.issue !== null ? byMerge.find((l) => l.issues.includes(s.issue!) && Date.parse(s.at) <= Date.parse(l.merged_at)) : undefined);
+    if (owner && Date.parse(s.at) <= Date.parse(owner.merged_at)) mine.get(owner.mr)!.push(s);
+  }
+  const out = new Map<number, LoopGrams>();
+  for (const l of loops) out.set(l.mr, gramsOf(mine.get(l.mr)!, Date.parse(l.merged_at) > Date.parse(file.counted_up_to), c));
+  return out;
+}
+
+function gramsOf(sessions: Session[], partial: boolean, c: SciCoefficients): LoopGrams {
+  const counted = sessions.filter((s) => s.calls !== null);
   const byFlow: Record<string, number> = {};
   let low = 0;
   let high = 0;
@@ -180,7 +212,7 @@ export function loopGrams(loop: Loop, file: SessionFile, c: SciCoefficients): Lo
     high += g.high;
     byFlow[s.flow] = (byFlow[s.flow] ?? 0) + 1;
   }
-  return { low: tenth(low), high: tenth(high), sessions: counted.length, uncounted: mine.length - counted.length, byFlow, partial: end > Date.parse(file.counted_up_to) };
+  return { low: tenth(low), high: tenth(high), sessions: counted.length, uncounted: sessions.length - counted.length, byFlow, partial };
 }
 
 const tenth = (n: number) => Math.round(n * 10) / 10;

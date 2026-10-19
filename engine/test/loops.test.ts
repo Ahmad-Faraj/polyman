@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Note } from '../src/goahead.ts';
 import { type Ledger, type LedgerRecord, type OpenPush, GENESIS } from '../src/ledger.ts';
 import { duration, renderLoops } from '../src/ledger-page.ts';
-import { type Loop, type SessionFile, loopGrams, loopsOf, refusedGoAheads, sessionsFrom, summarize, summaryLine } from '../src/loops.ts';
+import { type Loop, type SessionFile, loopGrams, loopsOf, previousPush, refusedGoAheads, sessionsFrom, summarize, summaryLine } from '../src/loops.ts';
 import { DEFAULT_SCI, sessionGrams } from '../src/sci.ts';
 
 const WEB = 'https://gitlab.com/group/showcase';
@@ -122,6 +122,25 @@ describe('loopsOf', () => {
     });
     expect(seen).toEqual([[1, 2], [3]]);
   });
+
+  it('lists a go-ahead that two pushes both saw once', () => {
+    const twice = ref(9, 'Ahmad-Faraj', '2026-10-18T11:51:00Z');
+    const loop = loopsOf(moved, [], () => null, (records) => records.map(() => twice)).find((l) => l.mr === 83)!;
+    expect(loop.refused_go_aheads).toEqual([twice]);
+  });
+});
+
+describe('previousPush', () => {
+  it("gives the same agent's latest earlier push on the same thread", () => {
+    const first = record({ seq: 1, pushed_at: '2026-10-18T10:00:00Z' });
+    const second = record({ seq: 2, pushed_at: '2026-10-18T11:00:00Z', accepted: false });
+    const third = record({ seq: 3, pushed_at: '2026-10-18T12:00:00Z' });
+    const elsewhere = record({ seq: 4, pushed_at: '2026-10-18T11:30:00Z', thread: { kind: 'issue', iid: 99 } });
+    const other = record({ seq: 5, pushed_at: '2026-10-18T11:40:00Z', agent: REVIEWER });
+    const all = [first, second, third, elsewhere, other];
+    expect(previousPush(all, third)).toBe('2026-10-18T11:00:00Z');
+    expect(previousPush(all, first)).toBeUndefined();
+  });
 });
 
 const note = (id: number, at: string, author: string, body: string): Note => ({ id, body, system: false, created_at: at, author: { username: author } });
@@ -145,6 +164,23 @@ describe('refusedGoAheads', () => {
     expect(refusedGoAheads(notes, r).map((n) => n.id)).toEqual([11, 12]);
   });
 
+  it('leaves out go-ahead lines that are quoted, in code or inside an address', () => {
+    const notes = [
+      note(11, at('11:51'), 'HamzaHassanain', `> @${BUILDER} go-ahead`),
+      note(12, at('11:52'), 'HamzaHassanain', `As asked:\n\n\`\`\`\n@${BUILDER} Go Ahead!\n\`\`\``),
+      note(13, at('11:53'), 'Ahmad-Faraj', `Write \`@${BUILDER} go-ahead\` to let it push`),
+      note(14, at('11:54'), 'Ahmad-Faraj', `me@${BUILDER} go ahead`),
+      note(15, at('11:55'), 'Ahmad-Faraj', `> quoting\n\n@${BUILDER} go ahead`), // its own line after the quote: refused
+    ];
+    expect(refusedGoAheads(notes, r).map((n) => n.id)).toEqual([15]);
+  });
+
+  it('starts after the previous push on the thread when that is later than the proposal', () => {
+    const notes = [note(11, at('11:51'), 'Ahmad-Faraj', `@${BUILDER} go-ahead`), note(12, at('11:55'), 'Ahmad-Faraj', `@${BUILDER} go-ahead`)];
+    expect(refusedGoAheads(notes, r, at('11:52')).map((n) => n.id)).toEqual([12]);
+    expect(refusedGoAheads(notes, r, at('11:00')).map((n) => n.id)).toEqual([11, 12]);
+  });
+
   it('finds nothing for a push without a go-ahead', () => {
     expect(refusedGoAheads([note(11, at('11:51'), 'Ahmad-Faraj', `@${BUILDER} go-ahead`)], record({ go_ahead: null }))).toEqual([]);
   });
@@ -153,22 +189,23 @@ describe('refusedGoAheads', () => {
 const session = (over: Partial<SessionFile['sessions'][number]>) => ({ workflow: 1, pipeline: 1, at: '2026-10-18T12:00:00Z', flow: 'mr-reviewer', mr: null, issue: null, seconds: 100, calls: 10, ...over });
 
 describe('loopGrams', () => {
-  const loop = loopsOf(moved, [], () => null)[1];
+  const loops = loopsOf(moved, [], () => null);
   const file: SessionFile = {
     counted_up_to: '2026-10-19T20:03:22Z',
     source: 'test',
     sessions: [
-      session({ flow: 'issue-builder', issue: 31, at: '2026-10-18T11:00:00Z' }), // the proposal
-      session({ mr: 67 }), // a review on the moved MR
-      session({ mr: 83, calls: null }), // no checkpoint
-      session({ mr: 83, at: '2026-10-18T14:00:00Z' }), // after the merge
-      session({ mr: 50 }), // another loop
+      session({ workflow: 1, flow: 'issue-builder', issue: 31, at: '2026-10-18T11:00:00Z' }), // the proposal
+      session({ workflow: 2, mr: 67 }), // a review on the moved MR
+      session({ workflow: 3, mr: 83, calls: null }), // no checkpoint
+      session({ workflow: 4, mr: 83, at: '2026-10-18T14:00:00Z' }), // after the merge
+      session({ workflow: 5, mr: 50, at: '2026-10-18T06:00:00Z' }), // the other loop
+      session({ workflow: 5, mr: 50, at: '2026-10-18T06:00:00Z' }), // the same session listed twice
     ],
   };
+  const one = sessionGrams(100, { low: 10, high: 10 }, DEFAULT_SCI);
 
   it("adds up the runner and the counted calls of the loop's sessions up to the merge", () => {
-    const g = loopGrams(loop, file, DEFAULT_SCI);
-    const one = sessionGrams(100, { low: 10, high: 10 }, DEFAULT_SCI);
+    const g = loopGrams(loops, file, DEFAULT_SCI).get(83)!;
     expect(g).toMatchObject({ sessions: 2, uncounted: 1, byFlow: { 'issue-builder': 1, 'mr-reviewer': 1 }, partial: false });
     expect(g.low).toBeCloseTo(2 * one.low, 1);
     expect(g.high).toBeCloseTo(2 * one.high, 1);
@@ -176,8 +213,26 @@ describe('loopGrams', () => {
     expect(one.high - one.low).toBeCloseTo((10 * (2.5 - 0.24) * 579) / 1000, 6);
   });
 
+  it('counts a session listed twice once', () => {
+    expect(loopGrams(loops, file, DEFAULT_SCI).get(50)).toMatchObject({ sessions: 1, uncounted: 0 });
+  });
+
+  it('counts a session on an issue two merged MRs closed in the first to merge after it started, and only there', () => {
+    // !50 closes #31 too, and merged before !83
+    const both = loopsOf(ledger([...moved.records.slice(0, 2), { ...moved.records[2], closes: [12, 31] }]), [], () => null);
+    const early = { ...file, sessions: [session({ workflow: 1, flow: 'issue-builder', issue: 31, at: '2026-10-18T05:00:00Z' })] };
+    const g = loopGrams(both, early, DEFAULT_SCI);
+    expect([g.get(50)!.sessions, g.get(83)!.sessions]).toEqual([1, 0]);
+    // started after !50 merged: the next loop on the issue
+    const late = { ...file, sessions: [session({ workflow: 1, flow: 'issue-builder', issue: 31, at: '2026-10-18T11:00:00Z' })] };
+    const h = loopGrams(both, late, DEFAULT_SCI);
+    expect([h.get(50)!.sessions, h.get(83)!.sessions]).toEqual([0, 1]);
+    // so the total is the sessions' grams, once each
+    expect(summarize(both, g).grams).toMatchObject({ low: Math.round(one.low * 10) / 10, loops: 1 });
+  });
+
   it('says when the loop merged after the last counted session', () => {
-    expect(loopGrams(loop, { ...file, counted_up_to: '2026-10-18T13:00:00Z' }, DEFAULT_SCI).partial).toBe(true);
+    expect(loopGrams(loops, { ...file, counted_up_to: '2026-10-18T13:00:00Z' }, DEFAULT_SCI).get(83)!.partial).toBe(true);
   });
 });
 

@@ -30,7 +30,8 @@ import { type Note, type PushEvent, branchPushes, isPerson, isProjectPerson, tie
 import { allPages, checkMr, eventsSince, gitRepo, notesOf as fetchNotes, relatedIncident } from '../goahead-mr.ts';
 import { type Carrier, type GuardRun, type Ledger, type LedgerRecord, type OpenPush, byMerge, carriedRecords, chain, compare, counters, flowOf, recordsFor, second, verifyChain } from '../ledger.ts';
 import { renderLedgerPage } from '../ledger-page.ts';
-import { type LoopGrams, type SessionFile, loopGrams, loopsOf, refusedGoAheads, summarize, summaryLine } from '../loops.ts';
+import type { SciCoefficients } from '../sci.ts';
+import { type SessionFile, loopGrams, loopsOf, previousPush, refusedGoAheads, summarize, summaryLine } from '../loops.ts';
 
 const env = process.env;
 const GUARD = 'engine/src/cli/goahead.ts';
@@ -270,10 +271,55 @@ async function main() {
   }
   const problems = published ? compare(published, ledger) : [];
   const stats = counters(ledger, open, runs);
+  const page = (loops?: Parameters<typeof renderLedgerPage>[0]['loops']) =>
+    renderLedgerPage({ ledger, open, runs, counters: stats, web, generatedAt: second(new Date().toISOString()), commit: env.CI_COMMIT_SHA ?? git('rev-parse', 'HEAD'), loops });
 
-  // one row per loop: the records grouped by the MR that merged them, with who
-  // merged it (GitLab's merged_by), the go-aheads that didn't count, and the
-  // grams of the loop's agent sessions from the committed session counts
+  // the chain first: the loop view below is only a view of it, so nothing in it may stop the chain being written and checked
+  mkdirSync(out, { recursive: true });
+  writeFileSync(join(out, 'ledger.json'), JSON.stringify(ledger, null, 2) + '\n');
+  writeFileSync(join(out, 'index.html'), page());
+
+  for (const r of ledger.records) {
+    console.log(
+      `${r.seq}. !${r.mr}${r.carried_by ? ` (merged in !${r.carried_by.mr})` : ''} push at ${r.pushed_at} by @${r.agent}: ${r.accepted ? `go-ahead in note ${r.go_ahead!.note} by @${r.go_ahead!.by}` : `refused: ${r.reasons.join('; ')}`} (risk ${r.tier}, asked by ${r.requesters.map((x) => `@${x}`).join(', ') || 'nobody on record'})`,
+    );
+  }
+  for (const p of open) console.log(`open !${p.mr} push at ${p.pushed_at} by @${p.agent}: ${p.accepted ? `go-ahead in note ${p.go_ahead!.note} by @${p.go_ahead!.by}` : `refused: ${p.reasons.join('; ')}`}`);
+  for (const s of skipped) console.log(`not in the ledger: ${s}`);
+  console.log(
+    `${stats.records} record(s), ${stats.accepted} let through, ${stats.refused} refused; ${stats.goAheads} go-ahead(s) (${Object.entries(stats.byWhom).map(([k, v]) => `@${k} ${v}`).join(', ') || 'none'}); approver is not the requester: ${stats.approverNotRequester.holds}/${stats.approverNotRequester.of}; autonomy:goahead failed ${stats.failedRuns} time(s) on agent MRs; head ${ledger.head}`,
+  );
+  if (published && problems.length) {
+    for (const p of problems) console.error(p);
+    console.error(`The published go-ahead ledger doesn't match what GitLab says now, so this job fails and Pages keeps the published one. A person has to find out why before anything is published.`);
+    process.exit(1);
+  }
+  if (published) console.log(`the published ledger (${published.records.length} record(s), head ${published.head.slice(0, 12)}) is the start of this one: nothing in it changed`);
+
+  try {
+    await loopView(gl, web, ledger, open, mrs, notesOf, today.sustainability, out, page);
+  } catch (err) {
+    console.warn(`warning: the loop view could not be built, so the page is published without it: ${(err as Error).message}`);
+  }
+}
+
+/**
+ * One row per loop: the records grouped by the MR that merged them, with who
+ * merged it (GitLab's merged_by), the go-aheads that didn't count, and the
+ * grams of the loop's agent sessions from the committed session counts.
+ * Rewrites the page with the loops and writes loops.json.
+ */
+async function loopView(
+  gl: GitLab,
+  web: string,
+  ledger: Ledger,
+  open: OpenPush[],
+  mrs: Mr[],
+  notesOf: (client: GitLab, kind: 'issue' | 'mergeRequest', iid: number) => Promise<Note[]>,
+  sci: SciCoefficients,
+  out: string,
+  page: (loops: Parameters<typeof renderLedgerPage>[0]['loops']) => string,
+) {
   const byIid = new Map(mrs.map((m) => [m.iid, m]));
   const mergedBy = new Map<number, string | null>();
   for (const iid of new Set(ledger.records.map((r) => r.carried_by?.mr ?? r.mr))) {
@@ -288,7 +334,7 @@ async function main() {
   }
   const refused = new Map<number, ReturnType<typeof refusedGoAheads>>();
   for (const r of ledger.records.filter((x) => x.accepted)) {
-    refused.set(r.seq, refusedGoAheads(await notesOf(gl, r.thread.kind === 'issue' ? 'issue' : 'mergeRequest', r.thread.iid), r));
+    refused.set(r.seq, refusedGoAheads(await notesOf(gl, r.thread.kind === 'issue' ? 'issue' : 'mergeRequest', r.thread.iid), r, previousPush(ledger.records, r)));
   }
   const loops = loopsOf(
     ledger,
@@ -305,41 +351,15 @@ async function main() {
       ),
   );
   const sessions = sessionFile(env.LOOP_SESSIONS ?? 'sustainability/loop-sessions.json');
-  const grams = new Map<number, LoopGrams>();
-  if (sessions) for (const l of loops) grams.set(l.mr, loopGrams(l, sessions, today.sustainability));
+  const grams = sessions ? loopGrams(loops, sessions, sci) : new Map();
   const summary = summarize(loops, sessions ? grams : undefined);
-
-  mkdirSync(out, { recursive: true });
-  writeFileSync(join(out, 'ledger.json'), JSON.stringify(ledger, null, 2) + '\n');
   const withGrams = loops.map((l) => ({ ...l, grams: grams.get(l.mr) ?? null }));
   writeFileSync(
     join(out, 'loops.json'),
-    JSON.stringify({ summary, sessions_counted_up_to: sessions?.counted_up_to ?? null, grid_gco2e_per_kwh: today.sustainability.gridGramsPerKwh, loops: withGrams }, null, 2) + '\n',
+    JSON.stringify({ summary, sessions_counted_up_to: sessions?.counted_up_to ?? null, grid_gco2e_per_kwh: sci.gridGramsPerKwh, loops: withGrams }, null, 2) + '\n',
   );
-  writeFileSync(
-    join(out, 'index.html'),
-    renderLedgerPage({
-      ledger,
-      open,
-      runs,
-      counters: stats,
-      web,
-      generatedAt: second(new Date().toISOString()),
-      commit: env.CI_COMMIT_SHA ?? git('rev-parse', 'HEAD'),
-      loops: { rows: withGrams, summary, sessions: sessions ? { countedUpTo: sessions.counted_up_to, source: sessions.source } : null, grid: today.sustainability.gridGramsPerKwh },
-    }),
-  );
+  writeFileSync(join(out, 'index.html'), page({ rows: withGrams, summary, sessions: sessions ? { countedUpTo: sessions.counted_up_to, source: sessions.source } : null, grid: sci.gridGramsPerKwh }));
 
-  for (const r of ledger.records) {
-    console.log(
-      `${r.seq}. !${r.mr}${r.carried_by ? ` (merged in !${r.carried_by.mr})` : ''} push at ${r.pushed_at} by @${r.agent}: ${r.accepted ? `go-ahead in note ${r.go_ahead!.note} by @${r.go_ahead!.by}` : `refused: ${r.reasons.join('; ')}`} (risk ${r.tier}, asked by ${r.requesters.map((x) => `@${x}`).join(', ') || 'nobody on record'})`,
-    );
-  }
-  for (const p of open) console.log(`open !${p.mr} push at ${p.pushed_at} by @${p.agent}: ${p.accepted ? `go-ahead in note ${p.go_ahead!.note} by @${p.go_ahead!.by}` : `refused: ${p.reasons.join('; ')}`}`);
-  for (const s of skipped) console.log(`not in the ledger: ${s}`);
-  console.log(
-    `${stats.records} record(s), ${stats.accepted} let through, ${stats.refused} refused; ${stats.goAheads} go-ahead(s) (${Object.entries(stats.byWhom).map(([k, v]) => `@${k} ${v}`).join(', ') || 'none'}); approver is not the requester: ${stats.approverNotRequester.holds}/${stats.approverNotRequester.of}; autonomy:goahead failed ${stats.failedRuns} time(s) on agent MRs; head ${ledger.head}`,
-  );
   for (const l of loops) {
     const g = grams.get(l.mr);
     console.log(
@@ -347,14 +367,6 @@ async function main() {
     );
   }
   console.log(summaryLine(summary) + (sessions ? ` (agent sessions counted up to ${sessions.counted_up_to})` : ''));
-  if (!published) return;
-  if (!problems.length) {
-    console.log(`the published ledger (${published.records.length} record(s), head ${published.head.slice(0, 12)}) is the start of this one: nothing in it changed`);
-    return;
-  }
-  for (const p of problems) console.error(p);
-  console.error(`The published go-ahead ledger doesn't match what GitLab says now, so this job fails and Pages keeps the published one. A person has to find out why before anything is published.`);
-  process.exit(1);
 }
 
 /** The committed agent session counts (loop-sessions.ts), or null when there are none: the loops are shown without grams. */

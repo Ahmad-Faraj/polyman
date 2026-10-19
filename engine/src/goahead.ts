@@ -63,15 +63,15 @@ export function isProposal(body: string): boolean {
 
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+/** `@account` as a mention: not inside an email address or a longer name. */
+export const mentionOf = (account: string) => new RegExp(`(^|[^\\w.-])@${escape(account)}(?![\\w.-])`, 'i');
+
 /**
- * One line of the comment mentions this account and, apart from @mentions,
- * says exactly "go-ahead" (a trailing full stop is fine). "No go-ahead yet" is
- * not one, and neither is a go-ahead to another agent with this one mentioned
- * elsewhere in the comment. Lines in code blocks, quotes and HTML comments
- * don't count: they show or cite a go-ahead, they don't give one.
+ * The lines of a comment that say something themselves: lines in code blocks
+ * (fenced or indented), quotes and HTML comments only show or cite text.
  */
-export function saysGoAhead(body: string, account: string): boolean {
-  const mention = new RegExp(`(^|[^\\w.-])@${escape(account)}(?![\\w.-])`, 'i');
+export function ownLines(body: string): string[] {
+  const own: string[] = [];
   // the open fence (``` or ~~~, three or more): only a line of the same
   // character, at least as many times, closes it
   let fence: string | null = null;
@@ -102,10 +102,21 @@ export function saysGoAhead(body: string, account: string): boolean {
     // a quote runs on over the lines that follow it until a blank line
     quoted = /^\s*>/.test(line) || (quoted && !blank);
     boundary = blank || /^ {0,3}(#{1,6}(\s|$)|([-*_])( *\3){2,} *$)/.test(line);
-    if (indented || quoted) continue;
-    if (mention.test(line) && line.replace(/@[\w.-]+/g, ' ').trim().replace(/[.!]$/, '').toLowerCase() === 'go-ahead') return true;
+    if (!indented && !quoted) own.push(line);
   }
-  return false;
+  return own;
+}
+
+/**
+ * One line of the comment mentions this account and, apart from @mentions,
+ * says exactly "go-ahead" (a trailing full stop is fine). "No go-ahead yet" is
+ * not one, and neither is a go-ahead to another agent with this one mentioned
+ * elsewhere in the comment. Lines in code blocks, quotes and HTML comments
+ * don't count: they show or cite a go-ahead, they don't give one.
+ */
+export function saysGoAhead(body: string, account: string): boolean {
+  const mention = mentionOf(account);
+  return ownLines(body).some((line) => mention.test(line) && line.replace(/@[\w.-]+/g, ' ').trim().replace(/[.!]$/, '').toLowerCase() === 'go-ahead');
 }
 
 /** A push as GitLab's project events record it: who pushed, when, and what it moved the branch from and to. */

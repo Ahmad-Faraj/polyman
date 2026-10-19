@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { execFileSync, spawn } from 'node:child_process';
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -325,6 +325,29 @@ describe('autonomy:ledger against a git repo and a stand-in for GitLab', () => {
     expect(code).toBe(0);
     expect(text).toContain('so the loops are shown without grams');
     expect(loops()).toMatchObject({ sessions_counted_up_to: null, loops: [{ mr: 7, grams: null }] });
+  });
+
+  it("still writes the chain and the page when the loop view can't be built, only without the loops", async () => {
+    const r = repo();
+    const sessions = join(r.dir, 'loop-sessions.json');
+    writeFileSync(sessions, '{ not json');
+    const { code, text, ledger, page } = await run(r, { env: { LOOP_SESSIONS: sessions } });
+    expect(code).toBe(0);
+    expect(text).toMatch(/warning: the loop view could not be built, so the page is published without it/);
+    expect(ledger().records).toHaveLength(1);
+    expect(page()).toContain('<h1>Go-ahead ledger</h1>');
+    expect(page()).not.toContain('One row per loop');
+    expect(existsSync(join(r.dir, 'out', 'loops.json'))).toBe(false);
+  });
+
+  it("still fails on a changed published record when the loop view can't be built", async () => {
+    const r = repo();
+    const first = (await run(r)).ledger();
+    const sessions = join(r.dir, 'loop-sessions.json');
+    writeFileSync(sessions, '{ not json');
+    const { code, text } = await run(r, { published: first, issueNotes: [proposal, goAhead('23:30:00')], env: { LOOP_SESSIONS: sessions } });
+    expect(text).toMatch(/Pages keeps the published one/);
+    expect(code).toBe(1);
   });
 
   it('passes when the published ledger comes back unchanged', async () => {
