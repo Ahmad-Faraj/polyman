@@ -17,6 +17,12 @@ canary:publish:
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"
       when: manual
+  # Optional, not blocking: a manual job in rules blocks by default, and a
+  # pipeline waiting on it shows "blocked" even after another job failed, so a
+  # failed production check never made the pipeline "failed" and the incident
+  # responder never started (drill, 19 Oct). canary:judge shows as skipped until
+  # someone runs this job.
+  allow_failure: true
   environment:
     name: canary
     deployment_tier: testing
