@@ -1,1 +1,8 @@
-[]
+[
+  {
+    "paths": ["service/src/app.ts"],
+    "weight": 25,
+    "reason": "Origin check on the public API refused every script and CI upload (403)",
+    "ref": "#65"
+  }
+]
