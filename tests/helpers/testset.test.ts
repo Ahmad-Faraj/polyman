@@ -1,3 +1,4 @@
+import fs from 'fs';
 import path from 'path';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as testset from '../../src/helpers/testset';
@@ -258,19 +259,30 @@ describe('testset.ts', () => {
       // Pins current behaviour: the refusal from readScriptText is caught by
       // the try/catch in listTestsets, so no error is shown; the count falls
       // back to the number of manual tests.
+      // The script file "exists" and has three tests, so if the guard let the
+      // path through the count would be 5, not 2.
+      vi.mocked(fs.existsSync).mockReturnValue(true);
+      vi.mocked(fs.readFileSync).mockReturnValue(
+        'gen 1 > 1\ngen 2 > 2\ngen 3 > 3'
+      );
       const ts: LocalTestset = {
         name: 'ts1',
         generatorScript: { scriptFile: '../x.txt' },
         manualTests: [
-          { input: './a.in', index: 1 },
-          { input: './b.in', index: 2 },
+          { input: './a.in', index: 4 },
+          { input: './b.in', index: 5 },
         ],
       };
       let out = '';
-      expect(() => {
-        out = testset.listTestsets([ts])[0];
-      }).not.toThrow();
-      expect(out).toContain('ts1: 2 tests');
+      try {
+        expect(() => {
+          out = testset.listTestsets([ts])[0];
+        }).not.toThrow();
+        expect(out).toContain('ts1: 2 tests');
+      } finally {
+        vi.mocked(fs.existsSync).mockReset();
+        vi.mocked(fs.readFileSync).mockReset();
+      }
     });
 
     it('handles testsets with no script and no groups', () => {
