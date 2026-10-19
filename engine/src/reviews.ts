@@ -1,7 +1,10 @@
 /**
  * Finds merge requests whose head pipeline passed a while ago and that still
- * have no review of that head. A reviewer session can end or crash without a
- * note, and nothing else tells a person; this is how doctor notices.
+ * have no review of that head. Two reasons, told apart: a first review whose
+ * session ended or crashed without a note, or a later head that waits for a
+ * person's mention (the reviewer reviews an MR once on its own, then only when
+ * mentioned). Nothing else tells a person before they merge an unreviewed
+ * head; this is how doctor notices.
  */
 
 export interface OpenMr {
@@ -10,9 +13,12 @@ export interface OpenMr {
   draft: boolean;
   /** the newest pipeline of the MR, if any */
   pipeline: { sha: string; status: string; finishedAt: string | null } | null;
-  /** short or full SHAs that "Review of SHA" notes by the reviewer account cover */
+  /** short or full SHAs that "Review of SHA" notes by the reviewer account cover, newest first */
   reviewedShas: string[];
 }
+
+/** Why the head has no review: no review at all yet, or one of an older head that waits for a mention. */
+export const missingBecause = (mr: OpenMr): 'no review yet' | 'waits for a mention' => (mr.reviewedShas.length ? 'waits for a mention' : 'no review yet');
 
 /** MRs that should have a review of their head by now and don't. */
 export function missingReviews(mrs: OpenMr[], now: Date, runningSince: string[], graceMinutes = 40): OpenMr[] {
