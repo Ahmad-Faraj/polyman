@@ -2008,13 +2008,21 @@ describe('pushing.ts', () => {
       ]);
     });
 
-    it('should not read a statement file outside the folder', async () => {
+    it.each([
+      'legend',
+      'input',
+      'output',
+      'notes',
+      'tutorial',
+      'interaction',
+      'scoring',
+    ])('should not read statement %s outside the folder', async field => {
       const { sdk, mocks } = buildSdk();
       const failures: string[] = [];
       const cfg = asConfig({
         name: 'Prob',
         statements: {
-          english: { encoding: 'UTF-8', name: 'Prob', notes: outside },
+          english: { encoding: 'UTF-8', name: 'Prob', [field]: outside },
         },
       });
       await pushing.uploadStatements(sdk, 1, 'dir', cfg, failures);
@@ -2022,6 +2030,48 @@ describe('pushing.ts', () => {
       expect(mocks.saveStatement).not.toHaveBeenCalled();
       expect(failures).toEqual([
         `statement english: Refusing path outside the problem folder: ${outside}`,
+      ]);
+    });
+
+    it('should refuse an absolute solution path outside the folder', async () => {
+      const { sdk, mocks } = buildSdk();
+      const failures: string[] = [];
+      const cfg = asConfig({
+        solutions: [{ name: 'sol', source: '/etc/passwd', tag: 'MA' }],
+      });
+      const result = await pushing.uploadSolutions(
+        sdk,
+        1,
+        'dir',
+        cfg,
+        failures
+      );
+      expect(result).toBe(0);
+      expect(mockedReadFileSync).not.toHaveBeenCalled();
+      expect(mocks.saveSolution).not.toHaveBeenCalled();
+      expect(failures).toEqual([
+        'solution sol: Refusing path outside the problem folder: /etc/passwd',
+      ]);
+    });
+
+    it('should refuse an absolute statement path outside the folder', async () => {
+      const { sdk, mocks } = buildSdk();
+      const failures: string[] = [];
+      const cfg = asConfig({
+        name: 'Prob',
+        statements: {
+          english: {
+            encoding: 'UTF-8',
+            name: 'Prob',
+            legend: '/etc/passwd',
+          },
+        },
+      });
+      await pushing.uploadStatements(sdk, 1, 'dir', cfg, failures);
+      expect(mockedReadFileSync).not.toHaveBeenCalled();
+      expect(mocks.saveStatement).not.toHaveBeenCalled();
+      expect(failures).toEqual([
+        'statement english: Refusing path outside the problem folder: /etc/passwd',
       ]);
     });
 
