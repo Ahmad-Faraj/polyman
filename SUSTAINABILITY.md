@@ -17,7 +17,9 @@ low and a high end (method below).
 | low: one light review | 16 | 7 | 0.35M | 1.2-10.4 |
 
 Medians per review, Oct 16 to 18, before the cuts below. After them (reviewer 1.0.17, 9 full reviews) a full
-review takes about 21 calls and 490k tokens, and about 6 GitLab credits instead of 11.
+review takes about 21 calls and 490k tokens, and about 6 GitLab credits instead of 11, on mostly small MRs.
+Since !116 (save on lookups, never on testing) full reviews of 300+ line MRs take about
+27-31 calls and 7.6-8.5 credits (30 reviews, to Oct 19 18:23 UTC).
 
 - **Inference is most of it.** The runner is about 1.9 g of a high review on average; the
   model calls are the rest. A carbon number that counts only CI misses most of
@@ -26,13 +28,19 @@ review takes about 21 calls and 490k tokens, and about 6 GitLab credits instead 
   tokens of a high-risk one.** The risk score comes from what changed (paths,
   size, new scanner findings on the lines it wrote), so a small documentation or
   test change doesn't get three specialists.
-- **Sessions that didn't do their job.** Of 195 reviewer sessions to Oct 19
-  01:10 UTC, 32 (16%) stopped early at about 2 calls each. Costlier were
-  reviews that ended without their purpose: 26 finished after the MR had
-  merged, 10 never posted their note, 7 repeated a head already reviewed. With
-  the early stops that is 73 sessions and about 29% of the reviewer's credits.
-  The reviewer now re-checks that the MR is open before it delegates; since
-  1.0.17 it is 0 of 19 sessions so far.
+- **Sessions that didn't do their job.** Of 176 reviewer sessions before
+  reviewer 1.0.17 (to Oct 18 17:47 UTC), 73 ended without their purpose: 30
+  stopped early at about 2 calls each, 26 finished after the MR had merged, 10
+  never posted their note, 7 repeated a head already reviewed. That was 31% of
+  the reviewer's credits. The reviewer now re-checks that the MR is open before
+  it delegates. Since 1.0.17 (to Oct 19 18:23 UTC) it is 18 of 84 sessions: 13
+  are designed 2-call skips, 3 posted no note, 2 repeated a head when a
+  pipeline event and a mention raced. Without the designed skips that is 6.4%
+  of the credits.
+- **Re-reviews: no saving to claim.** Since !132 a pipeline event on an
+  already-reviewed MR stops after 2 calls (9 times to Oct 19 18:23 UTC). But
+  re-reviews people asked for were 16 of 27 reviews after it, and 56% of the
+  reviewer's credits.
 - **A person's go-ahead decides whether a step runs at all.** An agent proposes
   first (a few turns) and builds only on a go-ahead; a proposal nobody approves
   never costs a build, a review and a pipeline (counted under "Per delivered
@@ -54,7 +62,7 @@ A review is only part of a fix. Functional unit two: **one judge-found bug fixed
 
 **A merged fix, median: 6.8-177 gCO2e, of which the runner is 1.6 g.** What drives it is the number of review sessions, not the build: #8 had nine. (Session-to-issue matching is by the issue's "started session" notes; a session it can't place isn't counted, so these lean low.)
 
-**The go-ahead decides what runs at all.** Of 13 proposals issue-builder posted, 2 never became a build: one nobody approved (#10), and one a maintainer revised before any code was written (#28, its first proposal would have stopped judging at the first PE). Each avoided build saves a build and its reviews, about one row of the table above. With a person deciding each step, a wrong or unwanted change costs a proposal (a few model calls), not a fix plus its reviews.
+**The go-ahead decides what runs at all.** issue-builder posted proposals on 22 issues (to Oct 19); 20 became a build. Two never pushed code: one nobody approved (#10), and one where the agent stopped when `npm audit fix` hit an npm error, as its proposal said it would (#63). On #28 a maintainer revised the first proposal before any code was written (it would have stopped judging at the first PE). Each avoided build saves a build and its reviews, about one row of the table above. With a person deciding each step, a wrong or unwanted change costs a proposal (a few model calls), not a fix plus its reviews.
 
 ## Per token, with the calls counted (SCI for AI)
 
@@ -91,11 +99,12 @@ The reviewer changed in two releases of the flow, at 16:41 and 17:47 UTC: !98 (o
 | | Reviews | Model calls | Input tokens | GitLab credits |
 |---|---|---|---|---|
 | before !98 (median) | 72 | 40 | 1.69M | about 11 |
-| after the cuts | 4 | 15-20 | 473k-618k | about 4.2-5.5 |
+| after the cuts (reviewer 1.0.17, median) | 9 | 21 | 493k | about 5.8 |
+| since !116 (1.0.18-1.0.23, mostly 300+ line MRs) | 30 | 27.5-30.5 | 791k-1.16M | about 7.6-8.5 |
 
-Credits are model calls divided by 3.6: that's what the calls of the sessions Mazen started came to on Mazen's GitLab credits usage on Oct 17 and 18 (3.58 and 3.62 calls per credit), against the 3.2 the price list gives.
+Credits are model calls divided by 3.6: that's what the calls of the sessions Mazen started came to on Mazen's GitLab credits usage on Oct 17 and 18 (3.58 and 3.55 calls per credit), against the 3.2 the price list gives. On Oct 19 it was 3.09, so these credits may be up to about 15% low.
 
-Four reviews are few, and three of them were medium tier. The cuts also cost depth: on frozen copies of earlier MRs, re-reviewed with the new flow, the reviews found 4 of the 7 findings the earlier reviews of the same heads had found, and missed a command injection. !116 asks the specialists to save calls on lookups, never on testing; it is measured on the same frozen copies before any saving here counts as kept.
+The nine reviews after the cuts were on small MRs (median 52 lines). The cuts also cost depth: on frozen copies of earlier MRs, re-reviewed with the new flow, the reviews found 4 of the 7 findings the earlier reviews of the same heads had found, and missed a command injection. !116 asks the specialists to save calls on lookups, never on testing, which is why the later full reviews cost more. On the frozen copy of !59, reviewer 1.0.22 found the original P1 again for about 5.3 credits, against 13.1 for the original review (!145, one run).
 
 The data per session (pipeline, workflow, MR, tier, runner seconds, tokens by class and by role) is in [sustainability/agent-tokens.json](sustainability/agent-tokens.json). To rebuild it (read-only, needs a token that can read job logs and agent sessions):
 
