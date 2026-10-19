@@ -148,10 +148,21 @@ describe("the project's Duo flows", () => {
     expect(text.split('This is best effort, not isolation: the code still runs as your user.').length - 1).toBe(3);
   });
 
-  it('the lead checks the MR is still open right before it delegates or asks for a low-risk review', () => {
+  it('the lead checks the MR is still open right before it delegates or reviews a low-risk MR itself', () => {
     const text = flat('mr-reviewer.yaml');
-    expect(text).toContain('Right before the first delegation (for risk::low, before the review request), check the MR again with get_merge_request');
+    expect(text).toContain('Right before the first delegation (for risk::low, before your own review), check the MR again with get_merge_request');
     expect(text).toContain('answer "skipped: MR is not open" and stop');
+  });
+
+  it('at risk::low the lead reviews lightly itself and posts no quick action; a person can still ask GitLab Code Review', () => {
+    const text = flat('mr-reviewer.yaml');
+    const low = text.slice(text.indexOf('- risk::low:'), text.indexOf('- risk::medium:'));
+    expect(low).toContain("don't delegate. Review the diff yourself, lightly");
+    expect(low).toContain("Post no quick action and don't request a review from GitLabDuo");
+    expect(low).toContain('anyone on the team can type "/request_review @GitLabDuo"');
+    // the only mention of the quick action is the line telling people they can type it
+    expect(text.split('/request_review').length - 1).toBe(1);
+    expect(text).not.toContain('requested review from @GitLabDuo');
   });
 
   it('a reviewer specialist never pushes in a review, only in a fix round with a named go-ahead', () => {
