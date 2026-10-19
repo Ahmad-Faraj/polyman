@@ -188,6 +188,22 @@ describe("the project's Duo flows", () => {
     expect(reviewer.indexOf(line.replace(/^t/, 'that t'))).toBeGreaterThan(reviewer.indexOf('"After merge", only when the diff touches'));
   });
 
+  // 19 Oct: on !135 and !136 the go-ahead giver also merged; the note never said who merges
+  it('a ready review names who merges: a maintainer who neither asked nor gave a go-ahead', () => {
+    const body = promptOf('mr-reviewer.yaml');
+    const merge = body.slice(body.indexOf('- "Merge", only when ready to approve'), body.indexOf('- "Proposed fixes"'));
+    // above the fold, and only on a ready review
+    expect(body.indexOf('- "Merge", only when ready to approve')).toBeGreaterThan(-1);
+    expect(body.indexOf('- "Merge", only when ready to approve')).toBeLessThan(body.indexOf('<details>'));
+    expect(merge).toContain('neither a requester nor the author of a go-ahead on this MR or the issue it closes');
+    expect(merge).toContain('not the requester or the go-ahead giver');
+    expect(merge).toContain('If nobody is left, say a maintainer other than the requester merges, and mention nobody');
+    // the names come from .autonomy.yml's maintainers, never written into the flow
+    expect(merge).toContain('@@maintainers@@');
+    const filled = renderFlow(read('mr-reviewer.yaml'), values).replace(/\s+/g, ' ');
+    expect(filled).toContain(`who approves and merges: those of ${config.goAhead.maintainers.map((m) => `@${m}`).join(', ')} who are neither`);
+  });
+
   it('the code reviewer looks for errors that disappear, and a quiet pass in a gate is P1', () => {
     expect(flat('mr-reviewer.yaml')).toContain('Look hard at errors that disappear');
     expect(flat('mr-reviewer.yaml')).toContain('In a check, a gate or a guard, a failure that passes quietly is P1.');

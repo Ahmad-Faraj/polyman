@@ -301,6 +301,12 @@ prompts:
              three items and say how many more are in the details.
            - If not ready: why, in one line. Ready only after a clean review of
              the current head: any open P1 or P2 means not ready.
+           - "Merge", only when ready to approve: one line saying who approves
+             and merges: those of @@maintainers@@ who are neither a requester
+             nor the author of a go-ahead on this MR or the issue it closes (not
+             the requester or the go-ahead giver), mentioned so GitLab notifies
+             them. Compare usernames without case. If nobody is left, say a
+             maintainer other than the requester merges, and mention nobody.
            - "Proposed fixes": the P1 and P2 an agent would fix, one line each,
              or "none".
            - "Go-ahead": if there are proposed fixes, who may give it and how
