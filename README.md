@@ -39,7 +39,7 @@ Polyman eliminates manual testing and syncing, letting you focus on problem desi
 ### System Requirements
 
 - **Node.js** ≥ 14
-- **C++ Compiler** (g++ with C++23 support; set `cppStandard` in `Config.json` for older compilers)
+- **C++ Compiler** (g++ with C++23 support; set `cppStandard` in `Config.json` for older compilers, or pick another compiler with `POLYMAN_CXX` or `compiler.cpp`, see [GUIDE.md](GUIDE.md#local-compiler-overrides))
 - **Python 3** (optional - for Python solutions)
 - **Java JDK** (optional - for Java solutions)
 
@@ -120,7 +120,7 @@ For detailed usage, see [GUIDE.md](GUIDE.md#cli-commands-reference).
 
 ### Compilation cache
 
-C++ builds are cached in `.polyman/cache/` inside the problem directory. A source is recompiled only when it, a local header it includes (such as `testlib.h`), `cppStandard`, or the compiler version changes; otherwise the cached binary is reused and `verify` reports the time saved. Pass `--no-cache` to `generate`, `validate`, `run`, `test` or `verify` to force recompilation. See [GUIDE.md](GUIDE.md#compilation-cache).
+C++ builds are cached in `.polyman/cache/` inside the problem directory. A source is recompiled only when it, a local header it includes (such as `testlib.h`), `cppStandard`, the compiler (`POLYMAN_CXX` / `compiler.cpp`) or its version, or `compiler.flags` changes; otherwise the cached binary is reused and `verify` reports the time saved. Pass `--no-cache` to `generate`, `validate`, `run`, `test` or `verify` to force recompilation. See [GUIDE.md](GUIDE.md#compilation-cache).
 
 ### Terminal colors
 

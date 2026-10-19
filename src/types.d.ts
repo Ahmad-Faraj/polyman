@@ -424,6 +424,7 @@ interface TimeLimitMultipliers {
  * @property {LocalChecker} checker - Checker configuration
  * @property {LocalValidator} validator - Validator configuration
  * @property {LocalTestset[]} [testsets] - Testset configurations
+ * @property {CompilerConfig} [compiler] - Local compiler overrides
  */
 interface ConfigFile {
   // Polygon metadata
@@ -468,6 +469,35 @@ interface ConfigFile {
 
   // Testsets
   testsets?: LocalTestset[];
+
+  // Local compiler overrides (not synced to Polygon)
+  compiler?: CompilerConfig;
+}
+
+/**
+ * Local compiler overrides. Only affects how polyman compiles sources on
+ * this machine; Polygon uses `sourceType` instead.
+ *
+ * Environment variables `POLYMAN_CXX` and `POLYMAN_JAVAC` take precedence
+ * over these fields.
+ *
+ * @interface CompilerConfig
+ * @property {string} [cpp] - C++ compiler executable (default: `g++`)
+ * @property {string} [javac] - Java compiler executable (default: `javac`)
+ * @property {string[]} [flags] - Extra flags for every C++ compile, one per
+ *   item, added after `-O2 -std=<cppStandard>`. A `-std=` flag here replaces
+ *   `cppStandard` and an `-O` flag replaces `-O2`.
+ *
+ * @example
+ * {
+ *   cpp: 'g++-15',
+ *   flags: ['-Wall', '-std=gnu++20']
+ * }
+ */
+interface CompilerConfig {
+  cpp?: string;
+  javac?: string;
+  flags?: string[];
 }
 
 // ==================== Local Helper Types ====================
@@ -893,6 +923,7 @@ export {
   // Configuration
   TimeLimitMultipliers,
   // Local types
+  CompilerConfig,
   LocalSolution,
   LocalGenerator,
   LocalChecker,

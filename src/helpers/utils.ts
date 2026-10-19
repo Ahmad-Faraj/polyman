@@ -14,6 +14,7 @@ import {
   markPrebuiltTestlibUnsupported,
 } from './prebuilt-testlib';
 import ConfigFile, {
+  CompilerConfig,
   LocalChecker,
   LocalGenerator,
   LocalSolution,
@@ -35,6 +36,196 @@ export const SECRET_KEY_LOCATION =
     : '~/.polyman/secret_key';
 export const API_KEY_LOCATION =
   ENV === 'win' ? '%USERPROFILE%\\.polyman\\api_key' : '~/.polyman/api_key';
+
+/** Environment variable that overrides the C++ compiler executable. */
+export const CXX_ENV_VAR = 'POLYMAN_CXX';
+
+/** Environment variable that overrides the Java compiler executable. */
+export const JAVAC_ENV_VAR = 'POLYMAN_JAVAC';
+
+/** Default C++ compiler executable. */
+export const DEFAULT_CXX = 'g++';
+
+/** Default Java compiler executable. */
+export const DEFAULT_JAVAC = 'javac';
+
+/** Keys accepted inside the `compiler` block of `Config.json`. */
+const COMPILER_CONFIG_KEYS = ['cpp', 'javac', 'flags'] as const;
+
+/** Optimization flag used when `compiler.flags` has no `-O` flag. */
+const DEFAULT_OPTIMIZATION_FLAG = '-O2';
+
+/**
+ * Checks the optional `compiler` block of `Config.json`. A missing block is
+ * fine; anything else must be an object with only `cpp`, `javac` and `flags`,
+ * where `cpp` and `javac` are non-blank strings and `flags` is an array of
+ * non-blank strings (one flag per item).
+ *
+ * @param {unknown} value - The raw `compiler` value from `Config.json`
+ * @returns {CompilerConfig} The same block, typed (`{}` when missing)
+ *
+ * @throws {Error} If the block or one of its fields has the wrong shape
+ *
+ * @example
+ * validateCompilerConfig({ cpp: 'g++-15', flags: ['-Wall'] }); // ok
+ * validateCompilerConfig({ flags: '-Wall' }); // throws
+ */
+export function validateCompilerConfig(value: unknown): CompilerConfig {
+  if (value === undefined) return {};
+
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error(
+      `Invalid compiler in Config.json: ${JSON.stringify(value)} ` +
+        `(expected an object like { "cpp": "g++-15" })`
+    );
+  }
+
+  for (const [key, field] of Object.entries(value)) {
+    if (key === 'cpp' || key === 'javac') {
+      if (typeof field !== 'string' || field.trim() === '') {
+        throw new Error(
+          `Invalid compiler.${key} in Config.json: ${JSON.stringify(field)} ` +
+            `(expected an executable name or path, like ` +
+            `${key === 'cpp' ? '"g++-15"' : '"/usr/lib/jvm/java-21/bin/javac"'})`
+        );
+      }
+    } else if (key === 'flags') {
+      if (
+        !Array.isArray(field) ||
+        field.some(flag => typeof flag !== 'string' || flag.trim() === '')
+      ) {
+        throw new Error(
+          `Invalid compiler.flags in Config.json: ${JSON.stringify(field)} ` +
+            `(expected an array with one flag per item, like ["-Wall", "-std=c++20"])`
+        );
+      }
+    } else {
+      throw new Error(
+        `Unknown key in compiler: ${JSON.stringify(key)} ` +
+          `(allowed keys: ${COMPILER_CONFIG_KEYS.join(', ')})`
+      );
+    }
+  }
+
+  return value;
+}
+
+/**
+ * Reads the optional `compiler` block from `Config.json` in the current
+ * working directory. A missing or unreadable `Config.json` yields `{}` so
+ * compilation falls back to the defaults, the same way `cppStandard` does.
+ *
+ * @returns {CompilerConfig} The checked `compiler` block, or `{}`
+ *
+ * @throws {Error} If the block is present but malformed
+ *   (see {@link validateCompilerConfig})
+ */
+export function readCompilerConfig(): CompilerConfig {
+  let configured: unknown;
+  try {
+    configured = readConfigFile().compiler;
+  } catch {
+    return {};
+  }
+  return validateCompilerConfig(configured);
+}
+
+/**
+ * Reads an executable override from the environment. Unset, empty and
+ * whitespace-only values all count as "not set".
+ */
+function readExecutableFromEnv(name: string): string | undefined {
+  const value = process.env[name]?.trim();
+  return value ? value : undefined;
+}
+
+/**
+ * Resolves the C++ compiler executable.
+ * Precedence: `POLYMAN_CXX` env var, then `compiler.cpp` in `Config.json`,
+ * then `g++`.
+ *
+ * @param {CompilerConfig} [config] - Checked `compiler` block; read from
+ *   `Config.json` when omitted
+ * @returns {string} Compiler executable name or path (not shell-quoted)
+ *
+ * @throws {Error} If the `compiler` block in `Config.json` is malformed
+ *
+ * @example
+ * // POLYMAN_CXX=g++-15
+ * resolveCppCompiler(); // 'g++-15'
+ */
+export function resolveCppCompiler(
+  config: CompilerConfig = readCompilerConfig()
+): string {
+  return (
+    readExecutableFromEnv(CXX_ENV_VAR) ?? config.cpp?.trim() ?? DEFAULT_CXX
+  );
+}
+
+/**
+ * Builds the full list of C++ compile flags: `-O2`, `-std=<cppStandard>`,
+ * then every item of `compiler.flags`. A user flag replaces the matching
+ * default instead of being added next to it:
+ *   - a `-std=` (or `--std=`) flag replaces `-std=<cppStandard>`,
+ *   - an `-O` flag (`-O0`, `-O3`, `-Ofast`, ...) replaces `-O2`.
+ * So the command never has two different `-std=` or `-O` flags.
+ *
+ * @param {Object} [options] - Compilation overrides
+ * @param {string} [options.cppStandard] - Standard to use instead of the one
+ *   from `Config.json`
+ * @param {CompilerConfig} [config] - Checked `compiler` block; read from
+ *   `Config.json` when omitted
+ * @returns {string[]} Flags in order (not shell-quoted)
+ *
+ * @throws {Error} If `cppStandard` or the `compiler` block is invalid
+ *
+ * @example
+ * // Config.json: { "cppStandard": "c++20", "compiler": { "flags": ["-Wall"] } }
+ * resolveCppFlags(); // ['-O2', '-std=c++20', '-Wall']
+ *
+ * @example
+ * // Config.json: { "compiler": { "flags": ["-O0", "-std=gnu++17"] } }
+ * resolveCppFlags(); // ['-O0', '-std=gnu++17']
+ */
+export function resolveCppFlags(
+  options: { cppStandard?: string } = {},
+  config: CompilerConfig = readCompilerConfig()
+): string[] {
+  const cppStandard = options.cppStandard ?? resolveCppStandard();
+  const extra = (config.flags ?? []).map(flag => flag.trim());
+  const hasStandard = extra.some(
+    flag => flag.startsWith('-std=') || flag.startsWith('--std=')
+  );
+  const hasOptimization = extra.some(flag => flag.startsWith('-O'));
+
+  return [
+    ...(hasOptimization ? [] : [DEFAULT_OPTIMIZATION_FLAG]),
+    ...(hasStandard ? [] : [`-std=${cppStandard}`]),
+    ...extra,
+  ];
+}
+
+/**
+ * Resolves the Java compiler executable.
+ * Precedence: `POLYMAN_JAVAC` env var, then `compiler.javac` in
+ * `Config.json`, then `javac`. Java programs still run with `java` from
+ * `PATH`.
+ *
+ * @param {CompilerConfig} [config] - Checked `compiler` block; read from
+ *   `Config.json` when omitted
+ * @returns {string} Compiler executable name or path (not shell-quoted)
+ *
+ * @throws {Error} If the `compiler` block in `Config.json` is malformed
+ */
+export function resolveJavaCompiler(
+  config: CompilerConfig = readCompilerConfig()
+): string {
+  return (
+    readExecutableFromEnv(JAVAC_ENV_VAR) ??
+    config.javac?.trim() ??
+    DEFAULT_JAVAC
+  );
+}
 
 /** File extensions recognised as C++ sources. */
 export const CPP_EXTENSIONS = ['.cpp', '.cc', '.cxx'] as const;
@@ -121,14 +312,15 @@ export function resolveCppStandard(): string {
 }
 
 /**
- * Compiles a C++ source file using g++.
- * Uses -O2 optimization and the C++ standard from `Config.json`
- * (`cppStandard`, default C++23).
+ * Compiles a C++ source file.
+ * The compiler executable comes from {@link resolveCppCompiler} (`POLYMAN_CXX`,
+ * then `compiler.cpp`, then g++) and the flags from {@link resolveCppFlags}
+ * (`-O2`, `-std=<cppStandard>` and `compiler.flags`).
  * The problem root (current working directory) is added as a quoted-include
  * search path so sources in subdirectories can `#include "testlib.h"`.
  * Goes through the compilation cache: when the source, its local headers,
  * the flags, and the compiler are unchanged, the cached binary is restored
- * and g++ is not run. A testlib program is compiled against a
+ * and the compiler is not run. A testlib program is compiled against a
  * declarations-only testlib and linked with testlib compiled once per
  * problem (see `prebuilt-testlib.ts`), falling back to the original header.
  *
@@ -139,7 +331,8 @@ export function resolveCppStandard(): string {
  * @returns {Promise<void>} Resolves once the executable is written next to
  *   the source (same path, extension stripped)
  *
- * @throws {Error} If file is not a C++ source or compilation fails
+ * @throws {Error} If file is not a C++ source, `cppStandard` or the
+ *   `compiler` block is invalid, or compilation fails
  *
  * @example
  * await compileCPP('solutions/main.cpp');
@@ -158,13 +351,14 @@ export async function compileCPP(
   }
 
   const outputPath = stripCppExtension(absolutePath);
-  const cppStandard = options.cppStandard ?? resolveCppStandard();
-  const flags = ['-O2', `-std=${cppStandard}`];
+  const compilerConfig = readCompilerConfig();
+  const compiler = resolveCppCompiler(compilerConfig);
+  const flags = resolveCppFlags(options, compilerConfig);
 
   const command = (includeDirs: string[], objects: string[] = []) =>
     [
-      'g++',
-      ...flags,
+      quoteShellArgument(compiler),
+      ...flags.map(quoteShellArgument),
       ...includeDirs.flatMap(dir => ['-iquote', quoteShellArgument(dir)]),
       '-o',
       quoteShellArgument(outputPath),
@@ -182,16 +376,16 @@ export async function compileCPP(
   await cachedCompile(
     {
       sourcePath: absolutePath,
-      // g++ appends `.exe` to extension-less outputs on Windows.
+      // g++ and clang++ append `.exe` to extension-less outputs on Windows.
       binaryPath: ENV === 'win' ? `${outputPath}.exe` : outputPath,
-      compiler: 'g++',
+      compiler,
       flags,
       includeDirs: [process.cwd()],
     },
     async () => {
       const prebuilt = await findPrebuiltTestlib({
         sourcePath: absolutePath,
-        compiler: 'g++',
+        compiler,
         flags,
       });
       if (prebuilt === null) return run(command([process.cwd()]));
@@ -213,21 +407,29 @@ export async function compileCPP(
 }
 
 /**
- * Compiles a Java source file using javac.
+ * Compiles a Java source file.
+ * The compiler executable comes from {@link resolveJavaCompiler}
+ * (`POLYMAN_JAVAC`, then `compiler.javac`, then javac). Java is not cached,
+ * and `compiler.flags` only applies to C++.
  *
  * @param {string} sourcePath - Path to the .java source file
- * @returns {Promise<string>} Java execution command (e.g., "java -cp /path ClassName")
+ * @returns {Promise<void>} Resolves when compilation succeeds
  *
- * @throws {Error} If compilation fails
+ * @throws {Error} If the `compiler` block is invalid or compilation fails
  *
  * @example
- * const javaCommand = await compileJava('solutions/Solution.java');
- * // Returns: 'java -cp /path/to/solutions Solution'
+ * await compileJava('solutions/Solution.java');
+ * // Produces: '/path/to/solutions/Solution.class'
  */
 export async function compileJava(sourcePath: string): Promise<void> {
   const absolutePath = path.resolve(sourcePath);
 
-  await executor.execute(`javac ${quoteShellArgument(absolutePath)}`, {
+  const compileCommand = [
+    quoteShellArgument(resolveJavaCompiler()),
+    quoteShellArgument(absolutePath),
+  ].join(' ');
+
+  await executor.execute(compileCommand, {
     timeout: DEFAULT_TIMEOUT,
     silent: true,
   });

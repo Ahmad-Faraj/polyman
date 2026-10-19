@@ -7,6 +7,7 @@ import { executor } from '../../src/executor';
 import { fmt } from '../../src/formatter';
 import * as cache from '../../src/helpers/compile-cache';
 import type { CompileRequest } from '../../src/helpers/compile-cache';
+import { quoteShellArgument } from '../../src/helpers/shell';
 
 vi.mock('../../src/executor');
 vi.mock('../../src/formatter');
@@ -101,7 +102,7 @@ describe('compile-cache.ts', () => {
 
       expect(executeMock).toHaveBeenCalledTimes(1);
       expect(executeMock).toHaveBeenCalledWith(
-        'g++ --version',
+        `${quoteShellArgument('g++')} --version`,
         expect.objectContaining({ silent: true })
       );
     });
@@ -161,6 +162,46 @@ describe('compile-cache.ts', () => {
 
       expect(compile).toHaveBeenCalledTimes(2);
     });
+
+    it('recompiles when the compiler executable changes, even with the same version', async () => {
+      const compile = fakeCompiler();
+      await cache.cachedCompile(request(), compile);
+      await cache.cachedCompile(request({ compiler: 'g++-15' }), compile);
+      await cache.cachedCompile(
+        request({ compiler: '/opt/gcc wrapper/g++' }),
+        compile
+      );
+      await cache.cachedCompile(request({ compiler: 'g++-15' }), compile);
+
+      expect(compile).toHaveBeenCalledTimes(3);
+      expect(cache.getCacheStats()).toMatchObject({ hits: 1, misses: 3 });
+    });
+
+    it('recompiles when compiler.flags are added', async () => {
+      const compile = fakeCompiler();
+      await cache.cachedCompile(request(), compile);
+      await cache.cachedCompile(
+        request({ flags: ['-O2', '-std=c++23', '-DLOCAL'] }),
+        compile
+      );
+
+      expect(compile).toHaveBeenCalledTimes(2);
+    });
+
+    it.skipIf(process.platform === 'win32')(
+      'quotes a compiler path with spaces when probing its version',
+      async () => {
+        await cache.cachedCompile(
+          request({ compiler: '/opt/gcc wrapper/g++' }),
+          fakeCompiler()
+        );
+
+        expect(executeMock).toHaveBeenCalledWith(
+          "'/opt/gcc wrapper/g++' --version",
+          expect.anything()
+        );
+      }
+    );
 
     it('recompiles when the compiler version changes', async () => {
       const compile = fakeCompiler();
