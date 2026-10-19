@@ -234,6 +234,17 @@ describe("the project's Duo flows", () => {
     expect(filled).toContain(`who approves and merges: those of ${config.goAhead.maintainers.map((m) => `@${m}`).join(', ')} who are neither`);
   });
 
+  // the README's "What to do when..." names the accounts to mention; they must be the ones the flows trust
+  it('the README tells people what to do at each step, with the accounts from .autonomy.yml', () => {
+    const readme = readFileSync('../README.md', 'utf8');
+    const section = readme.slice(readme.indexOf('### What to do when...'), readme.indexOf('### What people did, per loop'));
+    expect(section).toContain(`\`@${config.agents.reviewerAccount}\``);
+    expect(section).toContain(`\`@${config.agents.fixerAccount}\``);
+    for (const step of ['assign it to the issue builder', '`@<agent> go-ahead`', '"Merge" line', '`NEXT STEP:`', 'An incident opens', 'engine/src/cli/doctor.ts']) {
+      expect(section).toContain(step);
+    }
+  });
+
   it('the code reviewer looks for errors that disappear, and a quiet pass in a gate is P1', () => {
     expect(flat('mr-reviewer.yaml')).toContain('Look hard at errors that disappear');
     expect(flat('mr-reviewer.yaml')).toContain('In a check, a gate or a guard, a failure that passes quietly is P1.');
