@@ -13,8 +13,8 @@ A cached binary is reused only when all of these are unchanged:
 
 - the source file,
 - every local header it includes with `#include "..."`, recursively (including `testlib.h`),
-- `cppStandard` in `Config.json`,
-- the compiler (`g++ --version`).
+- `cppStandard` and `compiler.flags` in `Config.json`,
+- the compiler executable (`POLYMAN_CXX`, `compiler.cpp` or `g++`) and its `--version` output.
 
 Editing any of them triggers a recompile automatically. You don't need to clear the cache after editing sources.
 
@@ -25,10 +25,10 @@ testlib's definitions are compiled once into `.polyman/cache/testlib/` and linke
 ## When to bypass it
 
 - `--no-cache` on any compiling command recompiles everything for that run and leaves the cache untouched.
-- `polyman cache clear` if you edited a system header (`#include <...>`) or suspect the cache is wrong.
+- `polyman cache clear` if you edited a system header (`#include <...>`), a header found only through your own `-I` flag, or suspect the cache is wrong.
 
 ## What NOT to do
 
 - Don't edit or copy files inside `.polyman/cache/` by hand.
 - Don't commit `.polyman/`; it is machine-specific.
-- Java solutions are not cached; they are always compiled with `javac`.
+- Java solutions are not cached; they are always compiled again (with `javac`, or `POLYMAN_JAVAC` / `compiler.javac`).

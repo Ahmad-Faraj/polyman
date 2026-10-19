@@ -21,9 +21,9 @@ The single source of truth for the whole problem. Every other file is referenced
   "cppStandard": "c++23",                // optional; local g++ -std= value (default c++23; use c++17/c++20 on older compilers)
 
   "compiler": {                          // optional, local-only; omit unless the user asks
-    "cpp": "g++-15",                     // C++ compiler executable (default "g++")
-    "javac": "javac",                    // Java compiler executable (default "javac")
-    "flags": ["-O2", "-std=c++23"]       // extra flags appended to every C++ compile
+    "cpp": "g++-15",                     // C++ compiler executable or path (default "g++"); POLYMAN_CXX overrides it
+    "javac": "javac",                    // Java compiler executable or path (default "javac"); POLYMAN_JAVAC overrides it
+    "flags": ["-Wall"]                   // extra C++ flags, one per item; a -std= here replaces cppStandard, an -O replaces -O2
   },
 
   "statements":  { …see statements.md… },
@@ -35,6 +35,8 @@ The single source of truth for the whole problem. Every other file is referenced
 }
 ```
 
+`cppStandard` and `compiler` only change how polyman compiles on this machine. They are never sent to Polygon (Polygon uses each file's `sourceType`). Every C++ compile runs `<compiler> -O2 -std=<cppStandard> <flags...>`, where a `-std=` item in `flags` replaces `-std=<cppStandard>` and an `-O` item replaces `-O2`. Java programs still run with `java` from `PATH`. A malformed `compiler` block (unknown key, blank string, `flags` not an array of strings) stops the compile with an error.
+
 ## Schema
 
 `Config.schema.json` (next to `Config.json`) is a JSON Schema (draft-07) for this file. `Config.json` points at it via its first key, `"$schema": "./Config.schema.json"`, so editors validate as you type and every enum (solution tags, `sourceType` values, points/feedback policies) and every required key is machine-checkable. polyman itself ignores `$schema`; it is never pushed to Polygon. Keep the key. If you need to validate by hand:
@@ -44,8 +46,6 @@ npx --yes ajv-cli validate -s Config.schema.json -d Config.json
 ```
 
 The schema mirrors the `ConfigFile` type in polyman's `src/types.d.ts`; if the two disagree, the type wins and the schema is the bug.
-
-`compiler` only affects how polyman compiles on this machine; it is never sent to Polygon (Polygon uses `sourceType`). The environment variables `POLYMAN_CXX` and `POLYMAN_JAVAC` override `compiler.cpp` and `compiler.javac`.
 
 ## `testsets[]`
 
@@ -79,6 +79,7 @@ Usually one named `"tests"`. Each entry:
 
 - **Add a solution / generator / manual test** → add the source file *and* the `Config.json` entry in the same edit.
 - **Change time/memory** → update `timeLimit` / `memoryLimit`, run `polyman verify`.
+- **Use another local compiler** (e.g. `g++-15`, `clang++`) → set `compiler.cpp`, or run with `POLYMAN_CXX=<compiler>` for one run; leave `sourceType` alone, it is what Polygon uses.
 - **A Java or Python solution TLEs locally but is correct** → add `timeLimitMultipliers` (`{ "java": 2 }`) instead of inflating `timeLimit` for every solution; the factor only applies to local runs, so Polygon keeps the real limit.
 - **Switch checker** → see `instructions/checker.md`.
 - **Multiple testsets** → append another `testsets[]` entry; each testset has its own script + manuals.
