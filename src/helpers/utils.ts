@@ -435,6 +435,34 @@ export function throwError(error: unknown, message = ''): never {
 }
 
 /**
+ * Resolves a path from Config.json against the problem folder and refuses
+ * anything that lands outside it, so a crafted Config.json cannot make
+ * polyman read (and upload) files like `../../.ssh/id_rsa`.
+ * Names that merely start with two dots, like `..notes.tex`, are allowed.
+ *
+ * @param {string} problemDir - Problem directory path
+ * @param {string} rel - Path from Config.json, relative to the problem folder
+ * @returns {string} The absolute path, guaranteed to be inside `problemDir`
+ * @throws {Error} If the path resolves outside the problem folder
+ *
+ * @example
+ * insideProblem('/p', 'solutions/main.cpp'); // '/p/solutions/main.cpp'
+ * insideProblem('/p', '../x');               // throws
+ */
+export function insideProblem(problemDir: string, rel: string): string {
+  const resolved = path.resolve(problemDir, rel);
+  const relative = path.relative(path.resolve(problemDir), resolved);
+  if (
+    path.isAbsolute(relative) ||
+    relative === '..' ||
+    relative.startsWith('..' + path.sep)
+  ) {
+    throw new Error(`Refusing path outside the problem folder: ${rel}`);
+  }
+  return resolved;
+}
+
+/**
  * Ensures a directory exists, creating it if necessary.
  * Creates parent directories recursively.
  *
