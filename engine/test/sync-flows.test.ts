@@ -3,7 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // sync-flows.ts is a top-level script: fake the flow directory and GitLab's
 // GraphQL endpoint, then import it fresh. checkFlow runs for real.
 
-const fsState = vi.hoisted(() => ({ flows: {} as Record<string, string>, dirty: '' }));
+const fsState = vi.hoisted(() => ({
+  flows: {} as Record<string, string>,
+  dirty: '',
+  head: '',
+  origin: {} as Record<string, string>,
+  fetchFails: false,
+  git: [] as string[][],
+}));
 const DIR = '.gitlab/duo/flows';
 
 vi.mock('node:fs', async (importOriginal) => {
@@ -21,8 +28,20 @@ vi.mock('node:fs', async (importOriginal) => {
 
 // the clean-tree check asks git; answer from the fake instead of the real checkout
 vi.mock('node:child_process', () => ({
-  execFileSync: (_cmd: string, args: string[]) =>
-    args[0] === 'remote' ? 'git@gitlab.com:group/from-remote.git' : fsState.dirty,
+  execFileSync: (_cmd: string, args: string[]) => {
+    fsState.git.push(args);
+    if (args[0] === 'remote') return 'git@gitlab.com:group/from-remote.git';
+    if (args[0] === 'fetch') {
+      if (fsState.fetchFails) throw new Error('fatal: unable to access origin\nmore');
+      return '';
+    }
+    if (args[0] === 'rev-parse') {
+      const sha = args[1] === 'HEAD' ? fsState.head : fsState.origin[args[1]];
+      if (!sha) throw new Error(`fatal: ambiguous argument '${args[1]}'`);
+      return `${sha}\n`;
+    }
+    return fsState.dirty;
+  },
 }));
 
 const saved = { ...process.env };
@@ -77,7 +96,7 @@ function fakeGitLab(opts: { httpStatus?: number; gqlErrors?: string[] } = {}) {
       if (opts.httpStatus) return new Response('{}', { status: opts.httpStatus });
       if (opts.gqlErrors) return new Response(JSON.stringify({ errors: opts.gqlErrors.map((message) => ({ message })) }));
       const reply = (data: unknown) => new Response(JSON.stringify({ data }));
-      if (query.includes('project(fullPath')) return reply({ project: { id: 'gid://gitlab/Project/42' } });
+      if (query.includes('project(fullPath')) return reply({ project: { id: 'gid://gitlab/Project/42', repository: { rootRef: 'main' } } });
       if (query.includes('aiCatalogConfiguredItems')) {
         // behave like a GraphQL connection: honour first and the after cursor, and say if there is more
         const first = Number(/first:\s*(\d+)/.exec(query)?.[1] ?? 100);
@@ -112,6 +131,10 @@ const released = (versionName = '1.0.1') => ({ errors: [], item: { latestVersion
 beforeEach(() => {
   fsState.flows = { 'alpha.yaml': flow(), 'beta.yml': flow('edit_file') };
   fsState.dirty = '';
+  fsState.head = 'a'.repeat(40);
+  fsState.origin = { 'origin/main': 'a'.repeat(40) };
+  fsState.fetchFails = false;
+  fsState.git = [];
   catalog = { alpha: 'gid://gitlab/Ai::Catalog::Item/1', beta: 'gid://gitlab/Ai::Catalog::Item/2' };
   updateReply = () => released();
   delete process.env.GITLAB_PROJECT_PATH;
@@ -411,5 +434,54 @@ describe('sync-flows: per-project values', () => {
     expect(reqs).toEqual([]);
     await runSync(PROJECT, '--allow-dirty');
     expect(updates()).toHaveLength(2);
+  });
+});
+
+describe('sync-flows: only what is merged', () => {
+  it('fetches the default branch and syncs when HEAD is that commit', async () => {
+    await runSync(PROJECT);
+    expect(fsState.git).toContainEqual(['fetch', '--quiet', 'origin', 'main']);
+    expect(updates()).toHaveLength(2);
+  });
+
+  it('refuses when HEAD is not origin/<default branch>, prints both SHAs and sends no update', async () => {
+    fsState.head = 'b'.repeat(40);
+    await expect(runSync(PROJECT)).rejects.toThrow(
+      `HEAD is not origin/main, so these flows are not what is merged; nothing was synced.\n  HEAD:            ${'b'.repeat(40)}\n  origin/main: ${'a'.repeat(40)}`,
+    );
+    expect(updates()).toEqual([]);
+  });
+
+  it('uses the default branch GitLab names, not main', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init: { body: string }) => {
+      const { query } = JSON.parse(init.body);
+      const data = query.includes('project(fullPath')
+        ? { project: { id: 'gid://gitlab/Project/42', repository: { rootRef: 'trunk' } } }
+        : { aiCatalogConfiguredItems: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } } };
+      return new Response(JSON.stringify({ data }));
+    }));
+    fsState.origin = { 'origin/trunk': fsState.head };
+    await runSync(PROJECT);
+    expect(fsState.git).toContainEqual(['fetch', '--quiet', 'origin', 'trunk']);
+  });
+
+  it('refuses when origin cannot be fetched', async () => {
+    fsState.fetchFails = true;
+    await expect(runSync(PROJECT)).rejects.toThrow('could not fetch origin/main to compare with HEAD (fatal: unable to access origin); pass --allow-branch');
+    expect(updates()).toEqual([]);
+  });
+
+  it('--allow-branch publishes the checked-out commit anyway', async () => {
+    fsState.head = 'b'.repeat(40);
+    await runSync(PROJECT, '--allow-branch');
+    expect(updates()).toHaveLength(2);
+    expect(fsState.git.some((a) => a[0] === 'fetch')).toBe(false);
+  });
+
+  it('a dry run changes nothing, so it works from any branch', async () => {
+    fsState.head = 'b'.repeat(40);
+    await runSync(PROJECT, '--dry-run');
+    expect(logs).toEqual([`alpha: would update ${catalog.alpha}`, `beta: would update ${catalog.beta}`]);
+    expect(fsState.git.some((a) => a[0] === 'fetch')).toBe(false);
   });
 });

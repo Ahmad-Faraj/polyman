@@ -120,6 +120,9 @@ service:check:candidate:
   needs: [service:deploy:candidate]
   script:
     - node --disable-warning=ExperimentalWarning service/scripts/golden.ts "$CANDIDATE_URL" --json golden.json
+    # the last lines of the log: the promote job to click, or that a newer
+    # main pipeline has the candidate to promote instead
+    - sh service/deploy/next-step.sh
   artifacts:
     when: always
     paths: [golden.json]

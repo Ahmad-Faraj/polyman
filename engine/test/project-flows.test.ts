@@ -111,6 +111,29 @@ describe("the project's Duo flows", () => {
     expect(renderFlow(read('pipeline-fixer.yaml'), values)).toContain('`@ai-fixer go-ahead`');
   });
 
+  // a bare @GitLabDuo in a note mentions GitLab Duo, which answers "Something went wrong" (!134, !137)
+  it('no flow writes a bare @GitLabDuo; the Code Review hint is a quick action in backticks', () => {
+    for (const file of files) {
+      const outside = read(file).replace(/`[^`\n]*`/g, '');
+      expect(outside).not.toMatch(/@GitLabDuo/i);
+    }
+  });
+
+  // GitLab doesn't start flows for an agent's push: without a person's mention the MR is never reviewed
+  it.each(['issue-builder.yaml', 'pipeline-fixer.yaml', 'incident-responder.yaml'])(
+    "%s tells people to mention the reviewer, in backticks, after the agent's push",
+    (file) => {
+      const prompt = promptOf(file);
+      expect(prompt).toContain('Then one line: "Next:');
+      expect(prompt).toContain("(GitLab doesn't start flows for an agent's push)");
+      expect(prompt).toContain("Keep that mention inside backticks, so your note doesn't mention the reviewer itself.");
+      const filled = renderFlow(read(file), values).replace(/\s+/g, ' ');
+      expect(filled).toMatch(/a person mentions `@ai-reviewer` on (the MR|it)/);
+      // never a bare mention of the reviewer
+      expect(filled.replace(/`[^`]*`/g, '')).not.toContain('@ai-reviewer');
+    },
+  );
+
   it("each proposal ends by mentioning the people who may give its go-ahead, or no one when nobody is left", () => {
     for (const file of ['issue-builder.yaml', 'pipeline-fixer.yaml', 'mr-reviewer.yaml']) {
       const text = flat(file);
@@ -194,7 +217,7 @@ describe("the project's Duo flows", () => {
     const low = text.slice(text.indexOf('- risk::low:'), text.indexOf('- risk::medium:'));
     expect(low).toContain("don't delegate. Review the diff yourself, lightly");
     expect(low).toContain("Post no quick action and don't request a review from GitLabDuo");
-    expect(low).toContain('anyone on the team can type "/request_review @GitLabDuo"');
+    expect(low).toContain('anyone on the team can type `/request_review @GitLabDuo`');
     // the only mention of the quick action is the line telling people they can type it
     expect(text.split('/request_review').length - 1).toBe(1);
     expect(text).not.toContain('requested review from @GitLabDuo');
@@ -292,7 +315,7 @@ describe("the project's Duo flows", () => {
   });
 
   it("the fixer doesn't promise a review that GitLab won't start", () => {
-    expect(flat('pipeline-fixer.yaml')).toContain("GitLab doesn't start flows for your push, so once it passes a person mentions the reviewer");
+    expect(flat('pipeline-fixer.yaml')).toContain("once the pipeline passes, a person mentions `@@@reviewer_account@@` on the MR to review the new head (GitLab doesn't start flows for an agent's push)");
     expect(flat('pipeline-fixer.yaml')).not.toContain('the reviewer will review the new head');
   });
 

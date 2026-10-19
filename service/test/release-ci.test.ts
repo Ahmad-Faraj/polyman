@@ -7,8 +7,8 @@ import { readFileSync } from 'node:fs';
 const ci = readFileSync(new URL('../ci/service.gitlab-ci.yml', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
 
 /** One top-level job: from its name line to the next top-level key. */
-function job(name: string): string {
-  const lines = ci.split('\n');
+function job(name: string, text = ci): string {
+  const lines = text.split('\n');
   const start = lines.findIndex((l) => l === `${name}:`);
   expect(start, `job ${name} exists`).toBeGreaterThanOrEqual(0);
   const rest = lines.slice(start + 1);
@@ -92,5 +92,68 @@ describe('exit 3 is a warning, not a failure', () => {
     const rollback = job('service:rollback:production');
     expect(rollback).toMatch(/when: on_failure/);
     expect(rollback).not.toContain('allow_failure');
+  });
+});
+
+// A manual job in rules blocks by default, and while one waits the pipeline is
+// "blocked", even after another job failed: on 19 Oct the production check
+// failed, canary:publish was still waiting, the pipeline never became "failed"
+// and the incident responder (started by a failed main pipeline) never ran.
+describe('no manual job keeps a failed main pipeline from showing as failed', () => {
+  const read = (path: string) => readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+  const files = [
+    '.gitlab-ci.yml',
+    '.gitlab/ci/canary.gitlab-ci.yml',
+    '.gitlab/ci/release.gitlab-ci.yml',
+    'service/ci/service.gitlab-ci.yml',
+    'engine/ci/autonomy.gitlab-ci.yml',
+    'corpus/corpus.gitlab-ci.yml',
+  ];
+  /** Every top-level job of a file with a `when: manual` in it. */
+  const manualJobs = (text: string) =>
+    [...text.matchAll(/^([\w:.\-[\] ]+):$/gm)].map((m) => m[1]).filter((name) => job(name, text).includes('when: manual'));
+
+  it('the root CI includes every file checked here', () => {
+    const root = read('.gitlab-ci.yml');
+    for (const file of files.slice(1)) expect(root).toContain(`local: ${file}`);
+  });
+
+  it('lists every manual job, so a new one gets a decision here', () => {
+    const found: string[] = [];
+    for (const file of files) found.push(...manualJobs(read(file)));
+    expect(found.sort()).toEqual(['canary:publish', 'release:npm-next', 'release:promote', 'service:promote:production']);
+  });
+
+  // canary:publish waits on every push to main: that is the job that kept the
+  // drill's pipeline "blocked", so it is optional.
+  it('canary:publish is optional (allow_failure: true)', () => {
+    expect(job('canary:publish', read('.gitlab/ci/canary.gitlab-ci.yml'))).toMatch(/\n  allow_failure: true\n/);
+  });
+
+  // The npm release jobs stay blocking: optional, a failed publish or promote
+  // would still let release:gitlab tag and release the version. Their
+  // pipelines only come from a package.json merge, run end to end by a person.
+  it('the npm publish and promote stay blocking, and the GitLab Release still needs them', () => {
+    const release = read('.gitlab/ci/release.gitlab-ci.yml');
+    for (const name of ['release:npm-next', 'release:promote']) {
+      expect(job(name, release), name).not.toMatch(/\n  allow_failure:/);
+    }
+    const gitlab = job('release:gitlab', release);
+    expect(gitlab).toMatch(/needs: \[release:npm-next, release:next-check, release:promote,/);
+    expect(gitlab).not.toContain('allow_failure');
+  });
+
+  it('canary:publish still runs only when a person clicks it, on a push to the default branch', () => {
+    const publish = job('canary:publish', read('.gitlab/ci/canary.gitlab-ci.yml'));
+    expect(rules(publish)).toEqual(['- if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"\n      when: manual']);
+  });
+
+  // The switch stays blocking: allow_failure: true would hide a failed switch
+  // from the rollback (when: on_failure). It blocks only until it is clicked;
+  // in the drill it had run, so the production check could fail the pipeline.
+  it('the production switch stays blocking, failing on anything but exit 3', () => {
+    const promote = job('service:promote:production');
+    expect(promote).not.toContain('allow_failure: true');
+    expect(promote).toMatch(/\n  allow_failure:\n    exit_codes: \[3\]\n/);
   });
 });
