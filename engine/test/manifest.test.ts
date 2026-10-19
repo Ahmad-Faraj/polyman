@@ -1,8 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
-import { footprintArgs, ifManifest } from '../src/manifest.ts';
+import { countedRuns, footprintArgs, ifManifest } from '../src/manifest.ts';
 import { DEFAULT_SCI, sessionGrams } from '../src/sci.ts';
+import { loadConfig } from '../src/config.ts';
 
 describe('Impact Framework manifest', () => {
   const runs = new Map([
@@ -22,7 +23,7 @@ describe('Impact Framework manifest', () => {
     const d = m.tree.children['low-risk-reviews'].defaults;
     // (2 vCPU x (0.71 + 0.5 x (4.26 - 0.71)) W / 1000 + 8 GB x 0.000392) x PUE 1.1
     expect(d['runner-kw']).toBeCloseTo(((2 * (0.71 + 0.5 * 3.55)) / 1000 + 8 * 0.000392) * 1.1, 12);
-    expect(d).toMatchObject({ 'embodied-g-per-hour': 2.4, 'grid-g-per-kwh': 560 });
+    expect(d).toMatchObject({ 'embodied-g-per-hour': 2.4, 'grid-g-per-kwh': 579 });
     expect(d['kwh-per-call-low']).toBeCloseTo(0.00024, 12);
     expect(d['kwh-per-call-high']).toBeCloseTo(0.0025, 12);
   });
@@ -53,10 +54,44 @@ describe('Impact Framework manifest', () => {
     expect(Object.keys(parse(ifManifest(new Map([['unknown', []]]), DEFAULT_SCI)).tree.children)).toEqual(['unknown-risk-reviews']);
   });
 
-  it('the committed manifest has the reviews the table in SUSTAINABILITY.md counts', () => {
+  it('the committed manifest has the reviews the table in SUSTAINABILITY.md counts, with counted calls', () => {
     const committed = parse(readFileSync('../sustainability/agent-reviews.yml', 'utf8'));
-    expect(committed.tree.children['high-risk-reviews'].inputs).toHaveLength(43);
-    expect(committed.tree.children['low-risk-reviews'].inputs).toHaveLength(6);
+    expect(committed.tree.children['high-risk-reviews'].inputs).toHaveLength(105);
+    expect(committed.tree.children['medium-risk-reviews'].inputs).toHaveLength(26);
+    expect(committed.tree.children['low-risk-reviews'].inputs).toHaveLength(16);
+    expect(committed.description).toMatch(/counted from each session's checkpoint/);
+    for (const input of committed.tree.children['high-risk-reviews'].inputs) expect(input['model-calls-low']).toBe(input['model-calls-high']);
+  });
+
+  it('builds the reviews from counted sessions: reviewer sessions that reviewed, with a known tier, low = high, high first', () => {
+    const session = (at: string, tier: string, calls: number, extra = {}) => ({ at, flow: 'mr-reviewer', tier, skipped: false, seconds: 60, total: { calls }, ...extra });
+    const runs = countedRuns([
+      session('2026-10-18T10:01:00Z', 'low', 7),
+      session('2026-10-18T10:02:00Z', 'medium', 30),
+      session('2026-10-18T10:03:00Z', 'high', 38),
+      session('2026-10-18T10:04:00Z', 'high', 2, { skipped: true }),
+      session('2026-10-18T10:05:00Z', 'unknown', 2),
+      session('2026-10-18T10:06:00Z', 'medium', 12, { flow: 'issue-builder' }),
+    ]);
+    expect([...runs.keys()]).toEqual(['high', 'medium', 'low']);
+    expect(runs.get('high')).toEqual([{ at: '2026-10-18T10:03:00Z', seconds: 60, calls: { low: 38, high: 38 } }]);
+    expect(runs.get('medium')).toEqual([{ at: '2026-10-18T10:02:00Z', seconds: 60, calls: { low: 30, high: 30 } }]);
+    expect(Object.keys(parse(ifManifest(runs, DEFAULT_SCI, 'counted')).tree.children)).toEqual(['high-risk-reviews', 'medium-risk-reviews', 'low-risk-reviews']);
+  });
+
+  it('says in its description whether the calls were counted or bounded', () => {
+    expect(parse(ifManifest(new Map(), DEFAULT_SCI, 'counted')).description).toMatch(/counted from each session's checkpoint/);
+    expect(parse(ifManifest(new Map(), DEFAULT_SCI)).description).toMatch(/bounded from the session log/);
+  });
+
+  it("the committed manifest is what the committed sessions and .autonomy.yml give, so data and manifest can't drift apart", () => {
+    const { sessions } = JSON.parse(readFileSync('../sustainability/agent-tokens.json', 'utf8'));
+    const rebuilt = parse(ifManifest(countedRuns(sessions), loadConfig('../.autonomy.yml').sustainability, 'counted'));
+    expect(parse(readFileSync('../sustainability/agent-reviews.yml', 'utf8'))).toEqual(rebuilt);
+  });
+
+  it(".autonomy.yml's grid is the engine's default (both us-east1, kept in step by hand)", () => {
+    expect(loadConfig('../.autonomy.yml').sustainability.gridGramsPerKwh).toBe(DEFAULT_SCI.gridGramsPerKwh);
   });
 });
 

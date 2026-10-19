@@ -118,4 +118,6 @@ sustainability:
   memory_gb: 8
   utilization: 0.5
   pue: 1.1
-  grid_gco2e_per_kwh: 560
+  # us-east1's grid in 2025 (Google, region-carbon-info data/yearly/2025.csv:
+  # 579.44 gCO2e/kWh; it was 560 in the 2023 data)
+  grid_gco2e_per_kwh: 579

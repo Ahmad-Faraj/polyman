@@ -40,7 +40,8 @@ export const DEFAULT_SCI: SciCoefficients = {
   utilization: 0.5,
   memoryKwhPerGbHour: 0.000392,
   pue: 1.1,
-  gridGramsPerKwh: 560,
+  // GCP us-east1, Google's 2025 region data (579.44; 560 in 2023)
+  gridGramsPerKwh: 579,
   embodiedGramsPerVcpuHour: 1.2,
 };
 
