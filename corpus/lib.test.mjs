@@ -386,6 +386,17 @@ describe('round-trip checks', () => {
     expect(pushFailureSummary('x'.repeat(700))).toHaveLength(600);
   });
 
+  it('keeps the last lines when nothing follows the push error marker', () => {
+    expect(
+      pushFailureSummary(pushOutputTail('a\n║  PUSH COMPLETED WITH ERRORS  ║'))
+    ).toBe('a | PUSH COMPLETED WITH ERRORS');
+    expect(
+      pushFailureSummary(
+        'x\n╔════╗\n║  PUSH COMPLETED WITH ERRORS  ║\n╚════╝\n'
+      )
+    ).toBe('x | PUSH COMPLETED WITH ERRORS');
+  });
+
   it('fails a push that exited 0 while Polygon differs (#25)', () => {
     expect(pushChecks(0, 2)).toEqual([
       expect.objectContaining({ name: 'push reports failures', ok: false }),
