@@ -2,8 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as generator from '../../src/helpers/generator';
 import { executor } from '../../src/executor';
 import * as utils from '../../src/helpers/utils';
+import { LimitExceededError, PolymanError } from '../../src/errors';
 import fs from 'fs';
 import path from 'path';
+import { fmt } from '../../src/formatter';
 import type {
   LocalGenerator,
   LocalTestset,
@@ -46,8 +48,39 @@ vi.mock('../../src/formatter', () => ({
 
 vi.mock('fs');
 
+// `fmt.error` as a typed mock, taken from the mocked formatter module.
+const fmtError = () => vi.mocked(fmt)['error'];
+
 beforeEach(() => {
   vi.clearAllMocks();
+});
+
+async function errorOf(promise: Promise<unknown>): Promise<unknown> {
+  try {
+    await promise;
+  } catch (error) {
+    return error;
+  }
+  return undefined;
+}
+
+function exitCodeOf(fn: () => unknown): unknown {
+  try {
+    fn();
+  } catch (error) {
+    return error instanceof PolymanError ? error.exitCode : error;
+  }
+  return undefined;
+}
+
+const genTest = (index: number, multi: number[] | null): ResolvedTest => ({
+  index,
+  source: {
+    kind: 'generator',
+    generator: 'gen',
+    args: [],
+    multiOutputs: multi,
+  },
 });
 
 describe('ensureGeneratorsExist', () => {
@@ -56,6 +89,11 @@ describe('ensureGeneratorsExist', () => {
       /No test generators/
     );
     expect(() => generator.ensureGeneratorsExist([])).toThrow();
+  });
+  it('reports a missing generators config as a usage error (code 2)', () => {
+    expect(exitCodeOf(() => generator.ensureGeneratorsExist(undefined))).toBe(
+      2
+    );
   });
   it('passes on non-empty', () => {
     expect(() =>
@@ -69,6 +107,14 @@ describe('compileGenerator', () => {
     await expect(
       generator.compileGenerator({ name: 'g', source: '' })
     ).rejects.toThrow(/no source file/);
+  });
+
+  it('reports a generator without a source as a usage error (code 2)', async () => {
+    const error = await errorOf(
+      generator.compileGenerator({ name: 'g', source: '' })
+    );
+    expect(error).toBeInstanceOf(PolymanError);
+    expect((error as PolymanError).exitCode).toBe(2);
   });
 
   it('compiles via compileCPP', async () => {
@@ -139,6 +185,9 @@ describe('compileGeneratorsForTests', () => {
     await expect(
       generator.compileGeneratorsForTests(tests, [])
     ).rejects.toThrow(/"missing" not found/);
+    const error = await errorOf(generator.compileGeneratorsForTests(tests, []));
+    expect(error).toBeInstanceOf(PolymanError);
+    expect((error as PolymanError).exitCode).toBe(2);
   });
 });
 
@@ -185,6 +234,13 @@ describe('compileGeneratorsForTestsets', () => {
         []
       )
     ).rejects.toThrow(/"unknown" not found/);
+    const error = await errorOf(
+      generator.compileGeneratorsForTestsets(
+        [{ name: 'a', generatorScript: { script: 'unknown 1 > 1' } }],
+        []
+      )
+    );
+    expect((error as PolymanError).exitCode).toBe(2);
   });
 });
 
@@ -288,6 +344,101 @@ describe('executeResolvedTests', () => {
     await expect(
       generator.executeResolvedTests(tests, [], '/out')
     ).rejects.toThrow(/Some tests failed/);
+    const error = await errorOf(
+      generator.executeResolvedTests(tests, [], '/out')
+    );
+    expect(error).toBeInstanceOf(PolymanError);
+    expect((error as PolymanError).exitCode).toBe(1);
+  });
+
+  describe('limits', () => {
+    const redirect = () =>
+      vi.mocked(
+        (
+          executor as {
+            executeWithRedirect: typeof executor.executeWithRedirect;
+          }
+        ).executeWithRedirect
+      );
+    const execute = () =>
+      vi.mocked((executor as { execute: typeof executor.execute }).execute);
+    const okResult = { stdout: '', stderr: '', exitCode: 0, success: true };
+
+    it.each([
+      ['onTimeout', /Exceeded Time Limit/, /time limit/],
+      ['onMemoryExceeded', /Exceeded Memory Limit/, /memory limit/],
+    ] as const)(
+      'a single-output generator %s throws a PolymanError with code 1',
+      async (callback, printed, message) => {
+        const exitSpy = vi
+          .spyOn(process, 'exit')
+          .mockImplementation((() => undefined) as never);
+        redirect().mockImplementation((_cmd, options) => {
+          options[callback]?.(okResult);
+          return Promise.resolve(okResult);
+        });
+
+        const error = await errorOf(
+          generator.executeResolvedTests(
+            [genTest(1, null)],
+            [{ name: 'gen', source: 'gen.cpp' }],
+            '/out'
+          )
+        );
+
+        expect(error).toBeInstanceOf(LimitExceededError);
+        expect((error as PolymanError).exitCode).toBe(1);
+        expect((error as PolymanError).message).toMatch(message);
+        expect(fmtError()).toHaveBeenCalledWith(expect.stringMatching(printed));
+        expect(vi.mocked(executor)['cleanup']).toHaveBeenCalled();
+        expect(exitSpy).not.toHaveBeenCalled();
+        exitSpy.mockRestore();
+      }
+    );
+
+    it.each(['onTimeout', 'onMemoryExceeded'] as const)(
+      'a multi-output generator %s throws a PolymanError with code 1',
+      async callback => {
+        const exitSpy = vi
+          .spyOn(process, 'exit')
+          .mockImplementation((() => undefined) as never);
+        execute().mockImplementation((_cmd, options) => {
+          options[callback]?.(okResult);
+          return Promise.resolve(okResult);
+        });
+
+        const error = await errorOf(
+          generator.executeResolvedTests(
+            [genTest(1, [1, 2])],
+            [{ name: 'gen', source: 'gen.cpp' }],
+            '/out'
+          )
+        );
+
+        expect(error).toBeInstanceOf(LimitExceededError);
+        expect((error as PolymanError).exitCode).toBe(1);
+        expect(exitSpy).not.toHaveBeenCalled();
+        exitSpy.mockRestore();
+      }
+    );
+
+    it('stops at the first limit hit instead of counting it as a failed test', async () => {
+      redirect().mockImplementation((_cmd, options) => {
+        options.onTimeout?.(okResult);
+        return Promise.resolve(okResult);
+      });
+
+      const error = await errorOf(
+        generator.executeResolvedTests(
+          [genTest(1, null), genTest(2, null)],
+          [{ name: 'gen', source: 'gen.cpp' }],
+          '/out'
+        )
+      );
+
+      expect(error).toBeInstanceOf(LimitExceededError);
+      expect(redirect()).toHaveBeenCalledTimes(1);
+    });
   });
 });
 

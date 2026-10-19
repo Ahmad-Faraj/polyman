@@ -19,6 +19,7 @@ import {
 import { DEFAULT_TIMEOUT, DEFAULT_MEMORY_LIMIT } from './utils';
 import { quoteShellArgument } from './shell';
 import { fmt } from '../formatter';
+import { LimitExceededError, PolymanError } from '../errors';
 import {
   parseGeneratorScript,
   readScriptText,
@@ -47,14 +48,18 @@ async function runGeneratorToFile(
           `${fmt.cross()} ${fmt.bold('Generator Unexpectedly Exceeded Time Limit!')} (${DEFAULT_TIMEOUT}ms)`
         );
         void executor.cleanup();
-        process.exit(1);
+        throw new LimitExceededError(
+          `Generator exceeded the time limit (${DEFAULT_TIMEOUT}ms)`
+        );
       },
       onMemoryExceeded: () => {
         fmt.error(
           `${fmt.cross()} ${fmt.bold('Generator Unexpectedly Exceeded Memory Limit!')} (${DEFAULT_MEMORY_LIMIT} MB)`
         );
         void executor.cleanup();
-        process.exit(1);
+        throw new LimitExceededError(
+          `Generator exceeded the memory limit (${DEFAULT_MEMORY_LIMIT} MB)`
+        );
       },
     },
     undefined,
@@ -84,14 +89,18 @@ async function runGeneratorMultiOutput(
         `${fmt.cross()} ${fmt.bold('Generator Unexpectedly Exceeded Time Limit!')} (${DEFAULT_TIMEOUT}ms)`
       );
       void executor.cleanup();
-      process.exit(1);
+      throw new LimitExceededError(
+        `Generator exceeded the time limit (${DEFAULT_TIMEOUT}ms)`
+      );
     },
     onMemoryExceeded: () => {
       fmt.error(
         `${fmt.cross()} ${fmt.bold('Generator Unexpectedly Exceeded Memory Limit!')} (${DEFAULT_MEMORY_LIMIT} MB)`
       );
       void executor.cleanup();
-      process.exit(1);
+      throw new LimitExceededError(
+        `Generator exceeded the memory limit (${DEFAULT_MEMORY_LIMIT} MB)`
+      );
     },
   });
 }
@@ -100,13 +109,21 @@ export function ensureGeneratorsExist(
   generators: LocalGenerator[] | undefined
 ): asserts generators is LocalGenerator[] {
   if (!generators || generators.length === 0) {
-    throw new Error('No test generators defined in the configuration file.');
+    throw new PolymanError(
+      'No test generators defined in the configuration file.',
+      2,
+      'Add a "generators" entry to Config.json'
+    );
   }
 }
 
 export async function compileGenerator(generator: LocalGenerator) {
   if (!generator.source) {
-    throw new Error(`Generator ${generator.name} has no source file specified`);
+    throw new PolymanError(
+      `Generator ${generator.name} has no source file specified`,
+      2,
+      'Set "source" for this generator in Config.json'
+    );
   }
   await compileCPP(generator.source);
 }
@@ -131,7 +148,11 @@ export async function compileGeneratorsForTests(
   for (const name of referenced) {
     const gen = generators.find(g => g.name === name);
     if (!gen) {
-      throw new Error(`Generator "${name}" not found in configuration`);
+      throw new PolymanError(
+        `Generator "${name}" not found in configuration`,
+        2,
+        'Check the generator name in the testset script and in Config.json'
+      );
     }
     if (!compiled.has(name)) {
       try {
@@ -161,7 +182,11 @@ export async function compileGeneratorsForTestsets(
   for (const name of referenced) {
     const gen = generators.find(g => g.name === name);
     if (!gen) {
-      throw new Error(`Generator "${name}" not found in configuration`);
+      throw new PolymanError(
+        `Generator "${name}" not found in configuration`,
+        2,
+        'Check the generator name in the testset script and in Config.json'
+      );
     }
     await compileGenerator(gen);
   }
@@ -247,6 +272,7 @@ export async function executeResolvedTests(
         await runGeneratorToFile(compiledPath, src.args, dest);
       }
     } catch (error) {
+      if (error instanceof LimitExceededError) throw error;
       someFailed = true;
       fmt.error(
         `  ${fmt.cross()} Test ${t.index} generation failed:\n\t${
@@ -257,7 +283,7 @@ export async function executeResolvedTests(
   }
 
   if (someFailed) {
-    throw new Error('Some tests failed to generate');
+    throw new PolymanError('Some tests failed to generate', 1);
   }
 }
 

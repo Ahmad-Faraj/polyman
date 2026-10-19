@@ -3,6 +3,7 @@ import type ConfigFile from '../../src/types';
 import type { CheckerVerdict, LocalChecker } from '../../src/types';
 import type { ExecutionOptions, ExecutionResult } from '../../src/executor';
 import * as checker from '../../src/helpers/checker';
+import { LimitExceededError, PolymanError } from '../../src/errors';
 import { executor } from '../../src/executor';
 import * as utils from '../../src/helpers/utils';
 import { fmt } from '../../src/formatter';
@@ -494,74 +495,150 @@ describe('checker.ts', () => {
       });
     });
 
-    it('should handle timeout callback correctly', async () => {
+    it('should throw a PolymanError with code 1 on a checker timeout', async () => {
       const exitSpy = vi
         .spyOn(process, 'exit')
         .mockImplementation((() => undefined) as (code?: number) => never);
 
       mockedExecute.mockImplementation(
         (_cmd: string, options: ExecutionOptions) => {
-          if (options.onTimeout) {
-            options.onTimeout(
-              makeExecResult({ exitCode: 124, success: false })
-            );
-          }
+          options.onTimeout?.(
+            makeExecResult({ exitCode: 124, success: false })
+          );
           return Promise.resolve(
             makeExecResult({ exitCode: 124, success: false })
           );
         }
       );
 
-      await checker.runChecker(
-        mockExecCommand,
-        mockInput,
-        mockOutput,
-        mockAnswer,
-        'OK'
-      ); // This shouldn't throw in itself because onTimeout calls process.exit, but we mocked process.exit.
-      // Wait, executor.execute itself finishes. runChecker returns void.
-      // If onTimeout is called, 'didCatchInvalid' is NOT set to true.
-      // If expectedVerdict is OK, runChecker might not throw, but in reality process.exit kills it.
-      // We just verify callbacks here.
+      const error = await checker
+        .runChecker(mockExecCommand, mockInput, mockOutput, mockAnswer, 'OK')
+        .catch((e: unknown) => e);
 
+      expect(error).toBeInstanceOf(PolymanError);
+      expect((error as PolymanError).exitCode).toBe(1);
+      expect((error as PolymanError).message).toContain('time limit');
       expect(mockedFmtError).toHaveBeenCalledWith(
         expect.stringContaining('Checker Unexpectedly Exceeded Time Limit')
       );
       expect(mockedCleanup).toHaveBeenCalled();
-      expect(exitSpy).toHaveBeenCalledWith(1);
+      expect(exitSpy).not.toHaveBeenCalled();
     });
 
-    it('should handle memory limit callback correctly', async () => {
+    it('should throw a PolymanError with code 1 on a checker memory limit', async () => {
       const exitSpy = vi
         .spyOn(process, 'exit')
         .mockImplementation((() => undefined) as (code?: number) => never);
 
       mockedExecute.mockImplementation(
         (_cmd: string, options: ExecutionOptions) => {
-          if (options.onMemoryExceeded) {
-            options.onMemoryExceeded(
-              makeExecResult({ exitCode: 137, success: false })
-            );
-          }
+          options.onMemoryExceeded?.(
+            makeExecResult({ exitCode: 137, success: false })
+          );
           return Promise.resolve(
             makeExecResult({ exitCode: 137, success: false })
           );
         }
       );
 
-      await checker.runChecker(
-        mockExecCommand,
-        mockInput,
-        mockOutput,
-        mockAnswer,
-        'OK'
-      );
+      const error = await checker
+        .runChecker(mockExecCommand, mockInput, mockOutput, mockAnswer, 'OK')
+        .catch((e: unknown) => e);
 
+      expect(error).toBeInstanceOf(PolymanError);
+      expect((error as PolymanError).exitCode).toBe(1);
+      expect((error as PolymanError).message).toContain('memory limit');
       expect(mockedFmtError).toHaveBeenCalledWith(
         expect.stringContaining('Checker Unexpectedly Exceeded Memory Limit')
       );
       expect(mockedCleanup).toHaveBeenCalled();
-      expect(exitSpy).toHaveBeenCalledWith(1);
+      expect(exitSpy).not.toHaveBeenCalled();
+    });
+
+    it('should stop runCheckerTests at the first limit hit instead of counting it', async () => {
+      // The real throwError rethrows an Error as it is; the file-level mock
+      // wraps it, which would hide the error class.
+      vi.mocked(utils.throwError).mockImplementationOnce((err: unknown) => {
+        throw err;
+      });
+      mockedGetCompiledCommandToRun.mockReturnValue('./checker');
+      installReadFileMock(() => ({
+        err: null,
+        data: JSON.stringify({
+          tests: [
+            { input: '1', output: '1', answer: '1', expectedVerdict: 'OK' },
+            { input: '2', output: '2', answer: '2', expectedVerdict: 'OK' },
+          ],
+        }),
+      }));
+      mockedExecute.mockImplementation(
+        (_cmd: string, options: ExecutionOptions) => {
+          options.onTimeout?.(
+            makeExecResult({ exitCode: 124, success: false })
+          );
+          return Promise.resolve(
+            makeExecResult({ exitCode: 124, success: false })
+          );
+        }
+      );
+
+      const error = await checker
+        .runCheckerTests({
+          name: 'check',
+          source: 'check.cpp',
+          testsFilePath: 'tests.json',
+        })
+        .catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(LimitExceededError);
+      expect(mockedExecute).toHaveBeenCalledTimes(1);
+      expect(mockedFmtError).not.toHaveBeenCalledWith(
+        expect.stringContaining('Checker Test 1 failed')
+      );
+    });
+
+    it('should report failed checker tests with exit code 1', async () => {
+      mockedGetCompiledCommandToRun.mockReturnValue('./checker');
+      installReadFileMock(() => ({
+        err: null,
+        data: JSON.stringify({
+          tests: [
+            { input: '1', output: '2', answer: '1', expectedVerdict: 'OK' },
+          ],
+        }),
+      }));
+      mockedExecute.mockImplementation(
+        (_cmd: string, options: ExecutionOptions) => {
+          options.onError?.(
+            makeExecResult({ exitCode: 1, success: false, stderr: 'wrong' })
+          );
+          return Promise.resolve(
+            makeExecResult({ exitCode: 1, success: false })
+          );
+        }
+      );
+
+      const error = await checker
+        .runCheckerTests({
+          name: 'check',
+          source: 'check.cpp',
+          testsFilePath: 'tests.json',
+        })
+        .catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(PolymanError);
+      expect((error as PolymanError).exitCode).toBe(1);
+    });
+
+    it('should report a missing checker as a usage error (code 2)', () => {
+      let error: unknown;
+      try {
+        checker.ensureCheckerExists(undefined);
+      } catch (e) {
+        error = e;
+      }
+      expect(error).toBeInstanceOf(PolymanError);
+      expect((error as PolymanError).exitCode).toBe(2);
     });
   });
 

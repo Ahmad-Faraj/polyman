@@ -541,4 +541,85 @@ describe('cli.ts', () => {
     expect(help.printComprehensiveHelp).toHaveBeenCalled();
     exitSpy.mockRestore();
   });
+
+  describe('exit codes', () => {
+    /**
+     * Runs `generate --all` with the action rejecting. The errors module is
+     * loaded after the module reset so `instanceof` in cli.ts sees the same
+     * class the test throws.
+     */
+    const runFailing = async (
+      makeError: (errors: typeof import('../src/errors')) => unknown
+    ) => {
+      vi.resetModules();
+      const errors = (await import(
+        '../src/errors'
+      )) as typeof import('../src/errors');
+      vi.mocked(actions.generateTestsAction).mockRejectedValueOnce(
+        makeError(errors)
+      );
+      const exitSpy = vi
+        .spyOn(process, 'exit')
+        .mockImplementation((() => undefined) as never);
+      const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+      try {
+        process.argv = ['node', 'polyman', 'generate', '--all'];
+        await import('../src/cli');
+        await tick();
+        return {
+          exitCalls: exitSpy.mock.calls.map(call => call[0]),
+          output: log.mock.calls.map(call => call.map(String).join(' ')),
+        };
+      } finally {
+        exitSpy.mockRestore();
+        log.mockRestore();
+      }
+    };
+
+    it('should print a PolymanError with its hint and exit with its code', async () => {
+      const { exitCalls, output } = await runFailing(
+        ({ PolymanError }) =>
+          new PolymanError('No validator defined', 2, 'Add one to Config.json')
+      );
+      expect(exitCalls).toEqual([2]);
+      expect(output.join('\n')).toContain('No validator defined');
+      expect(output.join('\n')).toContain('Add one to Config.json');
+    });
+
+    it('should exit with the code of the PolymanError', async () => {
+      const { exitCalls } = await runFailing(
+        ({ PolymanError }) => new PolymanError('g++ is missing', 3)
+      );
+      expect(exitCalls).toEqual([3]);
+    });
+
+    it('should not print a hint line when the error has none', async () => {
+      const { exitCalls, output } = await runFailing(
+        ({ PolymanError }) => new PolymanError('Some tests failed', 1)
+      );
+      expect(exitCalls).toEqual([1]);
+      expect(output.join('\n')).toContain('Some tests failed');
+      expect(output.join('\n')).not.toContain('Hint');
+    });
+
+    it('should exit with 1 for an unknown error', async () => {
+      const { exitCalls, output } = await runFailing(
+        () => new Error('something unexpected')
+      );
+      expect(exitCalls).toEqual([1]);
+      expect(output.join('\n')).toContain('something unexpected');
+    });
+
+    it('should not exit when the action succeeds', async () => {
+      const exitSpy = vi
+        .spyOn(process, 'exit')
+        .mockImplementation((() => undefined) as never);
+      try {
+        await loadCli(['generate', '--all']);
+        expect(exitSpy).not.toHaveBeenCalled();
+      } finally {
+        exitSpy.mockRestore();
+      }
+    });
+  });
 });

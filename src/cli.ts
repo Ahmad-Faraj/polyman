@@ -42,6 +42,8 @@ import {
 import { printComprehensiveHelp } from './help';
 import { setCacheEnabled } from './helpers/compile-cache';
 import { configureTerminal } from './terminal';
+import { PolymanError, exitCodeFor } from './errors';
+import { fmt } from './formatter';
 
 configureTerminal();
 
@@ -643,4 +645,15 @@ remote
   .description('Build problem package on Polygon')
   .action(remotePackageProblemAction);
 
-program.parse(process.argv);
+/**
+ * The one place that turns a failed action into a message and an exit code.
+ * A {@link PolymanError} exits with its own code, anything else with 1.
+ */
+program.parseAsync(process.argv).catch((error: unknown) => {
+  const message = error instanceof Error ? error.message : String(error);
+  fmt.error(message);
+  if (error instanceof PolymanError && error.hint) {
+    fmt.error(`Hint: ${error.hint}`);
+  }
+  process.exit(exitCodeFor(error));
+});

@@ -24,6 +24,7 @@ const executor: {
 } = executorModule.executor;
 import * as utils from '../../src/helpers/utils';
 import * as checker from '../../src/helpers/checker';
+import { LimitExceededError } from '../../src/errors';
 import { report } from '../../src/report';
 import * as testsetHelper from '../../src/helpers/testset';
 import fs from 'fs';
@@ -809,6 +810,29 @@ describe('solution.ts', () => {
           'WA',
           'Wrong Answer'
         );
+        spy.mockRestore();
+      });
+
+      it('rethrows a checker limit hit and does not record it as WA', async () => {
+        const targetSol = solutionWithTag('WA');
+        const spy = vi.spyOn(report, 'updateTestVerdict');
+
+        mockedGetTestFiles.mockReturnValue(['t1.txt', 't2.txt']);
+        mockedRunChecker.mockRejectedValue(
+          new LimitExceededError('Checker exceeded the time limit (1000ms)')
+        );
+
+        await expect(
+          solution.startTheComparisonProcess(
+            checkerConfig,
+            mainSol,
+            targetSol,
+            [{ name: 'ts1' }]
+          )
+        ).rejects.toBeInstanceOf(LimitExceededError);
+
+        expect(mockedRunChecker).toHaveBeenCalledTimes(1);
+        expect(spy).not.toHaveBeenCalled();
         spy.mockRestore();
       });
     });

@@ -7,6 +7,7 @@ import * as testsetHelper from '../../src/helpers/testset';
 import { fmt } from '../../src/formatter';
 import fs from 'fs';
 import path from 'path';
+import { LimitExceededError, PolymanError } from '../../src/errors';
 import type ConfigFile from '../../src/types';
 import type { LocalValidator, LocalTestset } from '../../src/types';
 
@@ -678,60 +679,207 @@ describe('validator.ts', () => {
   });
 
   describe('edge cases and error handling', () => {
-    it('should handle timeout in validator execution', async () => {
+    it('should throw a PolymanError with code 1 on a validator timeout', async () => {
       const mockValidator: LocalValidator = { name: 'val', source: 'val.cpp' };
       mockedGetCompiledCommandToRun.mockReturnValue('./val');
       mockedExistsSync.mockReturnValue(true);
+      mockedThrowError.mockImplementation(rethrowImpl);
 
       const mockExit = vi
         .spyOn(process, 'exit')
         .mockImplementation(() => undefined as never);
       mockedCleanup.mockResolvedValue();
 
-      mockedExecuteWithRedirect.mockImplementation(async (_cmd, options) => {
-        if (options.onTimeout) {
-          await Promise.resolve(options.onTimeout(SUCCESS_RESULT));
-        }
-        return SUCCESS_RESULT;
+      mockedExecuteWithRedirect.mockImplementation((_cmd, options) => {
+        options.onTimeout?.(SUCCESS_RESULT);
+        return Promise.resolve(SUCCESS_RESULT);
       });
 
-      await validator.validateSingleTest(mockValidator, 'testsets', 1);
+      const error = await validator
+        .validateSingleTest(mockValidator, 'testsets', 1)
+        .catch((e: unknown) => e);
 
+      expect(error).toBeInstanceOf(PolymanError);
+      expect((error as PolymanError).exitCode).toBe(1);
+      expect((error as PolymanError).message).toContain('time limit');
       expect(mockedFmtError).toHaveBeenCalledWith(
         expect.stringContaining('Exceeded Time Limit')
       );
       expect(mockedCleanup).toHaveBeenCalled();
-      expect(mockExit).toHaveBeenCalledWith(1);
+      expect(mockExit).not.toHaveBeenCalled();
 
       mockExit.mockRestore();
     });
 
-    it('should handle memory exceeded in validator execution', async () => {
+    it('should throw a PolymanError with code 1 on a validator memory limit', async () => {
       const mockValidator: LocalValidator = { name: 'val', source: 'val.cpp' };
       mockedGetCompiledCommandToRun.mockReturnValue('./val');
       mockedExistsSync.mockReturnValue(true);
+      mockedThrowError.mockImplementation(rethrowImpl);
 
       const mockExit = vi
         .spyOn(process, 'exit')
         .mockImplementation(() => undefined as never);
       mockedCleanup.mockResolvedValue();
 
-      mockedExecuteWithRedirect.mockImplementation(async (_cmd, options) => {
-        if (options.onMemoryExceeded) {
-          await Promise.resolve(options.onMemoryExceeded(SUCCESS_RESULT));
-        }
-        return SUCCESS_RESULT;
+      mockedExecuteWithRedirect.mockImplementation((_cmd, options) => {
+        options.onMemoryExceeded?.(SUCCESS_RESULT);
+        return Promise.resolve(SUCCESS_RESULT);
       });
 
-      await validator.validateSingleTest(mockValidator, 'testsets', 1);
+      const error = await validator
+        .validateSingleTest(mockValidator, 'testsets', 1)
+        .catch((e: unknown) => e);
 
+      expect(error).toBeInstanceOf(PolymanError);
+      expect((error as PolymanError).exitCode).toBe(1);
+      expect((error as PolymanError).message).toContain('memory limit');
       expect(mockedFmtError).toHaveBeenCalledWith(
         expect.stringContaining('Exceeded Memory Limit')
       );
       expect(mockedCleanup).toHaveBeenCalled();
-      expect(mockExit).toHaveBeenCalledWith(1);
+      expect(mockExit).not.toHaveBeenCalled();
 
       mockExit.mockRestore();
+    });
+
+    it('should stop validateTestset at the first limit hit instead of counting it', async () => {
+      const mockValidator: LocalValidator = { name: 'val', source: 'val.cpp' };
+      mockedGetCompiledCommandToRun.mockReturnValue('./val');
+      mockedExistsSync.mockReturnValue(true);
+      mockedGetTestFiles.mockReturnValue(['test1.txt', 'test2.txt']);
+      mockedThrowError.mockImplementation(rethrowImpl);
+      mockedLogError.mockImplementation(() => {});
+      mockedCleanup.mockResolvedValue();
+      mockedExecuteWithRedirect.mockImplementation((_cmd, options) => {
+        options.onTimeout?.(SUCCESS_RESULT);
+        return Promise.resolve(SUCCESS_RESULT);
+      });
+
+      const error = await validator
+        .validateTestset(mockValidator, 'samples')
+        .catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(LimitExceededError);
+      expect(mockedExecuteWithRedirect).toHaveBeenCalledTimes(1);
+      expect(mockedLogError).not.toHaveBeenCalled();
+    });
+
+    it('should stop validateGroup at the first limit hit instead of counting it', async () => {
+      const mockValidator: LocalValidator = { name: 'val', source: 'val.cpp' };
+      const mockTestset: LocalTestset = { name: 'testsets', groups: [] };
+      mockedGetCompiledCommandToRun.mockReturnValue('./val');
+      mockedExistsSync.mockReturnValue(true);
+      mockedGetTestIndicesForGroup.mockReturnValue([1, 2]);
+      mockedThrowError.mockImplementation(rethrowImpl);
+      mockedLogError.mockImplementation(() => {});
+      mockedCleanup.mockResolvedValue();
+      mockedExecuteWithRedirect.mockImplementation((_cmd, options) => {
+        options.onMemoryExceeded?.(SUCCESS_RESULT);
+        return Promise.resolve(SUCCESS_RESULT);
+      });
+
+      const error = await validator
+        .validateGroup(mockValidator, mockTestset, 'samples')
+        .catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(LimitExceededError);
+      expect(mockedExecuteWithRedirect).toHaveBeenCalledTimes(1);
+      expect(mockedLogError).not.toHaveBeenCalled();
+    });
+
+    it('should stop validateAllTestsets at the first limit hit', async () => {
+      const mockValidator: LocalValidator = { name: 'val', source: 'val.cpp' };
+      mockedGetCompiledCommandToRun.mockReturnValue('./val');
+      mockedExistsSync.mockReturnValue(true);
+      mockedGetTestFiles.mockReturnValue(['test1.txt']);
+      mockedThrowError.mockImplementation(rethrowImpl);
+      mockedLogError.mockImplementation(() => {});
+      mockedCleanup.mockResolvedValue();
+      mockedExecuteWithRedirect.mockImplementation((_cmd, options) => {
+        options.onTimeout?.(SUCCESS_RESULT);
+        return Promise.resolve(SUCCESS_RESULT);
+      });
+
+      const error = await validator
+        .validateAllTestsets(mockValidator, [
+          { name: 'samples' },
+          { name: 'tests' },
+        ])
+        .catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(LimitExceededError);
+      expect(mockedExecuteWithRedirect).toHaveBeenCalledTimes(1);
+    });
+
+    it('should stop runValidatorTests at the first limit hit instead of counting it', async () => {
+      const mockValidator: LocalValidator = {
+        name: 'val',
+        source: 'val.cpp',
+        testsFilePath: 'validator_tests.json',
+      };
+      const testsJson = {
+        tests: [
+          { index: 1, input: '1', expectedVerdict: 'VALID' },
+          { index: 2, input: '2', expectedVerdict: 'VALID' },
+        ],
+      };
+      mockedReadFile.mockImplementation(
+        readFileImpl(null, JSON.stringify(testsJson)) as typeof fs.readFile
+      );
+      mockedGetCompiledCommandToRun.mockReturnValue('./val');
+      mockedThrowError.mockImplementation(rethrowImpl);
+      mockedCleanup.mockResolvedValue();
+      mockedExecuteWithRedirect.mockImplementation((_cmd, options) => {
+        options.onTimeout?.(SUCCESS_RESULT);
+        return Promise.resolve(SUCCESS_RESULT);
+      });
+
+      const error = await validator
+        .runValidatorTests(mockValidator)
+        .catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(LimitExceededError);
+      expect(mockedExecuteWithRedirect).toHaveBeenCalledTimes(1);
+    });
+
+    it('should report failed validation with exit code 1', async () => {
+      const mockValidator: LocalValidator = { name: 'val', source: 'val.cpp' };
+      mockedGetCompiledCommandToRun.mockReturnValue('./val');
+      mockedExistsSync.mockReturnValue(true);
+      mockedGetTestFiles.mockReturnValue(['test1.txt']);
+      mockedThrowError.mockImplementation(rethrowImpl);
+      mockedLogError.mockImplementation(() => {});
+      mockedCleanup.mockResolvedValue();
+      mockedExecuteWithRedirect.mockImplementation(
+        executeOnErrorThrow('bad', 'bad')
+      );
+
+      const error = await validator
+        .validateTestset(mockValidator, 'samples')
+        .catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(PolymanError);
+      expect((error as PolymanError).exitCode).toBe(1);
+    });
+
+    it('should report a missing validator as a usage error (code 2)', () => {
+      let error: unknown;
+      try {
+        validator.ensureValidatorExists(undefined);
+      } catch (e) {
+        error = e;
+      }
+      expect(error).toBeInstanceOf(PolymanError);
+      expect((error as PolymanError).exitCode).toBe(2);
+    });
+
+    it('should report a validator without a source as a usage error (code 2)', async () => {
+      const error = await validator
+        .compileValidator({ name: 'val', source: '' })
+        .catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(PolymanError);
+      expect((error as PolymanError).exitCode).toBe(2);
     });
 
     it('should handle validator expecting INVALID but getting VALID', async () => {
