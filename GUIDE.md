@@ -126,7 +126,7 @@ Polyman is a command-line tool designed for competitive programming problem sett
 ### Prerequisites
 
 - **Node.js** v14 or higher
-- **C++ Compiler** (g++ with C++23 support by default; set `cppStandard` in `Config.json` to target an older standard)
+- **C++ Compiler** (g++ with C++23 support by default; set `cppStandard` in `Config.json` to target an older standard, or use another compiler with `POLYMAN_CXX` or `compiler.cpp`, see [Local Compiler Overrides](#local-compiler-overrides))
 - **Java JDK** (optional, for Java solutions)
 - **Python** (optional, for Python solutions)
 - **testlib.h** (automatically downloadable via Polyman)
@@ -234,7 +234,7 @@ my-problem/
 
 | Field                  | Type   | Description                                                                          | Default          |
 | ---------------------- | ------ | ------------------------------------------------------------------------------------ | ---------------- |
-| `cppStandard`          | string | Standard passed to the local `g++` as `-std=` (e.g. `c++17`, `c++20`)                | `c++23`          |
+| `cppStandard`          | string | Standard passed to the local compiler as `-std=` (e.g. `c++17`, `c++20`)             | `c++23`          |
 | `timeLimitMultipliers` | object | Per-language factors applied to `timeLimit` for local runs (`cpp`, `java`, `python`) | every factor `1` |
 
 `cppStandard` only affects local compilation (`generate`, `validate`, `run`, `verify`). The compiler used on Polygon is chosen per file through `sourceType` (see [Source Types](#source-types)).
@@ -251,29 +251,47 @@ A Java solution then runs locally with `2000ms` and a Python one with `3000ms`; 
 
 #### Local Compiler Overrides
 
-By default polyman compiles C++ with `g++` and Java with `javac` from your `PATH`. To use a different executable (for example `g++-15`) without changing your system default, add an optional `compiler` block:
+By default polyman compiles C++ with `g++` and Java with `javac` from your `PATH`. To use another compiler (for example `g++-15` or `clang++`) without changing your system default, add an optional `compiler` block:
 
 ```json
 {
+  "cppStandard": "c++20",
   "compiler": {
     "cpp": "g++-15",
-    "javac": "javac",
-    "flags": ["-O2", "-std=c++23"]
+    "javac": "/usr/lib/jvm/java-21-openjdk/bin/javac",
+    "flags": ["-Wall", "-DLOCAL"]
   }
 }
 ```
 
-| Field   | Type     | Description                                        | Default   |
-| ------- | -------- | -------------------------------------------------- | --------- |
-| `cpp`   | string   | C++ compiler executable name or absolute path      | `"g++"`   |
-| `javac` | string   | Java compiler executable name or absolute path     | `"javac"` |
-| `flags` | string[] | Extra flags appended to every C++ compile command  | `[]`      |
+| Field   | Type     | Description                                                     | Default   |
+| ------- | -------- | --------------------------------------------------------------- | --------- |
+| `cpp`   | string   | C++ compiler executable name or path                            | `"g++"`   |
+| `javac` | string   | Java compiler executable name or path                           | `"javac"` |
+| `flags` | string[] | Extra flags for every C++ compile, one flag per item            | `[]`      |
 
-The environment variables `POLYMAN_CXX` and `POLYMAN_JAVAC` take precedence over `compiler.cpp` and `compiler.javac`, which is handy for one-off runs:
+The environment variables `POLYMAN_CXX` and `POLYMAN_JAVAC` take precedence over `compiler.cpp` and `compiler.javac`. This is handy for one run:
 
 ```bash
 POLYMAN_CXX=clang++ polyman verify
 ```
+
+So the order is: environment variable, then `Config.json`, then the default. An empty or blank environment variable counts as not set.
+
+**How `flags` and `cppStandard` combine.** Every C++ compile starts with `-O2 -std=<cppStandard>`, then the items of `flags` are added in order. A flag of the same kind replaces the default instead of being added next to it:
+
+- a `-std=` flag in `flags` replaces `cppStandard`,
+- an `-O` flag in `flags` (`-O0`, `-O3`, `-Ofast`, ...) replaces `-O2`.
+
+With the example above, polyman runs `g++-15 -O2 -std=c++20 -Wall -DLOCAL ...`. With `"flags": ["-O0", "-std=gnu++17"]` it runs `g++-15 -O0 -std=gnu++17 ...`, so `cppStandard` is not used. The same flags are used for every C++ source: solutions, generators, the validator and the checker.
+
+Paths with spaces work, polyman quotes the executable and each flag. Because each item is one argument, write `["-Wall", "-Wextra"]` and not `["-Wall -Wextra"]`. On Windows, use the full path with backslashes in JSON (`"C:\\mingw64\\bin\\g++.exe"`) or forward slashes.
+
+**Checks.** If the block is wrong, the compile step stops with a clear error and nothing is compiled: `compiler` must be an object, `cpp` and `javac` must be non-empty strings, `flags` must be an array of non-empty strings, and no other key is allowed.
+
+**Cache.** The compiled-binary cache is keyed on the resolved compiler executable and the full flag list (see [Compilation Cache](#compilation-cache)), so switching `POLYMAN_CXX`, `compiler.cpp` or `flags` recompiles everything once.
+
+**Java.** `compiler.flags` is only for C++. Java programs still run with `java` from your `PATH`, so if `javac` comes from a newer JDK than `java`, the run fails with `UnsupportedClassVersionError`. Put the matching JDK's `bin` first on your `PATH` in that case.
 
 This block is local only. It is never pushed to Polygon; Polygon picks its compiler from each file's `sourceType`.
 
@@ -1769,10 +1787,10 @@ Compiling testlib-based C++ takes seconds per file, and most runs recompile sour
 
 - the source file's contents,
 - the contents of every local header it reaches through `#include "..."`, followed recursively (`testlib.h`, your own helpers),
-- the compile flags (`-O2`, `-std=<cppStandard>`),
-- the compiler, as reported by `g++ --version`.
+- the compile flags (`-O2`, `-std=<cppStandard>` and `compiler.flags`),
+- the compiler executable (`POLYMAN_CXX`, `compiler.cpp` or `g++`) and its `--version` output.
 
-If any of these change, the source is recompiled; otherwise the cached binary is copied into place and `g++` does not run. A cached binary whose checksum no longer matches is discarded and rebuilt. `verify` prints how much compile time the cache saved:
+If any of these change, the source is recompiled; otherwise the cached binary is copied into place and the compiler does not run. A cached binary whose checksum no longer matches is discarded and rebuilt. `verify` prints how much compile time the cache saved:
 
 ```
   ⚡ Compile cache: 6 hits, 1 miss · saved ~38.2s
@@ -1792,7 +1810,7 @@ polyman verify --no-cache # recompile everything this run, without reading or wr
 
 Entries unused for 30 days are removed, and the cache is capped at 256 MB (least recently used entries go first). The cache lives with the problem, so it survives across sessions; add `.polyman/` to your `.gitignore`.
 
-**Limitations.** Java solutions are always compiled with `javac`. Headers pulled in through angle brackets (`#include <...>`) are treated as part of the compiler, so after editing a system header, run `polyman cache clear`.
+**Limitations.** Java solutions are not cached. Headers pulled in through angle brackets (`#include <...>`), or found only through your own `-I` flags in `compiler.flags`, are not tracked, so after editing such a header, run `polyman cache clear`.
 
 ### Terminal Colors
 
