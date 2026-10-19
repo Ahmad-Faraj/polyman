@@ -9,8 +9,12 @@
  * others hand over to) before anything is checked or sent.
  *
  * Run it from your machine, not from CI (it uses your own token):
- *   GITLAB_TOKEN=... node engine/src/cli/sync-flows.ts [project path] [--dry-run]
+ *   GITLAB_TOKEN=... node engine/src/cli/sync-flows.ts [project path] [--dry-run] [--allow-branch]
  *   ... --print NAME   prints one flow filled in, to paste when creating it in the UI
+ *
+ * It publishes only from the commit at the head of the default branch on
+ * origin (fetched first), so a branch's flows never go live by accident;
+ * --allow-branch publishes the checked-out commit anyway.
  */
 import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -66,9 +70,31 @@ for (const [name, source] of sources) {
 }
 if (broken) throw new Error(`${broken} flow file(s) failed the checks; nothing was synced`);
 
-const { project } = await graphql<{ project: { id: string } }>('query($p: ID!) { project(fullPath: $p) { id } }', {
-  p: projectPath,
-});
+const { project } = await graphql<{ project: { id: string; repository?: { rootRef?: string | null } | null } }>(
+  'query($p: ID!) { project(fullPath: $p) { id repository { rootRef } } }',
+  { p: projectPath },
+);
+
+// Publish what is merged, not a branch: the flows go live for everyone at once.
+if (!dryRun && !args.includes('--allow-branch')) {
+  const branch = project.repository?.rootRef;
+  if (!branch) throw new Error(`could not read the default branch of ${projectPath}; pass --allow-branch to sync anyway`);
+  const git = (...a: string[]) => execFileSync('git', a, { encoding: 'utf8' }).trim();
+  try {
+    git('fetch', '--quiet', 'origin', branch);
+  } catch (err) {
+    throw new Error(`could not fetch origin/${branch} to compare with HEAD (${(err as Error).message.split('\n')[0]}); pass --allow-branch to sync anyway`);
+  }
+  const head = git('rev-parse', 'HEAD');
+  const merged = git('rev-parse', `origin/${branch}`);
+  if (head !== merged) {
+    throw new Error(
+      `HEAD is not origin/${branch}, so these flows are not what is merged; nothing was synced.\n` +
+        `  HEAD:            ${head}\n  origin/${branch}: ${merged}\n` +
+        `Check out origin/${branch} (or pull), or pass --allow-branch to publish this commit anyway.`,
+    );
+  }
+}
 // The catalog holds agents and flows together and is paged, so follow the cursor.
 interface CatalogPage {
   aiCatalogConfiguredItems: {
