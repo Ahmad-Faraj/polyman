@@ -1,14 +1,18 @@
 import { Command } from 'commander';
-import chalk from 'chalk';
+import { getTheme, type Theme } from './theme';
 
 /**
  * Prints the comprehensive help message for the CLI.
  * Recursively lists all commands, subcommands, and options.
  * @param command The root command to print help for
+ * @param theme Color theme to style output with
  */
-export const printComprehensiveHelp = (command: Command): void => {
+export const printComprehensiveHelp = (
+  command: Command,
+  theme: Theme = getTheme()
+): void => {
   console.log(
-    chalk.bold.blue(
+    theme.heading(
       `\n${command.name()} - ${command.description()} v${command.version()}\n`
     )
   );
@@ -31,7 +35,7 @@ export const printComprehensiveHelp = (command: Command): void => {
       signature += ` ${args}`;
     }
 
-    console.log(`${indent}${chalk.bold.green(signature)}`);
+    console.log(`${indent}${theme.successBold(signature)}`);
     if (cmd.description()) {
       console.log(`${subIndent}${cmd.description()}`);
     }
@@ -39,7 +43,7 @@ export const printComprehensiveHelp = (command: Command): void => {
     // Print options
     const options = cmd.options;
     if (options && options.length > 0) {
-      console.log(`${subIndent}${chalk.yellow('Options:')}`);
+      console.log(`${subIndent}${theme.warning('Options:')}`);
       options.forEach(option => {
         console.log(
           `${subIndent}  ${option.flags.padEnd(25)} ${option.description}`
@@ -51,7 +55,7 @@ export const printComprehensiveHelp = (command: Command): void => {
     const subcommands = cmd.commands;
     if (subcommands && subcommands.length > 0) {
       if (depth === 0) {
-        console.log(`\n${chalk.underline('Commands:')}\n`);
+        console.log(`\n${theme.underline('Commands:')}\n`);
       }
       subcommands.forEach(subCmd => {
         printCommand(subCmd, depth + 1);
@@ -69,7 +73,7 @@ export const printComprehensiveHelp = (command: Command): void => {
   command.commands.forEach(cmd => {
     printCommand(cmd, 0);
     console.log(
-      chalk.gray('--------------------------------------------------')
+      theme.muted('--------------------------------------------------')
     );
   });
 };

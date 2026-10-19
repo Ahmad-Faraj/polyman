@@ -161,6 +161,8 @@ const timeout = setTimeout(() => {
 
 Terminal output styling with Codeforces theme.
 
+The actual colors come from `src/theme.ts`: a dark theme (default) and a light theme (`POLYMAN_THEME=light`). A non-empty `NO_COLOR` turns all colors off. `new Formatter(theme)` and `printComprehensiveHelp(program, theme)` accept a `Theme`, so tests can pass their own; without one they read the environment.
+
 **Colors:**
 
 - Primary: `#1E88E5` (blue)
