@@ -152,6 +152,7 @@ case "$MODE" in
       echo "traffic is back on $PREVIOUS_REVISION"
     else
       echo "production is serving $NOW, which failed its check, and there is no earlier revision to go back to; a person has to act" >&2
+      echo "NEXT STEP: a maintainer picks the last revision that passed its check (Cloud Run > $SERVICE > Revisions in project $GCP_PROJECT_ID) and runs: gcloud run services update-traffic $SERVICE --region $REGION --to-revisions REVISION=100" >&2
       exit 1
     fi
     ;;

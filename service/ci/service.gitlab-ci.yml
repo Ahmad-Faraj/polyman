@@ -193,6 +193,7 @@ service:promote:production:
 # Exit 3 (a warning; the release stays): the samples passed but the monitor
 # couldn't run (the MR lookup or the monitor itself failed), or the promote
 # switched nothing. monitor.txt says which.
+# Each way out ends with a NEXT STEP line: who does what now.
 service:check:production:
   extends: .service:release
   stage: deploy
@@ -203,8 +204,11 @@ service:check:production:
   script:
     - |
       note() { echo "$1" | tee -a monitor.txt; }
+      next() { echo "NEXT STEP: $1"; }
+      failed() { next "nobody promotes again: service:rollback:production moves traffic back by itself, then the incident responder opens an incident for this pipeline and asks a maintainer for the go-ahead on a rollback MR there (a drill gets an incident with no rollback MR)." >&2; exit 1; }
       if [ "${PROMOTED:-}" = false ]; then
         note "not checked: this pipeline's promote switched nothing (a newer pipeline has the candidate), so production does not serve ${CI_COMMIT_SHORT_SHA:-this commit}"
+        next "nothing to do in this pipeline: the newer main pipeline's candidate is the one to promote (its service:check:candidate log links the job)."
         exit 3
       fi
       # the commit production serves (APP_COMMIT, the short SHA the candidate
@@ -217,7 +221,7 @@ service:check:production:
       done
       if ! serves_this "$live"; then
         echo "production at $SERVICE_URL serves commit ${live:-(unreadable /api/version)}, not $CI_COMMIT_SHORT_SHA, which this pipeline promoted: the switch did not take, so this release is not live" >&2
-        exit 1
+        failed
       fi
       echo "production serves $live, the commit this pipeline promoted"
       if [ "${DRILL:-}" = production-check ] && [ "$CI_PIPELINE_SOURCE" = web ]; then set -- --drill; else set --; fi
@@ -257,8 +261,24 @@ service:check:production:
           monitor=broken; note "WARNING: the release monitor for !$iid could not finish (exit $m, no failed result in health-report.json): not a verdict on this release"
         fi
       fi
-      if [ "$golden" != 0 ] || [ "$monitor" = failed ]; then exit 1; fi
-      if [ "$monitor" = broken ]; then echo "the samples passed, so the release stays; a person should look at why the monitor didn't run" >&2; exit 3; fi
+      if [ "$golden" != 0 ] || [ "$monitor" = failed ]; then failed; fi
+      if [ "$monitor" = broken ]; then
+        echo "the samples passed, so the release stays, but the monitor didn't run" >&2
+        next "a maintainer reads monitor.txt in this job's artifacts (${CI_JOB_URL:-this job}/artifacts/browse), fixes why the monitor didn't run, and retries this job; nothing was rolled back." >&2
+        exit 3
+      fi
+      # a rollback MR (labelled "incident") waits for this check to be verified
+      who="the person who merged this change"; rollback=
+      if [ -n "${iid:-}" ]; then
+        merged=$(node -e 'const m = JSON.parse(require("fs").readFileSync("mrs.json", "utf8")).find((m) => m.state === "merged"); const u = m.merge_user ?? m.merged_by; console.log(`${u ? u.username : ""}:${(m.labels ?? []).includes("incident") ? "rollback" : ""}`)' 2>/dev/null || true)
+        [ -z "${merged%%:*}" ] || who="@${merged%%:*} (who merged !$iid)"
+        rollback=${merged#*:}
+      fi
+      if [ -n "$rollback" ]; then
+        next "production serves $live and passed its check. $who mentions the incident responder on the incident this rollback is for, so it records Verified."
+      else
+        next "nothing to click: production serves $live and passed its check."
+      fi
   artifacts:
     when: always
     paths: [golden.json, traffic.json, health-report.json, monitor.txt]

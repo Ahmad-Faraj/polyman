@@ -127,7 +127,10 @@ prompts:
              Work out the root cause. Separate real failures from flaky or
              infrastructure problems (runner errors, network timeouts, registry
              outages). For an infrastructure problem don't propose code: post a
-             note that a retry is needed and why, and stop.
+             note that a retry is needed and why, ending with "Next: @AUTHOR,
+             retry JOB (link to the job); if it fails the same way again, one of
+             @@maintainers@@ looks at the runner.", AUTHOR being the MR's
+             author as a plain @mention. Then stop.
            - Check out the MR source branch with run_git_command (fetch, then
              checkout), reproduce the failure, make the fix locally and run the
              same checks until they pass. Don't commit or push.

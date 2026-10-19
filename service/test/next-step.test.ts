@@ -18,6 +18,10 @@ interface Repo {
   serviceDiff?: 'same' | 'changed' | 'error';
   /** the pipeline's jobs as the API lists them; undefined when every lookup fails */
   jobs?: { id: number; name: string }[];
+  /** what the API lists as the MRs of this commit; undefined when that lookup fails */
+  mrs?: unknown[];
+  /** GITLAB_USER_LOGIN, the person whose push started the pipeline */
+  user?: string;
   /** a cloudrun.conf to use instead of the real one */
   conf?: string;
 }
@@ -41,7 +45,14 @@ function run(repo: Repo) {
 esac`,
   );
   if (repo.jobs) writeFileSync(join(work, 'jobs.json'), JSON.stringify(repo.jobs));
-  stub('curl', repo.jobs ? `cat "${work}/jobs.json"` : 'exit 22');
+  if (repo.mrs) writeFileSync(join(work, 'mrs.json'), JSON.stringify(repo.mrs));
+  stub(
+    'curl',
+    `case "$*" in
+  */repository/commits/*) ${repo.mrs ? `cat "${work}/mrs.json"` : 'exit 22'} ;;
+  *) ${repo.jobs ? `cat "${work}/jobs.json"` : 'exit 22'} ;;
+esac`,
+  );
   let script = SCRIPT;
   if (repo.conf !== undefined) {
     // the script reads cloudrun.conf next to itself
@@ -65,6 +76,7 @@ esac`,
       CI_PROJECT_ID: '1',
       CI_PIPELINE_ID: '9',
       CI_JOB_TOKEN: 'job-token',
+      ...(repo.user ? { GITLAB_USER_LOGIN: repo.user } : {}),
     },
   });
   return { status: res.status, out: res.stdout + res.stderr, calls: readFileSync(join(work, 'calls.log'), 'utf8') };
@@ -74,12 +86,18 @@ const jobs = [
   { id: 41, name: 'service:check:candidate' },
   { id: 42, name: 'service:promote:production' },
 ];
+// the API's MRs of a merge commit: the merged one names who merged it
+const mrs = [
+  { iid: 3, state: 'closed', merge_user: null },
+  { iid: 149, state: 'merged', merge_user: { username: 'Ahmad-Faraj' }, merged_by: { username: 'Ahmad-Faraj' } },
+];
 
 describe('next-step.sh after the candidate passed', () => {
   it('links the promote job when this is the newest commit on main', () => {
-    const r = run({ mainHead: 'abc1234full', jobs });
+    const r = run({ mainHead: 'abc1234full', jobs, mrs });
     expect(r.status).toBe(0);
-    expect(r.out).toContain('NEXT STEP: the candidate passed its check. To release it, a person who has read this log runs service:promote:production: https://gitlab.example/p/-/jobs/42');
+    expect(r.out).toContain('NEXT STEP: the candidate passed its check. To release it, @Ahmad-Faraj (who merged !149) runs service:promote:production: https://gitlab.example/p/-/jobs/42');
+    expect(r.calls).toContain('curl -sSf -H JOB-TOKEN: job-token https://gitlab.example/api/v4/projects/1/repository/commits/abc1234full/merge_requests');
     expect(r.out).not.toContain("don't promote");
   });
 
@@ -90,9 +108,10 @@ describe('next-step.sh after the candidate passed', () => {
   });
 
   it("says not to promote when a newer main commit changed the service again", () => {
-    const r = run({ mainHead: 'newer', serviceDiff: 'changed', jobs });
+    const r = run({ mainHead: 'newer', serviceDiff: 'changed', jobs, mrs });
     expect(r.status).toBe(0);
-    expect(r.out).toContain("NEXT STEP: a newer main pipeline exists: don't promote this one.");
+    expect(r.out).toContain("NEXT STEP: @Ahmad-Faraj (who merged !149): a newer main pipeline exists, don't promote this one.");
+    expect(r.out).toContain('https://gitlab.example/p/-/commit/newer/pipelines');
     expect(r.out).not.toContain('/-/jobs/42');
   });
 
@@ -115,10 +134,18 @@ describe('next-step.sh after the candidate passed', () => {
     expect(r.calls).not.toContain('git diff');
   });
 
+  it('names whoever pushed the commit when no merged MR can be found', () => {
+    for (const repo of [{ mainHead: 'abc1234full', jobs, user: 'Mazen-Ghanaym' }, { mainHead: 'abc1234full', jobs, mrs: [], user: 'Mazen-Ghanaym' }]) {
+      const r = run(repo);
+      expect(r.status).toBe(0);
+      expect(r.out).toContain('To release it, @Mazen-Ghanaym (who pushed this commit) runs service:promote:production: https://gitlab.example/p/-/jobs/42');
+    }
+  });
+
   it('falls back to the pipeline link when the job lookup fails', () => {
     const r = run({ mainHead: 'abc1234full' });
     expect(r.status).toBe(0);
-    expect(r.out).toContain('runs service:promote:production in this pipeline: https://gitlab.example/p/-/pipelines/9 (the job link could not be looked up)');
+    expect(r.out).toContain('the person who merged this change runs service:promote:production in this pipeline: https://gitlab.example/p/-/pipelines/9 (the job link could not be looked up)');
     // the job token first, then the public API
     expect(r.calls).toMatch(/curl -sSf -H JOB-TOKEN: job-token https:\/\/gitlab\.example\/api\/v4\/projects\/1\/pipelines\/9\/jobs\?per_page=100\ncurl -sSf https:/);
   });

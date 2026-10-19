@@ -140,6 +140,8 @@ describe('cloudrun.sh rollback', () => {
     const r = run('rollback', { traffic: serving('rev-2'), mainHead: 'x' }, { CANDIDATE_REVISION: 'rev-2' });
     expect(r.status).toBe(1);
     expect(r.out).toContain('a person has to act');
+    // who acts and the exact command, not only that someone should
+    expect(r.out).toMatch(/NEXT STEP: a maintainer picks the last revision that passed its check .*gcloud run services update-traffic polyman-verify --region \S+ --to-revisions REVISION=100/);
   });
 
   it('runs (and does nothing) when the candidate deploy itself failed and left no dotenv', () => {
