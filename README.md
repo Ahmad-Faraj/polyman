@@ -6,7 +6,7 @@
 
 **CLI tool for Codeforces problem setters** to automate the complete workflow for creating, testing, and verifying competitive programming problems.
 
-[![npm version](https://img.shields.io/npm/v/polyman.svg?style=flat-square)](https://www.npmjs.com/package/polyman-cli)
+[![npm version](https://img.shields.io/npm/v/polyman-cli.svg?style=flat-square)](https://www.npmjs.com/package/polyman-cli)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Node.js](https://img.shields.io/badge/Node.js-43853D?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org/)
@@ -15,7 +15,7 @@
 
 ---
 
-**Quick Links** | [Why?](#why-polyman) • [Installation](#installation) • [Quick Start](#quick-start) • [Commands](#commands) • [Tags](#solution-tags) • [Checkers](#standard-checkers) • [Structure](#project-structure) • [Config](#configuration) • [Docs](#documentation) • [Workflow](#workflow-summary) • [Issues](#common-issues) • [Support](#support) • [Contributing](#contributing) • [License](#license)
+**Quick Links** | [**GitLab Transcend: for judges**](JUDGES.md) • [Why?](#why-polyman) • [Installation](#installation) • [Quick Start](#quick-start) • [Commands](#commands) • [Tags](#solution-tags) • [Checkers](#standard-checkers) • [Structure](#project-structure) • [Config](#configuration) • [Docs](#documentation) • [Workflow](#workflow-summary) • [Issues](#common-issues) • [Support](#support) • [Contributing](#contributing) • [License](#license)
 
 </div>
 
@@ -25,7 +25,8 @@
 
 <!-- Video (under 3 minutes): put its link here, first in this list, once it is published. -->
 
-- **Live service:** [polyman-verify on Cloud Run](https://polyman-verify-ncvkutguda-ue.a.run.app) (`/health` answers `{"ok":true}`)
+- **For judges:** [JUDGES.md](JUDGES.md), the evidence by judging criterion, the rules and where each is met, and what the agents cost.
+- **Live service:** [polyman-verify on Cloud Run](https://polyman-verify-ncvkutguda-ue.a.run.app) (`/health` answers `{"ok":true}`; it scales to zero, so the first request after idle takes about 20 s)
 - **Release:** [`polyman-cli` 3.0.1 on npm](https://www.npmjs.com/package/polyman-cli/v/3.0.1), with provenance. It shipped through the judged release jobs ([!47][mr47]): npm `next`, [judged as installed against 3.0.0](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17267989872), then `latest`. The [GitLab Release v3.0.1](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/releases/v3.0.1) carries the evidence. The publish and promote jobs are manual on purpose: a person clicks each one, so a "blocked" deployment on the environments page is a step nobody chose to take.
 - **Original repository:** [HamzaHassanain/polyman](https://github.com/HamzaHassanain/polyman), imported at [`dcb5779`](https://github.com/HamzaHassanain/polyman/commit/dcb5779705da91bc898cc456a0d96bd5d311cf41) ("release: 3.0.0", 2026-09-25), tagged `hackathon-start` here.
 
@@ -62,6 +63,19 @@ A person checked each point the same morning. #21 had been closed by mistake (by
 At 19:26 Hamza published 3.0.1 to npm `next`. [`release:next-check`](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17267989872) installed both versions as users get them and judged them: **3.0.0 matched 0 of 5 problems, 3.0.1 matched 5 of 5**, the Polygon round trip on 3.0.1 passed 34/34, and nothing regressed. At 19:59 Mazen promoted it to `latest`, and the [GitLab Release v3.0.1](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/releases/v3.0.1) went out with its evidence: npm provenance, the Sigstore entry, the SBOM, the corpus verdicts of both versions and the mutation report. From the first fix's merge to users: 6 h 48 min.
 
 ### The judges, and who may say go-ahead
+
+```mermaid
+flowchart LR
+  J["Judges find a bug<br/>(not an LLM)"] --> B["Agent<br/>proposes"]
+  B -->|"go-ahead from<br/>someone else"| M["Agent<br/>builds the MR"]
+  M --> G["CI: judges<br/>+ guard"]
+  G --> R["Agent<br/>reviews"]
+  R -.->|"go-ahead per<br/>fix round"| M
+  R --> P["Person<br/>merges"]
+  P --> N["Person publishes;<br/>judged as installed"]
+  N --> X["Nightly judges<br/>what people install"]
+  X -->|"failure wakes<br/>the incident agent"| J
+```
 
 An agent proposes and waits. A person who didn't ask for the work replies `@<agent> go-ahead` (for high risk, governance paths and rollbacks only a maintainer, Hamza, Mazen or Ahmed, and never the one who asked), and the agent does that one step. The judges in the first three rows are programs, not an LLM. The CI job `autonomy:goahead` fails any agent push without a valid go-ahead. Full rules: [Assisted](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/wikis/Assisted).
 
@@ -126,7 +140,7 @@ Why some loops have two MRs: when an agent pushes without a go-ahead, the guard 
 - !101 merged with no review note on the MR.
 - On Oct 17 at 19:40 pipeline-fixer removed !5's planted line by itself, before the Assisted flows ([!17][mr17]) and the guard ([!19][mr19]) were on `main`. A person put it back on Oct 18 ([e4ed065](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/commit/e4ed065)), and [its pipeline](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/pipelines/2959983252) is red again on [`service:golden`](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17263548189). The guard now [refuses such a push](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17258462748).
 - GitLab Code Review didn't start when the reviewer flow asked for it (DCR4008 on !26 and !50); on !26 a person asked again and it ran.
-- With the six judge bugs merged, `corpus` and the Polygon round trip (34/34) are green on `main` ([pipeline 2960439972](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/pipelines/2960439972)). 3.0.1 has been `latest` on npm since 19:59 UTC on Oct 18; the nightly that judges it runs at 03:00 UTC on Oct 19. Until then, the only nightly so far is the red one on 3.0.0.
+- With the six judge bugs merged, `corpus` and the Polygon round trip (34/34) are green on `main` ([pipeline 2960439972](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/pipelines/2960439972)). 3.0.1 has been `latest` on npm since 19:59 UTC on Oct 18, and the next nightly judged it green: 5/5 problems and the round trip 34/34 with push exit 0 ([`corpus:production`](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17271999969), Oct 19), so [#45][i45] is closed with its timeline.
 - We don't claim time or memory parity with Polygon.
 
 [mr4]: https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/4
@@ -176,7 +190,7 @@ Why some loops have two MRs: when an agent pushes without a go-ahead, the guard 
 
 polyman was announced to problem setters on [Codeforces in November 2025](https://codeforces.com/blog/entry/148803) (+332, 52 comments). The first thing the community asked was whether they could trust it: "Has anybody used this tool and can recommend it?", and another reply pointed out a tool that's brand new has no history and no user base yet. This project is our answer to that question: polyman is now checked by judges that are neither an LLM nor its authors, on every change and every night.
 
-What we can say today, all public: about 1,950 npm downloads since September 2025 (downloads, not users: CI runs and mirrors count too), 12 versions, 41 stars and 4 forks on GitHub with five outside reporters or contributors, and two independent open-source projects that build on polyman's problem format.
+What we can say today, all public: about 1,950 npm downloads since September 2025 (downloads, not users: CI runs and mirrors count too), 13 versions, 41 stars and 4 forks on GitHub with five outside reporters or contributors, and two independent open-source projects that build on polyman's problem format.
 
 Team: Hamza Hassanain (polyman's author), Mazen Ghanayem, Ahmed Faraj.
 
