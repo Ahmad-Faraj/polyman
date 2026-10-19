@@ -45,11 +45,33 @@ work on every merge request, and a person approves the result once.
   rules that judges past pushes differently bumps `LEDGER_RULES` in
   `src/ledger.ts`, which starts a new chain naming the old one's head. Pages:
   `/ledger/` (table and counters) and `/ledger/ledger.json`.
+- `autonomy:session-audit` (on the scheduled pipeline) checks what the agents
+  did with no model in it: it reads every Duo session GitLab recorded in the
+  last 25 hours (the session list, each session's `trace.jsonl`, and its
+  checkpoint, which has the calls of the specialists a lead delegates to;
+  the trace has only the lead's), finds every push an agent made, and holds
+  each against the ledger on Pages, or for a push the ledger doesn't have yet,
+  against the line `autonomy:goahead` wrote for that push in its job log. An
+  agent push neither accepted fails the job (`session-audit.md` and `.json`
+  are its artifacts). Failed and stopped sessions are counted, and the write
+  privileges GitLab pre-approved for each session are listed, for
+  information. It needs `AUDIT_TOKEN` (a masked `read_api` token of a
+  Developer); without it the job says so and passes. A token GitLab doesn't
+  take, or a session it can't read in full, ends it with exit 2 (allowed to
+  fail). Locally:
+  `AUDIT_TOKEN=... node engine/src/cli/session-audit.ts <project> --since 48h --ledger <url or file>`.
+  What it can't see: it reads pushes from the shell commands an agent ran, so
+  a push in a form it doesn't parse (a script file, `$G push` after `G=git`,
+  `base64 -d | sh`, shells nested more than four deep) is found only if git
+  prints its ref lines; a command it knows hides a push is reported unjudged.
+  It is a check after the fact against an agent that slips, not a sandbox
+  against one that hides on purpose: the guard on the MR is what stops pushes.
 - `autonomy:flows` checks the flow files in `.gitlab/duo/flows` the way GitLab
   does when they're saved (schema, prompt safety rules, inputs).
 - `autonomy:engine` runs this folder's type check and tests when it changes.
 
-The jobs use `CI_JOB_TOKEN` only and never write to merge requests.
+The jobs use `CI_JOB_TOKEN` only (the session audit reads with `AUDIT_TOKEN`)
+and never write to merge requests.
 
 ## Duo flows
 
