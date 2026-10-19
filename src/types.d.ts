@@ -375,6 +375,31 @@ interface Package {
 // ==================== Configuration File ====================
 
 /**
+ * Optional per-language scaling of the declared `timeLimit`, applied to local
+ * runs only (`run`, `verify`, `test`). Polygon does not scale time limits, so
+ * the value pushed to Polygon stays the plain `timeLimit`.
+ *
+ * A correct Java or Python solution can TLE locally against a C++ limit (JVM
+ * startup, interpreter overhead); this gives it a bigger local budget without
+ * touching the problem itself. A language that is not listed keeps a factor
+ * of 1, so omitting the field entirely changes nothing.
+ *
+ * @interface TimeLimitMultipliers
+ * @property {number} [cpp] - Factor for C++ solutions (default 1)
+ * @property {number} [java] - Factor for Java solutions (default 1)
+ * @property {number} [python] - Factor for Python solutions (default 1)
+ *
+ * @example
+ * // With "timeLimit": 1000, a Java solution runs with 2000ms locally.
+ * { "java": 2, "python": 3 }
+ */
+interface TimeLimitMultipliers {
+  cpp?: number;
+  java?: number;
+  python?: number;
+}
+
+/**
  * Local configuration file structure for managing Polygon problems.
  * This extends Polygon API types with local workspace information.
  *
@@ -384,6 +409,7 @@ interface Package {
  * @property {string} [owner] - Problem owner username
  * @property {number} [revision] - Current revision number
  * @property {number} timeLimit - Time limit in milliseconds
+ * @property {TimeLimitMultipliers} [timeLimitMultipliers] - Local-only per-language scaling of timeLimit
  * @property {number} memoryLimit - Memory limit in megabytes
  * @property {string} inputFile - Input file name
  * @property {string} outputFile - Output file name
@@ -408,6 +434,8 @@ interface ConfigFile {
 
   // Problem info
   timeLimit: number;
+  // Local-only scaling of timeLimit per solution language; Polygon gets timeLimit as is.
+  timeLimitMultipliers?: TimeLimitMultipliers;
   memoryLimit: number;
   inputFile: string;
   outputFile: string;
@@ -862,6 +890,8 @@ export {
   PackageState,
   PackageType,
   Package,
+  // Configuration
+  TimeLimitMultipliers,
   // Local types
   LocalSolution,
   LocalGenerator,

@@ -24,6 +24,7 @@ const executor: {
 } = executorModule.executor;
 import * as utils from '../../src/helpers/utils';
 import * as checker from '../../src/helpers/checker';
+import * as formatterModule from '../../src/formatter';
 import { report } from '../../src/report';
 import * as testsetHelper from '../../src/helpers/testset';
 import fs from 'fs';
@@ -112,6 +113,11 @@ const mockedFsExistsSync = vi.mocked(fs.existsSync);
 const mockedFsMkdirSync = vi.mocked(fs.mkdirSync);
 const mockedFsUnlinkSync = vi.mocked(fs.unlinkSync);
 const mockedFsWriteFileSync = vi.mocked(fs.writeFileSync);
+
+// Same indirection as the executor proxy: `fmt` is the mocked formatter object,
+// and reading `log` through a function-typed local keeps `vi.mocked` lint-clean.
+const formatter: { log: (message: string) => void } = formatterModule.fmt;
+const mockedFormatterLog = vi.mocked(formatter.log);
 
 const okResult: ExecutionResult = {
   stdout: '',
@@ -255,6 +261,420 @@ describe('solution.ts', () => {
       await solution.compileAllSolutions(solutions);
       expect(mockedCompileCPP).toHaveBeenCalledWith('s1.cpp');
       expect(mockedCompileJava).toHaveBeenCalledWith('s2.java');
+    });
+  });
+
+  // `path.extname` is spied on by earlier suites and this project does not
+  // enable `restoreMocks`, so every suite that reads extensions installs a
+  // working one of its own.
+  function stubRealExtname() {
+    vi.spyOn(path, 'extname').mockImplementation(file => {
+      const match = /\.([A-Za-z0-9]+)$/.exec(file);
+      return match ? `.${match[1]}` : '';
+    });
+  }
+
+  describe('solutionLanguage', () => {
+    beforeEach(stubRealExtname);
+
+    it('detects C++ from .cpp, .cc and .cxx', () => {
+      expect(
+        solution.solutionLanguage({ name: 'm', source: 'm.cpp', tag: 'MA' })
+      ).toBe('cpp');
+      expect(
+        solution.solutionLanguage({ name: 'm', source: 'gen.cc', tag: 'MA' })
+      ).toBe('cpp');
+      expect(
+        solution.solutionLanguage({ name: 'm', source: 'gen.cxx', tag: 'MA' })
+      ).toBe('cpp');
+    });
+
+    it('detects java and python from their extensions', () => {
+      expect(
+        solution.solutionLanguage({ name: 'j', source: 'Main.java', tag: 'OK' })
+      ).toBe('java');
+      expect(
+        solution.solutionLanguage({ name: 'p', source: 'main.py', tag: 'OK' })
+      ).toBe('python');
+    });
+
+    it('follows the file extension and ignores sourceType', () => {
+      // The local runner picks the program by extension only, so the factor
+      // must follow the extension too.
+      expect(
+        solution.solutionLanguage({
+          name: 'j',
+          source: 'Solution',
+          tag: 'OK',
+          sourceType: 'java.17',
+        })
+      ).toBeUndefined();
+      expect(
+        solution.solutionLanguage({
+          name: 'p',
+          source: 'sol.cpp',
+          tag: 'OK',
+          sourceType: 'python.pypy3',
+        })
+      ).toBe('cpp');
+    });
+
+    it('returns undefined for a source polyman cannot classify', () => {
+      expect(
+        solution.solutionLanguage({ name: 'x', source: 'x.js', tag: 'OK' })
+      ).toBeUndefined();
+    });
+  });
+
+  describe('solutionTimeLimit', () => {
+    beforeEach(stubRealExtname);
+
+    const cppSolution: LocalSolution = {
+      name: 'm',
+      source: 'm.cpp',
+      tag: 'MA',
+    };
+    const javaSolution: LocalSolution = {
+      name: 'j',
+      source: 'Main.java',
+      tag: 'OK',
+    };
+    const pythonSolution: LocalSolution = {
+      name: 'p',
+      source: 'main.py',
+      tag: 'OK',
+    };
+
+    it('keeps the declared limit when the field is absent', () => {
+      expect(solution.solutionTimeLimit(makeConfig(), javaSolution)).toEqual({
+        timeLimit: 1000,
+        multiplier: 1,
+        language: 'java',
+      });
+    });
+
+    it('scales java and python and leaves cpp at the declared limit', () => {
+      const config = makeConfig({
+        timeLimitMultipliers: { java: 2, python: 3 },
+      });
+
+      expect(solution.solutionTimeLimit(config, javaSolution)).toEqual({
+        timeLimit: 2000,
+        multiplier: 2,
+        language: 'java',
+      });
+      expect(solution.solutionTimeLimit(config, pythonSolution).timeLimit).toBe(
+        3000
+      );
+      expect(solution.solutionTimeLimit(config, cppSolution)).toEqual({
+        timeLimit: 1000,
+        multiplier: 1,
+        language: 'cpp',
+      });
+    });
+
+    it('scales cpp too when a cpp factor is configured', () => {
+      const config = makeConfig({ timeLimitMultipliers: { cpp: 1.5 } });
+      expect(solution.solutionTimeLimit(config, cppSolution).timeLimit).toBe(
+        1500
+      );
+    });
+
+    it('rounds the scaled limit to whole milliseconds', () => {
+      const config = makeConfig({
+        timeLimit: 1500,
+        timeLimitMultipliers: { python: 1.33 },
+      });
+      expect(solution.solutionTimeLimit(config, pythonSolution).timeLimit).toBe(
+        1995
+      );
+    });
+
+    it('never drops the limit below a millisecond', () => {
+      const config = makeConfig({
+        timeLimit: 1,
+        timeLimitMultipliers: { java: 0.2 },
+      });
+      expect(solution.solutionTimeLimit(config, javaSolution).timeLimit).toBe(
+        1
+      );
+    });
+
+    it('keeps the declared limit for a language it cannot detect', () => {
+      const config = makeConfig({ timeLimitMultipliers: { java: 5 } });
+      expect(
+        solution.solutionTimeLimit(config, {
+          name: 'x',
+          source: 'x.js',
+          tag: 'OK',
+        })
+      ).toEqual({ timeLimit: 1000, multiplier: 1, language: undefined });
+    });
+
+    it.each([0, -2, Number.NaN, Number.POSITIVE_INFINITY])(
+      'throws on a java multiplier of %p',
+      value => {
+        const config = makeConfig({ timeLimitMultipliers: { java: value } });
+        expect(() => solution.solutionTimeLimit(config, javaSolution)).toThrow(
+          /Invalid timeLimitMultipliers\.java/
+        );
+      }
+    );
+
+    it('throws on an invalid factor even for a solution of another language', () => {
+      const config = makeConfig({ timeLimitMultipliers: { java: 0 } });
+      expect(() => solution.solutionTimeLimit(config, cppSolution)).toThrow(
+        /Invalid timeLimitMultipliers\.java/
+      );
+    });
+  });
+
+  describe('validateTimeLimitMultipliers', () => {
+    // Config.json is parsed JSON, so any shape can reach the validator.
+    function withMultipliers(value: unknown): ConfigFile {
+      return makeConfig({
+        timeLimitMultipliers: value as ConfigFile['timeLimitMultipliers'],
+      });
+    }
+
+    it('accepts a config without the field', () => {
+      expect(() =>
+        solution.validateTimeLimitMultipliers(makeConfig())
+      ).not.toThrow();
+    });
+
+    it('accepts positive factors for cpp, java and python', () => {
+      expect(() =>
+        solution.validateTimeLimitMultipliers(
+          withMultipliers({ cpp: 1.5, java: 2, python: 0.5 })
+        )
+      ).not.toThrow();
+    });
+
+    it.each([
+      [0, '0'],
+      [-1, '-1'],
+      [null, 'null'],
+      ['2', '"2"'],
+      [Number.POSITIVE_INFINITY, 'Infinity'],
+      [{ value: 2 }, '{"value":2}'],
+    ])('rejects a java factor of %p', (value, printed) => {
+      expect(() =>
+        solution.validateTimeLimitMultipliers(withMultipliers({ java: value }))
+      ).toThrow(
+        `Invalid timeLimitMultipliers.java in Config.json: ${printed} (expected a positive number)`
+      );
+    });
+
+    it.each(['Java', 'kotlin', 'py'])(
+      'rejects the unknown key %p and names the allowed ones',
+      key => {
+        expect(() =>
+          solution.validateTimeLimitMultipliers(withMultipliers({ [key]: 2 }))
+        ).toThrow(
+          `Unknown key in timeLimitMultipliers: ${JSON.stringify(key)} (allowed keys: cpp, java, python)`
+        );
+      }
+    );
+
+    it.each([
+      ['abc', '"abc"'],
+      [null, 'null'],
+      [2, '2'],
+      [[2], '[2]'],
+    ])('rejects a non-object value %p', (value, printed) => {
+      expect(() =>
+        solution.validateTimeLimitMultipliers(withMultipliers(value))
+      ).toThrow(`Invalid timeLimitMultipliers in Config.json: ${printed}`);
+    });
+
+    it.each([1e7, 1e306])(
+      'rejects a factor of %p that overflows the Node timer',
+      value => {
+        expect(() =>
+          solution.validateTimeLimitMultipliers(
+            withMultipliers({ java: value })
+          )
+        ).toThrow(/timeLimitMultipliers\.java is too large/);
+      }
+    );
+
+    it('accepts a factor that lands exactly on the timer maximum', () => {
+      expect(() =>
+        solution.validateTimeLimitMultipliers(
+          makeConfig({
+            timeLimit: 1,
+            timeLimitMultipliers: { java: solution.MAX_TIME_LIMIT_MS },
+          })
+        )
+      ).not.toThrow();
+      expect(() =>
+        solution.validateTimeLimitMultipliers(
+          makeConfig({
+            timeLimit: 1,
+            timeLimitMultipliers: { java: solution.MAX_TIME_LIMIT_MS + 1 },
+          })
+        )
+      ).toThrow(/too large/);
+    });
+  });
+
+  describe('formatTimeLimit', () => {
+    it('shows the plain limit when nothing was scaled', () => {
+      expect(
+        solution.formatTimeLimit({
+          timeLimit: 1000,
+          multiplier: 1,
+          language: 'java',
+        })
+      ).toBe('1000ms');
+      expect(
+        solution.formatTimeLimit({
+          timeLimit: 1000,
+          multiplier: 1,
+          language: undefined,
+        })
+      ).toBe('1000ms');
+    });
+
+    it('names the factor and the language once scaled', () => {
+      expect(
+        solution.formatTimeLimit({
+          timeLimit: 2000,
+          multiplier: 2,
+          language: 'java',
+        })
+      ).toBe('2000ms (x2 for java)');
+      expect(
+        solution.formatTimeLimit({
+          timeLimit: 1500,
+          multiplier: 1.5,
+          language: 'python',
+        })
+      ).toBe('1500ms (x1.5 for python)');
+    });
+
+    it('shows the factor with at most two decimals', () => {
+      expect(
+        solution.formatTimeLimit({
+          timeLimit: 1333,
+          multiplier: 1.3333333,
+          language: 'java',
+        })
+      ).toBe('1333ms (x1.33 for java)');
+      expect(
+        solution.formatTimeLimit({
+          timeLimit: 2000,
+          multiplier: 2.0001,
+          language: 'java',
+        })
+      ).toBe('2000ms (x2 for java)');
+    });
+  });
+
+  describe('scaled limits in the run paths', () => {
+    const javaSolution: LocalSolution = {
+      name: 'slow',
+      source: 'slow.java',
+      tag: 'OK',
+    };
+    const scaledConfig = makeConfig({
+      timeLimitMultipliers: { java: 2 },
+    });
+
+    beforeEach(() => {
+      stubRealExtname();
+      mockedExecuteWithRedirect.mockResolvedValue(okResult);
+    });
+
+    it('runs a testset with the scaled timeout', async () => {
+      mockedGetTestFiles.mockReturnValue(['test1.txt']);
+
+      await solution.runSolutionOnTestset(javaSolution, scaledConfig, 'ts1');
+
+      expect(mockedExecuteWithRedirect).toHaveBeenCalled();
+      expect(mockedExecuteWithRedirect.mock.calls[0][1]).toMatchObject({
+        timeout: 2000,
+        memoryLimitMB: 256,
+      });
+    });
+
+    it('runs a single test with the scaled timeout', async () => {
+      await solution.runSolutionOnSingleTest(
+        javaSolution,
+        scaledConfig,
+        'ts1',
+        1
+      );
+
+      expect(mockedExecuteWithRedirect.mock.calls[0][1]).toMatchObject({
+        timeout: 2000,
+      });
+    });
+
+    it('mentions the effective limit in the output', async () => {
+      mockedGetTestFiles.mockReturnValue(['test1.txt']);
+
+      await solution.runSolutionOnTestset(javaSolution, scaledConfig, 'ts1');
+
+      expect(mockedFormatterLog).toHaveBeenCalledWith(
+        '    → Time Limit: 2000ms (x2 for java)'
+      );
+    });
+
+    it('says nothing extra when the limit is not scaled', async () => {
+      mockedGetTestFiles.mockReturnValue(['test1.txt']);
+
+      await solution.runSolutionOnTestset(javaSolution, makeConfig(), 'ts1');
+
+      expect(mockedFormatterLog).not.toHaveBeenCalledWith(
+        expect.stringContaining('Time Limit')
+      );
+    });
+
+    it('does not run anything when the multiplier is invalid', async () => {
+      mockedGetTestFiles.mockReturnValue(['test1.txt']);
+
+      await expect(
+        solution.runSolutionOnTestset(
+          javaSolution,
+          makeConfig({ timeLimitMultipliers: { java: 0 } }),
+          'ts1'
+        )
+      ).rejects.toThrow(/Invalid timeLimitMultipliers\.java/);
+
+      expect(mockedExecuteWithRedirect).not.toHaveBeenCalled();
+    });
+
+    it('runs a group with the scaled timeout', async () => {
+      mockedGetTestIndicesForGroup.mockReturnValue([1, 2]);
+
+      await solution.runSolutionOnGroup(
+        javaSolution,
+        scaledConfig,
+        { name: 'ts1' },
+        'g1'
+      );
+
+      expect(mockedExecuteWithRedirect).toHaveBeenCalledTimes(2);
+      for (const call of mockedExecuteWithRedirect.mock.calls) {
+        expect(call[1]).toMatchObject({ timeout: 2000, memoryLimitMB: 256 });
+      }
+    });
+
+    it('keeps the declared timeout in a group for a cpp solution', async () => {
+      mockedGetTestIndicesForGroup.mockReturnValue([1]);
+
+      await solution.runSolutionOnGroup(
+        { name: 'main', source: 'main.cpp', tag: 'MA' },
+        scaledConfig,
+        { name: 'ts1' },
+        'g1'
+      );
+
+      expect(mockedExecuteWithRedirect.mock.calls[0][1]).toMatchObject({
+        timeout: 1000,
+      });
     });
   });
 
@@ -590,6 +1010,28 @@ describe('solution.ts', () => {
 
       expect(mockedExecuteWithRedirect).toHaveBeenCalledTimes(2);
       expect(mockedRunChecker).toHaveBeenCalledTimes(1);
+    });
+
+    it('should fail before running anything when a multiplier is invalid', async () => {
+      // Regression: the bad factor used to be swallowed as an expected
+      // failure of the target solution, so the check passed without running it.
+      mockedReadConfigFile.mockReturnValue(
+        makeConfig({
+          solutions: [
+            { name: 'main', source: 'main.cpp', tag: 'MA' },
+            { name: 'slow', source: 'Slow.java', tag: 'OK' },
+          ],
+          checker: { name: 'chk', source: 'chk.cpp' },
+          testsets: [{ name: 'ts1' }],
+          timeLimitMultipliers: { java: 0 },
+        })
+      );
+
+      await expect(
+        solution.testSolutionAgainstMainCorrect('slow')
+      ).rejects.toThrow(/Invalid timeLimitMultipliers\.java/);
+      expect(mockedExecuteWithRedirect).not.toHaveBeenCalled();
+      expect(mockedRunChecker).not.toHaveBeenCalled();
     });
 
     it('should fail if main solution fails', async () => {
