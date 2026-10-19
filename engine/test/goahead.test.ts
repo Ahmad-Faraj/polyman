@@ -322,6 +322,33 @@ describe('rules the guard relied on without a test (found by mutation testing)',
     expect(tierFrom('high')).toBe('high');
   });
 
+  it('a go-ahead in the same second as the push is not before it', () => {
+    expect(goAheadFor(push, [proposal, note('10:10', 'Ahmad-Faraj', `@${AGENT} go-ahead`)], low, config).ok).toBe(false);
+  });
+
+  it("a go-ahead in the same second as the proposal doesn't answer it", () => {
+    expect(goAheadFor(push, [proposal, note('10:00', 'Ahmad-Faraj', `@${AGENT} go-ahead`)], low, config).ok).toBe(false);
+  });
+
+  it('a go-ahead last edited in the same second as the push still counts', () => {
+    const edited = { ...goAhead, updated_at: '2026-10-17T10:10:00Z' };
+    expect(goAheadFor(push, [proposal, edited], low, config).ok).toBe(true);
+  });
+
+  it('a proposal edited in the same second as the push keeps its time', () => {
+    const edited = { ...proposal, updated_at: '2026-10-17T10:10:00Z' };
+    expect(goAheadFor(push, [edited, goAhead], low, config).ok).toBe(true);
+  });
+
+  it('records the latest of several valid go-aheads, and the latest of proposals posted together', () => {
+    const p1 = note('10:00', AGENT, 'Review of abc1234: not ready to approve');
+    const p2 = note('10:00', AGENT, 'Review of abc1234: not ready to approve');
+    const first = note('10:03', 'Ahmad-Faraj', `@${AGENT} go-ahead`);
+    const second = note('10:06', 'HamzaHassanain', `@${AGENT} go-ahead`);
+    const v = goAheadFor(push, [p1, p2, first, second], low, config);
+    expect(v.ok && [v.note.id, v.proposal.id]).toEqual([second.id, p2.id]);
+  });
+
   it("ignores a tag push that shares the branch's name", () => {
     const tag: PushEvent = { created_at: '2026-10-17T10:00:00Z', author: { username: AGENT }, push_data: { ref: 'fix', ref_type: 'tag', action: 'created', commit_from: null, commit_to: 'z' } };
     expect(branchPushes([tag], 'fix')).toEqual([]);
