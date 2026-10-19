@@ -1,7 +1,15 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { EventEmitter } from 'events';
 import chalk, { Chalk } from 'chalk';
 import { Command } from 'commander';
-import { createTheme, getTheme, resolveThemeName } from '../src/theme';
+import {
+  createTheme,
+  getTheme,
+  readThemeSetting,
+  resolveTheme,
+  resolveThemeName,
+} from '../src/theme';
+import type { DetectOptions } from '../src/helpers/terminal-background';
 import { Formatter } from '../src/formatter';
 import { printComprehensiveHelp } from '../src/help';
 
@@ -63,6 +71,27 @@ describe('resolveThemeName', () => {
   it('falls back to dark for unknown values', () => {
     expect(resolveThemeName({ POLYMAN_THEME: 'solarized' })).toBe('dark');
     expect(resolveThemeName({ POLYMAN_THEME: '' })).toBe('dark');
+  });
+});
+
+describe('readThemeSetting', () => {
+  it('returns auto when POLYMAN_THEME is unset, empty or auto', () => {
+    expect(readThemeSetting({})).toBe('auto');
+    expect(readThemeSetting({ POLYMAN_THEME: '' })).toBe('auto');
+    expect(readThemeSetting({ POLYMAN_THEME: ' AUTO ' })).toBe('auto');
+  });
+
+  it('returns the forced theme for dark and light', () => {
+    expect(readThemeSetting({ POLYMAN_THEME: 'dark' })).toBe('dark');
+    expect(readThemeSetting({ POLYMAN_THEME: 'Light' })).toBe('light');
+  });
+
+  it('keeps dark for unknown values', () => {
+    expect(readThemeSetting({ POLYMAN_THEME: 'solarized' })).toBe('dark');
+  });
+
+  it('resolveThemeName treats auto as dark', () => {
+    expect(resolveThemeName({ POLYMAN_THEME: 'auto' })).toBe('dark');
   });
 });
 
@@ -197,6 +226,22 @@ describe('Formatter default theme', () => {
   });
 });
 
+describe('Formatter.setTheme', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('switches the theme used for later output', () => {
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const formatter = new Formatter(createTheme('dark', colorChalk));
+    const light = createTheme('light', colorChalk);
+    formatter.setTheme(light);
+    formatter.warning('w');
+    expect(spy).toHaveBeenCalledWith(light.warning('w'));
+    expect(formatter.primary('p')).toBe(light.primary('p'));
+  });
+});
+
 describe('theme consumers', () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -228,5 +273,171 @@ describe('theme consumers', () => {
     const out = lines.join('\n');
     expect(out).toContain(light.warning('Options:'));
     expect(out).toContain(light.muted('-'.repeat(50)));
+  });
+});
+
+describe('resolveTheme', () => {
+  const ESC_CHAR = '\u001b';
+  const WHITE = `${ESC_CHAR}]11;rgb:ffff/ffff/ffff${ESC_CHAR}\\`;
+  const BLACK = `${ESC_CHAR}]11;rgb:0000/0000/0000${ESC_CHAR}\\`;
+  const DA1 = `${ESC_CHAR}[?62;22c`;
+
+  /** Terminal that answers the query with `answer` (or nothing). */
+  function terminal(answer: string | null): {
+    options: DetectOptions;
+    queries: () => number;
+  } {
+    const stdin = Object.assign(new EventEmitter(), {
+      isTTY: true,
+      isRaw: false,
+      setRawMode(mode: boolean) {
+        stdin.isRaw = mode;
+      },
+      resume() {},
+      pause() {},
+    });
+    let count = 0;
+    const stdout = {
+      isTTY: true,
+      write() {
+        count += 1;
+        if (answer !== null) stdin.emit('data', answer);
+      },
+    };
+    return {
+      options: {
+        platform: 'linux',
+        stdin,
+        stdout,
+        isForeground: () => true,
+        timeoutMs: 5,
+      },
+      queries: () => count,
+    };
+  }
+
+  it('picks light when the terminal reports a light background', async () => {
+    const term = terminal(WHITE + DA1);
+    const theme = await resolveTheme({}, colorChalk, term.options);
+    expect(theme.name).toBe('light');
+    expect(theme.warning('x')).toBe(
+      createTheme('light', colorChalk).warning('x')
+    );
+  });
+
+  it('picks dark when the terminal reports a dark background', async () => {
+    const term = terminal(BLACK + DA1);
+    expect((await resolveTheme({}, colorChalk, term.options)).name).toBe(
+      'dark'
+    );
+  });
+
+  it('falls back to dark when the terminal does not support OSC 11', async () => {
+    const term = terminal(DA1);
+    expect((await resolveTheme({}, colorChalk, term.options)).name).toBe(
+      'dark'
+    );
+  });
+
+  it('falls back to dark when the terminal does not answer', async () => {
+    const term = terminal(null);
+    expect((await resolveTheme({}, colorChalk, term.options)).name).toBe(
+      'dark'
+    );
+    expect(term.queries()).toBe(1);
+  });
+
+  it('detects with POLYMAN_THEME=auto', async () => {
+    const term = terminal(WHITE + DA1);
+    const theme = await resolveTheme(
+      { POLYMAN_THEME: 'auto' },
+      colorChalk,
+      term.options
+    );
+    expect(theme.name).toBe('light');
+  });
+
+  it('prefers COLORFGBG over the OSC 11 query', async () => {
+    const term = terminal(BLACK + DA1);
+    const theme = await resolveTheme(
+      { COLORFGBG: '0;15' },
+      colorChalk,
+      term.options
+    );
+    expect(theme.name).toBe('light');
+    expect(term.queries()).toBe(0);
+  });
+
+  it('prefers an explicit POLYMAN_THEME over detection', async () => {
+    const dark = terminal(WHITE + DA1);
+    const theme = await resolveTheme(
+      { POLYMAN_THEME: 'dark', COLORFGBG: '0;15' },
+      colorChalk,
+      dark.options
+    );
+    expect(theme.name).toBe('dark');
+    expect(dark.queries()).toBe(0);
+
+    const light = terminal(BLACK + DA1);
+    const forced = await resolveTheme(
+      { POLYMAN_THEME: 'light', COLORFGBG: '15;0' },
+      colorChalk,
+      light.options
+    );
+    expect(forced.name).toBe('light');
+    expect(light.queries()).toBe(0);
+  });
+
+  it('does not detect for an unknown POLYMAN_THEME', async () => {
+    const term = terminal(WHITE + DA1);
+    const theme = await resolveTheme(
+      { POLYMAN_THEME: 'neon' },
+      colorChalk,
+      term.options
+    );
+    expect(theme.name).toBe('dark');
+    expect(term.queries()).toBe(0);
+  });
+
+  it('lets NO_COLOR win over everything', async () => {
+    const term = terminal(WHITE + DA1);
+    const theme = await resolveTheme(
+      { NO_COLOR: '1', COLORFGBG: '0;15' },
+      colorChalk,
+      term.options
+    );
+    expect(theme.error('x')).toBe('x');
+    expect(theme.primary('x')).toBe('x');
+    expect(term.queries()).toBe(0);
+  });
+
+  it('skips detection when chalk has no colors', async () => {
+    const term = terminal(WHITE + DA1);
+    const theme = await resolveTheme(
+      { COLORFGBG: '0;15' },
+      new Chalk({ level: 0 }),
+      term.options
+    );
+    expect(theme.name).toBe('dark');
+    expect(term.queries()).toBe(0);
+  });
+
+  it('falls back to dark when detection throws', async () => {
+    const theme = await resolveTheme({}, colorChalk, {
+      platform: 'linux',
+      stdin: {
+        isTTY: true,
+        setRawMode() {},
+        on() {},
+        removeListener() {},
+        resume() {},
+        pause() {},
+      },
+      stdout: { isTTY: true, write() {} },
+      isForeground: () => {
+        throw new Error('boom');
+      },
+    });
+    expect(theme.name).toBe('dark');
   });
 });
