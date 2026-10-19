@@ -3,7 +3,8 @@
 # token through Workload Identity Federation, so no Google key is stored.
 #
 #   service/deploy/cloudrun.sh candidate   new revision, no traffic, tagged c-<sha>
-#   service/deploy/cloudrun.sh promote     all traffic to that revision
+#   service/deploy/cloudrun.sh promote     all traffic to that revision (exit 3: a newer
+#                                          pipeline has the candidate, nothing switched)
 #   service/deploy/cloudrun.sh rollback    all traffic back to $PREVIOUS_REVISION
 #   service/deploy/cloudrun.sh discard     remove a failed candidate's tag (and URL)
 #
@@ -115,12 +116,14 @@ case "$MODE" in
     if [ "$HEAD" != "$CI_COMMIT_SHA" ]; then
       CHANGED=0; git diff --quiet "$CI_COMMIT_SHA" "$HEAD" -- $SERVICE_PATHS || CHANGED=$?
       if [ "$CHANGED" = 1 ]; then
-        # not a failure: nothing changed in production, so nothing for the
-        # rollback or the incident responder to do. The production check
-        # still runs, on what production serves now.
-        echo "nothing to promote: $HEAD on $CI_DEFAULT_BRANCH changed the service again, and its pipeline has the newer candidate"
-        printf 'SERVICE_URL=%s\nPREVIOUS_REVISION=\n' "$(describe 'value(status.url)')" > deploy.env
-        exit 0
+        # Nothing changed in production, so nothing for the rollback or the
+        # incident responder to do, but this commit was not deployed either.
+        # Exit 3 (allow_failure in CI): the job shows as a warning and the
+        # environment doesn't record this commit as deployed. The production
+        # check reads PROMOTED=false and checks nothing.
+        echo "not promoting: $CI_DEFAULT_BRANCH has moved on. $HEAD changed the service again and its pipeline has the newer candidate; promote that one. Production still serves the release it served before."
+        printf 'SERVICE_URL=%s\nPREVIOUS_REVISION=\nPROMOTED=false\n' "$(describe 'value(status.url)')" > deploy.env
+        exit 3
       elif [ "$CHANGED" != 0 ]; then
         echo "could not compare $CI_COMMIT_SHA with $HEAD; not promoting without knowing this is the newest release" >&2
         exit 1
@@ -132,7 +135,7 @@ case "$MODE" in
       exit 1
     fi
     # written before the switch, so rollback knows where to go even if this job fails after it
-    printf 'SERVICE_URL=%s\nPREVIOUS_REVISION=%s\n' "$(describe 'value(status.url)')" "$PREVIOUS" > deploy.env
+    printf 'SERVICE_URL=%s\nPREVIOUS_REVISION=%s\nPROMOTED=true\n' "$(describe 'value(status.url)')" "$PREVIOUS" > deploy.env
     gcloud run services update-traffic "$SERVICE" --region "$REGION" --to-revisions "${CANDIDATE_REVISION:?}=100" --quiet
     # earlier candidates' URLs go; this one stays until the next release
     drop_tags "$TAG"

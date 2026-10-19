@@ -336,7 +336,9 @@ describe('golden.ts --traffic, end to end', () => {
 describe('the production-check job script, run in sh', () => {
   /**
    * Runs the job's script with stand-ins for node, curl and npm that log how
-   * they were called. The real node still parses the MR list.
+   * they were called. The real node still reads the MR list and the reports.
+   * VERSION is what production's /api/version answers, MRS and MR_CODE the
+   * merged-MR lookup, HEALTH what the monitor writes to health-report.json.
    */
   async function run(env: Record<string, string>) {
     const { spawnSync } = await import('node:child_process');
@@ -358,18 +360,42 @@ describe('the production-check job script, run in sh', () => {
         'node',
         `case "$*" in
   *golden.ts*) echo "golden $*" >> "${log}"; exit \${GOLDEN_EXIT:-0} ;;
-  *monitor.ts*) echo "monitor $* RELEASE_MR_IID=$RELEASE_MR_IID" >> "${log}"; exit \${MONITOR_EXIT:-0} ;;
+  *monitor.ts*) echo "monitor $* RELEASE_MR_IID=$RELEASE_MR_IID" >> "${log}"; [ -z "$HEALTH" ] || printf '%s' "$HEALTH" > health-report.json; exit \${MONITOR_EXIT:-0} ;;
 esac
 exec "${process.execPath}" "$@"`,
       );
-      stub('curl', `echo "curl $*" >> "${log}"; printf '%s' "$MRS"`);
-      stub('npm', `echo "npm $*" >> "${log}"`);
+      stub(
+        'curl',
+        `echo "curl $*" >> "${log}"
+case "$*" in
+  */api/version*) [ "\${VERSION_CODE:-200}" = 200 ] || exit 22; printf '%s' "$VERSION"; exit 0 ;;
+esac
+out=; while [ $# -gt 0 ]; do [ "$1" = -o ] && out=$2; shift; done
+[ "\${MR_CODE:-200}" != 000 ] || { printf 000; echo "curl: (7) could not connect" >&2; exit 7; }
+printf '%s' "$MRS" > "$out"; printf '%s' "\${MR_CODE:-200}"`,
+      );
+      stub('npm', `echo "npm $*" >> "${log}"; exit \${NPM_EXIT:-0}`);
+      stub('sleep', ':');
       const r = spawnSync('sh', ['-ec', script], {
-        env: { PATH: `${dir}:/usr/bin:/bin`, SERVICE_URL: 'https://prod.example', CI_API_V4_URL: 'https://gitlab.example/api/v4', CI_PROJECT_ID: '7', CI_COMMIT_SHA: 'abc123', CI_JOB_TOKEN: 'tok', MRS: '[{"iid":12,"state":"opened"},{"iid":14,"state":"merged"}]', ...env },
+        cwd: dir,
+        env: {
+          PATH: `${dir}:/usr/bin:/bin`,
+          SERVICE_URL: 'https://prod.example',
+          CI_API_V4_URL: 'https://gitlab.example/api/v4',
+          CI_PROJECT_ID: '7',
+          CI_COMMIT_SHA: 'abc1234def',
+          CI_COMMIT_SHORT_SHA: 'abc1234',
+          CI_JOB_TOKEN: 'tok',
+          VERSION: '{"polyman":"3.0.1","service":"0.1.0","commit":"abc1234"}',
+          MRS: '[{"iid":12,"state":"opened"},{"iid":14,"state":"merged"}]',
+          HEALTH: '{"results":[{"ok":true}]}',
+          ...env,
+        },
         encoding: 'utf8',
       });
       const calls = existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n') : [];
-      return { code: r.status, out: r.stdout + r.stderr, calls, golden: calls.find((c) => c.startsWith('golden '))?.slice('golden '.length).split(' ') };
+      const noted = existsSync(join(dir, 'monitor.txt')) ? readFileSync(join(dir, 'monitor.txt'), 'utf8') : '';
+      return { code: r.status, out: r.stdout + r.stderr, calls, noted, golden: calls.find((c) => c.startsWith('golden '))?.slice('golden '.length).split(' ') };
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -389,25 +415,73 @@ exec "${process.execPath}" "$@"`,
   it('runs the monitor on the traffic file for the merged MR of this commit, with the job token', async () => {
     const r = await run({});
     expect(r.code).toBe(0);
-    expect(r.calls[1]).toBe('curl -sf -H JOB-TOKEN: tok https://gitlab.example/api/v4/projects/7/repository/commits/abc123/merge_requests');
+    expect(r.calls).toContain("curl -sS -o mrs.json -w %{http_code} -H JOB-TOKEN: tok https://gitlab.example/api/v4/projects/7/repository/commits/abc1234def/merge_requests");
     expect(r.calls).toContain('npm ci --prefix engine --no-audit --no-fund --loglevel=error');
     expect(r.calls.at(-1)).toBe('monitor engine/src/cli/monitor.ts traffic.json RELEASE_MR_IID=14');
+    expect(r.noted).toContain('every signal within its limit');
   });
 
-  it('fails when the samples or the monitor fail, and runs the monitor even when the samples failed', async () => {
+  it('fails when the samples fail or the monitor finds a watched route over its limit, and runs the monitor even when the samples failed', async () => {
     const golden = await run({ GOLDEN_EXIT: '1' });
     expect(golden.code).toBe(1);
     expect(golden.calls.at(-1)).toMatch(/^monitor /);
-    expect((await run({ MONITOR_EXIT: '1' })).code).toBe(1);
-    expect((await run({ GOLDEN_EXIT: '1', MONITOR_EXIT: '1' })).code).toBe(1);
+    const over = { MONITOR_EXIT: '1', HEALTH: '{"results":[{"ok":true},{"ok":false}]}' };
+    expect((await run(over)).code).toBe(1);
+    expect((await run(over)).noted).toContain('over its limit');
+    expect((await run({ ...over, GOLDEN_EXIT: '1' })).code).toBe(1);
   });
 
   it('without a merged MR it says so, skips the monitor and keeps the samples result', async () => {
     const none = await run({ MRS: '[]' });
     expect(none.code).toBe(0);
-    expect(none.out).toContain('no merged MR for abc123');
+    expect(none.out).toContain('no merged MR for abc1234def');
     expect(none.calls.some((c) => c.startsWith('monitor '))).toBe(false);
     expect((await run({ MRS: '[]', GOLDEN_EXIT: '1' })).code).toBe(1);
+  });
+
+  it('shows a failed MR lookup as a warning (exit 3), tries the public API too, and records it', async () => {
+    for (const MR_CODE of ['500', '000']) {
+      const r = await run({ MR_CODE });
+      expect(r.code).toBe(3);
+      expect(r.calls.filter((c) => c.includes('/merge_requests'))).toHaveLength(2);
+      expect(r.calls.some((c) => c.startsWith('monitor '))).toBe(false);
+      expect(r.noted).toContain(`WARNING: the release monitor did not run: looking up the merged MR for abc1234def failed (HTTP ${MR_CODE}`);
+    }
+    const garbled = await run({ MRS: '<html>' });
+    expect(garbled.code).toBe(3);
+    expect(garbled.noted).toContain('not an MR list');
+    // the samples failing still fails the job (and rolls back)
+    expect((await run({ MR_CODE: '500', GOLDEN_EXIT: '1' })).code).toBe(1);
+  });
+
+  it('does not roll back a release whose samples passed when the monitor itself could not run', async () => {
+    const npm = await run({ NPM_EXIT: '1' });
+    expect(npm.code).toBe(3);
+    expect(npm.noted).toContain('npm ci) failed');
+    // a crash: exit 1 with no failed result written
+    const crash = await run({ MONITOR_EXIT: '1', HEALTH: '' });
+    expect(crash.code).toBe(3);
+    expect(crash.noted).toContain('could not finish (exit 1');
+    expect((await run({ MONITOR_EXIT: '7' })).code).toBe(3);
+    expect((await run({ NPM_EXIT: '1', GOLDEN_EXIT: '1' })).code).toBe(1);
+  });
+
+  it('fails before the samples when production serves another commit than the one promoted', async () => {
+    for (const env of [{ VERSION: '{"commit":"b8511ddf"}' }, { VERSION: '{"commit":"dev"}' }, { VERSION: '<html>' }, { VERSION_CODE: '503' }] as Record<string, string>[]) {
+      const r = await run(env);
+      expect(r.code).toBe(1);
+      expect(r.out).toContain('not abc1234, which this pipeline promoted');
+      expect(r.golden).toBeUndefined();
+      expect(r.calls.filter((c) => c.includes('/api/version'))).toHaveLength(3);
+    }
+    expect((await run({ VERSION: '{"commit":"b8511ddf"}' })).out).toContain('serves commit b8511ddf');
+  });
+
+  it('checks nothing, as a warning, when the promote switched nothing', async () => {
+    const r = await run({ PROMOTED: 'false', DRILL: 'production-check', CI_PIPELINE_SOURCE: 'web' });
+    expect(r.code).toBe(3);
+    expect(r.calls).toEqual([]);
+    expect(r.noted).toContain('not checked');
   });
 });
 
