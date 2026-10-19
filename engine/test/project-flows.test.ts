@@ -185,7 +185,7 @@ describe("the project's Duo flows", () => {
     // the note tells people how to get the next review, without mentioning the reviewer itself
     expect(body.indexOf('"Next review"')).toBeGreaterThan(-1);
     expect(body.indexOf('"Next review"')).toBeLessThan(body.indexOf('<details>'));
-    expect(renderFlow(read('mr-reviewer.yaml'), values).replace(/\s+/g, ' ')).toContain('a later push is reviewed when someone mentions `@ai-reviewer` on the MR');
+    expect(renderFlow(read('mr-reviewer.yaml'), values).replace(/\s+/g, ' ')).toContain('after your next push, once its pipeline passes, mention `@ai-reviewer` here to review it.');
   });
 
   // !137, 14:24: a second mention found the head reviewed and the session stopped without a word
@@ -365,7 +365,7 @@ describe("the project's Duo flows", () => {
     const prompt = flat('incident-responder.yaml');
     expect(prompt).toContain('/projects/PROJECT_ID/pipelines/PIPELINE_ID/jobs');
     expect(prompt).toContain('only when a job from @@production_jobs@@ other than @@rollback_job@@ has status "success" in that pipeline');
-    expect(prompt).toContain('verification waits for a person to promote that pipeline, and record nothing');
+    expect(prompt).toContain('verification waits for @MERGER (merge_user of the rollback MR) to run service:promote:production in that pipeline (link the pipeline), and record nothing');
     expect(prompt).not.toContain('status = success); if there is one, record');
     // the same tool the reviewer and the fixer use, with the same endpoint form
     expect(toolset('incident-responder.yaml', 'responder')).toContain('gitlab_api_get');
@@ -401,7 +401,30 @@ describe("the project's Duo flows", () => {
 
   it("nobody builds from an agent's incident: a person opens the fix issue", () => {
     expect(flat('issue-builder.yaml')).toContain('the CI job only accepts an issue someone on the team wrote');
-    expect(flat('incident-responder.yaml')).toContain('someone on the team opens a fix issue that links this incident');
+    expect(flat('incident-responder.yaml')).toContain('a real fix comes next: @USERNAME opens a fix issue that links this incident');
+  });
+
+  it('every next step names the person who takes it', () => {
+    const reviewer = flat('mr-reviewer.yaml');
+    // the fix round and the next review name a person, as the other flows do
+    expect(reviewer).toContain('Then one line: "Next: @USERNAME, once the pipeline passes, mention `@@@reviewer_account@@` here to review the new head; if it fails, mention `@@@fixer_account@@`." USERNAME is the author of the go-ahead note this fix round ran on');
+    expect(reviewer).toContain('"Next review": one line: "@AUTHOR, after your next push, once its pipeline passes, mention `@@@reviewer_account@@` here to review it."');
+    // a person who mentions too early gets an answer, not silence
+    expect(reviewer).toContain('For a person\'s mention, first post one short note: "@USERNAME, the pipeline for SHORT_SHA is still running; mention `@@@reviewer_account@@` here again once it is green."');
+    const responder = flat('incident-responder.yaml');
+    expect(responder).not.toContain('someone on the team mentions you');
+    expect(responder).toContain('the person who merged and promoted it mentions you here');
+    for (const next of ['@@maintainers@@, one of you retries JOB', '@@maintainers@@, one of you opens an issue for each new case', '@USERNAME triages this today', '@@maintainers@@, one of you sends traffic back by hand', '"Next: @USERNAME closes this incident."']) {
+      expect(responder).toContain(next);
+    }
+    expect(flat('pipeline-fixer.yaml')).toContain('"Next: @AUTHOR, retry JOB (link to the job)');
+    expect(flat('issue-builder.yaml')).toContain('"Next: @AUTHOR, answer here (or split the issue), then mention `@YOUR_ACCOUNT` again."');
+  });
+
+  it("the rollback MR doesn't close its incident: verification does", () => {
+    const responder = flat('incident-responder.yaml');
+    expect(responder).toContain('Its description starts with a line "Related to #" plus the incident issue\'s number, never "Closes"');
+    expect(responder).toContain('Merging it leaves this incident open.');
   });
 
   it('agents never count as a go-ahead, and the requester never approves their own step', () => {

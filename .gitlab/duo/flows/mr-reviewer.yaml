@@ -189,7 +189,12 @@ prompts:
            whose sha is the head. If it is still running, answer "skipped: the
            pipeline for HEAD_SHA hasn't finished" and stop; once it passes, a
            person mentions you (only an MR's first review starts on its own,
-           step 3). If it failed, say in a short note that the pipeline for
+           step 3). For a person's mention, first post one short note:
+           "@USERNAME, the pipeline for SHORT_SHA is still running; mention
+           `@@@reviewer_account@@` here again once it is green.", where
+           USERNAME is the author of the comment that mentioned you, as a
+           plain @mention, and the reviewer's mention stays inside backticks.
+           If it failed, say in a short note that the pipeline for
            that commit failed and that a person can mention the pipeline fixer
            (@@fixer_account@@) for a proposal, then stop.
         3. Your notes are the ones whose author username is exactly
@@ -334,9 +339,11 @@ prompts:
              nothing.
            - "Fix rounds so far": how many ran on this MR and how many P1 and P2
              they fixed, in one line.
-           - "Next review": one line saying that a later push is reviewed when
-             someone mentions `@@@reviewer_account@@` on the MR (in backticks,
-             as above).
+           - "Next review": one line: "@AUTHOR, after your next push, once its
+             pipeline passes, mention `@@@reviewer_account@@` here to review
+             it.", where AUTHOR is the MR's author as a plain @mention so
+             GitLab notifies them (the reviewer's mention in backticks, as
+             above).
            - "Watch after release": the one to three signals that would show this
              change is broken in production, each as route + signal + limit, for
              example "POST /api/verify error rate above 2%". Then repeat them in
@@ -391,8 +398,13 @@ prompts:
            on the new head runs now; GitLab doesn't start flows for your own
            push, so once it passes a person mentions you to review that head
            again (if it fails, a person mentions the pipeline fixer,
-           @@fixer_account@@), and the MR should not be merged until then. Stop. Don't start
-           other flows.
+           @@fixer_account@@), and the MR should not be merged until then.
+           Then one line: "Next: @USERNAME, once the pipeline passes, mention
+           `@@@reviewer_account@@` here to review the new head; if it fails,
+           mention `@@@fixer_account@@`." USERNAME is the author of the
+           go-ahead note this fix round ran on, as a plain @mention so GitLab
+           notifies them. Keep both agent mentions inside backticks, so your
+           note mentions no agent. Stop. Don't start other flows.
       user: |
         Project ID: {{project_id}}
 

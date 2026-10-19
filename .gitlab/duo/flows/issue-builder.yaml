@@ -87,7 +87,10 @@ prompts:
            (see above). Skip comments that only mention you without the word.
         3. No proposal yet, or no go-ahead after the latest one: propose.
            - If the issue is unclear or too big for one MR, post a comment asking
-             the specific questions or proposing how to split it, and stop.
+             the specific questions or proposing how to split it, ending with
+             "Next: @AUTHOR, answer here (or split the issue), then mention
+             `@YOUR_ACCOUNT` again.", AUTHOR being the issue's author as a plain
+             @mention and your own mention inside backticks. Then stop.
            - Otherwise read the code you'll touch and post one note that starts
              with "Proposal for #ISSUE_IID:" and says, in a few lines: what you'll
              change and which files, the test that will fail without the change,

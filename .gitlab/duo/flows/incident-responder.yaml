@@ -140,16 +140,23 @@ prompts:
              and "Rollback job: rolled back", "Rollback job: nothing to roll
              back" or "Rollback job: failed", at the time that job finished.
              Propose no rollback MR: there is
-             nothing to revert. Say a person closes the issue once the service is
-             healthy again. Then stop.
+             nothing to revert. End with "Next: @USERNAME closes this issue once
+             the service is healthy again.", where USERNAME is who started the
+             pipeline (the payload's user.username). If the rollback failed,
+             end with the failed-rollback line below instead. Then stop.
            - If the failure is in one of these jobs, production is affected:
              @@production_jobs@@. Continue with step 3. The @@rollback_job@@
              job moves traffic back to the previous version only if production
              serves this pipeline's release; read its log and say in the
              incident whether it rolled back, found nothing to roll back, or
-             failed (then a person has to act).
+             failed. If it failed, add the line "Next: @@maintainers@@, one of
+             you sends traffic back by hand: the @@rollback_job@@ log's NEXT
+             STEP line has the command and where to pick the revision." (one
+             note may mention people).
            - If it's an infrastructure problem (runner, network, registry), open an
-             issue labelled "ci::infra" that explains it and stop.
+             issue labelled "ci::infra" that explains it and ends with "Next:
+             @@maintainers@@, one of you retries JOB (link to the job) and
+             closes this issue if it passes." Then stop.
            - If the only failure is the promote job saying "not promoting: main
              has moved on", a newer pipeline releases instead: nothing broke.
              Answer "skipped: superseded release" and stop.
@@ -166,11 +173,21 @@ prompts:
              titled "Nightly judges: " followed by
              what failed, labelled "bug": each failing case, and next to it the
              open issue labelled found-by::corpus or found-by::polygon that
-             already explains it, or "new". Then stop.
+             already explains it, or "new". End it with "Next:
+             @@maintainers@@, one of you opens an issue for each new case that
+             says when it is done and assigns it to the issue builder; this
+             incident is closed once the nightly run passes again." Then stop.
            - Anything else: first look for an open issue labelled "bug" about the
              same job and the same failure; if there is one, add a short note
              with this pipeline instead of opening another. Otherwise open an
-             issue labelled "bug" with the details. Then stop.
+             issue labelled "bug" with the details, ending with "Next:
+             @USERNAME triages this today: if it was a one-off, retry the job
+             and close this issue; otherwise write when it is done and assign
+             it to the issue builder." USERNAME is whoever merged this commit
+             (merge_user of the merged MR from
+             /projects/PROJECT_ID/repository/commits/SHA/merge_requests), or
+             the payload's user.username when no MR merged it; also mention
+             @@maintainers@@ when that person isn't one of them. Then stop.
         3. Find the MR that shipped this commit: gitlab_api_get on
            /projects/PROJECT_ID/repository/commits/SHA/merge_requests. Read its diff, its review note (it
            starts with "Review of") and the watch block in that note if there is one.
@@ -222,26 +239,31 @@ prompts:
             reason and ref from step 6, keeping it a valid JSON array. Commit
             with a message that ends with a trailer line "Go-ahead: " plus the
             go-ahead note's ID, push, and open the MR titled "Roll back !MR_IID:
-            REASON" with the label "incident". Its description starts with
-            "Closes #" plus the incident issue's number (the go-ahead guard reads
-            who asked from the issue the MR closes) and links the go-ahead.
+            REASON" with the label "incident". Its description starts with a
+            line "Related to #" plus the incident issue's number, never
+            "Closes": merging must not close the incident before production is
+            verified (step 12). The go-ahead guard reads who asked from that
+            incident. The description also links the go-ahead.
             Record "Go-ahead" and "Rollback MR" on the timeline.
         11. Comment on the incident with the rollback MR. Then one line: "Next:
             @USERNAME, once the rollback MR's pipeline passes, mention
             `@@@reviewer_account@@` on it for its first review (GitLab doesn't
             start flows for an agent's push)." USERNAME is the author of the go-ahead note this push ran on, as a plain @mention so GitLab notifies them. Keep the reviewer's mention inside backticks, so your note doesn't mention the reviewer itself. Then say that the person who merges watches the merge's pipeline:
             when service:check:candidate passes, its last line ("NEXT STEP:")
-            links the promote job to click. Once it is merged, promoted by a person and checked in production, someone on
-            the team mentions you here so you record both on the timeline. If the cause is in the
+            links the promote job to click. Merging it leaves this incident
+            open. Once service:check:production passes on that pipeline, the
+            person who merged and promoted it mentions you here (that job's
+            last line says so) and you record both on the timeline. If the cause is in the
             application code (not CI, the monitor or the infrastructure), say that
-            a real fix comes next: someone on the team opens a fix issue that links this
+            a real fix comes next: @USERNAME opens a fix issue that links this
             incident and assigns it to the issue builder, which proposes a fix
             with a test that would have caught it. (The builder can't work from
             the incident itself: the CI job needs an issue someone on the team wrote.) If the cause is
-            in our own tooling, say it looks like a false alarm and a person should
-            close it. Don't start other flows. Stop.
+            in our own tooling, say it looks like a false alarm and that
+            @USERNAME closes it. Don't start other flows. Stop.
         12. The rollback MR exists. If it isn't merged yet, say it is waiting
-            for a person to merge it and stop. If it is merged, record "Fix
+            to be merged by one of @@maintainers@@ other than the go-ahead's
+            author, once its review says ready, and stop. If it is merged, record "Fix
             merged: !ROLLBACK_IID" at its merged_at. Then find the pipelines of
             its merge commit (gitlab_api_get on /projects/PROJECT_ID/pipelines
             with params sha = merge_commit_sha) and read each one's jobs
@@ -250,11 +272,14 @@ prompts:
             job, so a pipeline can pass while production still serves the
             broken release. Record "Verified: pipeline #PIPELINE_ID" only when
             a job from @@production_jobs@@ other than @@rollback_job@@ has
-            status "success" in that pipeline, at that job's finished_at, and say
-            a person closes the incident. If that job is manual, skipped or
-            missing, say verification waits for a person to promote that
-            pipeline, and record nothing. Never close the incident yourself.
-            Stop.
+            status "success" in that pipeline, at that job's finished_at, and end
+            with "Next: @USERNAME closes this incident.", USERNAME being the
+            author of the go-ahead note the rollback ran on. If the incident is
+            already closed (an older rollback MR said "Closes"), say so instead.
+            If that job is manual, skipped or missing, say verification waits
+            for @MERGER (merge_user of the rollback MR) to run
+            service:promote:production in that pipeline (link the pipeline),
+            and record nothing. Never close the incident yourself. Stop.
 
         Rules: never push to the default branch, never edit @@protected_paths@@
         (except adding the entry in step 10).
