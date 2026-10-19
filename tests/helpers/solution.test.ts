@@ -1174,6 +1174,142 @@ describe('solution.ts', () => {
       });
     });
   });
+  describe('tag rules', () => {
+    type Tag = LocalSolution['tag'];
+    type Outcome = 'pass' | 'TLE' | 'MLE' | 'RTE' | 'WA' | 'PE';
+
+    const mainSol: LocalSolution = {
+      name: 'sol_main',
+      source: '',
+      tag: 'MA',
+      sourceType: 'cpp.g++17',
+    };
+    const checkerConfig: LocalChecker = { name: 'chk', source: 'chk.cpp' };
+
+    // What the target solution produced, as the comparison process sees it.
+    function arrange(outcome: Outcome) {
+      const firstLines: Partial<Record<Outcome, string>> = {
+        TLE: 'Time Limit Exceeded after 1000ms',
+        MLE: 'Memory Limit Exceeded (256 MB)',
+        RTE: 'Runtime Error: segmentation fault',
+      };
+      mockedGetTestFiles.mockReturnValue(['t1.txt']);
+      mockedReadFirstLine.mockImplementation((p: string) =>
+        Promise.resolve(
+          p.includes('sol_main') ? '42' : (firstLines[outcome] ?? '42')
+        )
+      );
+      if (outcome === 'WA') {
+        mockedRunChecker.mockRejectedValue(new Error('Wrong Answer'));
+      } else if (outcome === 'PE') {
+        mockedRunChecker.mockRejectedValue(
+          new checker.PresentationError('bad format')
+        );
+      } else {
+        mockedRunChecker.mockResolvedValue(
+          undefined as unknown as Awaited<ReturnType<typeof checker.runChecker>>
+        );
+      }
+    }
+
+    function compare(tag: Tag, outcome: Outcome) {
+      arrange(outcome);
+      const target: LocalSolution = {
+        name: 'sol_target',
+        source: '',
+        tag,
+        sourceType: 'cpp.g++17',
+      };
+      return solution.startTheComparisonProcess(
+        checkerConfig,
+        mainSol,
+        target,
+        [{ name: 'ts1' }]
+      );
+    }
+
+    const verdictName: Record<Exclude<Outcome, 'pass'>, string> = {
+      TLE: 'Time Limit Exceeded',
+      MLE: 'Memory Limit Exceeded',
+      RTE: 'Runtime Error',
+      WA: 'Wrong Answer',
+      PE: 'Presentation Error',
+    };
+
+    // Tags that must accept / reject a solution that got only this verdict.
+    const verdictRules: {
+      outcome: Exclude<Outcome, 'pass'>;
+      accepted: Tag[];
+      rejected: Tag[];
+    }[] = [
+      {
+        outcome: 'TLE',
+        accepted: ['TL', 'TO', 'RJ'],
+        rejected: ['MA', 'OK', 'WA', 'PE', 'ML', 'RE'],
+      },
+      {
+        outcome: 'MLE',
+        accepted: ['ML', 'RJ'],
+        rejected: ['MA', 'OK', 'TL', 'TO', 'WA', 'PE', 'RE'],
+      },
+      {
+        outcome: 'RTE',
+        accepted: ['RE', 'RJ'],
+        rejected: ['MA', 'OK', 'TL', 'TO', 'WA', 'PE', 'ML'],
+      },
+      {
+        outcome: 'WA',
+        accepted: ['WA', 'PE', 'RJ'],
+        rejected: ['MA', 'OK', 'TL', 'TO', 'ML', 'RE'],
+      },
+      {
+        outcome: 'PE',
+        accepted: ['WA', 'PE', 'RJ'],
+        rejected: ['MA', 'OK', 'TL', 'TO', 'ML', 'RE'],
+      },
+    ];
+
+    for (const { outcome, accepted, rejected } of verdictRules) {
+      describe(`when the solution gets ${verdictName[outcome]}`, () => {
+        for (const tag of accepted) {
+          it(`accepts tag ${tag}`, async () => {
+            await expect(compare(tag, outcome)).resolves.toBeUndefined();
+          });
+        }
+        for (const tag of rejected) {
+          it(`rejects tag ${tag}`, async () => {
+            await expect(compare(tag, outcome)).rejects.toThrow(
+              `marked as ${tag} but got ${verdictName[outcome]} on some tests`
+            );
+          });
+        }
+      });
+    }
+
+    describe('when the solution passes every test', () => {
+      for (const tag of ['MA', 'OK', 'TO'] as Tag[]) {
+        it(`accepts tag ${tag}`, async () => {
+          await expect(compare(tag, 'pass')).resolves.toBeUndefined();
+        });
+      }
+
+      const mustFail: [Tag, string][] = [
+        ['TL', 'marked as TL but did not get Time Limit Exceeded on any test'],
+        [
+          'ML',
+          'marked as ML but did not get Memory Limit Exceeded on any test',
+        ],
+        ['WA', 'marked as WA but did not get Wrong Answer on any test'],
+        ['RJ', 'marked as RJ but passed all tests correctly'],
+      ];
+      for (const [tag, message] of mustFail) {
+        it(`rejects tag ${tag}`, async () => {
+          await expect(compare(tag, 'pass')).rejects.toThrow(message);
+        });
+      }
+    });
+  });
+
   describe('parseTestIndex', () => {
     it('extracts the numeric index from a test file name', () => {
       expect(solution.parseTestIndex('test12.txt')).toBe(12);
