@@ -173,13 +173,13 @@ export function scriptLines(script, generatorFiles) {
  * Polygon now holds: it may still hold the previous run's upload. A push that
  * exits 0 while Polygon differs from the folder hid its failures (#25).
  */
-export function pushChecks(status, differences) {
+export function pushChecks(status, differences, summary = '') {
   if (status !== 0)
     return [
       {
         name: 'push succeeded',
         ok: false,
-        detail: `polyman remote push exited ${status}`,
+        detail: `polyman remote push exited ${status}${summary ? `: ${summary}` : ''}`,
       },
     ];
   if (differences > 0)
@@ -192,6 +192,38 @@ export function pushChecks(status, differences) {
       },
     ];
   return [];
+}
+
+/**
+ * polyman's push output, made safe and short enough for a job log: the given
+ * secrets and any apiKey/apiSig query values are redacted, blank lines are
+ * dropped, and only the last `lines` lines are kept.
+ */
+export function pushOutputTail(output, secrets = [], lines = 40) {
+  let out = String(output ?? '');
+  for (const secret of secrets)
+    if (secret) out = out.split(secret).join('[REDACTED]');
+  out = out.replace(/\b(apiKey|apiSig)=[^&\s"')]+/g, '$1=[REDACTED]');
+  return out
+    .split(/\r?\n/)
+    .map(line => line.trimEnd())
+    .filter(line => line.trim())
+    .slice(-lines)
+    .join('\n');
+}
+
+/**
+ * One line for the JUnit failure message: the items polyman lists under
+ * "PUSH COMPLETED WITH ERRORS", or else the last few lines of the output.
+ */
+export function pushFailureSummary(tail, max = 600) {
+  const lines = tail.split('\n');
+  const start = lines.findIndex(l => l.includes('PUSH COMPLETED WITH ERRORS'));
+  const picked = (start >= 0 ? lines.slice(start + 1) : lines.slice(-5))
+    .map(l => l.replace(/[\u2500-\u257f]/g, '').trim())
+    .filter(Boolean)
+    .join(' | ');
+  return picked.length > max ? `${picked.slice(0, max - 3)}...` : picked;
 }
 
 /** A marker unique to this run, written into a statement before the push. */

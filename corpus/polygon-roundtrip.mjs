@@ -39,6 +39,8 @@ import {
   nonEmpty,
   polygonTargets,
   pushChecks,
+  pushFailureSummary,
+  pushOutputTail,
   scriptLines,
   text,
 } from './lib.mjs';
@@ -543,7 +545,7 @@ async function roundTrip(args, creds) {
   const pushed = push(args, creds, dir);
   const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
   if (!config.problemId) {
-    console.error(pushed.output);
+    console.error(pushOutputTail(pushed.output, [creds.key, creds.secret]));
     throw new Error(
       'polyman did not record a Polygon problem ID; the push failed before creating one'
     );
@@ -553,8 +555,18 @@ async function roundTrip(args, creds) {
       `created Polygon problem ${config.problemId}; set POLYGON_PROBLEM_ID to reuse it`
     );
 
+  let summary = '';
+  if (pushed.status !== 0) {
+    const tail = pushOutputTail(pushed.output, [creds.key, creds.secret]);
+    console.error(
+      `polyman remote push exited ${pushed.status}; last lines of its output:\n${tail || '(no output)'}`
+    );
+    summary = pushFailureSummary(tail);
+  }
   const checks = await compare(creds, config.problemId, dir, config);
-  checks.push(...pushChecks(pushed.status, checks.filter(c => !c.ok).length));
+  checks.push(
+    ...pushChecks(pushed.status, checks.filter(c => !c.ok).length, summary)
+  );
   if (markedStatement) {
     const statements = await polygon(creds, 'problem.statements', {
       problemId: config.problemId,
