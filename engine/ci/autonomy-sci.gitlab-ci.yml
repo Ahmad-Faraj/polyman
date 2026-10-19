@@ -36,7 +36,9 @@ autonomy:sci:
     # if-run reads the OS name with lsb_release
     - apt-get update -qq && apt-get install -y -qq --no-install-recommends lsb-release >/dev/null
     - mkdir -p sci
-    - npx -y -p "@grnsft/if@$IF_VERSION" if-run -m sustainability/agent-reviews.yml -o sci/if-output
+    # from outside the checkout: if-run records `npm list` of its working
+    # directory, which fails on the project's package.json (not installed here)
+    - (cd /tmp && npx -y -p "@grnsft/if@$IF_VERSION" if-run -m "$CI_PROJECT_DIR/sustainability/agent-reviews.yml" -o "$CI_PROJECT_DIR/sci/if-output")
     - node engine/src/cli/sci-report.ts --if sci/if-output.yaml --out sci --ci
   artifacts:
     when: always
