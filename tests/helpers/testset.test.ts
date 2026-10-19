@@ -11,8 +11,13 @@ vi.mock('fs');
 vi.mock('../../src/formatter');
 
 describe('testset.ts', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
+    // utils is auto-mocked; the path guard must be the real one here.
+    const actual = await vi.importActual<
+      typeof import('../../src/helpers/utils')
+    >('../../src/helpers/utils');
+    vi.mocked(utils.insideProblem).mockImplementation(actual.insideProblem);
   });
 
   describe('ensureTestsetsExist', () => {
@@ -70,6 +75,27 @@ describe('testset.ts', () => {
       expect(testset.getTestIndicesForGroup(ts, 'all').sort()).toEqual([
         1, 2, 3, 5,
       ]);
+    });
+  });
+
+  describe('scriptFile outside the problem folder', () => {
+    // These helpers take no baseDir, so the guard resolves against the cwd.
+    const outside: LocalTestset = {
+      name: 'main',
+      generatorScript: { scriptFile: '../x.txt' },
+      manualTests: [{ input: './m.in', index: 1 }],
+    };
+
+    it('getTestIndicesForGroup throws', () => {
+      expect(() => testset.getTestIndicesForGroup(outside, 'all')).toThrow(
+        /outside the problem folder/
+      );
+    });
+
+    it('getAllTestIndices throws', () => {
+      expect(() => testset.getAllTestIndices(outside)).toThrow(
+        /outside the problem folder/
+      );
     });
   });
 
@@ -226,6 +252,25 @@ describe('testset.ts', () => {
       const out = testset.listTestsets([ts])[0];
       expect(out).toContain('ts1: 2 tests');
       expect(out).toContain('groups: g1');
+    });
+
+    it('swallows an outside scriptFile and counts only manual tests', () => {
+      // Pins current behaviour: the refusal from readScriptText is caught by
+      // the try/catch in listTestsets, so no error is shown; the count falls
+      // back to the number of manual tests.
+      const ts: LocalTestset = {
+        name: 'ts1',
+        generatorScript: { scriptFile: '../x.txt' },
+        manualTests: [
+          { input: './a.in', index: 1 },
+          { input: './b.in', index: 2 },
+        ],
+      };
+      let out = '';
+      expect(() => {
+        out = testset.listTestsets([ts])[0];
+      }).not.toThrow();
+      expect(out).toContain('ts1: 2 tests');
     });
 
     it('handles testsets with no script and no groups', () => {
