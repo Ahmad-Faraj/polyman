@@ -2,11 +2,16 @@
  * @fileoverview Color themes for terminal output.
  * The dark theme (default) keeps the original Codeforces colors; the light
  * theme swaps colors that are hard to read on light backgrounds.
- * Select with POLYMAN_THEME=light. Set NO_COLOR (https://no-color.org) to
+ * By default the theme follows the terminal background; POLYMAN_THEME=dark or
+ * POLYMAN_THEME=light forces one. Set NO_COLOR (https://no-color.org) to
  * disable colors entirely.
  */
 
 import chalk, { Chalk, type ChalkInstance } from 'chalk';
+import {
+  detectBackground,
+  type DetectOptions,
+} from './helpers/terminal-background';
 
 /**
  * Available theme names.
@@ -44,14 +49,26 @@ export interface Theme {
 }
 
 /**
- * Picks the theme name from POLYMAN_THEME. Unknown values fall back to dark.
+ * Reads POLYMAN_THEME. `dark` and `light` force a theme, unset, empty or
+ * `auto` mean "follow the terminal", and unknown values fall back to dark.
+ * @param {NodeJS.ProcessEnv} env - Environment to read
+ * @returns {ThemeName | 'auto'} The theme setting
+ */
+export function readThemeSetting(env: NodeJS.ProcessEnv): ThemeName | 'auto' {
+  const value = env['POLYMAN_THEME']?.trim().toLowerCase() ?? '';
+  if (value === 'light') return 'light';
+  if (value === '' || value === 'auto') return 'auto';
+  return 'dark';
+}
+
+/**
+ * Picks the theme name from POLYMAN_THEME without asking the terminal.
+ * `auto` and unknown values give dark.
  * @param {NodeJS.ProcessEnv} env - Environment to read
  * @returns {ThemeName} Selected theme name
  */
 export function resolveThemeName(env: NodeJS.ProcessEnv): ThemeName {
-  return env['POLYMAN_THEME']?.trim().toLowerCase() === 'light'
-    ? 'light'
-    : 'dark';
+  return readThemeSetting(env) === 'light' ? 'light' : 'dark';
 }
 
 /**
@@ -103,8 +120,8 @@ export function createTheme(name: ThemeName, c: ChalkInstance): Theme {
 }
 
 /**
- * Returns the theme selected by the environment.
- * A non-empty NO_COLOR disables all colors.
+ * Returns the theme selected by the environment, without detection (an unset
+ * POLYMAN_THEME gives dark). A non-empty NO_COLOR disables all colors.
  * @param {NodeJS.ProcessEnv} [env=process.env] - Environment to read
  * @param {ChalkInstance} [base=chalk] - Chalk instance used when colors are on
  * @returns {Theme} The active theme
@@ -118,4 +135,32 @@ export function getTheme(
     resolveThemeName(env),
     noColor ? new Chalk({ level: 0 }) : base
   );
+}
+
+/**
+ * Returns the theme for this run. Like {@link getTheme}, but when
+ * POLYMAN_THEME is unset or `auto` it detects the terminal background and
+ * picks the light theme on a light terminal. Never rejects.
+ * @param {NodeJS.ProcessEnv} [env=process.env] - Environment to read
+ * @param {ChalkInstance} [base=chalk] - Chalk instance used when colors are on
+ * @param {DetectOptions} [options={}] - Overrides for detection (tests)
+ * @returns {Promise<Theme>} The active theme
+ */
+export async function resolveTheme(
+  env: NodeJS.ProcessEnv = process.env,
+  base: ChalkInstance = chalk,
+  options: DetectOptions = {}
+): Promise<Theme> {
+  if (env['NO_COLOR'] || readThemeSetting(env) !== 'auto') {
+    return getTheme(env, base);
+  }
+  try {
+    const detected = await detectBackground(env, {
+      colorLevel: base.level,
+      ...options,
+    });
+    return createTheme(detected ?? 'dark', base);
+  } catch {
+    return createTheme('dark', base);
+  }
 }

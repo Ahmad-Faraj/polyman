@@ -1768,15 +1768,25 @@ Entries unused for 30 days are removed, and the cache is capped at 256 MB (least
 
 ### Terminal Colors
 
-The default colors are made for dark terminals. Two environment variables change them:
+polyman has two color themes: one for dark terminals and one for white or light terminals. By default it picks the theme from the terminal background when it starts:
 
-- `POLYMAN_THEME=light` uses colors that are easy to read on a white or light background. Any other value uses the dark theme.
+1. If `COLORFGBG` is set (some terminals like iTerm2, Konsole and rxvt set it), polyman reads the background color from it.
+2. If not, polyman asks the terminal for its background color (the OSC 11 query). Most modern terminals answer in a few milliseconds. A terminal that does not support the query is detected at once, and polyman waits at most 100 ms for an answer.
+3. If there is still no answer, polyman uses the dark theme.
+
+Detection only runs in an interactive terminal. It is skipped when the output or the input is not a terminal (for example `polyman verify > log.txt` or in CI), when colors are off, when `TERM=dumb`, when polyman runs as a background job, and on Windows for now. In these cases polyman uses the dark theme.
+
+Two environment variables change this:
+
+- `POLYMAN_THEME=dark` or `POLYMAN_THEME=light` forces a theme and skips detection. Use it when detection picks the wrong theme. `POLYMAN_THEME=auto` (or no value) means detect. Any other value uses the dark theme.
 - `NO_COLOR=1` (any non-empty value, see [no-color.org](https://no-color.org)) turns all colors off. This is useful for logs and CI.
 
 ```bash
 POLYMAN_THEME=light polyman verify
 NO_COLOR=1 polyman verify > verify.log
 ```
+
+To always use one theme, add the line to your shell profile, for example `export POLYMAN_THEME=light` in `~/.bashrc` or `~/.zshrc`.
 
 `NO_COLOR` wins over everything else: with `NO_COLOR=1`, polyman prints no colors even if `FORCE_COLOR` or `POLYMAN_THEME` is set. `FORCE_COLOR` only controls how many colors the terminal gets (16, 256 or true color); `POLYMAN_THEME` picks the palette inside that.
 

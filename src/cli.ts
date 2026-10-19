@@ -32,10 +32,15 @@ import {
   cacheStatusAction,
   cacheClearAction,
 } from './actions';
+import { fmt } from './formatter';
 import { printComprehensiveHelp } from './help';
 import { setCacheEnabled } from './helpers/compile-cache';
+import { resolveTheme, type Theme } from './theme';
 
 const program = new Command();
+
+/** Color theme for this run, set before commander parses the arguments. */
+let theme: Theme | undefined;
 
 // Read version from package.json so the CLI's --version output always matches
 // the published package; previously this string was hand-edited and drifted.
@@ -55,7 +60,7 @@ program
   .version(pkg.version)
   .helpOption(false)
   .option('-h, --help', 'display help for command', () => {
-    printComprehensiveHelp(program);
+    printComprehensiveHelp(program, theme);
   })
   // Commands that compile sources accept `--no-cache`; commander stores it as
   // `cache: false` on the command that runs.
@@ -562,4 +567,10 @@ remote
   .description('Build problem package on Polygon')
   .action(remotePackageProblemAction);
 
-program.parse(process.argv);
+// Detecting the theme may ask the terminal for its background color, which is
+// async, so it runs once here before commander starts any action.
+void resolveTheme().then(resolved => {
+  theme = resolved;
+  fmt.setTheme(resolved);
+  program.parse(process.argv);
+});

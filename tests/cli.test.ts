@@ -2,12 +2,20 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as actions from '../src/actions';
 import * as help from '../src/help';
 import { setCacheEnabled } from '../src/helpers/compile-cache';
+import { createTheme } from '../src/theme';
+import { Chalk } from 'chalk';
 
 vi.mock('../src/actions');
 vi.mock('../src/helpers/compile-cache');
 vi.mock('../src/help', () => ({
   printComprehensiveHelp: vi.fn(),
 }));
+vi.mock('../src/theme', async importOriginal => {
+  const original = await importOriginal<typeof import('../src/theme')>();
+  const { Chalk } = await import('chalk');
+  const detected = original.createTheme('light', new Chalk({ level: 3 }));
+  return { ...original, resolveTheme: vi.fn(() => Promise.resolve(detected)) };
+});
 
 const tick = () => new Promise(resolve => setTimeout(resolve, 10));
 
@@ -362,6 +370,26 @@ describe('cli.ts', () => {
       // commander may throw when exit is stubbed
     }
     expect(help.printComprehensiveHelp).toHaveBeenCalled();
+    exitSpy.mockRestore();
+  });
+
+  it('applies the detected theme to fmt and to help', async () => {
+    const exitSpy = vi
+      .spyOn(process, 'exit')
+      .mockImplementation((() => undefined) as never);
+    try {
+      await loadCli(['--help']);
+    } catch {
+      // commander may throw when exit is stubbed
+    }
+    const { fmt } = (await import(
+      '../src/formatter'
+    )) as typeof import('../src/formatter');
+    const theme = vi.mocked(help.printComprehensiveHelp).mock.calls[0]?.[1];
+    const light = createTheme('light', new Chalk({ level: 3 }));
+    expect(theme?.name).toBe('light');
+    expect(theme?.primary('p')).toBe(light.primary('p'));
+    expect(fmt.primary('p')).toBe(light.primary('p'));
     exitSpy.mockRestore();
   });
 

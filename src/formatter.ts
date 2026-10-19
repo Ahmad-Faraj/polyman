@@ -20,8 +20,8 @@ export type ErrorSink = (message: string) => void;
 
 /**
  * Formatter class for creating styled terminal output with Codeforces theme.
- * Colors come from a {@link Theme} (dark by default, POLYMAN_THEME=light for
- * light terminals, no colors when NO_COLOR is set).
+ * Colors come from a {@link Theme} (see src/theme.ts). The CLI detects the
+ * theme once at startup and applies it with {@link Formatter.setTheme}.
  *
  * @class Formatter
  * @example
@@ -39,7 +39,16 @@ export class Formatter {
   /**
    * @param {Theme} [theme=getTheme()] - Color theme to style output with
    */
-  constructor(private readonly theme: Theme = getTheme()) {}
+  constructor(private theme: Theme = getTheme()) {}
+
+  /**
+   * Replaces the color theme. The CLI calls it after detecting the terminal
+   * background, because `fmt` is created before detection finishes.
+   * @param {Theme} theme - Color theme to style output with
+   */
+  setTheme(theme: Theme): void {
+    this.theme = theme;
+  }
 
   /**
    * Routes all printed output to stdout (default) or stderr.
