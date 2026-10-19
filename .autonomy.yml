@@ -101,11 +101,12 @@ go_ahead:
     - HamzaHassanain
     - Ahmad-Faraj
     - Mazen-Ghanaym
-  # two, so high-risk work never waits on one person and an issue one of them
-  # filed can still get the other's go-ahead (never the requester's)
+  # all three, so high-risk work never waits on one person. The requester
+  # still never counts, so every high-risk step needs one of the other two.
   maintainers:
     - HamzaHassanain
     - Mazen-Ghanaym
+    - Ahmad-Faraj
   low: anyone
   medium: anyone
   high: maintainers
