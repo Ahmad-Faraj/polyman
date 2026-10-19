@@ -12,7 +12,7 @@ The single source of truth for the whole problem. Every other file is referenced
   "description": "Short description.",
   "tags": ["implementation", "math"],
 
-  "timeLimit": 1000,                     // ms, applied to every solution
+  "timeLimit": 1000,                     // ms, applied to every solution (scaled per language locally by timeLimitMultipliers)
   "timeLimitMultipliers": { "java": 2 }, // optional; local-only scaling of timeLimit per language (cpp/java/python), Polygon keeps timeLimit
   "memoryLimit": 256,                    // MB
   "inputFile": "stdin",                  // keep "stdin" unless asked

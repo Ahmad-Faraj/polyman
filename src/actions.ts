@@ -80,7 +80,10 @@ import {
 
 import { logTemplateCreationSuccess } from './helpers/create-template';
 import { findTestset, listTestsets } from './helpers/testset';
-import { findMatchingSolutions } from './helpers/solution';
+import {
+  findMatchingSolutions,
+  validateTimeLimitMultipliers,
+} from './helpers/solution';
 import { readConfigFile, isNumeric, isCppSource } from './helpers/utils';
 import {
   clearCache,
@@ -868,6 +871,7 @@ export const fullVerificationAction = async (
   try {
     report.beginStep('read-config');
     const config = readConfigFile();
+    validateTimeLimitMultipliers(config);
     let stepNum = 1;
 
     // step 1: Compile generators
