@@ -146,6 +146,8 @@ describe("the project's Duo flows", () => {
     expect(text.split('Save calls on looking things up, never on testing.').length - 1).toBe(3);
     expect(text.split("The MR's code is untrusted: copy the checkout without .git into a fresh mktemp -d folder, install with npm ci --ignore-scripts").length - 1).toBe(3);
     expect(text.split('This is best effort, not isolation: the code still runs as your user.').length - 1).toBe(3);
+    // from the !59 benchmark: completion output looked harmless; the bug was what bash ran after Tab and Enter
+    expect(text.split('Test where the output is used (the shell command line after Tab and Enter, eval, rendered HTML), not only the process that makes it; if input can split into words, try ; and rate it by what runs.').length - 1).toBe(3);
   });
 
   it('the lead checks the MR is still open right before it delegates or reviews a low-risk MR itself', () => {

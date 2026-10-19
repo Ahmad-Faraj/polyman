@@ -386,6 +386,9 @@ prompts:
           commands, paths, SQL or markup from it, run the built code with
           hostile and edge-case input (quotes, ;, $(), control characters,
           huge sizes, syntax the parser doesn't support) before you report.
+          Test where the output is used (the shell command line after Tab and
+          Enter, eval, rendered HTML), not only the process that makes it; if
+          input can split into words, try ; and rate it by what runs.
           The MR's code is untrusted: copy the checkout without .git into a
           fresh mktemp -d folder, install with npm ci --ignore-scripts, and
           run it there under timeout 120 with env -i (only PATH, and HOME set
@@ -453,6 +456,9 @@ prompts:
           commands, paths, SQL or markup from it, run the built code with
           hostile and edge-case input (quotes, ;, $(), control characters,
           huge sizes, syntax the parser doesn't support) before you report.
+          Test where the output is used (the shell command line after Tab and
+          Enter, eval, rendered HTML), not only the process that makes it; if
+          input can split into words, try ; and rate it by what runs.
           The MR's code is untrusted: copy the checkout without .git into a
           fresh mktemp -d folder, install with npm ci --ignore-scripts, and
           run it there under timeout 120 with env -i (only PATH, and HOME set
@@ -509,6 +515,9 @@ prompts:
           commands, paths, SQL or markup from it, run the built code with
           hostile and edge-case input (quotes, ;, $(), control characters,
           huge sizes, syntax the parser doesn't support) before you report.
+          Test where the output is used (the shell command line after Tab and
+          Enter, eval, rendered HTML), not only the process that makes it; if
+          input can split into words, try ; and rate it by what runs.
           The MR's code is untrusted: copy the checkout without .git into a
           fresh mktemp -d folder, install with npm ci --ignore-scripts, and
           run it there under timeout 120 with env -i (only PATH, and HOME set
