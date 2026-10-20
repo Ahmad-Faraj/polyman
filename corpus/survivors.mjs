@@ -173,7 +173,7 @@ const killTree = child => {
     child.kill('SIGKILL');
   }
 };
-const restoreAll = () => {
+export const restoreAll = () => {
   for (const child of running) killTree(child);
   for (const restore of restorers) restore();
 };
@@ -454,14 +454,19 @@ export function judgedEntry(problem, summaryText, { code, output }) {
  * when it produced none. Exit 1 only means the problem differs from the
  * pinned verdicts; the comparison with the baseline decides what that means.
  */
-async function judge(problem, work, timeoutMs) {
+export async function judge(
+  problem,
+  work,
+  timeoutMs,
+  script = path.join(CORPUS, 'run.mjs')
+) {
   const junit = path.join(work, problem, 'junit.xml');
   const summaryFile = path.join(path.dirname(junit), 'summary.json');
   // both attempts share this folder: never read the previous attempt's summary
   fs.rmSync(summaryFile, { force: true });
   const result = await run(
     process.execPath,
-    [path.join(CORPUS, 'run.mjs'), '--only', problem, '--junit', junit],
+    [script, '--only', problem, '--junit', junit],
     { timeoutMs }
   );
   if (result.timedOut) return { timedOut: true };
@@ -471,7 +476,7 @@ async function judge(problem, work, timeoutMs) {
   return { entry: judgedEntry(problem, text, result) };
 }
 
-function parseArgs(argv) {
+export function parseArgs(argv) {
   const args = {
     mode: 'judge',
     report: path.join(CORPUS, 'out', 'mutation', 'mutation.json'),
@@ -499,6 +504,11 @@ function parseArgs(argv) {
     else throw new Error(`Unknown argument: ${arg}`);
   }
   if (!(args.timeout > 0)) throw new Error('--timeout must be seconds > 0');
+  if (
+    args.shards !== null &&
+    !(Number.isInteger(args.shards) && args.shards >= 1)
+  )
+    throw new Error('--shards must be a whole number of shards >= 1');
   return args;
 }
 

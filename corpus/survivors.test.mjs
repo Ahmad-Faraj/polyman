@@ -6,13 +6,17 @@ import {
   applyMutant,
   combineShards,
   isInsideRoot,
+  judge,
   judgedEntry,
   judgeMutant,
   junitXml,
   mergeBaseline,
   metricsText,
   offsetOf,
+  parseArgs,
   parseShard,
+  restoreAll,
+  run,
   sameDifferences,
   selectMutants,
   shardOf,
@@ -636,6 +640,126 @@ describe('what reaches the reports is well-formed', () => {
     });
     expect(() => combineShards([shard(1, 2)], 1)).toThrow(
       /run of 2 shards, expected 1/
+    );
+  });
+});
+
+describe('parseArgs: the command line', () => {
+  it('has defaults for a single local shard', () => {
+    const args = parseArgs([]);
+    expect(args.mode).toBe('judge');
+    expect(args.shard).toEqual({ index: 1, total: 1 });
+    expect(args.timeout).toBe(600);
+  });
+
+  it('reads report mode and the shard count', () => {
+    const args = parseArgs(['report', '--shards', '8']);
+    expect(args.mode).toBe('report');
+    expect(args.shards).toBe(8);
+  });
+
+  it('refuses a shard count, timeout or flag it cannot use', () => {
+    expect(() => parseArgs(['report', '--shards', 'abc'])).toThrow(/--shards/);
+    expect(() => parseArgs(['report', '--shards', '0'])).toThrow(/--shards/);
+    expect(() => parseArgs(['--timeout', '0'])).toThrow(/--timeout/);
+    expect(() => parseArgs(['--timeout'])).toThrow(/needs a value/);
+    expect(() => parseArgs(['--bogus'])).toThrow(/Unknown argument/);
+  });
+});
+
+// The kill paths use process groups and sh; Windows has neither the same way.
+const posix = process.platform !== 'win32';
+
+describe.runIf(posix)('stopping: no process outlives its run', () => {
+  // the children whose command line names `marker`, from /proc (Linux) or ps
+  const alive = marker => {
+    try {
+      return fs
+        .readdirSync('/proc')
+        .filter(d => /^\d+$/.test(d))
+        .map(d => {
+          try {
+            return fs.readFileSync(`/proc/${d}/cmdline`, 'utf8');
+          } catch {
+            return '';
+          }
+        })
+        .filter(c => c.includes(marker)).length;
+    } catch {
+      return 0;
+    }
+  };
+
+  it('a timeout kills the whole process group, children included', async () => {
+    const marker = `sleep 37.${process.pid}`;
+    const started = Date.now();
+    const r = await run('sh', ['-c', `${marker} & ${marker} & wait`], {
+      timeoutMs: 300,
+    });
+    expect(r.timedOut).toBe(true);
+    expect(Date.now() - started).toBeLessThan(10_000);
+    await new Promise(resolve => setTimeout(resolve, 300));
+    expect(alive(marker)).toBe(0);
+  });
+
+  it('restoreAll (what a stopped job runs) kills what is still running', async () => {
+    const marker = `sleep 41.${process.pid}`;
+    const pending = run('sh', ['-c', `${marker} & wait`]);
+    await new Promise(resolve => setTimeout(resolve, 300));
+    restoreAll();
+    const r = await pending;
+    expect(r.code).not.toBe(0);
+    await new Promise(resolve => setTimeout(resolve, 300));
+    expect(alive(marker)).toBe(0);
+  });
+});
+
+describe('judge: one run of run.mjs on one problem', () => {
+  let dir;
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'survivors-judge-'));
+  });
+  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  // a stand-in run.mjs: writes a summary on its first run only
+  const stub = () => {
+    const script = path.join(dir, 'run.mjs');
+    fs.writeFileSync(
+      script,
+      `import fs from 'node:fs';
+import path from 'node:path';
+const junit = process.argv[process.argv.indexOf('--junit') + 1];
+const flag = path.join(${JSON.stringify(dir)}, 'ran-once');
+fs.mkdirSync(path.dirname(junit), { recursive: true });
+if (!fs.existsSync(flag)) {
+  fs.writeFileSync(flag, '');
+  fs.writeFileSync(path.join(path.dirname(junit), 'summary.json'),
+    JSON.stringify({ problems: [{ name: 'p', failures: ['crash in /tmp/polyman-corpus-p-AbC123/x'] }] }));
+  process.exit(1);
+}
+process.exit(3);
+`
+    );
+    return script;
+  };
+
+  it("reads the problem's failures, without the temp dir", async () => {
+    const r = await judge('p', path.join(dir, 'work'), 20_000, stub());
+    expect(r.entry).toEqual({
+      name: 'p',
+      failures: ['crash in /tmp/polyman-corpus-p-XXXXXX/x'],
+    });
+  });
+
+  it("never reads the previous attempt's summary", async () => {
+    const script = stub();
+    const work = path.join(dir, 'work');
+    await judge('p', work, 20_000, script);
+    // the second run writes no summary: the first one's must not be read
+    const second = await judge('p', work, 20_000, script);
+    expect(second.entry.failures).toHaveLength(1);
+    expect(second.entry.failures[0]).toMatch(
+      /^run\.mjs exited 3 without a summary/
     );
   });
 });
