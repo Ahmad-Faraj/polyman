@@ -113,11 +113,15 @@ describe('withMutant: the source always comes back', () => {
       return stillRunning;
     });
     await inside;
-    expect(fs.readFileSync(file, 'utf8')).not.toBe(original);
-    restoreAll();
-    expect(fs.readFileSync(file, 'utf8')).toBe(original);
-    finish();
-    await done;
+    try {
+      expect(fs.readFileSync(file, 'utf8')).not.toBe(original);
+      restoreAll();
+      expect(fs.readFileSync(file, 'utf8')).toBe(original);
+    } finally {
+      // let withMutant finish, so no restorer of this deleted file is left
+      finish();
+      await done;
+    }
   });
 
   it('never writes when the location is invalid', async () => {
@@ -775,7 +779,7 @@ process.exit(3);
     const started = Date.now();
     const r = await judge('p', path.join(dir, 'work'), 300, script);
     expect(r).toEqual({ timedOut: true });
-    expect(Date.now() - started).toBeLessThan(20_000);
+    expect(Date.now() - started).toBeLessThan(4_000);
   });
 
   it("never reads the previous attempt's summary", async () => {
@@ -796,20 +800,21 @@ describe('judgeBaseline: the unmutated build, judged twice', () => {
 
   it('judges every problem twice, each run in its own folder', async () => {
     const calls = [];
+    const work = path.join('tmp', 'work');
     const baseline = await judgeBaseline(
       ['a', 'b'],
-      path.join('work'),
+      work,
       500,
-      async (problem, work, ms) => {
-        calls.push([problem, path.basename(work), ms]);
+      async (problem, folder, ms) => {
+        calls.push([problem, folder, ms]);
         return clean(problem);
       }
     );
     expect(calls).toEqual([
-      ['a', 'baseline-0', 500],
-      ['a', 'baseline-1', 500],
-      ['b', 'baseline-0', 500],
-      ['b', 'baseline-1', 500],
+      ['a', path.join(work, 'baseline-0'), 500],
+      ['a', path.join(work, 'baseline-1'), 500],
+      ['b', path.join(work, 'baseline-0'), 500],
+      ['b', path.join(work, 'baseline-1'), 500],
     ]);
     expect(baseline.problems).toEqual([
       { name: 'a', failures: [], flaky: false },
@@ -818,18 +823,42 @@ describe('judgeBaseline: the unmutated build, judged twice', () => {
   });
 
   it('a difference only one run shows is flaky, so no mutant is blamed for it', async () => {
-    let n = 0;
-    const baseline = await judgeBaseline(['a'], 'work', 500, async problem => ({
-      entry: { name: problem, failures: n++ === 1 ? ['tests#3: got OK'] : [] },
-    }));
+    const baseline = await judgeBaseline(
+      ['a'],
+      'work',
+      500,
+      async (problem, folder) => ({
+        entry: {
+          name: problem,
+          failures: folder.endsWith('baseline-1') ? ['tests#3: got OK'] : [],
+        },
+      })
+    );
     expect(baseline.problems).toEqual([
       { name: 'a', failures: ['tests#3: got OK'], flaky: true },
     ]);
   });
 
-  it('stops the job when the unmutated build times out', async () => {
-    await expect(
-      judgeBaseline(['a'], 'work', 500, async () => ({ timedOut: true }))
-    ).rejects.toThrow('the unmutated build timed out on a');
-  });
+  // [problem, attempt] of the one call that times out; every case must stop
+  // the job, name that problem, and judge nothing after it
+  it.each([
+    ['a', 0, 1],
+    ['a', 1, 2],
+    ['b', 0, 3],
+    ['b', 1, 4],
+  ])(
+    'stops the job when the unmutated build times out (%s, attempt %i)',
+    async (slow, attempt, callsBefore) => {
+      let calls = 0;
+      await expect(
+        judgeBaseline(['a', 'b'], 'work', 500, async (problem, folder) => {
+          calls++;
+          return problem === slow && folder.endsWith(`baseline-${attempt}`)
+            ? { timedOut: true }
+            : clean(problem);
+        })
+      ).rejects.toThrow(`the unmutated build timed out on ${slow}`);
+      expect(calls).toBe(callsBefore);
+    }
+  );
 });
