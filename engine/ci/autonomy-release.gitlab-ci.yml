@@ -1,4 +1,4 @@
-# Release jobs for the supervised flow, for projects that deploy. Include it
+# Release jobs for the Assisted flow, for projects that deploy. Include it
 # next to autonomy.gitlab-ci.yml once the project defines deploy:production
 # and monitor:production (which runs engine/src/cli/monitor.ts on the traffic
 # it measured), and stages release and verify. It reuses .autonomy:node from

@@ -81,6 +81,25 @@ describe('the rest of the release stays automatic', () => {
   });
 });
 
+describe('no candidate is staged from a push the guard refused', () => {
+  const guardCi = readFileSync(new URL('../../engine/ci/autonomy.gitlab-ci.yml', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+
+  it('the candidate needs the golden check and the go-ahead guard on main', () => {
+    const candidate = job('service:deploy:candidate');
+    expect(candidate).toMatch(/\n  needs:\n    - service:golden\n/);
+    // optional: a pipeline started from the UI (a drill) has no guard job;
+    // artifacts: false, the guard's verdict is its exit code, not a file
+    expect(candidate).toContain("- { job: 'autonomy:guard:main', optional: true, artifacts: false }");
+  });
+
+  it('the guard job it names still exists and runs on every push to the default branch', () => {
+    // `optional: true` would hide a rename: the need would just be skipped
+    const guard = job('autonomy:guard:main', guardCi);
+    expect(guard).toContain('- if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"');
+    expect(guard).toContain('node engine/src/cli/guard.ts "$CI_COMMIT_BEFORE_SHA"');
+  });
+});
+
 describe('exit 3 is a warning, not a failure', () => {
   it('the promote and the production check let exit 3 through, so a switch that did nothing starts no rollback', () => {
     for (const name of ['service:promote:production', 'service:check:production']) {
@@ -107,6 +126,8 @@ describe('no manual job keeps a failed main pipeline from showing as failed', ()
     '.gitlab/ci/release.gitlab-ci.yml',
     'service/ci/service.gitlab-ci.yml',
     'engine/ci/autonomy.gitlab-ci.yml',
+    'engine/ci/autonomy-sci.gitlab-ci.yml',
+    'infra/infra.gitlab-ci.yml',
     'corpus/corpus.gitlab-ci.yml',
   ];
   /** Every top-level job of a file with a `when: manual` in it. */
@@ -121,7 +142,28 @@ describe('no manual job keeps a failed main pipeline from showing as failed', ()
   it('lists every manual job, so a new one gets a decision here', () => {
     const found: string[] = [];
     for (const file of files) found.push(...manualJobs(read(file)));
-    expect(found.sort()).toEqual(['.os-lane', 'canary:publish', 'release:npm-next', 'release:promote', 'service:promote:production']);
+    expect(found.sort()).toEqual([
+      '.os-lane',
+      'canary:publish',
+      'corpus:survivors:mutants',
+      'infra:import',
+      'release:npm-next',
+      'release:promote',
+      'service:promote:production',
+    ]);
+  });
+
+  // The survivors measurement and the one-time state import wait for a click
+  // on every main pipeline (or MR); neither may hold a failed one at "blocked".
+  it('the survivors run and the state import are optional where they are manual', () => {
+    for (const [name, file] of [
+      ['corpus:survivors:mutants', 'corpus/corpus.gitlab-ci.yml'],
+      ['infra:import', 'infra/infra.gitlab-ci.yml'],
+    ]) {
+      const manual = job(name, read(file)).match(/when: manual\n\s+allow_failure: \w+/g) ?? [];
+      expect(manual, name).not.toHaveLength(0);
+      for (const rule of manual) expect(rule, name).toMatch(/allow_failure: true$/);
+    }
   });
 
   // canary:publish waits on every push to main: that is the job that kept the

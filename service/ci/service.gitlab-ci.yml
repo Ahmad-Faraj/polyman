@@ -123,7 +123,12 @@ service:golden:
 service:deploy:candidate:
   extends: [.service:gcp, .service:release]
   stage: deploy
-  needs: [service:golden]
+  # needs skips the stage order, so the go-ahead guard on main is listed here:
+  # no candidate is staged from a push it refused. Optional because it runs
+  # only on pushes; a drill pipeline started from the UI has no guard job.
+  needs:
+    - service:golden
+    - { job: 'autonomy:guard:main', optional: true, artifacts: false }
   script:
     - sh service/deploy/cloudrun.sh candidate
   artifacts:
