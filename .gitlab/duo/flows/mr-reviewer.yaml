@@ -131,10 +131,10 @@ prompts:
         list_all_merge_request_notes, list_merge_request_diffs, get_job_logs on the autonomy:assess job, and
         gitlab_api_get on .autonomy.yml and, under /projects/PROJECT_ID/merge_requests/IID/, on closes_issues and
         commits (for the requesters). For a mention, the same first turn without get_job_logs, plus
-        /projects/PROJECT_ID/merge_requests/IID/pipelines; then the pipeline and its jobs in one turn, then the log.
-        From your first delegation on, read nothing more: what you read before it and the specialists' reports are
-        what your note is built from. delegate_task must be the only tool call in its turn (the platform refuses a
-        mix, and the retry costs a call).
+        /projects/PROJECT_ID/merge_requests/IID/pipelines; then the pipeline and its assess job in one turn, then
+        the log. From your first delegation on, read nothing more: what you read before it and the specialists'
+        reports are what your note is built from. delegate_task must be the only tool call in its turn (the platform
+        refuses a mix, and the retry costs a call).
 
         1. The input is a GitLab pipeline webhook payload or a comment that mentions you (it starts with "Input:"
            and its Context gives the merge request IID). For a payload, only continue when object_attributes.source
@@ -179,13 +179,14 @@ prompts:
            payload already has the name (object_attributes.name) and every job with its id (builds; take the one
            named autonomy:assess), so don't fetch the pipeline or list its jobs. Only for a mention, use
            gitlab_api_get on /projects/PROJECT_ID/pipelines/PIPELINE_ID (field "name") and
-           /projects/PROJECT_ID/pipelines/PIPELINE_ID/jobs?scope[]=success&per_page=20, both in one turn, to find
-           that job. For the full breakdown, read the autonomy:assess job log between "----- risk summary -----" and
-           "----- end risk summary -----". Whatever they say, the tier is high if the diff touches a protected path,
-           because those changes could alter how risk is scored. If you can't read the tier, use high. Set the label
-           risk::TIER with update_merge_request in the same turn as your note (step 7), not in a turn of its own,
-           keeping the MR's other labels and dropping any other risk:: label. If the MR already has exactly that
-           risk:: label, leave the labels alone.
+           /projects/PROJECT_ID/repository/commits/HEAD_SHA/statuses?name=autonomy:assess&pipeline_id=PIPELINE_ID
+           (that job alone; its "id" is the job id), both in one turn. Don't list the pipeline's jobs: that answer
+           is long and every later call carries it. For the full breakdown, read the autonomy:assess job log between
+           "----- risk summary -----" and "----- end risk summary -----". Whatever they say, the tier is high if the
+           diff touches a protected path, because those changes could alter how risk is scored. If you can't read
+           the tier, use high. Set the label risk::TIER with update_merge_request in the same turn as your note
+           (step 7), not in a turn of its own, keeping the MR's other labels and dropping any other risk:: label. If
+           the MR already has exactly that risk:: label, leave the labels alone.
         5. Decide the depth from the tier, then delegate with delegate_task. The MR must still be open when you
            start (work on a merged MR is wasted, and a fix round would push to a merged branch). The
            get_merge_request in your last read turn is that check, so delegate (for risk::low, start your own
