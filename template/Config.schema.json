@@ -44,7 +44,18 @@
     "timeLimit": {
       "type": "integer",
       "minimum": 1,
-      "description": "Time limit in milliseconds, applied to every solution."
+      "description": "Time limit in milliseconds, applied to every solution. For local runs it can be scaled per language with timeLimitMultipliers."
+    },
+    "timeLimitMultipliers": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "cpp": { "type": "number", "exclusiveMinimum": 0 },
+        "java": { "type": "number", "exclusiveMinimum": 0 },
+        "python": { "type": "number", "exclusiveMinimum": 0 }
+      },
+      "description": "Local-only scaling of timeLimit per solution language: a factor of 2 for \"java\" runs Java solutions with 2 * timeLimit. Omitted languages keep a factor of 1. Polygon does not scale limits, so the pushed timeLimit stays as declared here."
     },
     "memoryLimit": {
       "type": "integer",
