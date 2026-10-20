@@ -16,7 +16,11 @@ resource "google_cloud_run_v2_service" "verify" {
   launch_stage        = "GA"
   deletion_protection = true
 
+  # one instance kept warm through judging (!193, MIN_INSTANCES in
+  # service/deploy/cloudrun.conf, which cloudrun.sh sets as --min on the
+  # service); back to 0 when judging ends
   scaling {
+    min_instance_count = 1
     max_instance_count = 3
   }
 
