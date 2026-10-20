@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   applyMutant,
   combineShards,
+  isInsideRoot,
+  judgeMutant,
   junitXml,
   mergeBaseline,
   metricsText,
@@ -15,6 +17,7 @@ import {
   shardOf,
   summaryMarkdown,
   withMutant,
+  withoutTempDir,
 } from './survivors.mjs';
 
 const at = (line, column) => ({ line, column });
@@ -276,5 +279,270 @@ describe('flakes are not kills', () => {
     });
     expect(dirty).toContain('**Baseline not clean**');
     expect(dirty).toContain('judged sum-parity differently between runs');
+  });
+
+  it('matches the same crash in two runs despite their random temp dirs', () => {
+    // run.mjs copies each problem to a fresh polyman-corpus-<name>-XXXXXX
+    const crash = dir =>
+      d('sum-parity', `polyman crashed: ENOENT /tmp/${dir}/out/report.json`);
+    expect(
+      sameDifferences(
+        [crash('polyman-corpus-sum-parity-AbC123')],
+        [crash('polyman-corpus-sum-parity-XyZ789')]
+      )
+    ).toEqual([crash('polyman-corpus-sum-parity-AbC123')]);
+    // a different file is still a different difference
+    expect(
+      sameDifferences(
+        [crash('polyman-corpus-sum-parity-AbC123')],
+        [d('sum-parity', 'polyman crashed: ENOENT /tmp/elsewhere/x.json')]
+      )
+    ).toEqual([]);
+  });
+
+  it('strips only the 6-character suffix, not a hyphenated problem name', () => {
+    expect(withoutTempDir('/tmp/polyman-corpus-sum-parity-AbC123/x')).toBe(
+      '/tmp/polyman-corpus-sum-parity-XXXXXX/x'
+    );
+    expect(
+      withoutTempDir('C:\\Temp\\polyman-corpus-pair-target-q1W2e3\\out')
+    ).toBe('C:\\Temp\\polyman-corpus-pair-target-XXXXXX\\out');
+    expect(withoutTempDir('at polyman-corpus-distinct-count-0aB9zZ')).toBe(
+      'at polyman-corpus-distinct-count-XXXXXX'
+    );
+    expect(withoutTempDir('solution w: expected WA, got OK')).toBe(
+      'solution w: expected WA, got OK'
+    );
+  });
+
+  it('does not call a failure listed twice in one run a flake', () => {
+    expect(
+      mergeBaseline([
+        { name: 'p', failures: ['step x failed', 'step x failed'] },
+        { name: 'p', failures: ['step x failed'] },
+      ])
+    ).toEqual({ name: 'p', failures: ['step x failed'], flaky: false });
+  });
+});
+
+describe('malformed reports are refused, not guessed', () => {
+  const report = mutants => ({ files: { 'src/a.ts': { mutants } } });
+
+  it('refuses a mutant without replacement text, but accepts a removal', () => {
+    const source = 'const a = 1;\nrun();\n';
+    expect(() =>
+      applyMutant(source, mutant('1', at(2, 1), at(2, 7), undefined))
+    ).toThrow(/no replacement/);
+    expect(
+      applyMutant(source, mutant('1', at(2, 1), at(2, 7), '')).mutated
+    ).toBe('const a = 1;\n\n');
+  });
+
+  it('refuses an id that is not a Stryker number', () => {
+    expect(() =>
+      selectMutants(report([{ id: '../keep', status: 'Survived' }]))
+    ).toThrow(/not a Stryker number/);
+  });
+
+  it('refuses a file outside the repo', () => {
+    expect(() =>
+      selectMutants({
+        files: {
+          '../victim/f.txt': { mutants: [{ id: '1', status: 'Survived' }] },
+        },
+      })
+    ).toThrow(/outside the repo/);
+    expect(isInsideRoot('src/helpers/solution.ts', '/repo')).toBe(true);
+    expect(isInsideRoot('../x', '/repo')).toBe(false);
+    expect(isInsideRoot('/etc/passwd', '/repo')).toBe(false);
+    expect(isInsideRoot('.', '/repo')).toBe(false);
+  });
+});
+
+describe('judgeMutant: when a mutant counts as killed', () => {
+  const entry = (name, ...failures) => ({ entry: { name, failures } });
+  const clean = { problems: [{ name: 'p', failures: [], flaky: false }] };
+  const ok = async () => ({ ok: true });
+  // judge() answers from a script, one answer per call, and records the calls
+  const scripted = answers => {
+    const calls = [];
+    const judge = async (problem, left) => {
+      calls.push({ problem, left });
+      return answers.shift();
+    };
+    return { judge, calls };
+  };
+  const base = {
+    problems: ['p'],
+    baseline: clean,
+    build: ok,
+    timeoutSeconds: 600,
+  };
+  const t0 = 1_000_000;
+
+  it('is Survived when no run differs from the baseline, after one run', async () => {
+    const { judge, calls } = scripted([entry('p')]);
+    const result = await judgeMutant({
+      ...base,
+      judge,
+      deadline: t0 + 600_000,
+      now: () => t0,
+    });
+    expect(result).toEqual({ typeErrors: false, status: 'Survived' });
+    expect(calls).toHaveLength(1);
+  });
+
+  it('is Killed only when the second run shows the same difference', async () => {
+    const { judge, calls } = scripted([
+      entry('p', 'w: WA'),
+      entry('p', 'w: WA'),
+    ]);
+    const result = await judgeMutant({
+      ...base,
+      judge,
+      deadline: t0 + 600_000,
+      now: () => t0,
+    });
+    expect(result).toMatchObject({
+      status: 'Killed',
+      killedBy: 'p',
+      detail: 'p: w: WA',
+    });
+    expect(calls).toHaveLength(2);
+  });
+
+  it('is not Killed when the two runs show different differences', async () => {
+    const { judge } = scripted([
+      entry('p', 'compile timed out'),
+      entry('p', 'w: WA'),
+    ]);
+    const result = await judgeMutant({
+      ...base,
+      judge,
+      deadline: t0 + 600_000,
+      now: () => t0,
+    });
+    expect(result.status).toBe('Survived');
+  });
+
+  it('is not Killed by a difference only one run shows (a flake)', async () => {
+    const { judge } = scripted([entry('p', 'compile timed out'), entry('p')]);
+    const result = await judgeMutant({
+      ...base,
+      judge,
+      deadline: t0 + 600_000,
+      now: () => t0,
+    });
+    expect(result.status).toBe('Survived');
+  });
+
+  it('does not count a failure the baseline already had', async () => {
+    const red = {
+      problems: [{ name: 'p', failures: ['old bug'], flaky: false }],
+    };
+    const { judge } = scripted([entry('p', 'old bug'), entry('p', 'old bug')]);
+    const result = await judgeMutant({
+      ...base,
+      baseline: red,
+      judge,
+      deadline: t0 + 600_000,
+      now: () => t0,
+    });
+    expect(result.status).toBe('Survived');
+  });
+
+  it('kills on the first problem that shows it, and stops there', async () => {
+    const two = {
+      problems: [
+        { name: 'p', failures: [], flaky: false },
+        { name: 'q', failures: [], flaky: false },
+      ],
+    };
+    const { judge, calls } = scripted([
+      entry('p'),
+      entry('q', 'x'),
+      entry('q', 'x'),
+    ]);
+    const result = await judgeMutant({
+      ...base,
+      problems: ['p', 'q'],
+      baseline: two,
+      judge,
+      deadline: t0 + 600_000,
+      now: () => t0,
+    });
+    expect(result).toMatchObject({ status: 'Killed', killedBy: 'q' });
+    expect(calls.map(c => c.problem)).toEqual(['p', 'q', 'q']);
+  });
+
+  it('is a Timeout when a run gives no verdict, or the deadline has passed', async () => {
+    const late = scripted([{ timedOut: true }]);
+    expect(
+      await judgeMutant({
+        ...base,
+        judge: late.judge,
+        deadline: t0 + 600_000,
+        now: () => t0,
+      })
+    ).toMatchObject({
+      status: 'Timeout',
+      killedBy: 'p',
+      detail: 'no verdict within 600s (on p)',
+    });
+
+    const never = scripted([entry('p')]);
+    const result = await judgeMutant({
+      ...base,
+      judge: never.judge,
+      deadline: t0,
+      now: () => t0,
+    });
+    expect(result.status).toBe('Timeout');
+    expect(never.calls).toHaveLength(0);
+  });
+
+  it('passes the time left to each run', async () => {
+    let clock = t0;
+    const { judge, calls } = scripted([entry('p', 'x'), entry('p', 'x')]);
+    const timed = async (problem, left) => {
+      clock += 100_000;
+      return judge(problem, left);
+    };
+    await judgeMutant({
+      ...base,
+      judge: timed,
+      deadline: t0 + 600_000,
+      now: () => clock,
+    });
+    expect(calls.map(c => c.left)).toEqual([600_000, 500_000]);
+  });
+
+  it('still judges a mutant with type errors, and says so', async () => {
+    const { judge } = scripted([entry('p')]);
+    const result = await judgeMutant({
+      ...base,
+      build: async () => ({ ok: false }),
+      judge,
+      deadline: t0 + 600_000,
+      now: () => t0,
+    });
+    expect(result).toEqual({ typeErrors: true, status: 'Survived' });
+  });
+
+  it('is an Error, judged by nobody, when tsc times out', async () => {
+    const { judge, calls } = scripted([]);
+    const result = await judgeMutant({
+      ...base,
+      build: async () => ({ ok: false, timedOut: true }),
+      judge,
+      deadline: t0 + 600_000,
+      now: () => t0,
+    });
+    expect(result).toEqual({
+      typeErrors: true,
+      status: 'Error',
+      detail: 'tsc timed out',
+    });
+    expect(calls).toHaveLength(0);
   });
 });

@@ -57,7 +57,13 @@ export function selectMutants(report, statuses = Object.keys(GROUPS)) {
   const picked = [];
   for (const [file, { mutants = [] }] of Object.entries(report.files ?? {}))
     for (const m of mutants)
-      if (statuses.includes(m.status))
+      if (statuses.includes(m.status)) {
+        // the file is planted in and the id names a work directory, so a
+        // report may not point either one outside the repo or the work dir
+        if (!/^\d+$/.test(String(m.id)))
+          throw new Error(`mutant id "${m.id}" is not a Stryker number`);
+        if (!isInsideRoot(file))
+          throw new Error(`mutant ${m.id}: "${file}" is outside the repo`);
         picked.push({
           file,
           id: String(m.id),
@@ -66,6 +72,7 @@ export function selectMutants(report, statuses = Object.keys(GROUPS)) {
           location: m.location,
           unitStatus: m.status,
         });
+      }
   const num = id => (/^\d+$/.test(id) ? Number(id) : Infinity);
   return picked.sort(
     (a, b) =>
@@ -75,9 +82,29 @@ export function selectMutants(report, statuses = Object.keys(GROUPS)) {
   );
 }
 
+/** Whether a report's file path resolves inside the repo. */
+export function isInsideRoot(file, root = ROOT) {
+  const relative = path.relative(root, path.resolve(root, String(file)));
+  return (
+    relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative)
+  );
+}
+
+/**
+ * A failure message without run.mjs's random temp-dir suffix. Each run copies
+ * the problem to a fresh `polyman-corpus-<name>-XXXXXX`, so the same crash
+ * names a different path every time and would never match itself.
+ */
+export function withoutTempDir(message) {
+  return String(message).replace(
+    /(polyman-corpus-[\w.-]*?-)[A-Za-z0-9]{6}(?=$|[^A-Za-z0-9-])/g,
+    '$1XXXXXX'
+  );
+}
+
 /** The differences two runs of the same mutant agree on. */
 export function sameDifferences(first, second) {
-  const key = a => JSON.stringify([a.problem, a.message]);
+  const key = a => JSON.stringify([a.problem, withoutTempDir(a.message)]);
   const again = new Set(second.map(key));
   return first.filter(a => again.has(key(a)));
 }
@@ -87,10 +114,10 @@ export function sameDifferences(first, second) {
  * either run showed, and whether they disagreed.
  */
 export function mergeBaseline([first, second]) {
-  const failures = [...new Set([...first.failures, ...second.failures])];
-  const flaky =
-    failures.length !== first.failures.length ||
-    failures.length !== second.failures.length;
+  const one = new Set(first.failures);
+  const two = new Set(second.failures);
+  const failures = [...new Set([...one, ...two])];
+  const flaky = failures.length !== one.size || failures.length !== two.size;
   return { name: first.name, failures, flaky };
 }
 
@@ -123,6 +150,10 @@ export function applyMutant(source, mutant) {
   const end = offsetOf(source, mutant.location.end);
   if (end < start)
     throw new Error(`mutant ${mutant.id}: its location ends before it starts`);
+  // '' is a real replacement (Stryker removes code with it); a missing one
+  // would plant the text "undefined"
+  if (typeof mutant.replacement !== 'string')
+    throw new Error(`mutant ${mutant.id}: the report gives no replacement`);
   return {
     mutated: source.slice(0, start) + mutant.replacement + source.slice(end),
     original: source.slice(start, end),
@@ -382,29 +413,27 @@ function corpusProblems() {
  */
 async function judge(problem, work, timeoutMs) {
   const junit = path.join(work, problem, 'junit.xml');
+  const summaryFile = path.join(path.dirname(junit), 'summary.json');
+  // both attempts share this folder: never read the previous attempt's summary
+  fs.rmSync(summaryFile, { force: true });
   const result = await run(
     process.execPath,
     [path.join(CORPUS, 'run.mjs'), '--only', problem, '--junit', junit],
     { timeoutMs }
   );
   if (result.timedOut) return { timedOut: true };
+  let failures = [
+    `run.mjs exited ${result.code} without a summary: ${snippet(result.output.slice(-500), 300)}`,
+  ];
   try {
-    const summary = JSON.parse(
-      fs.readFileSync(path.join(path.dirname(junit), 'summary.json'), 'utf8')
-    );
+    const summary = JSON.parse(fs.readFileSync(summaryFile, 'utf8'));
     const entry = summary.problems.find(p => p.name === problem);
-    if (entry) return { entry };
+    if (entry) failures = entry.failures ?? [];
   } catch {
-    // no summary: reported as a failure below
+    // no summary: the failure above
   }
-  return {
-    entry: {
-      name: problem,
-      failures: [
-        `run.mjs exited ${result.code} without a summary: ${snippet(result.output.slice(-500), 300)}`,
-      ],
-    },
-  };
+  // the same failure in two runs must read the same (the temp dir differs)
+  return { entry: { name: problem, failures: failures.map(withoutTempDir) } };
 }
 
 function parseArgs(argv) {
@@ -442,6 +471,58 @@ const where = () =>
   process.env.CI_PIPELINE_URL
     ? `Pipeline [${process.env.CI_PIPELINE_ID}](${process.env.CI_PIPELINE_URL}), commit ${process.env.CI_COMMIT_SHORT_SHA}.`
     : 'Local run.';
+
+/**
+ * How one planted mutant ends: `build()` compiles it, `judge(problem, msLeft)`
+ * runs the corpus on one problem. A mutant is Killed by a problem only when
+ * two runs show the same difference from the baseline, so a compile or timing
+ * flake in one run is not a kill. No verdict before `deadline` is a Timeout
+ * (counted as a kill, as in Stryker).
+ */
+export async function judgeMutant({
+  problems,
+  baseline,
+  build,
+  judge,
+  deadline,
+  timeoutSeconds,
+  now = Date.now,
+}) {
+  const built = await build();
+  // tsc emits JavaScript despite type errors (noEmitOnError is off), so the
+  // judges still run; the summary says it wouldn't build
+  const typeErrors = !built.ok;
+  if (built.timedOut)
+    return { typeErrors, status: 'Error', detail: 'tsc timed out' };
+  for (const problem of problems) {
+    const only = {
+      problems: baseline.problems.filter(p => p.name === problem),
+    };
+    let added = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const left = deadline - now();
+      const judged = left > 0 ? await judge(problem, left) : { timedOut: true };
+      if (judged.timedOut)
+        return {
+          typeErrors,
+          status: 'Timeout',
+          killedBy: problem,
+          detail: `no verdict within ${timeoutSeconds}s (on ${problem})`,
+        };
+      const fresh = regressions(only, { problems: [judged.entry] }).added;
+      added = added === null ? fresh : sameDifferences(added, fresh);
+      if (!added.length) break;
+    }
+    if (added.length)
+      return {
+        typeErrors,
+        status: 'Killed',
+        killedBy: problem,
+        detail: added.map(a => `${a.problem}: ${a.message}`).join('\n'),
+      };
+  }
+  return { typeErrors, status: 'Survived' };
+}
 
 async function judgeShard(args) {
   const report = JSON.parse(fs.readFileSync(args.report, 'utf8'));
@@ -505,44 +586,18 @@ async function judgeShard(args) {
         mutant,
         async ({ original }) => {
           result.original = original;
-          const built = await build();
-          // tsc emits JavaScript despite type errors (noEmitOnError is off),
-          // so the judges still run; the summary says it wouldn't build
-          result.typeErrors = !built.ok;
-          if (built.timedOut) throw new Error('tsc timed out');
-          for (const problem of problems) {
-            const only = {
-              problems: baseline.problems.filter(p => p.name === problem),
-            };
-            // judged twice before it counts: a compile or timing flake in one
-            // run is not a kill (the second run must show the same difference)
-            let added = null;
-            for (let attempt = 0; attempt < 2; attempt++) {
-              const left = deadline - Date.now();
-              const judged =
-                left > 0
-                  ? await judge(problem, path.join(work, mutant.id), left)
-                  : { timedOut: true };
-              if (judged.timedOut) {
-                result.status = 'Timeout';
-                result.killedBy = problem;
-                result.detail = `no verdict within ${args.timeout}s (on ${problem})`;
-                return;
-              }
-              const now = regressions(only, { problems: [judged.entry] }).added;
-              added = added === null ? now : sameDifferences(added, now);
-              if (!added.length) break;
-            }
-            if (added.length) {
-              result.status = 'Killed';
-              result.killedBy = problem;
-              result.detail = added
-                .map(a => `${a.problem}: ${a.message}`)
-                .join('\n');
-              return;
-            }
-          }
-          result.status = 'Survived';
+          Object.assign(
+            result,
+            await judgeMutant({
+              problems,
+              baseline,
+              build,
+              judge: (problem, left) =>
+                judge(problem, path.join(work, mutant.id), left),
+              deadline,
+              timeoutSeconds: args.timeout,
+            })
+          );
         }
       );
     } catch (error) {
