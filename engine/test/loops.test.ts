@@ -73,6 +73,7 @@ const refusedOn67: OpenPush = {
   agent: REVIEWER,
   flow: 'mr-reviewer',
   pushed_at: '2026-10-18T13:21:29Z',
+  head: 'b7488c7c'.padEnd(40, '0'),
   accepted: false,
   go_ahead: null,
   reasons: ['no go-ahead'],

@@ -265,6 +265,8 @@ export interface OpenPush {
   agent: string;
   flow: string;
   pushed_at: string;
+  /** the branch head after the push */
+  head: string;
   accepted: boolean;
   go_ahead: NoteRef | null;
   reasons: string[];
@@ -293,6 +295,51 @@ export interface Counters {
   stopped: number;
   /** autonomy:goahead jobs that failed an agent MR's pipeline */
   failedRuns: number;
+  /** the refused pushes counted once, with why, and the failed runs that refused none of them */
+  refusals: Refusals;
+}
+
+/** Why the guard refused a push, from its own words. */
+export type RefusalKind = 'no go-ahead' | 'protected files' | 'other';
+
+export interface Refusals {
+  /** the MRs the refused pushes were on, each once */
+  mrs: number[];
+  /** the UTC days they were pushed on */
+  days: string[];
+  /** pushes refused for each kind; a push refused for two reasons counts under both */
+  byKind: Record<RefusalKind, number>;
+  /** failed autonomy:goahead runs on the head of a refused push: the run that refused it */
+  refusingRuns: number;
+  /** failed runs on no refused push's head (an error, or a verdict a later rule change reversed) */
+  otherRuns: GuardRun[];
+}
+
+export function refusalKinds(reasons: string[]): RefusalKind[] {
+  const kinds = new Set<RefusalKind>();
+  for (const r of reasons) {
+    if (/changes files only people may change/.test(r)) kinds.add('protected files');
+    // the guard's verdict on one push: no proposal, no go-ahead, or one that doesn't count
+    else if (/^push at /.test(r)) kinds.add('no go-ahead');
+    else kinds.add('other');
+  }
+  return kinds.size ? [...kinds] : ['other'];
+}
+
+export function refusals(ledger: Ledger, open: OpenPush[], runs: GuardRun[]): Refusals {
+  const refused = [...ledger.records, ...open].filter((p) => !p.accepted);
+  const byKind: Record<RefusalKind, number> = { 'no go-ahead': 0, 'protected files': 0, other: 0 };
+  for (const p of refused) for (const k of refusalKinds(p.reasons)) byKind[k]++;
+  const heads = new Set(refused.map((p) => `${p.mr} ${p.head}`));
+  const failed = runs.filter((r) => r.status === 'failed');
+  const refusing = failed.filter((r) => heads.has(`${r.mr} ${r.sha}`));
+  return {
+    mrs: [...new Set(refused.map((p) => p.mr))].sort((a, b) => a - b),
+    days: [...new Set(refused.map((p) => p.pushed_at.slice(0, 10)))].sort(),
+    byKind,
+    refusingRuns: refusing.length,
+    otherRuns: failed.filter((r) => !refusing.includes(r)),
+  };
 }
 
 export function counters(ledger: Ledger, open: OpenPush[], runs: GuardRun[]): Counters {
@@ -311,5 +358,6 @@ export function counters(ledger: Ledger, open: OpenPush[], runs: GuardRun[]): Co
     approverNotRequester: { holds: withGoAhead.filter((r) => r.approver_not_requester).length, of: withGoAhead.length },
     stopped: ledger.records.filter((r) => !r.accepted).length + open.filter((p) => !p.accepted).length,
     failedRuns: runs.filter((r) => r.status === 'failed').length,
+    refusals: refusals(ledger, open, runs),
   };
 }

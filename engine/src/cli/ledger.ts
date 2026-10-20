@@ -251,6 +251,7 @@ async function main() {
           agent: r.agent,
           flow: flowOf(r.agent),
           pushed_at: r.pushed_at,
+          head: r.head,
           accepted: r.accepted,
           go_ahead: r.go_ahead,
           reasons: r.reasons,

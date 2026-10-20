@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { loadConfig } from '../src/config.ts';
 import type { Note, PushEvent } from '../src/goahead.ts';
 import { type MrFacts, type Repo, checkMr } from '../src/goahead-mr.ts';
-import { GENESIS, type Ledger, byMerge, canonical, carriedRecords, chain, compare, counters, recordHash, recordsFor, second, sha256, verifyChain } from '../src/ledger.ts';
+import { GENESIS, type Ledger, type OpenPush, byMerge, canonical, carriedRecords, chain, compare, counters, recordHash, recordsFor, second, sha256, verifyChain } from '../src/ledger.ts';
 import { renderLedgerPage } from '../src/ledger-page.ts';
 
 // the first Assisted loop, #22 -> !26, as GitLab's API returned it
@@ -243,7 +243,7 @@ describe('the counters and the page', () => {
     const { ledger, records } = await build();
     const refused = { ...records[0], mr: 60, accepted: false, go_ahead: null, approver_not_requester: null, reasons: ['no go-ahead'] };
     const both = chain(ledger.project, ledger.since, [...records, refused]);
-    const open = [{ mr: 61, mr_url: '', state: 'opened', agent: BUILDER, flow: 'issue-builder', pushed_at: '', accepted: false, go_ahead: null, reasons: ['x'] }];
+    const open = [{ mr: 61, mr_url: '', state: 'opened', agent: BUILDER, flow: 'issue-builder', pushed_at: '2026-10-18T10:00:00Z', head: 'd', accepted: false, go_ahead: null, reasons: ['x'] }];
     const runs = [{ mr: 26, pipeline: 1, url: '', sha: 'a', status: 'failed', at: '' }, { mr: 26, pipeline: 2, url: '', sha: 'b', status: 'success', at: '' }];
     expect(counters(both, open, runs)).toEqual({
       records: 2,
@@ -254,7 +254,55 @@ describe('the counters and the page', () => {
       approverNotRequester: { holds: 1, of: 1 },
       stopped: 2,
       failedRuns: 1,
+      refusals: { mrs: [60, 61], days: ['2026-10-17', '2026-10-18'], byKind: { 'no go-ahead': 0, 'protected files': 0, other: 2 }, refusingRuns: 0, otherRuns: [runs[0]] },
     });
+  });
+
+  // 18 Oct: reviewer pushes with no go-ahead; 20 Oct (!177): one with a go-ahead
+  // that changed corpus/; and !26's run that failed on a token error
+  it('counts each refused push once, says why, and keeps the failed runs apart', async () => {
+    const { ledger } = await build();
+    const push = (mr: number, day: string, head: string, reason: string): OpenPush => ({
+      mr,
+      mr_url: `${WEB}/-/merge_requests/${mr}`,
+      state: 'closed',
+      agent: 'ai-mr-reviewer',
+      flow: 'mr-reviewer',
+      pushed_at: `2026-10-${day}T14:00:00Z`,
+      head,
+      accepted: false,
+      go_ahead: null,
+      reasons: [reason],
+    });
+    const noGoAhead = (mr: number, head: string) => push(mr, '18', head, `push at 2026-10-18T14:00:00Z by @ai-mr-reviewer (${head}): no go-ahead mentioning @ai-mr-reviewer`);
+    const open = [
+      noGoAhead(85, 'a1'),
+      noGoAhead(85, 'a2'),
+      noGoAhead(90, 'b1'),
+      {
+        ...push(177, '20', 'c1', 'commit c1 pushed by @ai-mr-reviewer changes files only people may change: corpus/survivors.mjs'),
+        state: 'opened',
+      },
+    ];
+    const run = (mr: number, pipeline: number, sha: string) => ({ mr, pipeline, url: `${WEB}/-/pipelines/${pipeline}`, sha, status: 'failed', at: '2026-10-18T14:00:00Z' });
+    const runs = [run(85, 1, 'a1'), run(85, 2, 'a2'), run(90, 3, 'b1'), run(177, 4, 'c1'), run(26, 5, 'e1'), { ...run(26, 6, 'e2'), status: 'success' }];
+    const c = counters(ledger, open, runs);
+    expect(c.stopped).toBe(4);
+    expect(c.failedRuns).toBe(5);
+    expect(c.refusals).toEqual({
+      mrs: [85, 90, 177],
+      days: ['2026-10-18', '2026-10-20'],
+      byKind: { 'no go-ahead': 3, 'protected files': 1, other: 0 },
+      refusingRuns: 4,
+      otherRuns: [runs[4]],
+    });
+    const html = renderLedgerPage({ ledger, open, runs, counters: c, web: WEB, generatedAt: '2026-10-20T11:00:00Z', commit: 'abcdef12' });
+    expect(html).toContain('<div class="label">Agent pushes refused</div><div class="value">4</div>');
+    expect(html).toContain(
+      `on 3 MRs (<a href="${WEB}/-/merge_requests/85">!85</a>, <a href="${WEB}/-/merge_requests/90">!90</a>, <a href="${WEB}/-/merge_requests/177">!177</a>), 18 Oct, 20 Oct: 3 for no go-ahead from a person, 1 for changing files only people may change; counted from when the guard reached main, 2026-10-17 20:11 UTC`,
+    );
+    expect(html).toContain('5 failed runs: 4 are the runs that refused the pushes counted above, and 1 other failed run on !26, which refused no push counted above');
+    expect(html).not.toContain('also failed');
   });
 
   it('renders the table and escapes what people and agents wrote', async () => {
