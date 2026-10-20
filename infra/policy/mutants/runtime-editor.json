@@ -1,0 +1,22 @@
+{
+  "description": "This configuration grants verify-runtime roles/editor on the project",
+  "expect": "runtime-roles",
+  "ops": [
+    {
+      "op": "add_resource",
+      "resource": {
+        "address": "google_project_iam_member.runtime_editor",
+        "mode": "managed",
+        "type": "google_project_iam_member",
+        "name": "runtime_editor",
+        "provider_name": "registry.opentofu.org/hashicorp/google",
+        "values": {
+          "condition": [],
+          "member": "serviceAccount:verify-runtime@polyman-511913.iam.gserviceaccount.com",
+          "project": "polyman-511913",
+          "role": "roles/editor"
+        }
+      }
+    }
+  ]
+}

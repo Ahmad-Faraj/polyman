@@ -45,6 +45,7 @@ governance:        # the automation itself (defaults are always included)
   - service/samples/**          # the verify service's golden problems and expected results
   - service/scripts/golden.ts   # the check that compares them
   - service/ci/**               # the pipeline that gates the service's deploy on it
+  - infra/**                    # the sandbox's Google Cloud setup and the policy that judges it
 
 source:
   - src/**

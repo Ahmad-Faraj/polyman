@@ -1,0 +1,239 @@
+{
+  "_comment": "SYNTHETIC fixture for policy/test-mutants.mjs: a hand-written plan (tofu show -json shape) with only the fields the judge and plan-summary read. Not real plan output; members are placeholders.",
+  "format_version": "1.2",
+  "terraform_version": "1.13.1",
+  "planned_values": {
+    "root_module": {
+      "resources": [
+        {
+          "address": "google_cloud_run_v2_service.verify",
+          "mode": "managed",
+          "type": "google_cloud_run_v2_service",
+          "name": "verify",
+          "values": {
+            "name": "polyman-verify",
+            "location": "us-east1",
+            "project": "polyman-511913",
+            "ingress": "INGRESS_TRAFFIC_ALL",
+            "scaling": [
+              {
+                "manual_instance_count": 0,
+                "max_instance_count": 3,
+                "min_instance_count": 0,
+                "scaling_mode": ""
+              }
+            ],
+            "template": [
+              {
+                "service_account": "verify-runtime@polyman-511913.iam.gserviceaccount.com",
+                "execution_environment": "EXECUTION_ENVIRONMENT_GEN1",
+                "timeout": "3600s",
+                "max_instance_request_concurrency": 1,
+                "scaling": [
+                  {
+                    "max_instance_count": 3,
+                    "min_instance_count": 0
+                  }
+                ],
+                "vpc_access": [
+                  {
+                    "connector": "",
+                    "egress": "ALL_TRAFFIC",
+                    "network_interfaces": [
+                      {
+                        "network": "verify-isolated",
+                        "subnetwork": "verify-isolated",
+                        "tags": []
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "address": "google_compute_firewall.verify_deny_egress",
+          "mode": "managed",
+          "type": "google_compute_firewall",
+          "name": "verify_deny_egress",
+          "values": {
+            "name": "verify-deny-egress",
+            "project": "polyman-511913",
+            "network": "https://www.googleapis.com/compute/v1/projects/polyman-511913/global/networks/verify-isolated",
+            "direction": "EGRESS",
+            "disabled": false,
+            "priority": 100,
+            "allow": [],
+            "deny": [
+              {
+                "ports": [],
+                "protocol": "all"
+              }
+            ],
+            "destination_ranges": ["0.0.0.0/0"],
+            "target_tags": [],
+            "target_service_accounts": []
+          }
+        },
+        {
+          "address": "google_iam_workload_identity_pool_provider.gitlab_com",
+          "mode": "managed",
+          "type": "google_iam_workload_identity_pool_provider",
+          "name": "gitlab_com",
+          "values": {
+            "project": "polyman-511913",
+            "workload_identity_pool_id": "gitlab",
+            "workload_identity_pool_provider_id": "gitlab-com",
+            "disabled": false,
+            "attribute_condition": "assertion.project_path=='gitlab-ai-hackathon/transcend-october-2026/30770856/showcase' && assertion.ref_protected=='true' && assertion.ref=='main' && assertion.ref_type=='branch'",
+            "attribute_mapping": {
+              "attribute.project_path": "assertion.project_path",
+              "google.subject": "assertion.sub"
+            },
+            "oidc": [
+              {
+                "allowed_audiences": ["https://gitlab.com"],
+                "issuer_uri": "https://gitlab.com"
+              }
+            ]
+          }
+        },
+        {
+          "address": "google_project_iam_member.deployer[\"roles/artifactregistry.writer\"]",
+          "mode": "managed",
+          "type": "google_project_iam_member",
+          "name": "deployer",
+          "index": "roles/artifactregistry.writer",
+          "values": {
+            "project": "polyman-511913",
+            "role": "roles/artifactregistry.writer",
+            "member": "serviceAccount:gitlab-deployer@polyman-511913.iam.gserviceaccount.com",
+            "condition": []
+          }
+        },
+        {
+          "address": "google_project_iam_member.deployer[\"roles/compute.networkUser\"]",
+          "mode": "managed",
+          "type": "google_project_iam_member",
+          "name": "deployer",
+          "index": "roles/compute.networkUser",
+          "values": {
+            "project": "polyman-511913",
+            "role": "roles/compute.networkUser",
+            "member": "serviceAccount:gitlab-deployer@polyman-511913.iam.gserviceaccount.com",
+            "condition": []
+          }
+        },
+        {
+          "address": "google_project_iam_member.deployer[\"roles/run.admin\"]",
+          "mode": "managed",
+          "type": "google_project_iam_member",
+          "name": "deployer",
+          "index": "roles/run.admin",
+          "values": {
+            "project": "polyman-511913",
+            "role": "roles/run.admin",
+            "member": "serviceAccount:gitlab-deployer@polyman-511913.iam.gserviceaccount.com",
+            "condition": []
+          }
+        }
+      ]
+    }
+  },
+  "resource_changes": [
+    {
+      "address": "google_cloud_run_v2_service.verify",
+      "mode": "managed",
+      "type": "google_cloud_run_v2_service",
+      "name": "verify",
+      "change": {
+        "actions": ["no-op"],
+        "importing": {
+          "id": "(synthetic)"
+        }
+      }
+    },
+    {
+      "address": "google_compute_firewall.verify_deny_egress",
+      "mode": "managed",
+      "type": "google_compute_firewall",
+      "name": "verify_deny_egress",
+      "change": {
+        "actions": ["no-op"],
+        "importing": {
+          "id": "(synthetic)"
+        }
+      }
+    },
+    {
+      "address": "google_iam_workload_identity_pool_provider.gitlab_com",
+      "mode": "managed",
+      "type": "google_iam_workload_identity_pool_provider",
+      "name": "gitlab_com",
+      "change": {
+        "actions": ["no-op"],
+        "importing": {
+          "id": "(synthetic)"
+        }
+      }
+    },
+    {
+      "address": "google_project_iam_member.deployer[\"roles/artifactregistry.writer\"]",
+      "mode": "managed",
+      "type": "google_project_iam_member",
+      "name": "deployer",
+      "index": "roles/artifactregistry.writer",
+      "change": {
+        "actions": ["no-op"],
+        "importing": {
+          "id": "(synthetic)"
+        }
+      }
+    },
+    {
+      "address": "google_project_iam_member.deployer[\"roles/compute.networkUser\"]",
+      "mode": "managed",
+      "type": "google_project_iam_member",
+      "name": "deployer",
+      "index": "roles/compute.networkUser",
+      "change": {
+        "actions": ["no-op"],
+        "importing": {
+          "id": "(synthetic)"
+        }
+      }
+    },
+    {
+      "address": "google_project_iam_member.deployer[\"roles/run.admin\"]",
+      "mode": "managed",
+      "type": "google_project_iam_member",
+      "name": "deployer",
+      "index": "roles/run.admin",
+      "change": {
+        "actions": ["no-op"],
+        "importing": {
+          "id": "(synthetic)"
+        }
+      }
+    }
+  ],
+  "prior_state": {
+    "values": {
+      "root_module": {
+        "resources": [
+          {
+            "address": "data.google_project_iam_policy.live",
+            "mode": "data",
+            "type": "google_project_iam_policy",
+            "name": "live",
+            "values": {
+              "project": "polyman-511913",
+              "policy_data": "{\"bindings\":[{\"role\":\"roles/artifactregistry.writer\",\"members\":[\"serviceAccount:gitlab-deployer@polyman-511913.iam.gserviceaccount.com\"]},{\"role\":\"roles/compute.networkUser\",\"members\":[\"serviceAccount:gitlab-deployer@polyman-511913.iam.gserviceaccount.com\"]},{\"role\":\"roles/owner\",\"members\":[\"user:owner-a@example.com\",\"user:owner-b@example.com\"]},{\"role\":\"roles/run.admin\",\"members\":[\"serviceAccount:gitlab-deployer@polyman-511913.iam.gserviceaccount.com\"]},{\"role\":\"roles/run.serviceAgent\",\"members\":[\"serviceAccount:service-000000000000@serverless-robot-prod.iam.gserviceaccount.com\"]}],\"etag\":\"BwAAAAAAAAA=\",\"version\":1}"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

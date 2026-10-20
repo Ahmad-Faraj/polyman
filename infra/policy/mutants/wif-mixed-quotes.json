@@ -1,0 +1,14 @@
+{
+  "description": "A literal opened with \" and closed with ' hides the required terms: CEL reads one comparison, ref == \"<string>\"",
+  "expect": "wif-condition",
+  "ops": [
+    {
+      "op": "set",
+      "address": "google_iam_workload_identity_pool_provider.gitlab_com",
+      "path": [
+        "attribute_condition"
+      ],
+      "value": "assertion.ref==\"x'&&assertion.project_path=='gitlab-ai-hackathon/transcend-october-2026/30770856/showcase'&&assertion.ref=='main'&&assertion.ref_protected=='true'&&assertion.z=='y\""
+    }
+  ]
+}

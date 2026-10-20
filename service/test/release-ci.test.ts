@@ -140,7 +140,7 @@ describe('no manual job keeps a failed main pipeline from showing as failed', ()
   it('lists every manual job, so a new one gets a decision here', () => {
     const found: string[] = [];
     for (const file of files) found.push(...manualJobs(read(file)));
-    expect(found.sort()).toEqual(['canary:publish', 'release:npm-next', 'release:promote', 'service:promote:production']);
+    expect(found.sort()).toEqual(['.os-lane', 'canary:publish', 'release:npm-next', 'release:promote', 'service:promote:production']);
   });
 
   // canary:publish waits on every push to main: that is the job that kept the
@@ -179,5 +179,20 @@ describe('no manual job keeps a failed main pipeline from showing as failed', ()
     const promote = job('service:promote:production');
     expect(promote).not.toContain('allow_failure: true');
     expect(promote).toMatch(/\n  allow_failure:\n    exit_codes: \[3\]\n/);
+  });
+
+  // The macOS and Windows lanes: a person starts them in a merge request, and
+  // they are optional, so a waiting or failed lane never blocks a pipeline.
+  it('.os-lane is optional, automatic on the default branch and manual when files change', () => {
+    const lane = job('.os-lane', read('corpus/corpus.gitlab-ci.yml'));
+    expect(lane).toMatch(/\n  allow_failure: true\n/);
+    expect(lane).toMatch(/\n    - if: \$CI_COMMIT_BRANCH == \$CI_DEFAULT_BRANCH\n(?!      when:)/);
+    expect(lane).toMatch(/\n    - changes: \[[^\]]+\]\n      when: manual\n/);
+  });
+
+  it('the macOS and Windows jobs extend .os-lane', () => {
+    const corpus = read('corpus/corpus.gitlab-ci.yml');
+    expect(job('corpus:toolchain:macos', corpus)).toMatch(/^  extends: \[.*\.os-lane.*\]$/m);
+    expect(job('toolchain:windows', corpus)).toMatch(/^  extends: \.os-lane$/m);
   });
 });
