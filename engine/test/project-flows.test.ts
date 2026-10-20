@@ -328,6 +328,20 @@ describe("the project's Duo flows", () => {
     }
   });
 
+  // 20 Oct, !177: the rule said "(a protected path)" and the go-ahead rules offered the protected paths to a
+  // maintainer, so the reviewer proposed agent fixes in corpus/ and pushed them; the CI guard refused the push
+  it('the reviewer never proposes agent fixes on the protected paths, and no go-ahead offers them', () => {
+    const text = promptOf('mr-reviewer.yaml');
+    expect(text).toContain('it is in a file agents may not edit (@@protected_paths@@)');
+    expect(text).toContain('A finding in those files is never a proposed fix, even with a maintainer\'s go-ahead: it always goes to the approver.');
+    const goAheadRule = text.slice(text.indexOf('For high risk, or fixes that touch'), text.indexOf('One go-ahead covers one push'));
+    const goAheadLine = text.slice(text.indexOf('- "Go-ahead", only if there are proposed fixes'), text.indexOf('Keep that mention inside backticks'));
+    for (const clause of [goAheadRule, goAheadLine]) {
+      expect(clause).toContain('@@maintainers@@');
+      expect(clause).not.toMatch(/protected/);
+    }
+  });
+
   it("the fixer falls back to high when it can't read the tier", () => {
     expect(flat('pipeline-fixer.yaml')).toContain("If you can't read it, use high.");
   });
