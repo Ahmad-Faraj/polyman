@@ -1,7 +1,7 @@
 /**
  * @fileoverview Command execution engine with timeout, memory limits, and process management.
  * Thin wrapper over `execa` that adds the bits execa does not handle for a competitive-programming judge:
- *   - Memory limits via `ulimit -v` (Unix) and `-Xmx` (Java).
+ *   - Memory limits via `ulimit -v` (Linux) and `-Xmx` (Java). Not enforced on macOS or Windows.
  *   - Cross-platform process-tree kill on TLE (`taskkill /T /F` on Windows, process groups on Unix).
  *   - MLE detection from exit codes (137, SIGABRT) and stderr patterns (`bad_alloc`, `OutOfMemory`, ...).
  *   - Callback-style completion (`onSuccess` / `onError` / `onTimeout` / `onMemoryExceeded`).
@@ -79,6 +79,7 @@ const WINDOWS_HANDLE_RELEASE_DELAY_MS = 150;
 export class CommandExecutor {
   private tempFiles: string[] = [];
   private activeProcesses: Set<execa.ExecaChildProcess> = new Set();
+  private warnedMacMemoryLimit = false;
 
   /**
    * Execute a shell command with timeout and memory limits.
@@ -98,7 +99,8 @@ export class CommandExecutor {
   ): Promise<ExecutionResult> {
     const wrappedCommand = this.applyMemoryLimit(
       command,
-      options.memoryLimitMB
+      options.memoryLimitMB,
+      options.silent
     );
     const platformCommand = this.normalizeCommandForPlatform(wrappedCommand);
 
@@ -191,10 +193,15 @@ export class CommandExecutor {
 
   /**
    * Applies memory limit to a command using platform-specific methods.
-   * For Java programs, uses `-Xmx` flag. For Unix, wraps in a `ulimit -v` subshell.
-   * Windows memory limits are not enforced.
+   * For Java programs, uses `-Xmx` flag. On Linux, wraps in a `ulimit -v` subshell.
+   * Windows and macOS memory limits are not enforced (`ulimit -v` fails on macOS);
+   * on macOS a warning is printed once, unless the call is silent.
    */
-  private applyMemoryLimit(command: string, memoryLimitMB?: number): string {
+  private applyMemoryLimit(
+    command: string,
+    memoryLimitMB?: number,
+    silent?: boolean
+  ): string {
     if (!memoryLimitMB) return command;
 
     const isJava = command.trim().startsWith('java ');
@@ -206,6 +213,16 @@ export class CommandExecutor {
 
     if (isJava) {
       return command.replace(/^java\s+/, `java -Xmx${memoryLimitMB}m `);
+    }
+
+    if (process.platform === 'darwin') {
+      if (!silent && !this.warnedMacMemoryLimit) {
+        this.warnedMacMemoryLimit = true;
+        fmt.warning(
+          `${fmt.warningIcon()} Memory limits are not enforced on macOS`
+        );
+      }
+      return command;
     }
 
     const memoryLimitKB = memoryLimitMB * 1024;

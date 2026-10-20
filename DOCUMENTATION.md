@@ -139,10 +139,12 @@ interface ExecutionResult {
 **Implementation:**
 
 ```typescript
-// Linux memory limiting
-if (process.platform === 'linux' && memoryLimitMB > 0) {
+// Memory limiting (Java gets -Xmx instead)
+if (memoryLimitMB > 0 && process.platform === 'darwin') {
+  // macOS: ulimit -v fails there, so the limit is skipped and a warning is shown once
+} else if (memoryLimitMB > 0 && process.platform !== 'win32') {
   const memoryLimitKB = memoryLimitMB * 1024;
-  command = `ulimit -v ${memoryLimitKB} && ${command}`;
+  command = `(ulimit -v ${memoryLimitKB}; ${command})`;
 }
 
 // Spawn process with timeout

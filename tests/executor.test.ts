@@ -525,6 +525,72 @@ describe('CommandExecutor', () => {
       });
     });
 
+    describe('macOS', () => {
+      beforeEach(() => {
+        Object.defineProperty(process, 'platform', { value: 'darwin' });
+      });
+
+      const run = async (
+        command: string,
+        options: Partial<ExecutionOptions> = {}
+      ) => {
+        const sub = createMockSubprocess();
+        primeExeca(sub);
+        const promise = executor.execute(command, {
+          timeout: 1000,
+          ...options,
+        });
+        sub.__resolveWith({ exitCode: 0 });
+        await promise;
+      };
+
+      it('runs the command unchanged, without ulimit', async () => {
+        await run('./prog', { memoryLimitMB: 128 });
+
+        expect(mockExeca).toHaveBeenCalledWith('./prog', expect.anything());
+      });
+
+      it('warns once across calls when a memory limit is set', async () => {
+        await run('./prog', { memoryLimitMB: 128 });
+        await run('./prog', { memoryLimitMB: 128 });
+
+        // eslint-disable-next-line @typescript-eslint/unbound-method
+        expect(fmt.warning).toHaveBeenCalledTimes(1);
+        // eslint-disable-next-line @typescript-eslint/unbound-method
+        expect(fmt.warning).toHaveBeenCalledWith(
+          expect.stringContaining('not enforced on macOS')
+        );
+      });
+
+      it('does not warn without a memory limit', async () => {
+        await run('./prog');
+
+        // eslint-disable-next-line @typescript-eslint/unbound-method
+        expect(fmt.warning).not.toHaveBeenCalled();
+      });
+
+      it('does not warn when silent, and keeps the one-time warning', async () => {
+        await run('./prog', { memoryLimitMB: 128, silent: true });
+        // eslint-disable-next-line @typescript-eslint/unbound-method
+        expect(fmt.warning).not.toHaveBeenCalled();
+
+        await run('./prog', { memoryLimitMB: 128 });
+        // eslint-disable-next-line @typescript-eslint/unbound-method
+        expect(fmt.warning).toHaveBeenCalledTimes(1);
+      });
+
+      it('still rewrites Java commands with -Xmx', async () => {
+        await run('java Main', { memoryLimitMB: 256 });
+
+        expect(mockExeca).toHaveBeenCalledWith(
+          expect.stringContaining('java -Xmx256m Main'),
+          expect.anything()
+        );
+        // eslint-disable-next-line @typescript-eslint/unbound-method
+        expect(fmt.warning).not.toHaveBeenCalled();
+      });
+    });
+
     describe('Linux/Unix', () => {
       it('wraps the command in `ulimit -v` for memory limits', async () => {
         const sub = createMockSubprocess();
