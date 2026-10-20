@@ -27,6 +27,29 @@ export interface PageInput {
   };
 }
 
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+const day = (d: string) => new Date(`${d}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+
+/** Each refused push once: on which MRs, when, and why; the scope it's counted from. */
+function refusedSub(c: Counters, since: string, web: string): string {
+  const r = c.refusals;
+  const scope = `counted from when the guard reached main, ${esc(since.replace('T', ' ').replace(/:\d\dZ$/, '').replace('Z', ''))} UTC`;
+  if (!c.stopped) return `none; ${scope}`;
+  const why = (
+    [
+      ['no go-ahead', 'no go-ahead from a person'],
+      ['go-ahead not counted', "a go-ahead that doesn't count (from the person who asked, or someone not allowed) or a push before the MR with no issue to hold one"],
+      ['protected files', 'changing files only people may change'],
+      ['other', 'another rule'],
+    ] as const
+  )
+    .filter(([k]) => r.byKind[k])
+    .map(([k, text]) => `${r.byKind[k]} for ${text}`)
+    .join(', ');
+  const mrs = r.mrs.map((m) => `<a href="${esc(web)}/-/merge_requests/${m}">!${m}</a>`).join(', ');
+  return `on ${plural(r.mrs.length, 'MR')} (${mrs}), ${r.days.map(day).join(', ')}: ${why}; ${scope}`;
+}
+
 const when = (iso: string) => iso.replace('T', ' ').replace(/:\d\dZ$/, '').replace('Z', '');
 export const duration = (minutes: number) => (minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)} h ${String(minutes % 60).padStart(2, '0')} min`);
 
@@ -79,7 +102,7 @@ export function renderLedgerPage({ ledger, open, runs, counters: c, web, generat
     ['Go-aheads given', String(c.goAheads), byWhom || 'nobody yet'],
     ['Approver is not the requester', `${c.approverNotRequester.holds}/${c.approverNotRequester.of}`, 'checked again on every record'],
     ['Agent pushes let through', `${c.accepted}/${c.records}`, 'each on its own go-ahead'],
-    ['Agent pushes stopped', String(c.stopped), `refused by the guard's rules; autonomy:goahead also failed ${c.failedRuns} run${c.failedRuns === 1 ? '' : 's'} on agent MRs (below)`],
+    ['Agent pushes refused', String(c.stopped), refusedSub(c, ledger.since.at, web)],
   ]
     .map(([label, value, sub]) => `<div class="tile"><div class="label">${esc(label)}</div><div class="value">${esc(value)}</div><div class="sub">${sub}</div></div>`)
     .join('\n');
@@ -108,7 +131,30 @@ export function renderLedgerPage({ ledger, open, runs, counters: c, web, generat
     )
     .join('\n');
   const failed = runs.filter((r) => r.status === 'failed');
-  const failedList = failed.map((r) => `<li><a href="${esc(r.url)}">pipeline ${r.pipeline}</a> on <a href="${esc(web)}/-/merge_requests/${r.mr}">!${r.mr}</a> (${esc(r.at.replace('T', ' ').replace('Z', ''))}, <code>${esc(r.sha.slice(0, 8))}</code>)</li>`).join('\n');
+  const { refusingRuns, laterRuns, otherRuns } = c.refusals;
+  const later = new Set(laterRuns);
+  const other = new Set(otherRuns);
+  const marker = (r: GuardRun) =>
+    later.has(r)
+      ? ' <span class="muted">a later head of an MR with a refused push, which the guard still judges; the job log says why</span>'
+      : other.has(r)
+        ? ' <span class="muted">refused no push counted above; the job log says why</span>'
+        : '';
+  const failedList = failed
+    .map(
+      (r) =>
+        `<li><a href="${esc(r.url)}">pipeline ${r.pipeline}</a> on <a href="${esc(web)}/-/merge_requests/${r.mr}">!${r.mr}</a> (${esc(r.at.replace('T', ' ').replace('Z', ''))}, <code>${esc(r.sha.slice(0, 8))}</code>)${marker(r)}</li>`,
+    )
+    .join('\n');
+  const onMrs = (rs: GuardRun[]) => [...new Set(rs.map((r) => `!${r.mr}`))].join(', ');
+  const parts = [
+    refusingRuns ? `${refusingRuns} ${refusingRuns === 1 ? 'is the run' : 'are the runs'} that refused the pushes counted above` : '',
+    laterRuns.length ? `${laterRuns.length === 1 ? `1 run on a later head of ${onMrs(laterRuns)}` : `${laterRuns.length} runs on later heads of ${onMrs(laterRuns)}`}, where the refused push is still on the MR and the guard judges every push on an MR (the job log says why)` : '',
+    otherRuns.length ? `${plural(otherRuns.length, 'other failed run')} on ${onMrs(otherRuns)}, which refused no push counted above (an error, or a verdict a later rule change reversed; the job log says why)` : '',
+  ].filter(Boolean);
+  const failedSummary = failed.length
+    ? `${plural(failed.length, 'failed run')}: ${parts.join('; ')}. These are runs, not pushes: don't add them to the refused pushes.`
+    : '';
 
   return `<!doctype html>
 <html lang="en">
@@ -165,7 +211,7 @@ ${rows || '<tr><td colspan="11" class="muted">No agent push on a merged MR yet.<
 <p class="muted">An MR that isn't merged can still change, so its agent pushes join the chain when it merges.</p>
 ${open.length ? `<div class="scroll"><table style="min-width: 640px"><thead><tr><th>MR</th><th>Agent, push</th><th>Go-ahead</th><th>Verdict</th></tr></thead><tbody>\n${openRows}\n</tbody></table></div>` : '<p class="muted">None.</p>'}
 <h2>Guard runs that failed an agent MR's pipeline</h2>
-${failed.length ? `<ul>\n${failedList}\n</ul>` : '<p class="muted">None.</p>'}
+${failed.length ? `<p>${esc(failedSummary)}</p>\n<ul>\n${failedList}\n</ul>` : '<p class="muted">None.</p>'}
 <p class="muted">${runs.length} autonomy:goahead run${runs.length === 1 ? '' : 's'} on MRs an agent pushed to. A failed run blocks the merge until it passes; the job log says why.</p>
 <p class="muted">Built ${esc(generatedAt.replace('T', ' ').replace('Z', ' UTC'))} from <a href="${esc(web)}/-/commit/${esc(commit)}"><code>${esc(commit.slice(0, 8))}</code></a> by <code>engine/src/cli/ledger.ts</code>.</p>
 </main>
