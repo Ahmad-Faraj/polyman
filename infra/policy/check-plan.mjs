@@ -263,6 +263,18 @@ function wif(managed, v) {
     const terms = cond
       .split('&&')
       .map(s => s.replace(/\s+/g, '').replace(/"/g, "'"));
+    // Each term must be one claim compared with one literal. Splitting on &&
+    // can't see string literals, so `assertion.sub > "0 && <the three
+    // terms> && x"` would split into the required terms while CEL reads one
+    // string comparison; the pieces around it fail this shape.
+    const odd = terms.filter(t => !/^assertion\.[a-z_]+=='[^']*'$/.test(t));
+    if (odd.length) {
+      v(
+        'wif-condition',
+        `${r.address}: every term must be assertion.<claim>=='<value>', not ${odd.join(' and ')} (it is: ${cond || '(empty)'})`
+      );
+      continue;
+    }
     for (const need of required)
       if (!terms.includes(need))
         v(

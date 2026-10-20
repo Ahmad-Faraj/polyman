@@ -29,6 +29,18 @@ export function notAPlan(plan) {
   if (!Array.isArray(plan.resource_changes)) return 'no resource_changes list';
   if (plan.resource_changes.length === 0)
     return 'resource_changes is empty: nothing was planned';
+  // every entry of a real plan, no-op and reads included, has an address and
+  // a non-empty actions list; an entry without them was never judged
+  const bad = plan.resource_changes.findIndex(
+    r =>
+      r === null ||
+      typeof r !== 'object' ||
+      typeof r.address !== 'string' ||
+      !Array.isArray(r.change?.actions) ||
+      r.change.actions.length === 0
+  );
+  if (bad >= 0)
+    return `resource_changes[${bad}] has no address or change.actions`;
   return '';
 }
 

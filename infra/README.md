@@ -64,14 +64,20 @@ startup probe, and all egress through `verify-isolated`. These must match
 ## In CI
 
 [`infra.gitlab-ci.yml`](infra.gitlab-ci.yml), included from the root
-`.gitlab-ci.yml`, adds two jobs, and the root file adds GitLab's IaC scanning
+`.gitlab-ci.yml`, adds three jobs (`infra:check`, `infra:plan`,
+`infra:import`), and the root file adds GitLab's IaC scanning
 (`Jobs/SAST-IaC.gitlab-ci.yml`, the KICS analyzer), which scans these `.tf`
 files in every pipeline.
 
 **`infra:check`** (stage check; on the default branch, and wherever
 `infra/**` changed) runs `tofu fmt -check -recursive`,
-`tofu init -backend=false`, `tofu validate`, and the policy judge against its
-mutants on the synthetic fixture. It needs no Google Cloud access and never
+`tofu init -backend=false`, `tofu validate`, the policy judge against its
+mutants on the synthetic fixture, and
+[`policy/test-summary.mjs`](policy/test-summary.mjs), which checks the drift
+verdict case by case (exit 0 no drift, 1 drift, 2 when the input is not a
+plan, an entry has no address or actions, or the summary can't be written)
+and the counts written for the merge request widget. It needs no Google
+Cloud access and never
 touches the state. OpenTofu 1.13.1 is downloaded from its GitHub release and
 checked against the release's SHA256SUMS; the providers are verified against
 `.terraform.lock.hcl`.
@@ -96,6 +102,13 @@ skipped. It:
 4. decides drift with [`policy/plan-summary.mjs`](policy/plan-summary.mjs) and
    judges the plan with [`policy/check-plan.mjs`](policy/check-plan.mjs). The
    job fails on either, with the reason in its log.
+
+**`infra:import`** (manual, on `main` only, `resource_group: infra-state`)
+is run once, by a person, to fill the empty `verify` state. It plans first and
+refuses anything but "21 to import, 0 to add, 0 to change, 0 to destroy",
+then applies that plan, which only writes the state. A plan right after it
+must show no changes; its output is filtered to resource names and the
+`Plan:` line, because the plan shows IAM members.
 
 Imports are not drift. `imports.tf` adopts everything, so while the `verify`
 state is empty every resource plans as an import with no change
@@ -186,7 +199,7 @@ fails unless:
 | `run-egress` | `vpc_access.egress = ALL_TRAFFIC`, no connector, exactly one interface on `verify-isolated`/`verify-isolated` |
 | `fw-deny` | an enabled EGRESS rule on `verify-isolated` denies all protocols to `0.0.0.0/0` for every instance, and no rule on it allows egress |
 | `runtime-roles` | verify-runtime holds no project role, in this configuration or in the live project policy read during the plan |
-| `wif-condition` | the `gitlab-com` provider's condition is a plain `&&` of equalities that includes our project path, `ref=='main'` and `ref_protected=='true'` (any `\|\|`, `!`, `?` or parentheses fail), with issuer `https://gitlab.com` |
+| `wif-condition` | the pool holds only the `gitlab-com` provider (any other provider id fails); its condition is a plain `&&` of terms, each `assertion.<claim>=='<value>'` (any `\|\|`, `!`, `?`, parentheses or other term shape fails, so a string literal can't hide the terms), that includes our project path, `ref=='main'` and `ref_protected=='true'`, with issuer `https://gitlab.com` |
 
 The expected values are constants in the judge, not read from the plan, so a
 change cannot edit a variable and move the goalposts with it. A resource that
@@ -217,3 +230,5 @@ node policy/test-mutants.mjs /tmp/plan.json  # a real plan
 | `runtime-editor-live.json`: `roles/editor` granted by hand (live drift) | `runtime-roles` |
 | `wif-no-ref.json`: condition without `ref=='main'` | `wif-condition` |
 | `wif-or-bypass.json`: every term kept, but `\|\| ref_type=='tag'` | `wif-condition` |
+| `wif-second-provider.json`: a second provider in the pool, another issuer and no condition | `wif-condition` |
+| `wif-string-literal.json`: the terms hidden in a string literal, `assertion.sub > "0 && … && x"` | `wif-condition` |

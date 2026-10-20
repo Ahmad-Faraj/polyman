@@ -98,11 +98,11 @@ infra:plan:
     - rc=0; tofu plan -input=false -lock=false -detailed-exitcode -out=/tmp/plan.bin || rc=$?
     - if [ "$rc" = 1 ]; then echo "tofu plan failed (an error, not drift); see above"; exit 1; fi
     - tofu show -json /tmp/plan.bin > /tmp/plan.json
-    - drift=0; node policy/plan-summary.mjs /tmp/plan.json tfplan-summary.json > plan-report.txt || drift=$?
+    - drift=0; node policy/plan-summary.mjs /tmp/plan.json tfplan-summary.json > plan-report.txt 2>&1 || drift=$?
     - cat plan-report.txt
     - judge=0; node policy/check-plan.mjs /tmp/plan.json > policy-report.txt || judge=$?
     - cat policy-report.txt
-    - if [ "$drift" != 0 ]; then echo "infra:plan FAILED, DRIFT between Google Cloud and infra/ (plan-report.txt)"; fi
+    - if [ "$drift" = 1 ]; then echo "infra:plan FAILED, DRIFT between Google Cloud and infra/ (plan-report.txt)"; elif [ "$drift" != 0 ]; then echo "infra:plan FAILED, the plan could not be judged (exit $drift, plan-report.txt)"; fi
     - if [ "$judge" != 0 ]; then echo "infra:plan FAILED, the policy judge rejected the plan (policy-report.txt)"; fi
     - test "$drift" = 0 && test "$judge" = 0
   artifacts:
