@@ -1,4 +1,4 @@
-# Shared jobs for the supervised flow. Include it from a project's .gitlab-ci.yml:
+# Shared jobs for the Assisted flow. Include it from a project's .gitlab-ci.yml:
 #
 #   include:
 #     - local: engine/ci/autonomy.gitlab-ci.yml

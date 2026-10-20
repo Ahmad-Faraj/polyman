@@ -1,7 +1,8 @@
 # engine
 
-The scripts behind polyman's supervised delivery: CI and the Duo agents do the
-work on every merge request, and a person approves the result once.
+The scripts behind polyman's Assisted delivery: the Duo agents propose, each
+step waits for a person's go-ahead (never the requester's), and CI judges and
+guards every merge request.
 
 ## CI jobs (no agents)
 
