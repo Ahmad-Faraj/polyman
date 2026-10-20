@@ -270,6 +270,15 @@ describe("the project's Duo flows", () => {
     expect(text.split('Test where the output is used (the shell command line after Tab and Enter, eval, rendered HTML), not only the process that makes it; if input can split into words, try ; and rate it by what runs.').length - 1).toBe(3);
   });
 
+  // E-R (!165, reviewer 1.0.26) missed the bar set before its rerun: 9 of 17 P1/P2 against 15, so it is reverted
+  it('specialists are not told to reproduce every bug before rating it (E-R reverted)', () => {
+    const text = flat('mr-reviewer.yaml');
+    expect(text).not.toContain('reproduced: COMMAND -> OUTPUT');
+    expect(text).not.toContain('reproduce every bug');
+    expect(text).not.toContain("don't lower a reproduced P1");
+    expect(text.split('run the built code with hostile and edge-case input').length - 1).toBe(3);
+  });
+
   // #61: 26 of 107 reviews were posted after their MR merged; the check stays, inside the last read turn
   it('the lead checks the MR is still open in its last read turn, right before it delegates or reviews a low-risk MR itself', () => {
     const text = flat('mr-reviewer.yaml');
