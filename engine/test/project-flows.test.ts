@@ -330,13 +330,51 @@ describe("the project's Duo flows", () => {
 
   // 20 Oct, !177: the rule said "(a protected path)" and the go-ahead rules offered the protected paths to a
   // maintainer, so the reviewer proposed agent fixes in corpus/ and pushed them; the CI guard refused the push
-  it('the reviewer never proposes agent fixes on the protected paths, and no go-ahead offers them', () => {
+  it('the reviewer never proposes agent fixes on the protected paths', () => {
     const text = promptOf('mr-reviewer.yaml');
     expect(text).toContain('it is in a file agents may not edit (@@protected_paths@@)');
     expect(text).toContain('A finding in those files is never a proposed fix, even with a maintainer\'s go-ahead: it always goes to the approver.');
-    const goAheadRule = text.slice(text.indexOf('For high risk, or fixes that touch'), text.indexOf('One go-ahead covers one push'));
-    const goAheadLine = text.slice(text.indexOf('- "Go-ahead", only if there are proposed fixes'), text.indexOf('Keep that mention inside backticks'));
-    for (const clause of [goAheadRule, goAheadLine]) {
+  });
+
+  // !184 follow-up: the builder and the fixer offered the protected paths to a maintainer's go-ahead too,
+  // a go-ahead the CI guard always refuses
+  it('the builder and the fixer never propose a change to the protected paths', () => {
+    expect(promptOf('issue-builder.yaml')).toContain(
+      "Never propose a change to those paths either, even with a maintainer's go-ahead: if the issue needs one, say in a note that a person must make that change, and stop.",
+    );
+    expect(promptOf('pipeline-fixer.yaml')).toContain(
+      "Never edit @@protected_paths@@, and never propose a fix there, even with a maintainer's go-ahead. If the failure is in one of those, or the fix needs one, explain it in a note, say a person must make that change, and stop.",
+    );
+  });
+
+  // each flow's go-ahead rule and the go-ahead line of its proposal: [start, end] of each clause
+  const goAheadClauses: Record<string, [string, string][]> = {
+    'mr-reviewer.yaml': [
+      ['For high risk, or fixes that touch', 'One go-ahead covers one push'],
+      ['- "Go-ahead", only if there are proposed fixes', 'Keep that mention inside backticks'],
+    ],
+    'issue-builder.yaml': [
+      ['It counts only if its author', 'One go-ahead covers one push'],
+      ['"Go-ahead: someone other than', 'Keep that line inside backticks'],
+    ],
+    'pipeline-fixer.yaml': [
+      ['It counts only if its author', 'One go-ahead covers one push'],
+      ['"Go-ahead: someone other than', 'Keep that mention inside backticks'],
+    ],
+    'incident-responder.yaml': [
+      ['It counts only if its author', 'One go-ahead covers one push'],
+      ['"Go-ahead: one of', 'Keep that line inside backticks'],
+    ],
+  };
+  it.each(files)('%s never edits the protected paths, and no go-ahead offers them', (file) => {
+    const text = promptOf(file);
+    expect(text).toMatch(/never edit @@protected_paths@@/i);
+    for (const [from, to] of goAheadClauses[file]) {
+      const start = text.indexOf(from);
+      expect(start, `"${from}" in ${file}`).toBeGreaterThanOrEqual(0);
+      const end = text.indexOf(to, start);
+      expect(end, `"${to}" after "${from}" in ${file}`).toBeGreaterThan(start);
+      const clause = text.slice(start, end);
       expect(clause).toContain('@@maintainers@@');
       expect(clause).not.toMatch(/protected/);
     }

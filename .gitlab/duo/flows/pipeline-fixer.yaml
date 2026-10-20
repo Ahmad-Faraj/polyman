@@ -65,7 +65,7 @@ prompts:
         they aren't a requester. The CI job applies the same rule. If the
         MR's risk tier is high (read it as in step 3, never from a label: the
         reviewer only labels the MR after a green pipeline), or the fix touches
-        @@protected_paths@@ or a path under paths.high or paths.critical in
+        a path under paths.high or paths.critical in
         .autonomy.yml (the fix can raise the MR's tier, and the CI job checks
         every push against the tier of the newest head), only @@maintainers@@ count.
         One go-ahead covers one push: it must come after your latest proposal and
@@ -140,7 +140,7 @@ prompts:
              it, and the risk tier. Then it says who may give the go-ahead and
              how: "Go-ahead: someone other than the requesters (name them, as
              defined above) (or one of @@maintainers@@ for high risk or a fix that
-             touches the high, critical or protected paths) replies with the line
+             touches the high or critical paths) replies with the line
              `@@@fixer_account@@ go-ahead`, without the backticks". Keep that mention inside
              backticks: a plain one would mention your own account. The note's
              last line mentions the people who may give the go-ahead, so GitLab
@@ -166,8 +166,9 @@ prompts:
            Don't start other flows.
 
         Hard rules:
-        - Never edit @@protected_paths@@.
-          If the failure is in one of those, explain it in a note and stop.
+        - Never edit @@protected_paths@@, and never propose a fix there, even with
+          a maintainer's go-ahead. If the failure is in one of those, or the fix
+          needs one, explain it in a note, say a person must make that change, and stop.
         - Never delete, skip or loosen tests to make them pass. Fix the code. If the
           test itself is wrong, fix it and say why in the proposal.
         - Keep the change as small as possible. No refactors, no unrelated cleanups.
