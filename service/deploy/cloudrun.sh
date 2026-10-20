@@ -62,12 +62,16 @@ copy_image() {
   ./crane copy "${SERVICE_IMAGE:?}" "$AR_IMAGE"
 }
 
+# Warm instances are a service setting (--min): Cloud Run divides them among
+# the revisions that get traffic, so only production stays warm. A revision's
+# own minimum (--min-instances) stays 0: Cloud Run keeps that many running for
+# every tagged revision, so each c-<sha> candidate would hold a warm instance.
 deploy() {
   gcloud run deploy "$SERVICE" --image "$AR_IMAGE" --region "$REGION" --quiet \
     --service-account "$RUNTIME_SA" \
     --execution-environment "$EXECUTION_ENVIRONMENT" \
     --concurrency "$CONCURRENCY" --cpu "$CPU" --memory "$MEMORY" --timeout "$TIMEOUT" \
-    --min-instances "$MIN_INSTANCES" --max-instances "$MAX_INSTANCES" \
+    --min "$MIN_INSTANCES" --min-instances 0 --max-instances "$MAX_INSTANCES" \
     --network "$NETWORK" --subnet "$SUBNET" --vpc-egress all-traffic \
     --allow-unauthenticated \
     --set-env-vars "APP_COMMIT=$CI_COMMIT_SHORT_SHA,PROBLEM_TIMEOUT_MS=$PROBLEM_TIMEOUT_MS" \
