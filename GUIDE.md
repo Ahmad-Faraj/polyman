@@ -1811,7 +1811,7 @@ polyman verify --no-cache # recompile everything this run, without reading or wr
 
 Entries unused for 30 days are removed, and the cache is capped at 256 MB (least recently used entries go first). The cache lives with the problem, so it survives across sessions; add `.polyman/` to your `.gitignore`.
 
-**Limitations.** Java solutions are not cached. Headers pulled in through angle brackets (`#include <...>`) are not tracked, so after editing such a header, run `polyman cache clear`. The compile cache is used only when every flag in `compiler.flags` is on a known-safe list: `-O...`, `-std=`, `-D`/`-U`, `-W...` (not `-Wl,`/`-Wp,`/`-Wa,`), `-w`, `-pedantic`, `-f...` (not `-fprofile-*`), `-fsanitize=`, `-g...`, `-m...`, `-static`, `-pthread`, `-pipe` and `-s`. Any other flag (for example `-I`, `-include`, `-L`, `-l`, `-specs=`, `-T`, object files or `@file`) can read files the cache does not hash, so that compile always runs the compiler in full.
+**Limitations.** Java solutions are not cached. Headers pulled in through angle brackets (`#include <...>`) are not tracked, so after editing such a header, run `polyman cache clear`. The compile cache is used only when every flag in `compiler.flags` is on a known-safe list: `-O...`, `-std=`, `-D`/`-U`, `-W...` (not `-Wl,`/`-Wp,`/`-Wa,`), `-w`, `-pedantic`, a named set of `-f` flags (`-fno-omit-frame-pointer`, `-fopenmp`, `-fstack-protector*`, `-ftrapv`, `-fwrapv`, `-fno-exceptions`, `-fno-rtti`, `-funroll-loops`, ...), `-fsanitize=`, `-g...`, `-m...`, `-static`, `-pthread`, `-pipe` and `-s`. Any other flag (for example `-I`, `-include`, `-L`, `-l`, `-specs=`, `-T`, object files or `@file`) can read files the cache does not hash, so that compile always runs the compiler in full.
 
 ---
 

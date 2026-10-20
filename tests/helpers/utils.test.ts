@@ -660,6 +660,8 @@ describe('utils.ts', () => {
           ['-Wl,@file', ['-Wl,@link.rsp']],
           ['a linker script', ['-T', 'link.ld']],
           ['-fprofile-use', ['-fprofile-use']],
+          ['-fbranch-probabilities', ['-fbranch-probabilities']],
+          ['an -f flag not on the list', ['-fsome-new-flag']],
           ['-fplugin=', ['-fplugin=p.so']],
           ['an @file response file', ['@flags.rsp']],
         ])('skips the cache and prebuilt testlib for %s', async (_n, flags) => {
@@ -693,6 +695,13 @@ describe('utils.ts', () => {
           ['-DLOCAL', '-DN=100', '-UNDEBUG'],
           ['-O0', '-Ofast', '--std=gnu++20', '-pedantic-errors', '-w'],
           ['-fsanitize=address,undefined', '-fno-omit-frame-pointer'],
+          ['-fopenmp', '-fstack-protector-strong', '-ftrapv', '-fwrapv'],
+          [
+            '-fno-exceptions',
+            '-fno-rtti',
+            '-funroll-loops',
+            '-fno-strict-aliasing',
+          ],
           [
             '-fmax-errors=3',
             '-fdiagnostics-color=always',

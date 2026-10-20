@@ -345,8 +345,9 @@ const CACHE_SAFE_FLAG_PATTERNS = [
   /^-W[a-z][a-z0-9+=-]*$/,
   /^-w$/,
   /^-pedantic(-errors)?$/,
-  // -fprofile-* and -fauto-profile read profile data files.
-  /^-f(?!profile-|auto-profile)[a-z0-9][a-z0-9-]*$/,
+  // Named -f flags only: -fprofile-use, -fauto-profile and
+  // -fbranch-probabilities read profile data files.
+  /^-f(no-)?(omit-frame-pointer|strict-aliasing|openmp|stack-protector(-strong|-all)?|trapv|wrapv|exceptions|rtti|unroll-loops|sanitize-recover)$/,
   /^-f(no-)?sanitize=[a-z,-]+$/,
   /^-f(max-errors|template-depth|constexpr-depth|constexpr-steps|constexpr-ops-limit|constexpr-loop-limit)=\d+$/,
   /^-fdiagnostics-color=(auto|always|never)$/,
