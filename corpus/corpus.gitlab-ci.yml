@@ -132,6 +132,69 @@ corpus:mutation:
     reports:
       metrics: corpus/out/mutation-metrics.txt
 
+# Who judges the judge: the corpus run against the mutants the unit tests miss
+# (corpus/survivors.mjs). Stryker's Survived and NoCoverage mutants are planted
+# one at a time, polyman is rebuilt and the corpus judges all problems; a kill
+# is any verdict or step that differs from the unmutated build in the same job.
+# On the default branch, and on demand in merge requests that change the script
+# or the verdict code (play corpus:survivors:mutants). A measurement: it never
+# fails the pipeline because the judges miss a mutant.
+.corpus-survivors:
+  extends: .node
+  stage: test
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - changes: [corpus/survivors.mjs, src/helpers/solution.ts]
+  allow_failure: true
+
+# Its own Stryker run, so corpus:mutation keeps its artifacts (and its widget
+# link) as they are; the shards need the JSON report of this very commit.
+corpus:survivors:mutants:
+  extends: .corpus-survivors
+  variables:
+    TZ: Asia/Kolkata
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - changes: [corpus/survivors.mjs, src/helpers/solution.ts]
+      when: manual
+      allow_failure: true
+  script:
+    - npm i --no-save --legacy-peer-deps --no-audit --no-fund @stryker-mutator/core@9 @stryker-mutator/vitest-runner@9
+    - ./node_modules/.bin/stryker run corpus/stryker.config.json
+  artifacts:
+    expire_in: 30 days
+    paths: [corpus/out/mutation/mutation.json]
+
+corpus:survivors:
+  extends: .corpus-survivors
+  needs: [corpus:survivors:mutants]
+  parallel: 8
+  timeout: 90 minutes
+  script:
+    - apt-get update -qq && apt-get install -y -qq default-jdk-headless python-is-python3 >/dev/null
+    - node corpus/survivors.mjs --report corpus/out/mutation/mutation.json --shard "$CI_NODE_INDEX/$CI_NODE_TOTAL"
+  artifacts:
+    when: always
+    expire_in: 30 days
+    # per shard: results (shard-*.json), metrics-*.txt; summed by the report job
+    paths: [corpus/out/survivors/]
+    reports:
+      junit: corpus/out/survivors/junit-*.xml
+
+corpus:survivors:report:
+  extends: .corpus-survivors
+  needs: [corpus:survivors]
+  before_script: []
+  script:
+    - node corpus/survivors.mjs report --shards 8
+  artifacts:
+    when: always
+    expire_in: 30 days
+    expose_as: 'Judges vs surviving mutants'
+    paths: [corpus/out/survivors/summary.md]
+    reports:
+      metrics: corpus/out/survivors/metrics.txt
+
 # Production check: the polyman that users install from npm, judged by the same
 # corpus and Polygon round trip. Runs from a pipeline schedule (nightly), so a
 # release that judges wrongly, or a change on Polygon's side, turns a scheduled

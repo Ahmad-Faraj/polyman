@@ -110,6 +110,30 @@ npm i --no-save --legacy-peer-deps @stryker-mutator/core@9 @stryker-mutator/vite
 TZ=Asia/Kolkata ./node_modules/.bin/stryker run corpus/stryker.config.json   # report: corpus/out/mutation/index.html
 ```
 
+### Judges vs the mutants the unit tests miss
+
+Mutation testing measures the unit tests. `survivors.mjs` asks the next question, who judges the
+judge: of the mutants the unit tests miss (Stryker's `Survived`, and `NoCoverage` reported
+separately), how many does the corpus catch? Each mutant is planted in the source, polyman is
+rebuilt with `tsc` and `run.mjs` judges all problems. A mutant is killed when any verdict or step
+differs from the unmutated build judged in the same job (the release gate's rule), so an open bug
+doesn't count as a kill. The source is put back after every mutant, also when a build or run fails
+or the job is stopped. A mutant that `tsc` rejects is still judged (tsc emits JavaScript anyway)
+and marked, since `npm run build` would fail on it.
+
+```bash
+npm run build
+node corpus/survivors.mjs --report corpus/out/mutation/mutation.json --shard 1/8
+node corpus/survivors.mjs report --shards 8     # sums corpus/out/survivors/shard-*.json
+```
+
+In CI, `corpus:survivors:mutants` runs Stryker, eight `corpus:survivors` shards judge the mutants
+and `corpus:survivors:report` writes `summary.md` (exposed in the merge request as "Judges vs
+surviving mutants") and the metrics `corpus_kills_unit_survivors` and
+`corpus_kills_untested_mutants`, each with a `_total`. It runs on the default branch, and on
+demand (play `corpus:survivors:mutants`) in merge requests that change the script or
+`src/helpers/solution.ts`. The summary lists every mutant both the unit tests and the judges miss.
+
 ## Upstream drift
 
 polyman depends on two things it doesn't control: Polygon's API (documented in
