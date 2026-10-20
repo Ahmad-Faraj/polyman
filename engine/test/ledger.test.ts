@@ -320,7 +320,7 @@ describe('the counters and the page', () => {
     go_ahead: null,
     reasons,
   });
-  const failedRun = (mr: number, pipeline: number, sha: string) => ({ mr, pipeline, url: `${WEB}/-/pipelines/${pipeline}`, sha, status: 'failed', at: '2026-10-18T15:00:00Z' });
+  const failedRun = (mr: number, pipeline: number, sha: string, at = '2026-10-18T15:00:00Z') => ({ mr, pipeline, url: `${WEB}/-/pipelines/${pipeline}`, sha, status: 'failed', at });
   const NO_GO_AHEAD = 'push at 2026-10-18T14:00:00Z by @ai-mr-reviewer (h1): no go-ahead mentioning @ai-mr-reviewer between its proposal at 2026-10-18T13:00:00.000Z and the push at 2026-10-18T14:00:00Z';
 
   // the guard fails every later pipeline of an MR while a refused push is on it,
@@ -333,11 +333,27 @@ describe('the counters and the page', () => {
     expect(c.refusals).toMatchObject({ refusingRuns: 2, laterRuns: [runs[2]], otherRuns: [runs[3]] });
     const html = renderLedgerPage({ ledger, open, runs, counters: c, web: WEB, generatedAt: '2026-10-20T11:00:00Z', commit: 'abcdef12' });
     expect(html).toContain(
-      '4 failed runs: 2 are the runs that refused the pushes counted above; 1 run on later heads of !5, where the refused push is still on the MR and the guard judges every push on an MR (the job log says why); 1 other failed run on !26, which refused no push counted above',
+      '4 failed runs: 2 are the runs that refused the pushes counted above; 1 run on a later head of !5, where the refused push is still on the MR and the guard judges every push on an MR (the job log says why); 1 other failed run on !26, which refused no push counted above',
     );
     expect(html).toContain('<code>h2</code>) <span class="muted">a later head of an MR with a refused push, which the guard still judges; the job log says why</span></li>');
     expect(html).not.toContain('other failed run on !5');
     expect(html).not.toContain('<code>h2</code>) <span class="muted">refused no push');
+  });
+
+  // a run before the refused push can't have failed because of it
+  it('keeps a failed run from before the refused push with the other failed runs, and counts the later ones', async () => {
+    const { ledger } = await build();
+    const open = [refusedOn(5, 'h2', [NO_GO_AHEAD])];
+    const before = failedRun(5, 1, 'h1', '2026-10-18T12:00:00Z');
+    const runs = [before, failedRun(5, 2, 'h2'), failedRun(5, 3, 'h3', '2026-10-18T16:00:00Z'), failedRun(5, 4, 'h4', '2026-10-18T17:00:00Z')];
+    const c = counters(ledger, open, runs);
+    expect(c.refusals).toMatchObject({ refusingRuns: 1, laterRuns: [runs[2], runs[3]], otherRuns: [before] });
+    const html = renderLedgerPage({ ledger, open, runs, counters: c, web: WEB, generatedAt: '2026-10-20T11:00:00Z', commit: 'abcdef12' });
+    expect(html).toContain(
+      '4 failed runs: 1 is the run that refused the pushes counted above; 2 runs on later heads of !5, where the refused push is still on the MR and the guard judges every push on an MR (the job log says why); 1 other failed run on !5, which refused no push counted above',
+    );
+    expect(html).toContain('<code>h1</code>) <span class="muted">refused no push counted above; the job log says why</span></li>');
+    expect(html).not.toContain('<code>h1</code>) <span class="muted">a later head');
   });
 
   it('says none when no push was refused, and keeps every failed run apart as another failed run', async () => {

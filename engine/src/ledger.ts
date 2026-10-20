@@ -312,11 +312,11 @@ export interface Refusals {
   /** failed autonomy:goahead runs on the head of a refused push: the run that refused it */
   refusingRuns: number;
   /**
-   * failed runs on a later head of an MR with a refused push: the guard judges
-   * every push on the MR, so the earlier refused push still fails them
+   * failed runs after a refused push on the same MR, on a later head: the guard
+   * judges every push on the MR, so the earlier refused push still fails them
    */
   laterRuns: GuardRun[];
-  /** failed runs on MRs with no refused push (an error, or a verdict a later rule change reversed) */
+  /** the other failed runs, on no refused push's head and after none on their MR (an error, or a verdict a later rule change reversed) */
   otherRuns: GuardRun[];
 }
 
@@ -348,13 +348,15 @@ export function refusals(ledger: Ledger, open: OpenPush[], runs: GuardRun[]): Re
   const failed = runs.filter((r) => r.status === 'failed');
   const refusing = failed.filter((r) => heads.has(`${r.mr} ${r.sha}`));
   const rest = failed.filter((r) => !refusing.includes(r));
+  // a run after a refused push on its MR still judges that push; a run before it can't have failed for it
+  const later = rest.filter((r) => refused.some((p) => p.mr === r.mr && Date.parse(r.at) > Date.parse(p.pushed_at)));
   return {
     mrs: [...mrs].sort((a, b) => a - b),
     days: [...new Set(refused.map((p) => p.pushed_at.slice(0, 10)))].sort(),
     byKind,
     refusingRuns: refusing.length,
-    laterRuns: rest.filter((r) => mrs.has(r.mr)),
-    otherRuns: rest.filter((r) => !mrs.has(r.mr)),
+    laterRuns: later,
+    otherRuns: rest.filter((r) => !later.includes(r)),
   };
 }
 

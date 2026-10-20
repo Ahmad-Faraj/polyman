@@ -149,7 +149,7 @@ export function renderLedgerPage({ ledger, open, runs, counters: c, web, generat
   const onMrs = (rs: GuardRun[]) => [...new Set(rs.map((r) => `!${r.mr}`))].join(', ');
   const parts = [
     refusingRuns ? `${refusingRuns} ${refusingRuns === 1 ? 'is the run' : 'are the runs'} that refused the pushes counted above` : '',
-    laterRuns.length ? `${plural(laterRuns.length, 'run')} on later heads of ${onMrs(laterRuns)}, where the refused push is still on the MR and the guard judges every push on an MR (the job log says why)` : '',
+    laterRuns.length ? `${laterRuns.length === 1 ? `1 run on a later head of ${onMrs(laterRuns)}` : `${laterRuns.length} runs on later heads of ${onMrs(laterRuns)}`}, where the refused push is still on the MR and the guard judges every push on an MR (the job log says why)` : '',
     otherRuns.length ? `${plural(otherRuns.length, 'other failed run')} on ${onMrs(otherRuns)}, which refused no push counted above (an error, or a verdict a later rule change reversed; the job log says why)` : '',
   ].filter(Boolean);
   const failedSummary = failed.length
