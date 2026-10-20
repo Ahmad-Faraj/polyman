@@ -125,7 +125,7 @@ Why some loops have two MRs: when an agent pushes without a go-ahead, the guard 
 | CI | format, lint, unit tests with coverage (Node 20 and 22), build | the same, plus the corpus, mutation score, risk score, go-ahead guard, SAST and secret detection on every MR |
 | Is the verdict right? | unit tests only | real compilers on every MR, and every night on the published package |
 | Push to Polygon | trust the ✓ | read back from Polygon and compared, on `main` and nightly |
-| Releases | no publish workflow | a person-clicked canary, judged as installed; npm `next` → judged against `latest` → `latest`, with provenance: [3.0.1](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/releases/v3.0.1), 6 h 48 min from the first fix's merge |
+| Releases | no publish workflow | a person-clicked canary, judged as installed; npm `next` → judged against `latest` → `latest`, with provenance: [3.0.1](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/releases/v3.0.1), 6 h 48 min after the fix for #21 merged (!73), 21 h after the first of the eight (!26) |
 | A live service | none | Cloud Run candidate checked by the golden set, manual promote, automatic rollback |
 | Who finds the bugs | users (["Failed to upload generator"](https://github.com/HamzaHassanain/polyman/issues/19), April 2026) | the judges: 8 bugs so far |
 
@@ -145,8 +145,8 @@ Why some loops have two MRs: when an agent pushes without a go-ahead, the guard 
 
 ### Honest limits
 
-- 18 Assisted loops ran end to end, eight with a fix round (#13, #8, #31, #24, #26, #25, #62 with three, and #82). The table above has the 12 of Oct 17-18; the 6 of Oct 19 are !135, !137, !136, !143, !146 and !141, and [JUDGES.md](JUDGES.md) times the first four. In two (#8, #25) a person wrote the last fixes, and five moved to a new MR after a refused push (above).
-- Ahmed merged 14 of them, Hamza 1 and Mazen 3, after the reviewer's note, under the team's merge-then-review rule. In 8 of the 18 (!50, !51, !54, !59, !101, and on Oct 19 !135, !136 and !143) the person who gave the go-ahead also merged. What holds every time is that the go-ahead never comes from whoever asked: CI checks it from GitLab's push records, and the [ledger job](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17298169012) shows it on 29 of 29 records (Oct 19 20:53 UTC). Go-ahead giver and merger being the same person is allowed, but it's weak separation.
+- 22 Assisted loops ran end to end (to Oct 20 11:46 UTC), nine with a fix round, twelve rounds in all; the [ledger job](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17314241342) lists each one. The table above has the 12 of Oct 17-18; the 9 of Oct 19 are !135, !137, !136, !143, !146, !141, !142, !144 and !147, and Oct 20 adds !114. [JUDGES.md](JUDGES.md) times the first four of Oct 19. In two (#8, #25) a person wrote the last fixes, and five moved to a new MR after a refused push (above).
+- Ahmed merged 15 of them, Hamza 1 and Mazen 6, after the reviewer's note, under the team's merge-then-review rule. In 9 of the 22 the person who gave the go-ahead also merged. What holds every time is that the go-ahead never comes from whoever asked: CI checks it from GitLab's push records, and the [ledger job](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17314241342) shows it on 22 of 22 loops (Oct 20 11:46 UTC). Go-ahead giver and merger being the same person is allowed, but it's weak separation.
 - !101 merged with no review note on the MR.
 - On Oct 17 at 19:40 pipeline-fixer removed !5's planted line by itself, before the Assisted flows ([!17][mr17]) and the guard ([!19][mr19]) were on `main`. A person put it back on Oct 18 ([e4ed065](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/commit/e4ed065)), and [its pipeline](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/pipelines/2959983252) is red again on [`service:golden`](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17263548189). The guard now [refuses such a push](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17258462748).
 - GitLab Code Review didn't start when the reviewer flow asked for it (DCR4008 on !26 and !50); on !26 a person asked again and it ran.
@@ -200,7 +200,7 @@ Why some loops have two MRs: when an agent pushes without a go-ahead, the guard 
 
 polyman was announced to problem setters on [Codeforces in November 2025](https://codeforces.com/blog/entry/148803) (+332, 52 comments). The first thing the community asked was whether they could trust it: "Has anybody used this tool and can recommend it?", and another reply pointed out a tool that's brand new has no history and no user base yet. This project is our answer to that question: polyman is now checked by judges that are neither an LLM nor its authors, on every change and every night.
 
-What we can say today, all public: 2,167 npm downloads from September 2025 to Oct 19, 2026 (downloads, not users: CI runs and mirrors count too), 13 versions, 41 stars and 4 forks on GitHub with five outside reporters or contributors, and two independent open-source projects that build on polyman's problem format.
+What we can say today, all public: 2,167 npm downloads from September 2025 to Oct 19, 2026 (downloads, not users: CI runs and mirrors count too), 13 versions, 42 stars and 6 forks on GitHub (Oct 20) with five outside reporters or contributors, and two independent open-source projects that build on polyman's problem format.
 
 Team: Hamza Hassanain (polyman's author), Mazen Ghanayem, Ahmed Faraj.
 
@@ -456,7 +456,7 @@ Choose your learning path:
 5. **Verify** → `polyman verify`
 6. **Sync** → `polyman remote push .` + `polyman remote commit . "msg"`
 
-Detailed walkthrough: [GUIDE.md - Workflow](GUIDE.md#workflow)
+Detailed walkthrough: [GUIDE.md - Complete Workflow Example](GUIDE.md#complete-workflow-example)
 
 ## Common Issues
 
