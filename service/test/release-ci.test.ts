@@ -126,6 +126,8 @@ describe('no manual job keeps a failed main pipeline from showing as failed', ()
     '.gitlab/ci/release.gitlab-ci.yml',
     'service/ci/service.gitlab-ci.yml',
     'engine/ci/autonomy.gitlab-ci.yml',
+    'engine/ci/autonomy-sci.gitlab-ci.yml',
+    'infra/infra.gitlab-ci.yml',
     'corpus/corpus.gitlab-ci.yml',
   ];
   /** Every top-level job of a file with a `when: manual` in it. */
@@ -140,7 +142,28 @@ describe('no manual job keeps a failed main pipeline from showing as failed', ()
   it('lists every manual job, so a new one gets a decision here', () => {
     const found: string[] = [];
     for (const file of files) found.push(...manualJobs(read(file)));
-    expect(found.sort()).toEqual(['.os-lane', 'canary:publish', 'release:npm-next', 'release:promote', 'service:promote:production']);
+    expect(found.sort()).toEqual([
+      '.os-lane',
+      'canary:publish',
+      'corpus:survivors:mutants',
+      'infra:import',
+      'release:npm-next',
+      'release:promote',
+      'service:promote:production',
+    ]);
+  });
+
+  // The survivors measurement and the one-time state import wait for a click
+  // on every main pipeline (or MR); neither may hold a failed one at "blocked".
+  it('the survivors run and the state import are optional where they are manual', () => {
+    for (const [name, file] of [
+      ['corpus:survivors:mutants', 'corpus/corpus.gitlab-ci.yml'],
+      ['infra:import', 'infra/infra.gitlab-ci.yml'],
+    ]) {
+      const manual = job(name, read(file)).match(/when: manual\n\s+allow_failure: \w+/g) ?? [];
+      expect(manual, name).not.toHaveLength(0);
+      for (const rule of manual) expect(rule, name).toMatch(/allow_failure: true$/);
+    }
   });
 
   // canary:publish waits on every push to main: that is the job that kept the
