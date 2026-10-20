@@ -127,13 +127,55 @@ The reviewer changed in two releases of the flow, at 16:41 and 17:47 UTC: !98 (o
 
 Credits are model calls divided by 3.6: that's what the calls of the sessions Mazen started came to against his billed credits (GitLab's credits usage API, read Oct 19 20:50 UTC): 1,022 calls for 285.3 credits on Oct 17 (3.58 per credit) and 1,126 calls for 317.4 credits on Oct 18 (3.55). Oct 19 is not closed and its partial counts came to about 3.0, so these credits may be up to about 20% low.
 
-The nine reviews after the cuts were on small MRs (median 52 lines). The cuts also cost depth: on frozen copies of three earlier MRs (!110, !111, !113), reviewer 1.0.17 found 8 of the 14 known findings at P1-P2 (3 more as P3), against 9 for the original reviews of the same heads (#61), and rated the command injection in !59 (P1 in the original review) as P3. !116 asks the specialists to save calls on lookups, never on testing; it was written after that miss, and on the frozen copy of !67 (!124) reviewer 1.0.18 then found 4 of its 5 findings, against 3 of 5 for 1.0.17. On a later frozen copy of !59 (!145, one run) whose description named the injection as the thing being measured, reviewer 1.0.22 rated it P1 with a working exploit in 19 calls (about 5.3 credits), against 47 calls (about 13.1 credits) for the original review. Because the description named the target, and the prompt line it tests was written from this finding, that run shows the rating rule works once the bug is in view; it is not a blind recall result.
+The nine reviews after the cuts were on small MRs (median 52 lines). The cuts also cost depth: on frozen copies of three earlier MRs (!110, !111, !113), reviewer 1.0.17 found 8 of the 14 known findings at P1-P2 (3 more as P3), against 9 for the original reviews of the same heads (#61), and rated the command injection in !59 (P1 in the original review) as P3. !116 asks the specialists to save calls on lookups, never on testing; it was written after that miss, and on the frozen copy of !67 (!124) reviewer 1.0.18 then found 4 of its 5 findings, against 3 of 5 for 1.0.17. On a later frozen copy of !59 (!145, one run) whose description named the injection as the thing being measured, reviewer 1.0.22 rated it P1 with a working exploit in 19 calls (about 5.3 credits), against 47 calls (about 13.1 credits) for the original review. Because the description named the target, and the prompt line it tests was written from this finding, that run shows the rating rule works once the bug is in view; it is not a blind recall result. The same-diff benchmark of five MRs below measures cost and findings together.
 
 **Every loop, on the ledger.** The [go-ahead ledger](https://showcase-ce2cdc.gitlab.io/ledger/) has one row per agent-built change a person merged, with the grams of that loop's agent sessions by this method: every session on its issue and MRs up to the merge, runner time plus counted model calls. CI's job token can't read the session checkpoints, so the counts are committed in [sustainability/loop-sessions.json](sustainability/loop-sessions.json) with the time they are counted up to, and the ledger job reads them. To refresh it from a session count (one row per `duo_workflow` pipeline): `node engine/src/cli/loop-sessions.ts <sessions.json>`.
 
 The data per session (pipeline, workflow, MR, tier, runner seconds, tokens by class and by role) is in [sustainability/agent-tokens.json](sustainability/agent-tokens.json). To rebuild it (read-only, needs a token that can read job logs and agent sessions):
 
     GITLAB_TOKEN=... node engine/src/cli/agent-tokens.ts <project path> --json sustainability/agent-tokens.json
+
+## Same diffs, three reviewer versions (n=5, Oct 18-20)
+
+The tables above compare different MRs. Here five earlier MRs were reviewed again on identical diffs, so cost and findings can be set side by side.
+
+**Setup.** !59, !67, !69, !74 and !75 had their first full review on Oct 18 between 06:50 and 13:00 UTC, before the cuts (!98 and !100 went out at 16:41). Each was frozen at the head that review covered, against the same base, as a Draft MR: !153-!157 were reviewed by reviewer 1.0.25 (Oct 19, 20:20-21:50 UTC) and !170-!174 by 1.0.26 (Oct 20, 02:07-02:58 UTC). The 1.0.26 copies are new commits with the same tree and parent as the 1.0.25 copies, so the diffs are byte-identical. The !59 copy's base also has two later CI commits; no CI file is in its diff. The risk tier and score matched the original review on all five (medium 37, medium 32, high 45, medium 50, high 65). Each copy was reviewed once, started by one "please review" mention after its pipeline passed. Two differences from the originals: the original !69 review was started by a pipeline event, and the new descriptions said the MR is a frozen copy. Every call, before and after, ran the same model.
+
+**Blind?** An audit of the scored replays' session traces on Oct 20 (#92, !178) found that they read only their own MR, the issue it references and the frozen branches, never the original MR, its notes, the fix commits or `main`. The one exception is !145 (above), whose description named the bug. The !59 copy is also on the tuning set: the prompt lines in !116 and !125 were written from its miss.
+
+**Reference.** The P1/P2 findings in each original review note: 17 in all, one of them P1. A finding counts as found when the new review names the same bug at P1 or P2.
+
+| Per review, same 5 diffs | Original first reviews (Oct 18) | 1.0.25 (!153-!157) | 1.0.26 with E-R (!170-!174) |
+|---|---|---|---|
+| Model calls, median (total) | 47 (202) | 21 (116) | 25 (118) |
+| GitLab credits, median (total) | 13.1 (56.1) | 5.8 (32.2) | 6.9 (32.8) |
+| gCO2e, median low-high | 8.4-70.0 | 4.0-31.1 | 4.4-37.1 |
+| Original P1/P2 found at P1/P2 | 17 of 17 (the reference) | 11 of 17 | 9 of 17 |
+| Original P1/P2 found at any severity | 17 of 17 | 13 of 17 | 14 of 17 |
+| !59's P1 (bash completion runs a hostile name) rated | P1 | P2 | P1 |
+| New P1/P2 not in the original | - | 6 | 9 |
+| False P1 | - | 0 | 0 |
+
+How it was verified:
+- Calls and tokens: counted from each session's checkpoints by our usage collector, run Oct 19 ~22:10 UTC (original and 1.0.25 sessions) and Oct 20 ~02:55 UTC (1.0.26). Sessions, in the order !59, !67, !69, !74, !75: original 9647835, 9650466, 9650589, 9651005, 9650982; 1.0.25 9712171, 9713640, 9713962, 9715017, 9715434; 1.0.26 9721513, 9721782, 9721956, 9722103, 9722210.
+- Credits: calls divided by 3.6, as above.
+- gCO2e: this page's method with every call counted: calls x 0.24-2.5 Wh x 579 g/kWh, plus the session's runner seconds at 7.56 g per runner-hour (the runner coefficients below). The low and high medians are taken separately.
+- Findings: each new review note on !153-!157 and !170-!174, read against the P1/P2 list in the original review note on !59, !67, !69, !74 and !75. Some new findings are P3s of the original, raised. In both runs one original P2 came back as a P1 with better evidence (!67's `@group` regression on 1.0.25, !75's swallowed `clearTestset` failure on 1.0.26); neither is counted as false.
+
+### The change that was reverted (E-R)
+
+On 1.0.25 the four missed findings were all bugs that show only when the code runs, and the specialists ran the MR's code in 23 calls over the five reviews, against 44 in the originals. !165 added one rule for the specialists: reproduce each P1/P2 by running code before rating it, write "reproduced: command -> output" or "not reproduced: why" under it, and rate an unreproduced bug at most P2. The bar was written down before the rerun: keep it only if at least 15 of the 17 are found at P1/P2, !59's P1 is rated P1, and the median stays below about 9 credits.
+
+Result on 1.0.26 (!165, tightened by !168): **9 of 17, so it failed the bar.** The other two conditions passed: !59's P1 was rated P1, reproduced in an interactive shell, and the median was 6.9 credits. 15 of the 19 P1/P2 it reported carry a reproduction. The loss was mostly in rating, not detection (14 of 17 found at any severity): on !69, a prompt change in a flow file with nothing to run, both original P2s were found and rated P3. As the bar said, !165 was reverted in !182 (Oct 20, 11:45 UTC; reviewer 1.0.28). The revert keeps !168's shorter reviewer prompt, whose rating and sandbox sentences mean the same as 1.0.25's, and !184's rule that agents don't fix protected paths. The reviewer running now has not been rerun on these copies.
+
+A gap of 11 against 9 is inside run-to-run variance: earlier reruns of the same copies swung by a whole P1. So the rerun doesn't show that 1.0.26 was worse than 1.0.25, only that it didn't reach the bar set before it ran.
+
+### What we claim from it
+
+- **About half the credits and carbon per full review on the same diffs:** median 13.1 to 5.8 credits, 8.4-70.0 to 4.0-31.1 gCO2e (1.0.25 against the original reviews).
+- **About two thirds of the original P1/P2 findings** (11 of 17 at P1/P2), plus 6 new ones, and no false P1. Not the same quality at half the cost: four original findings were missed, and the one P1 was rated P2.
+- **Caveats:** n=5, one run per version, and the original reviews are single runs too.
+- **What the benchmark cost:** about 33.6 credits for the 1.0.25 run (5 reviews 32.2, plus 1.4 for five one-call "draft MR" skips) and about 39.7 for the 1.0.26 rerun (reviews 32.8, draft skips 1.4, two pipeline-fixer sessions on an apt timeout 3.9, two refused tries on a reopened copy 1.7). All copies were closed, not merged.
 
 ## How it's calculated
 
@@ -187,6 +229,6 @@ manifest and `sustainability/agent-tokens.json` drift apart.
 
 ## What's not here yet
 
-- A same-task before/after: the same MRs reviewed with tiering off (all high)
-  and on. The table compares different MRs at different tiers.
+- A same-task test of tiering: the same MRs reviewed with tiering off (all high)
+  and on. The tier table compares different MRs at different tiers.
 - The verify service on Cloud Run (its energy per request).
