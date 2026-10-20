@@ -72,8 +72,6 @@ beforeEach(() => {
   process.env.CI_JOB_TOKEN = 'job-secret';
   delete process.env.AUTONOMY_BOT_TOKEN;
   process.env.RELEASE_MR_IID = '9';
-  // a 5xx on a read is tried again (#98); no test waits for that
-  process.env.GITLAB_RETRY_MS = '0';
   vi.spyOn(console, 'log').mockImplementation(() => {});
   vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
     throw new Exit(code);

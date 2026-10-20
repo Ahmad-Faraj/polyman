@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GitLab, GitLabError, SERVER_RETRIES, finishedJobs } from '../src/gitlab.ts';
 
 const BASE = 'https://gitlab.test/api/v4';
@@ -29,14 +29,7 @@ function fakeFetch(...replies: Response[]) {
 
 const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status });
 
-// reads are tried again after a 5xx (#98); no test waits for that
-beforeEach(() => {
-  process.env.GITLAB_RETRY_MS = '0';
-});
-afterEach(() => {
-  vi.unstubAllGlobals();
-  delete process.env.GITLAB_RETRY_MS;
-});
+afterEach(() => vi.unstubAllGlobals());
 
 /** `n` replies, made fresh: a Response body can be read once */
 const times = (n: number, reply: () => Response) => Array.from({ length: n }, reply);
