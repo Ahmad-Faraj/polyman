@@ -66,6 +66,59 @@ corpus:toolchain:
       junit: corpus/out/junit-${LANE}.xml
   allow_failure: true
 
+# The two operating systems polyman's users have besides Linux, on GitLab's
+# own macOS and Windows runners. On the default branch they run by themselves;
+# in a merge request a person starts them (macOS minutes cost 6x Linux).
+.os-lane:
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - changes: [src/**/*, tests/**/*, corpus/**/*, package.json, package-lock.json]
+      when: manual
+  allow_failure: true
+  timeout: 50m
+
+# macOS: the corpus with GNU g++ from Homebrew (Apple clang has no
+# <bits/stdc++.h>). On macOS `ulimit -v` fails and the command still runs:
+# the spike for #89 found 5/5 problems match with and without it.
+corpus:toolchain:macos:
+  extends: [.corpus, .os-lane]
+  tags: [saas-macos-medium-m1]
+  image: macos-15-xcode-16
+  script:
+    - brew install gcc
+    - GXX=$(ls "$(brew --prefix)"/bin/g++-[0-9]* | sort -V | tail -1)
+    - mkdir -p "$HOME/gnu" && ln -sf "$GXX" "$HOME/gnu/g++" && export PATH="$HOME/gnu:$PATH"
+    - g++ --version | head -1
+    - npm run build
+    - node dist/cli.js --version
+    - node corpus/run.mjs --junit corpus/out/junit-macos.xml
+  artifacts:
+    when: always
+    reports:
+      junit: corpus/out/junit-macos.xml
+
+# Windows: the unit tests on Node 22 (the runner's own Node is 21, which
+# Vitest can't load). The corpus doesn't run here yet: testlib validators expect
+# CR LF on Windows (corpus/README.md). Open on this lane: #94, #95.
+toolchain:windows:
+  extends: .os-lane
+  stage: test
+  tags: [saas-windows-medium-amd64]
+  variables:
+    NODE_ZIP: node-v22.14.0-win-x64
+  script:
+    - Invoke-WebRequest "https://nodejs.org/dist/v22.14.0/$env:NODE_ZIP.zip" -OutFile node.zip
+    - Expand-Archive node.zip -DestinationPath C:\node22
+    - $env:Path = "C:\node22\$env:NODE_ZIP;" + $env:Path
+    - node --version
+    - npm ci --no-audit --no-fund
+    - npm run build
+    - npx vitest run --reporter=default --reporter=junit --outputFile.junit=junit-windows.xml
+  artifacts:
+    when: always
+    reports:
+      junit: junit-windows.xml
+
 # The pinned verdicts judged again without polyman (corpus/truth.mjs): g++,
 # javac and Python run every solution and the checker directly. A difference
 # means a pinned verdict is wrong (or this runner judges differently), not that
