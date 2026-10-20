@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { loadConfig } from '../src/config.ts';
 import type { Note, PushEvent } from '../src/goahead.ts';
 import { type MrFacts, type Repo, checkMr } from '../src/goahead-mr.ts';
-import { GENESIS, type Ledger, type OpenPush, byMerge, canonical, carriedRecords, chain, compare, counters, recordHash, recordsFor, second, sha256, verifyChain } from '../src/ledger.ts';
+import { GENESIS, type Ledger, type OpenPush, byMerge, canonical, carriedRecords, chain, compare, counters, openPush, recordHash, recordsFor, refusalKinds, second, sha256, verifyChain } from '../src/ledger.ts';
 import { renderLedgerPage } from '../src/ledger-page.ts';
 
 // the first Assisted loop, #22 -> !26, as GitLab's API returned it
@@ -254,7 +254,7 @@ describe('the counters and the page', () => {
       approverNotRequester: { holds: 1, of: 1 },
       stopped: 2,
       failedRuns: 1,
-      refusals: { mrs: [60, 61], days: ['2026-10-17', '2026-10-18'], byKind: { 'no go-ahead': 0, 'protected files': 0, other: 2 }, refusingRuns: 0, otherRuns: [runs[0]] },
+      refusals: { mrs: [60, 61], days: ['2026-10-17', '2026-10-18'], byKind: { 'no go-ahead': 0, 'go-ahead not counted': 0, 'protected files': 0, other: 2 }, refusingRuns: 0, laterRuns: [], otherRuns: [runs[0]] },
     });
   });
 
@@ -292,8 +292,9 @@ describe('the counters and the page', () => {
     expect(c.refusals).toEqual({
       mrs: [85, 90, 177],
       days: ['2026-10-18', '2026-10-20'],
-      byKind: { 'no go-ahead': 3, 'protected files': 1, other: 0 },
+      byKind: { 'no go-ahead': 3, 'go-ahead not counted': 0, 'protected files': 1, other: 0 },
       refusingRuns: 4,
+      laterRuns: [],
       otherRuns: [runs[4]],
     });
     const html = renderLedgerPage({ ledger, open, runs, counters: c, web: WEB, generatedAt: '2026-10-20T11:00:00Z', commit: 'abcdef12' });
@@ -301,8 +302,95 @@ describe('the counters and the page', () => {
     expect(html).toContain(
       `on 3 MRs (<a href="${WEB}/-/merge_requests/85">!85</a>, <a href="${WEB}/-/merge_requests/90">!90</a>, <a href="${WEB}/-/merge_requests/177">!177</a>), 18 Oct, 20 Oct: 3 for no go-ahead from a person, 1 for changing files only people may change; counted from when the guard reached main, 2026-10-17 20:11 UTC`,
     );
-    expect(html).toContain('5 failed runs: 4 are the runs that refused the pushes counted above, and 1 other failed run on !26, which refused no push counted above');
+    expect(html).toContain('5 failed runs: 4 are the runs that refused the pushes counted above; 1 other failed run on !26, which refused no push counted above');
+    expect(html).toContain(`<code>e1</code>) <span class="muted">refused no push counted above; the job log says why</span></li>`);
+    expect(html).toContain(`<code>a1</code>)</li>`);
     expect(html).not.toContain('also failed');
+  });
+
+  const refusedOn = (mr: number, head: string, reasons: string[], pushed_at = '2026-10-18T14:00:00Z'): OpenPush => ({
+    mr,
+    mr_url: `${WEB}/-/merge_requests/${mr}`,
+    state: 'opened',
+    agent: 'ai-mr-reviewer',
+    flow: 'mr-reviewer',
+    pushed_at,
+    head,
+    accepted: false,
+    go_ahead: null,
+    reasons,
+  });
+  const failedRun = (mr: number, pipeline: number, sha: string) => ({ mr, pipeline, url: `${WEB}/-/pipelines/${pipeline}`, sha, status: 'failed', at: '2026-10-18T15:00:00Z' });
+  const NO_GO_AHEAD = 'push at 2026-10-18T14:00:00Z by @ai-mr-reviewer (h1): no go-ahead mentioning @ai-mr-reviewer between its proposal at 2026-10-18T13:00:00.000Z and the push at 2026-10-18T14:00:00Z';
+
+  // the guard fails every later pipeline of an MR while a refused push is on it,
+  // e.g. a person's fix commit: those runs are not "an error" or a reversed verdict
+  it('groups a failed run on a later head of an MR with a refused push under that MR, not with the other failed runs', async () => {
+    const { ledger } = await build();
+    const open = [refusedOn(5, 'h1', [NO_GO_AHEAD])];
+    const runs = [failedRun(5, 1, 'h1'), failedRun(5, 2, 'h1'), failedRun(5, 3, 'h2'), failedRun(26, 4, 'e1')];
+    const c = counters(ledger, open, runs);
+    expect(c.refusals).toMatchObject({ refusingRuns: 2, laterRuns: [runs[2]], otherRuns: [runs[3]] });
+    const html = renderLedgerPage({ ledger, open, runs, counters: c, web: WEB, generatedAt: '2026-10-20T11:00:00Z', commit: 'abcdef12' });
+    expect(html).toContain(
+      '4 failed runs: 2 are the runs that refused the pushes counted above; 1 run on later heads of !5, where the refused push is still on the MR and the guard judges every push on an MR (the job log says why); 1 other failed run on !26, which refused no push counted above',
+    );
+    expect(html).toContain('<code>h2</code>) <span class="muted">a later head of an MR with a refused push, which the guard still judges; the job log says why</span></li>');
+    expect(html).not.toContain('other failed run on !5');
+    expect(html).not.toContain('<code>h2</code>) <span class="muted">refused no push');
+  });
+
+  it('says none when no push was refused, and keeps every failed run apart as another failed run', async () => {
+    const { ledger } = await build();
+    const runs = [failedRun(26, 1, 'e1')];
+    const c = counters(ledger, [], runs);
+    const html = renderLedgerPage({ ledger, open: [], runs, counters: c, web: WEB, generatedAt: '2026-10-20T11:00:00Z', commit: 'abcdef12' });
+    expect(html).toContain('<div class="label">Agent pushes refused</div><div class="value">0</div><div class="sub">none; counted from when the guard reached main, 2026-10-17 20:11 UTC</div>');
+    expect(html).toContain('1 failed run: 1 other failed run on !26, which refused no push counted above');
+    expect(html).not.toContain('0 are the runs');
+  });
+
+  it('uses the singular for one MR, one failed run and one refusing run, and names another rule', async () => {
+    const { ledger } = await build();
+    const open = [refusedOn(7, 'h1', ['commit 1234abcd pushed by @ai-mr-reviewer is a merge commit; agents may not push merges (a person merges the default branch in)'])];
+    const runs = [failedRun(7, 1, 'h1')];
+    const html = renderLedgerPage({ ledger, open, runs, counters: counters(ledger, open, runs), web: WEB, generatedAt: '2026-10-20T11:00:00Z', commit: 'abcdef12' });
+    expect(html).toContain(`on 1 MR (<a href="${WEB}/-/merge_requests/7">!7</a>), 18 Oct: 1 for another rule; counted from`);
+    expect(html).toContain('1 failed run: 1 is the run that refused the pushes counted above. These are runs');
+  });
+
+  it("names a go-ahead that doesn't count apart from no go-ahead", async () => {
+    const { ledger } = await build();
+    const open = [
+      refusedOn(8, 'h1', [NO_GO_AHEAD]),
+      refusedOn(9, 'h2', ["push at 2026-10-18T14:00:00Z by @ai-mr-reviewer (h2): go-ahead in note 1 doesn't count: @Ahmad-Faraj asked for this work, so someone else has to say go-ahead"]),
+    ];
+    const html = renderLedgerPage({ ledger, open, runs: [], counters: counters(ledger, open, []), web: WEB, generatedAt: '2026-10-20T11:00:00Z', commit: 'abcdef12' });
+    expect(html).toContain(
+      "18 Oct: 1 for no go-ahead from a person, 1 for a go-ahead that doesn't count (from the person who asked, or someone not allowed) or a push before the MR with no issue to hold one; counted from",
+    );
+  });
+
+  // the CLI builds the open list with openPush: without the head, no run could
+  // be matched to its push and every failed run would land under "other"
+  it("keeps the push's head on an open push, so the run that refused it is matched to it", async () => {
+    const own = loop.issue_notes.map((n) => (n.id === 4036138042 ? { ...n, author: { username: 'Ahmad-Faraj' } } : n));
+    const { records, ledger } = await build({}, own);
+    const open = [openPush(records[0], 'closed')];
+    expect(open[0]).toEqual({
+      mr: 26,
+      mr_url: `${WEB}/-/merge_requests/26`,
+      state: 'closed',
+      agent: BUILDER,
+      flow: 'issue-builder',
+      pushed_at: '2026-10-17T22:13:04Z',
+      head: AGENT_COMMIT,
+      accepted: false,
+      go_ahead: null,
+      reasons: records[0].reasons,
+    });
+    const empty = chain(ledger.project, ledger.since, []);
+    expect(counters(empty, open, [failedRun(26, 1, AGENT_COMMIT)]).refusals).toMatchObject({ refusingRuns: 1, laterRuns: [], otherRuns: [] });
   });
 
   it('renders the table and escapes what people and agents wrote', async () => {
@@ -326,5 +414,75 @@ describe('the counters and the page', () => {
     expect(none).toContain('<span class="muted">guard: none</span>');
     expect(none).not.toContain('/-/pipelines/null');
     expect(page({ pipeline: 100, job: 6, status: 'success' })).toContain(`<a class="muted" href="${WEB}/-/pipelines/100">guard: success</a>`);
+  });
+});
+
+// the reasons as checkMr and goAheadFor write them, from the #22 -> !26 loop
+describe("what the guard refused a push for, from its own reasons", () => {
+  const PROPOSAL = 4035973201;
+  const GO_AHEAD = 4036138042;
+  const pushReasons = async (over: Partial<MrFacts> = {}, issueNotes = loop.issue_notes, r: Repo = repo) => {
+    const check = await checkMr(facts(over), config, r, async () => issueNotes);
+    return check.problems.map((p) => p.text);
+  };
+  const only = (reasons: string[], start: RegExp) => {
+    const found = reasons.filter((t) => start.test(t));
+    expect(found).toHaveLength(1);
+    return found;
+  };
+
+  it('no go-ahead: none mentioning the agent', async () => {
+    const reasons = only(await pushReasons({}, loop.issue_notes.filter((n) => n.id !== GO_AHEAD)), /^push at /);
+    expect(reasons[0]).toMatch(/: no go-ahead mentioning @/);
+    expect(refusalKinds(reasons)).toEqual(['no go-ahead']);
+  });
+
+  it('no go-ahead: the agent wrote no proposal to give one to', async () => {
+    const reasons = only(await pushReasons({}, loop.issue_notes.filter((n) => n.id !== PROPOSAL)), /^push at /);
+    expect(reasons[0]).toMatch(/wrote no proposal before the push at/);
+    expect(refusalKinds(reasons)).toEqual(['no go-ahead']);
+  });
+
+  it("a go-ahead that doesn't count: from the person who asked", async () => {
+    const own = loop.issue_notes.map((n) => (n.id === GO_AHEAD ? { ...n, author: { username: 'Ahmad-Faraj' } } : n));
+    const reasons = only(await pushReasons({}, own), /^push at /);
+    expect(reasons[0]).toMatch(/go-ahead in note \d+ doesn't count: @Ahmad-Faraj asked for this work/);
+    expect(refusalKinds(reasons)).toEqual(['go-ahead not counted']);
+  });
+
+  it("a go-ahead that doesn't count: not a maintainer at high risk", async () => {
+    const reasons = only(await pushReasons({ tier: 'high' }), /^push at /);
+    expect(reasons[0]).toMatch(/doesn't count: @Mazen-Ghanaym is not a maintainer/);
+    expect(refusalKinds(reasons)).toEqual(['go-ahead not counted']);
+  });
+
+  it("a go-ahead that doesn't count: a push before the MR with no person's issue to hold it", async () => {
+    const reasons = only(await pushReasons({ closes: [] }), /^push at /);
+    expect(reasons[0]).toMatch(/ came before the MR, and GitLab lists no issue/);
+    expect(refusalKinds(reasons)).toEqual(['go-ahead not counted']);
+  });
+
+  it('files only people may change', async () => {
+    const reasons = only(await pushReasons({}, loop.issue_notes, { ...repo, files: () => ['engine/src/ledger.ts'] }), /^commit /);
+    expect(reasons[0]).toMatch(/changes files only people may change: engine\/src\/ledger.ts/);
+    expect(refusalKinds(reasons)).toEqual(['protected files']);
+  });
+
+  it('another rule: a merge commit, or a commit no push brought', async () => {
+    const merge = only(await pushReasons({}, loop.issue_notes, { ...repo, parents: () => 2 }), /is a merge commit/);
+    expect(refusalKinds(merge)).toEqual(['other']);
+    const lost = only(await pushReasons({ commits: [MERGE_MAIN, AGENT_COMMIT, 'deadbeef'.padEnd(40, '0')] }), /is in no push GitLab recorded/);
+    expect(refusalKinds(lost)).toEqual(['other']);
+  });
+
+  it('no reason at all is another rule, and a push with two reasons counts under both', async () => {
+    expect(refusalKinds([])).toEqual(['other']);
+    const noGoAhead = only(await pushReasons({}, loop.issue_notes.filter((n) => n.id !== GO_AHEAD)), /^push at /);
+    const files = only(await pushReasons({}, loop.issue_notes, { ...repo, files: () => ['corpus/x.json'] }), /^commit /);
+    expect(refusalKinds([...noGoAhead, ...files]).sort()).toEqual(['no go-ahead', 'protected files']);
+  });
+
+  it("the short reasons older tests use aren't the guard's words, so they count as another rule", () => {
+    expect(refusalKinds(['no go-ahead'])).toEqual(['other']);
   });
 });

@@ -28,7 +28,7 @@ import { loadConfig } from '../config.ts';
 import { GitLab, GitLabError, required } from '../gitlab.ts';
 import { type Note, type PushEvent, branchPushes, isPerson, isProjectPerson, tierFrom } from '../goahead.ts';
 import { allPages, checkMr, eventsSince, gitRepo, notesOf as fetchNotes, relatedIncident } from '../goahead-mr.ts';
-import { type Carrier, type GuardRun, type Ledger, type LedgerRecord, type OpenPush, byMerge, carriedRecords, chain, compare, counters, flowOf, recordsFor, second, verifyChain } from '../ledger.ts';
+import { type Carrier, type GuardRun, type Ledger, type LedgerRecord, type OpenPush, byMerge, carriedRecords, chain, compare, counters, openPush, recordsFor, second, verifyChain } from '../ledger.ts';
 import { renderLedgerPage } from '../ledger-page.ts';
 import type { SciCoefficients } from '../sci.ts';
 import { type SessionFile, loopGrams, loopsOf, previousPush, refusedGoAheads, summarize, summaryLine } from '../loops.ts';
@@ -244,18 +244,7 @@ async function main() {
     open.push(
       ...mine
         .filter((r) => !carriers.get(r.head))
-        .map((r) => ({
-          mr: r.mr,
-          mr_url: r.mr_url,
-          state: mr.state,
-          agent: r.agent,
-          flow: flowOf(r.agent),
-          pushed_at: r.pushed_at,
-          head: r.head,
-          accepted: r.accepted,
-          go_ahead: r.go_ahead,
-          reasons: r.reasons,
-        })),
+        .map((r) => openPush(r, mr.state)),
     );
   }
 

@@ -38,6 +38,7 @@ function refusedSub(c: Counters, since: string, web: string): string {
   const why = (
     [
       ['no go-ahead', 'no go-ahead from a person'],
+      ['go-ahead not counted', "a go-ahead that doesn't count (from the person who asked, or someone not allowed) or a push before the MR with no issue to hold one"],
       ['protected files', 'changing files only people may change'],
       ['other', 'another rule'],
     ] as const
@@ -130,16 +131,29 @@ export function renderLedgerPage({ ledger, open, runs, counters: c, web, generat
     )
     .join('\n');
   const failed = runs.filter((r) => r.status === 'failed');
-  const other = new Set(c.refusals.otherRuns);
+  const { refusingRuns, laterRuns, otherRuns } = c.refusals;
+  const later = new Set(laterRuns);
+  const other = new Set(otherRuns);
+  const marker = (r: GuardRun) =>
+    later.has(r)
+      ? ' <span class="muted">a later head of an MR with a refused push, which the guard still judges; the job log says why</span>'
+      : other.has(r)
+        ? ' <span class="muted">refused no push counted above; the job log says why</span>'
+        : '';
   const failedList = failed
     .map(
       (r) =>
-        `<li><a href="${esc(r.url)}">pipeline ${r.pipeline}</a> on <a href="${esc(web)}/-/merge_requests/${r.mr}">!${r.mr}</a> (${esc(r.at.replace('T', ' ').replace('Z', ''))}, <code>${esc(r.sha.slice(0, 8))}</code>)${other.has(r) ? ' <span class="muted">refused no push counted above; the job log says why</span>' : ''}</li>`,
+        `<li><a href="${esc(r.url)}">pipeline ${r.pipeline}</a> on <a href="${esc(web)}/-/merge_requests/${r.mr}">!${r.mr}</a> (${esc(r.at.replace('T', ' ').replace('Z', ''))}, <code>${esc(r.sha.slice(0, 8))}</code>)${marker(r)}</li>`,
     )
     .join('\n');
-  const otherRuns = c.refusals.otherRuns;
+  const onMrs = (rs: GuardRun[]) => [...new Set(rs.map((r) => `!${r.mr}`))].join(', ');
+  const parts = [
+    refusingRuns ? `${refusingRuns} ${refusingRuns === 1 ? 'is the run' : 'are the runs'} that refused the pushes counted above` : '',
+    laterRuns.length ? `${plural(laterRuns.length, 'run')} on later heads of ${onMrs(laterRuns)}, where the refused push is still on the MR and the guard judges every push on an MR (the job log says why)` : '',
+    otherRuns.length ? `${plural(otherRuns.length, 'other failed run')} on ${onMrs(otherRuns)}, which refused no push counted above (an error, or a verdict a later rule change reversed; the job log says why)` : '',
+  ].filter(Boolean);
   const failedSummary = failed.length
-    ? `${plural(failed.length, 'failed run')}: ${c.refusals.refusingRuns} ${c.refusals.refusingRuns === 1 ? 'is the run' : 'are the runs'} that refused the pushes counted above${otherRuns.length ? `, and ${plural(otherRuns.length, 'other failed run')} on ${[...new Set(otherRuns.map((r) => `!${r.mr}`))].join(', ')}, which refused no push counted above (an error, or a verdict a later rule change reversed; the job log says why)` : ''}. These are runs, not pushes: don't add them to the refused pushes.`
+    ? `${plural(failed.length, 'failed run')}: ${parts.join('; ')}. These are runs, not pushes: don't add them to the refused pushes.`
     : '';
 
   return `<!doctype html>

@@ -300,7 +300,7 @@ export interface Counters {
 }
 
 /** Why the guard refused a push, from its own words. */
-export type RefusalKind = 'no go-ahead' | 'protected files' | 'other';
+export type RefusalKind = 'no go-ahead' | 'go-ahead not counted' | 'protected files' | 'other';
 
 export interface Refusals {
   /** the MRs the refused pushes were on, each once */
@@ -311,16 +311,29 @@ export interface Refusals {
   byKind: Record<RefusalKind, number>;
   /** failed autonomy:goahead runs on the head of a refused push: the run that refused it */
   refusingRuns: number;
-  /** failed runs on no refused push's head (an error, or a verdict a later rule change reversed) */
+  /**
+   * failed runs on a later head of an MR with a refused push: the guard judges
+   * every push on the MR, so the earlier refused push still fails them
+   */
+  laterRuns: GuardRun[];
+  /** failed runs on MRs with no refused push (an error, or a verdict a later rule change reversed) */
   otherRuns: GuardRun[];
 }
 
+/**
+ * The kinds of the guard's reasons, matched on the lines checkMr and goAheadFor
+ * write: "push at T by @agent (shas)[ on #N]: <verdict>", "push at ... came
+ * before the MR, ...", and "commit S pushed by @agent changes files only people
+ * may change: ...". Anything else (a merge commit, a commit no push brought, no
+ * issue on an agent's MR, no guard run) is another rule.
+ */
 export function refusalKinds(reasons: string[]): RefusalKind[] {
   const kinds = new Set<RefusalKind>();
   for (const r of reasons) {
-    if (/changes files only people may change/.test(r)) kinds.add('protected files');
-    // the guard's verdict on one push: no proposal, no go-ahead, or one that doesn't count
-    else if (/^push at /.test(r)) kinds.add('no go-ahead');
+    if (/^commit \S+ pushed by @\S+ changes files only people may change: /.test(r)) kinds.add('protected files');
+    else if (/^push at \S+ by @\S+ \([^)]*\)(?: on #\d+)?: (?:no go-ahead mentioning @|@\S+ wrote no proposal before the push )/.test(r)) kinds.add('no go-ahead');
+    else if (/^push at \S+ by @\S+ \([^)]*\)(?: on #\d+)?: go-ahead in note \d+ doesn't count: /.test(r)) kinds.add('go-ahead not counted');
+    else if (/^push at \S+ by @\S+ \([^)]*\) came before the MR, /.test(r)) kinds.add('go-ahead not counted');
     else kinds.add('other');
   }
   return kinds.size ? [...kinds] : ['other'];
@@ -328,17 +341,36 @@ export function refusalKinds(reasons: string[]): RefusalKind[] {
 
 export function refusals(ledger: Ledger, open: OpenPush[], runs: GuardRun[]): Refusals {
   const refused = [...ledger.records, ...open].filter((p) => !p.accepted);
-  const byKind: Record<RefusalKind, number> = { 'no go-ahead': 0, 'protected files': 0, other: 0 };
+  const byKind: Record<RefusalKind, number> = { 'no go-ahead': 0, 'go-ahead not counted': 0, 'protected files': 0, other: 0 };
   for (const p of refused) for (const k of refusalKinds(p.reasons)) byKind[k]++;
   const heads = new Set(refused.map((p) => `${p.mr} ${p.head}`));
+  const mrs = new Set(refused.map((p) => p.mr));
   const failed = runs.filter((r) => r.status === 'failed');
   const refusing = failed.filter((r) => heads.has(`${r.mr} ${r.sha}`));
+  const rest = failed.filter((r) => !refusing.includes(r));
   return {
-    mrs: [...new Set(refused.map((p) => p.mr))].sort((a, b) => a - b),
+    mrs: [...mrs].sort((a, b) => a - b),
     days: [...new Set(refused.map((p) => p.pushed_at.slice(0, 10)))].sort(),
     byKind,
     refusingRuns: refusing.length,
-    otherRuns: failed.filter((r) => !refusing.includes(r)),
+    laterRuns: rest.filter((r) => mrs.has(r.mr)),
+    otherRuns: rest.filter((r) => !mrs.has(r.mr)),
+  };
+}
+
+/** A push on an MR that isn't merged, as the page lists it; head lets a guard run be matched to it. */
+export function openPush(r: Omit<LedgerRecord, 'seq' | 'prev'>, state: string): OpenPush {
+  return {
+    mr: r.mr,
+    mr_url: r.mr_url,
+    state,
+    agent: r.agent,
+    flow: flowOf(r.agent),
+    pushed_at: r.pushed_at,
+    head: r.head,
+    accepted: r.accepted,
+    go_ahead: r.go_ahead,
+    reasons: r.reasons,
   };
 }
 
