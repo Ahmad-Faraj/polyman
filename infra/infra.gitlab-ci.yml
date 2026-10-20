@@ -6,6 +6,8 @@
 # infra:plan   a read-only plan against the live project on the default
 #              branch (pushes and the nightly schedule): fails on drift or on a
 #              policy violation. Skipped until GCP_PLANNER_SA is set.
+# infra:import manual, once, on main: adopts the 21 resources into the GitLab
+#              state (imports only; refuses anything else).
 
 # OpenTofu from its release, checked against the release's SHA256SUMS, on the
 # node image the judge needs anyway
@@ -55,16 +57,14 @@ infra:check:
 #
 # The plan JSON holds the live project IAM policy (people's addresses), so it
 # stays in /tmp and is never an artifact; only the counts and verdicts are.
-infra:plan:
+# What both jobs that read Google Cloud share: the OIDC token, the state
+# backend and the cleanup. infra:plan and infra:import extend it.
+.infra:gcp:
   extends: .infra:tofu
-  stage: test
   needs: []
   id_tokens:
     GCP_ID_TOKEN:
       aud: https://gitlab.com
-  rules:
-    # pushes to main and pipeline schedules on main; stage 2b sets the variable
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $GCP_PLANNER_SA && $GCP_WIF_PROVIDER
   variables:
     TF_HTTP_ADDRESS: ${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/terraform/state/verify
     TF_HTTP_LOCK_ADDRESS: ${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/terraform/state/verify/lock
@@ -73,6 +73,15 @@ infra:plan:
     TF_HTTP_UNLOCK_METHOD: DELETE
     TF_HTTP_USERNAME: gitlab-ci-token
     TF_HTTP_RETRY_WAIT_MIN: '5'
+  after_script:
+    - rm -f /tmp/gcp-oidc-token /tmp/gcp-creds.json /tmp/plan.bin /tmp/plan.json /tmp/import.bin /tmp/plan.txt
+
+infra:plan:
+  extends: .infra:gcp
+  stage: test
+  rules:
+    # pushes to main and pipeline schedules on main; stage 2b sets the variable
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $GCP_PLANNER_SA && $GCP_WIF_PROVIDER
   script:
     - cd infra
     # external_account credentials: the OIDC token, exchanged at STS, then
@@ -94,8 +103,6 @@ infra:plan:
     - if [ "$drift" != 0 ]; then echo "infra:plan FAILED, DRIFT between Google Cloud and infra/ (plan-report.txt)"; fi
     - if [ "$judge" != 0 ]; then echo "infra:plan FAILED, the policy judge rejected the plan (policy-report.txt)"; fi
     - test "$drift" = 0 && test "$judge" = 0
-  after_script:
-    - rm -f /tmp/gcp-oidc-token /tmp/gcp-creds.json /tmp/plan.bin /tmp/plan.json
   artifacts:
     when: always
     expire_in: 30 days
@@ -106,3 +113,37 @@ infra:plan:
     reports:
       # {"create": n, "update": n, "delete": n} for the merge request widget
       terraform: infra/tfplan-summary.json
+
+# Stage 2b, once: adopt the 21 live resources into the GitLab-managed state, so
+# infra:plan compares Google Cloud with a real state instead of import blocks.
+# A person starts it on main. Imports only write the state; it refuses unless
+# the plan is exactly "21 to import, 0 to add, 0 to change, 0 to destroy", takes
+# the state lock, and plans again after the import, which must show no change.
+# No artifacts: the plan output holds the live project IAM policy.
+infra:import:
+  extends: .infra:gcp
+  stage: deploy
+  resource_group: infra-state
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $GCP_PLANNER_SA && $GCP_WIF_PROVIDER
+      when: manual
+      allow_failure: true
+  script:
+    - cd infra
+    - printf '%s' "$GCP_ID_TOKEN" > /tmp/gcp-oidc-token
+    - >-
+      printf '{"type":"external_account","audience":"//iam.googleapis.com/%s","subject_token_type":"urn:ietf:params:oauth:token-type:jwt","token_url":"https://sts.googleapis.com/v1/token","service_account_impersonation_url":"https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/%s:generateAccessToken","credential_source":{"file":"/tmp/gcp-oidc-token"}}'
+      "$GCP_WIF_PROVIDER" "$GCP_PLANNER_SA" > /tmp/gcp-creds.json
+    - export GOOGLE_APPLICATION_CREDENTIALS=/tmp/gcp-creds.json
+    - export TF_HTTP_PASSWORD="$CI_JOB_TOKEN"
+    - tofu init -input=false
+    - tofu plan -input=false -out=/tmp/import.bin > /tmp/plan.txt || { tail -20 /tmp/plan.txt; exit 1; }
+    - summary=$(grep -E '^Plan:' /tmp/plan.txt || true); echo "$summary"
+    - |
+      if [ "$summary" != "Plan: 21 to import, 0 to add, 0 to change, 0 to destroy." ]; then
+        echo "refusing: only a plan that imports all 21 resources and changes nothing may be applied"
+        exit 1
+      fi
+    - tofu apply -input=false /tmp/import.bin | tail -3
+    - echo "== plan again, must be no change"
+    - tofu plan -input=false -lock=false -detailed-exitcode > /dev/null && echo "No changes. The GitLab state matches Google Cloud."
