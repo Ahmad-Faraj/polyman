@@ -56,13 +56,13 @@ A solution that never terminates must keep getting `TLE`.
 included (MIT, like the rest of the repository). Each has a main solution, correct ones in other
 languages, and mutants whose true verdict is the point of the problem.
 
-| Problem | What it pins | Solutions |
-|---|---|---|
-| `sum-parity` | polyman's own template plus WA/RE/PE/TL mutants in C++ and Python | 10 |
-| `pair-target` | a special checker: any pair of positions with the right sum is accepted, so correct solutions that find other pairs (or print them in the other order) must be OK; using one position twice is WA, a missing number PE | 8 (C++, Java, Python) |
-| `distinct-count` | several test cases per input file, standard checker `ncmp`: state not reset between cases (WA), only the first case answered (WA), `Case #k:` labels (PE), `vector::at` past the end (RE) | 7 |
-| `mean-deviation` | real-valued output, standard checker `rcmp6` (1e-6): float arithmetic, two decimals, dividing by n - 1 (WA); "mean,deviation" as one token (PE) | 8 |
-| `remainder-pairs` | a 2 s time limit that Java and Python must respect: linear solutions in all three languages pass, quadratic ones in Java and Python must get TLE on the first large test; an `int` answer that overflows (WA) | 7 |
+| Problem           | What it pins                                                                                                                                                                                                           | Solutions             |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
+| `sum-parity`      | polyman's own template plus WA/RE/PE/TL mutants in C++ and Python                                                                                                                                                      | 10                    |
+| `pair-target`     | a special checker: any pair of positions with the right sum is accepted, so correct solutions that find other pairs (or print them in the other order) must be OK; using one position twice is WA, a missing number PE | 8 (C++, Java, Python) |
+| `distinct-count`  | several test cases per input file, standard checker `ncmp`: state not reset between cases (WA), only the first case answered (WA), `Case #k:` labels (PE), `vector::at` past the end (RE)                              | 7                     |
+| `mean-deviation`  | real-valued output, standard checker `rcmp6` (1e-6): float arithmetic, two decimals, dividing by n - 1 (WA); "mean,deviation" as one token (PE)                                                                        | 8                     |
+| `remainder-pairs` | a 2 s time limit that Java and Python must respect: linear solutions in all three languages pass, quadratic ones in Java and Python must get TLE on the first large test; an `int` answer that overflows (WA)          | 7                     |
 
 On polyman 3.0.0 the corpus is red on every problem for the same two open bugs and nothing
 else: the tests after a solution's first wrong answer are reported `OK` although the checker
@@ -117,8 +117,11 @@ judge: of the mutants the unit tests miss (Stryker's `Survived`, and `NoCoverage
 separately), how many does the corpus catch? Each mutant is planted in the source, polyman is
 rebuilt with `tsc` and `run.mjs` judges all problems. A mutant is killed when any verdict or step
 differs from the unmutated build judged in the same job (the release gate's rule), so an open bug
-doesn't count as a kill. The source is put back after every mutant, also when a build or run fails
-or the job is stopped. A mutant that `tsc` rejects is still judged (tsc emits JavaScript anyway)
+doesn't count as a kill. Each run gets the full `--timeout`; no verdict counts as a kill only when it
+happens twice on the same problem, and a mutant that runs past three timeouts in all is an error, not
+a kill. The source is put back after every mutant, also when a build or run fails or the job is
+stopped; a stopped job also kills its child processes, but `dist/` may still be a mutant's build, so
+run `npm run build` before using it. A mutant that `tsc` rejects is still judged (tsc emits JavaScript anyway)
 and marked, since `npm run build` would fail on it.
 
 ```bash

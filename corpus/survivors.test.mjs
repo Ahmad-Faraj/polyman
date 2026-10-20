@@ -6,6 +6,7 @@ import {
   applyMutant,
   combineShards,
   isInsideRoot,
+  judgedEntry,
   judgeMutant,
   junitXml,
   mergeBaseline,
@@ -385,7 +386,6 @@ describe('judgeMutant: when a mutant counts as killed', () => {
     const result = await judgeMutant({
       ...base,
       judge,
-      deadline: t0 + 600_000,
       now: () => t0,
     });
     expect(result).toEqual({ typeErrors: false, status: 'Survived' });
@@ -400,7 +400,6 @@ describe('judgeMutant: when a mutant counts as killed', () => {
     const result = await judgeMutant({
       ...base,
       judge,
-      deadline: t0 + 600_000,
       now: () => t0,
     });
     expect(result).toMatchObject({
@@ -419,7 +418,6 @@ describe('judgeMutant: when a mutant counts as killed', () => {
     const result = await judgeMutant({
       ...base,
       judge,
-      deadline: t0 + 600_000,
       now: () => t0,
     });
     expect(result.status).toBe('Survived');
@@ -430,7 +428,6 @@ describe('judgeMutant: when a mutant counts as killed', () => {
     const result = await judgeMutant({
       ...base,
       judge,
-      deadline: t0 + 600_000,
       now: () => t0,
     });
     expect(result.status).toBe('Survived');
@@ -445,7 +442,6 @@ describe('judgeMutant: when a mutant counts as killed', () => {
       ...base,
       baseline: red,
       judge,
-      deadline: t0 + 600_000,
       now: () => t0,
     });
     expect(result.status).toBe('Survived');
@@ -468,53 +464,78 @@ describe('judgeMutant: when a mutant counts as killed', () => {
       problems: ['p', 'q'],
       baseline: two,
       judge,
-      deadline: t0 + 600_000,
       now: () => t0,
     });
     expect(result).toMatchObject({ status: 'Killed', killedBy: 'q' });
     expect(calls.map(c => c.problem)).toEqual(['p', 'q', 'q']);
   });
 
-  it('is a Timeout when a run gives no verdict, or the deadline has passed', async () => {
-    const late = scripted([{ timedOut: true }]);
-    expect(
-      await judgeMutant({
-        ...base,
-        judge: late.judge,
-        deadline: t0 + 600_000,
-        now: () => t0,
-      })
-    ).toMatchObject({
-      status: 'Timeout',
-      killedBy: 'p',
-      detail: 'no verdict within 600s (on p)',
-    });
-
-    const never = scripted([entry('p')]);
+  it('gives every run the full timeout, so a slow runner is not a kill', async () => {
+    // the review's reproduction: 5 problems, 150 ms per call, identical verdicts
+    let clock = t0;
+    const five = ['a', 'b', 'c', 'd', 'e'];
+    const calls = [];
+    const judge = async (problem, ms) => {
+      calls.push(ms);
+      clock += 150;
+      return entry(problem);
+    };
     const result = await judgeMutant({
       ...base,
-      judge: never.judge,
-      deadline: t0,
-      now: () => t0,
-    });
-    expect(result.status).toBe('Timeout');
-    expect(never.calls).toHaveLength(0);
-  });
-
-  it('passes the time left to each run', async () => {
-    let clock = t0;
-    const { judge, calls } = scripted([entry('p', 'x'), entry('p', 'x')]);
-    const timed = async (problem, left) => {
-      clock += 100_000;
-      return judge(problem, left);
-    };
-    await judgeMutant({
-      ...base,
-      judge: timed,
-      deadline: t0 + 600_000,
+      problems: five,
+      baseline: {
+        problems: five.map(name => ({ name, failures: [], flaky: false })),
+      },
+      judge,
+      timeoutSeconds: 0.6,
       now: () => clock,
     });
-    expect(calls.map(c => c.left)).toEqual([600_000, 500_000]);
+    expect(result.status).toBe('Survived');
+    expect(new Set(calls)).toEqual(new Set([600]));
+  });
+
+  it('is not a Timeout when only one run gives no verdict', async () => {
+    const { judge, calls } = scripted([{ timedOut: true }, entry('p')]);
+    const result = await judgeMutant({ ...base, judge, now: () => t0 });
+    expect(result.status).toBe('Survived');
+    expect(calls).toHaveLength(2);
+  });
+
+  it('is a Timeout when two runs on the same problem give no verdict', async () => {
+    const { judge } = scripted([{ timedOut: true }, { timedOut: true }]);
+    expect(await judgeMutant({ ...base, judge, now: () => t0 })).toMatchObject({
+      status: 'Timeout',
+      killedBy: 'p',
+      detail: 'no verdict within 600s, twice (on p)',
+    });
+  });
+
+  it('a timeout between two runs with the same difference still kills', async () => {
+    const { judge, calls } = scripted([
+      entry('p', 'x'),
+      { timedOut: true },
+      entry('p', 'x'),
+    ]);
+    const result = await judgeMutant({ ...base, judge, now: () => t0 });
+    expect(result).toMatchObject({ status: 'Killed', killedBy: 'p' });
+    expect(calls).toHaveLength(3);
+  });
+
+  it('is an Error, never a kill, once it runs past its budget', async () => {
+    let clock = t0;
+    const { judge, calls } = scripted([entry('p', 'x'), entry('p', 'x')]);
+    const slow = async (problem, ms) => {
+      clock += 2_000_000;
+      return judge(problem, ms);
+    };
+    const result = await judgeMutant({
+      ...base,
+      judge: slow,
+      now: () => clock,
+    });
+    expect(result.status).toBe('Error');
+    expect(result.detail).toMatch(/not judged within 1800s in all/);
+    expect(calls).toHaveLength(1);
   });
 
   it('still judges a mutant with type errors, and says so', async () => {
@@ -523,7 +544,6 @@ describe('judgeMutant: when a mutant counts as killed', () => {
       ...base,
       build: async () => ({ ok: false }),
       judge,
-      deadline: t0 + 600_000,
       now: () => t0,
     });
     expect(result).toEqual({ typeErrors: true, status: 'Survived' });
@@ -535,7 +555,6 @@ describe('judgeMutant: when a mutant counts as killed', () => {
       ...base,
       build: async () => ({ ok: false, timedOut: true }),
       judge,
-      deadline: t0 + 600_000,
       now: () => t0,
     });
     expect(result).toEqual({
@@ -544,5 +563,79 @@ describe('judgeMutant: when a mutant counts as killed', () => {
       detail: 'tsc timed out',
     });
     expect(calls).toHaveLength(0);
+  });
+});
+
+describe('what reaches the reports is well-formed', () => {
+  const result = extra => ({
+    id: '7',
+    file: 'src/a.ts',
+    location: { start: { line: 1, column: 1 } },
+    mutatorName: 'X',
+    original: 'a',
+    replacement: 'b',
+    unitStatus: 'Survived',
+    ...extra,
+  });
+
+  it('drops control characters XML 1.0 forbids, keeping tab and newline', () => {
+    const junit = junitXml([
+      result({ status: 'Error', detail: 'tsc \u001b[31mred\u0000\tend\nnext' }),
+    ]);
+    const forbidden = [...junit].filter(c => {
+      const code = c.codePointAt(0);
+      return (
+        (code < 32 && code !== 9 && code !== 10 && code !== 13) || code === 127
+      );
+    });
+    expect(forbidden).toEqual([]);
+    expect(junit).toContain('tsc [31mred\tend\nnext');
+  });
+
+  it('strips a temp-dir suffix in linear time, even on a hostile message', () => {
+    const hostile = 'polyman-corpus-'.repeat(20000) + '!';
+    const started = Date.now();
+    withoutTempDir(hostile);
+    expect(Date.now() - started).toBeLessThan(500);
+    expect(withoutTempDir('/tmp/polyman-corpus-sum-parity-AbC123.log')).toBe(
+      '/tmp/polyman-corpus-sum-parity-XXXXXX.log'
+    );
+  });
+
+  it('reads a problem from the run.mjs summary, without its temp dir', () => {
+    const summary = JSON.stringify({
+      problems: [
+        { name: 'p', failures: ['crash in /tmp/polyman-corpus-p-AbC123/x'] },
+      ],
+    });
+    expect(judgedEntry('p', summary, { code: 1, output: '' })).toEqual({
+      name: 'p',
+      failures: ['crash in /tmp/polyman-corpus-p-XXXXXX/x'],
+    });
+  });
+
+  it('turns a missing, broken or foreign summary into one failure', () => {
+    for (const text of [
+      null,
+      '{',
+      JSON.stringify({ problems: [{ name: 'q' }] }),
+    ]) {
+      const entry = judgedEntry('p', text, { code: 2, output: 'boom' });
+      expect(entry.name).toBe('p');
+      expect(entry.failures).toEqual([
+        'run.mjs exited 2 without a summary: boom',
+      ]);
+    }
+  });
+
+  it('refuses shards from a run with a different number of shards', () => {
+    const shard = (index, total) => ({
+      shard: { index, total },
+      fingerprint: 'f',
+      results: [],
+    });
+    expect(() => combineShards([shard(1, 2)], 1)).toThrow(
+      /run of 2 shards, expected 1/
+    );
   });
 });

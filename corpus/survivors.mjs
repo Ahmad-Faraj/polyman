@@ -96,9 +96,10 @@ export function isInsideRoot(file, root = ROOT) {
  * names a different path every time and would never match itself.
  */
 export function withoutTempDir(message) {
-  return String(message).replace(
-    /(polyman-corpus-[\w.-]*?-)[A-Za-z0-9]{6}(?=$|[^A-Za-z0-9-])/g,
-    '$1XXXXXX'
+  // match each whole directory name, then its last 6 characters: linear time,
+  // unlike one pattern that has to guess where the problem name ends
+  return String(message).replace(/polyman-corpus-[\w-]+/g, name =>
+    name.replace(/-[A-Za-z0-9]{6}$/, '-XXXXXX')
   );
 }
 
@@ -161,7 +162,19 @@ export function applyMutant(source, mutant) {
 }
 
 const restorers = new Set();
+// child process groups still running: a stopped job kills them too
+const running = new Set();
+const killTree = child => {
+  try {
+    if (process.platform === 'win32')
+      spawn('taskkill', ['/pid', String(child.pid), '/T', '/F']);
+    else process.kill(-child.pid, 'SIGKILL');
+  } catch {
+    child.kill('SIGKILL');
+  }
+};
 const restoreAll = () => {
+  for (const child of running) killTree(child);
   for (const restore of restorers) restore();
 };
 
@@ -223,11 +236,24 @@ export function metricsText(results) {
   return `${lines.join('\n')}\n`;
 }
 
-const xml = text =>
-  String(text).replace(
-    /[<>&"]/g,
-    c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' })[c]
+/** Whether XML 1.0 allows this character (tab, newline and CR are the only controls it keeps). */
+const xmlAllowed = c => {
+  const code = c.codePointAt(0);
+  return (
+    code === 9 || code === 10 || code === 13 || (code >= 32 && code !== 127)
   );
+};
+
+// tsc and polyman can print ESC colour codes; one in a JUnit file makes the
+// whole file invalid XML, so they are dropped, then the rest is escaped
+const xml = text =>
+  [...String(text)]
+    .filter(xmlAllowed)
+    .join('')
+    .replace(
+      /[<>&"]/g,
+      c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' })[c]
+    );
 
 /** Where a mutant is and what it does, e.g. `src/a.ts:12:5 EqualityOperator: a < b → a <= b`. */
 export function describeMutant(r) {
@@ -357,6 +383,7 @@ export function run(command, args, { cwd = ROOT, timeoutMs, env } = {}) {
       detached: !windows,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
+    running.add(child);
     let output = '';
     const keep = chunk => {
       output = (output + chunk).slice(-20000);
@@ -367,21 +394,17 @@ export function run(command, args, { cwd = ROOT, timeoutMs, env } = {}) {
     const timer = timeoutMs
       ? setTimeout(() => {
           timedOut = true;
-          try {
-            if (windows)
-              spawn('taskkill', ['/pid', String(child.pid), '/T', '/F']);
-            else process.kill(-child.pid, 'SIGKILL');
-          } catch {
-            child.kill('SIGKILL');
-          }
+          killTree(child);
         }, timeoutMs)
       : null;
     child.on('error', error => {
       if (timer) clearTimeout(timer);
+      running.delete(child);
       resolve({ code: null, timedOut, output: `${output}\n${error.message}` });
     });
     child.on('close', code => {
       if (timer) clearTimeout(timer);
+      running.delete(child);
       resolve({ code, timedOut, output });
     });
   });
@@ -407,6 +430,26 @@ function corpusProblems() {
 }
 
 /**
+ * One problem's entry from a run.mjs run: its failures from `summaryText`
+ * (run.mjs's summary.json), or one failure when there is no usable summary.
+ * Failures read the same in every run (no random temp dir).
+ */
+export function judgedEntry(problem, summaryText, { code, output }) {
+  let failures = [
+    `run.mjs exited ${code} without a summary: ${snippet(String(output ?? '').slice(-500), 300)}`,
+  ];
+  try {
+    const entry = JSON.parse(summaryText).problems.find(
+      p => p.name === problem
+    );
+    if (entry) failures = entry.failures ?? [];
+  } catch {
+    // no summary, or not one run.mjs wrote: the failure above
+  }
+  return { name: problem, failures: failures.map(withoutTempDir) };
+}
+
+/**
  * Runs run.mjs on one problem and returns its summary entry, or a failure
  * when it produced none. Exit 1 only means the problem differs from the
  * pinned verdicts; the comparison with the baseline decides what that means.
@@ -422,18 +465,10 @@ async function judge(problem, work, timeoutMs) {
     { timeoutMs }
   );
   if (result.timedOut) return { timedOut: true };
-  let failures = [
-    `run.mjs exited ${result.code} without a summary: ${snippet(result.output.slice(-500), 300)}`,
-  ];
-  try {
-    const summary = JSON.parse(fs.readFileSync(summaryFile, 'utf8'));
-    const entry = summary.problems.find(p => p.name === problem);
-    if (entry) failures = entry.failures ?? [];
-  } catch {
-    // no summary: the failure above
-  }
-  // the same failure in two runs must read the same (the temp dir differs)
-  return { entry: { name: problem, failures: failures.map(withoutTempDir) } };
+  const text = fs.existsSync(summaryFile)
+    ? fs.readFileSync(summaryFile, 'utf8')
+    : null;
+  return { entry: judgedEntry(problem, text, result) };
 }
 
 function parseArgs(argv) {
@@ -473,21 +508,24 @@ const where = () =>
     : 'Local run.';
 
 /**
- * How one planted mutant ends: `build()` compiles it, `judge(problem, msLeft)`
- * runs the corpus on one problem. A mutant is Killed by a problem only when
- * two runs show the same difference from the baseline, so a compile or timing
- * flake in one run is not a kill. No verdict before `deadline` is a Timeout
- * (counted as a kill, as in Stryker).
+ * How one planted mutant ends: `build()` compiles it, `judge(problem, ms)`
+ * runs the corpus on one problem within `ms`. Every call gets the full
+ * `timeoutSeconds`, so a slow runner can't turn a survivor into a kill.
+ * A mutant is Killed by a problem only when two runs show the same difference
+ * from the baseline, and is a Timeout (a kill, as in Stryker) only when two
+ * runs on the same problem give no verdict: one flake in either way doesn't
+ * count. Past `budgetMs` in all it is an Error, never a kill.
  */
 export async function judgeMutant({
   problems,
   baseline,
   build,
   judge,
-  deadline,
   timeoutSeconds,
+  budgetMs = timeoutSeconds * 1000 * 3,
   now = Date.now,
 }) {
+  const started = now();
   const built = await build();
   // tsc emits JavaScript despite type errors (noEmitOnError is off), so the
   // judges still run; the summary says it wouldn't build
@@ -499,18 +537,28 @@ export async function judgeMutant({
       problems: baseline.problems.filter(p => p.name === problem),
     };
     let added = null;
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const left = deadline - now();
-      const judged = left > 0 ? await judge(problem, left) : { timedOut: true };
-      if (judged.timedOut)
+    let verdicts = 0;
+    let timeouts = 0;
+    while (verdicts < 2) {
+      if (now() - started > budgetMs)
+        return {
+          typeErrors,
+          status: 'Error',
+          detail: `not judged within ${Math.round(budgetMs / 1000)}s in all (stopped at ${problem})`,
+        };
+      const judged = await judge(problem, timeoutSeconds * 1000);
+      if (judged.timedOut) {
+        if (++timeouts < 2) continue;
         return {
           typeErrors,
           status: 'Timeout',
           killedBy: problem,
-          detail: `no verdict within ${timeoutSeconds}s (on ${problem})`,
+          detail: `no verdict within ${timeoutSeconds}s, twice (on ${problem})`,
         };
+      }
       const fresh = regressions(only, { problems: [judged.entry] }).added;
-      added = added === null ? fresh : sameDifferences(added, fresh);
+      added = verdicts === 0 ? fresh : sameDifferences(added, fresh);
+      verdicts += 1;
       if (!added.length) break;
     }
     if (added.length)
@@ -578,7 +626,6 @@ async function judgeShard(args) {
   const results = [];
   for (const [n, mutant] of mine.entries()) {
     const started = Date.now();
-    const deadline = started + timeoutMs;
     const result = { ...mutant, status: 'Error' };
     try {
       await withMutant(
@@ -592,9 +639,8 @@ async function judgeShard(args) {
               problems,
               baseline,
               build,
-              judge: (problem, left) =>
-                judge(problem, path.join(work, mutant.id), left),
-              deadline,
+              judge: (problem, ms) =>
+                judge(problem, path.join(work, mutant.id), ms),
               timeoutSeconds: args.timeout,
             })
           );
@@ -679,6 +725,8 @@ async function main() {
   for (const signal of ['SIGINT', 'SIGTERM'])
     process.on(signal, () => {
       restoreAll();
+      // the source is back, but dist/ may still be a mutant's build
+      console.error('stopped: run `npm run build` before using dist/ again');
       process.exit(130);
     });
   await judgeShard(args);

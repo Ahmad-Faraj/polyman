@@ -144,7 +144,7 @@ corpus:mutation:
   stage: test
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-    - changes: [corpus/survivors.mjs, src/helpers/solution.ts]
+    - changes: [corpus/survivors.mjs, corpus/lib.mjs, corpus/run.mjs, corpus/stryker.config.json, src/helpers/solution.ts]
   allow_failure: true
 
 # Its own Stryker run, so corpus:mutation keeps its artifacts (and its widget
@@ -155,7 +155,7 @@ corpus:survivors:mutants:
     TZ: Asia/Kolkata
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-    - changes: [corpus/survivors.mjs, src/helpers/solution.ts]
+    - changes: [corpus/survivors.mjs, corpus/lib.mjs, corpus/run.mjs, corpus/stryker.config.json, src/helpers/solution.ts]
       when: manual
       allow_failure: true
   script:
