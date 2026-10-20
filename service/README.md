@@ -160,8 +160,8 @@ With Google Cloud set up (below), the default branch also releases it:
 
 A check that caught an incident once must keep catching it. Every past
 incident caused by a code change has a folder in `ci/rehearsals/` (a
-governance path: changes need a code owner). Each scheduled pipeline,
-`rehearsal:incidents` (`ci/rehearsals/rehearse.sh`) takes a throwaway copy of
+governance path: changes need a code owner). In each scheduled
+pipeline, `rehearsal:incidents` (`ci/rehearsals/rehearse.sh`) takes a throwaway copy of
 the commit, re-plants each incident's bug there and requires the checks that
 run before a merge to refuse it: the incident's `service:test` file fails, and
 the golden public-host upload (`ci/public-upload.sh`, the same script

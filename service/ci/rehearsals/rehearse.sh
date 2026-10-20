@@ -146,6 +146,4 @@ fi
   echo '</testsuite></testsuites>'
 } > "$out/junit.xml"
 
-echo
-cat "$report"
 [ "$failures" = 0 ]
