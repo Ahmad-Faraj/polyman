@@ -22,7 +22,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { compare, outcomeOf, selectProblems } from './lib.mjs';
+import {
+  compare,
+  failedStepReason,
+  outcomeOf,
+  selectProblems,
+} from './lib.mjs';
 
 const CORPUS = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.dirname(CORPUS);
@@ -273,7 +278,15 @@ function main() {
     results.push({
       name,
       seconds: run.seconds,
-      diffs: compare(expected, actual),
+      // the step's own errors, so a failed step says why (#88)
+      diffs: compare(
+        expected,
+        actual,
+        failedStepReason(run.report, [
+          process.env.POLYGON_API_KEY,
+          process.env.POLYGON_API_SECRET,
+        ])
+      ),
       expected,
       actual,
     });

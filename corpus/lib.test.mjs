@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   compare,
+  failedStepReason,
   freshnessCheck,
   freshnessMarker,
   inputCountCheck,
@@ -62,6 +63,26 @@ describe('regressions: the release gate', () => {
     expect(regressions(latest, next).added).toEqual([
       { problem: 'mistagged', message: 'not judged by the candidate' },
     ]);
+  });
+
+  it('does not count a different reason for the same failed step', () => {
+    const base = summary([
+      {
+        name: 'p',
+        failures: [
+          'failed step: expected none, got compile-solutions | polyman said: Process killed after 10000ms timeout',
+        ],
+      },
+    ]);
+    const next = summary([
+      {
+        name: 'p',
+        failures: [
+          'failed step: expected none, got compile-solutions | polyman said: main.cpp:3: error',
+        ],
+      },
+    ]);
+    expect(regressions(base, next)).toEqual({ added: [], fixed: [] });
   });
 
   it("counts a new problem's failures, since the baseline never had it", () => {
@@ -453,5 +474,67 @@ describe('isInside: the path guard', () => {
     expect(isInside('/repo', '/')).toBe(false);
     expect(isInside('/repo', '/repo-evil/m.json')).toBe(false);
     expect(isInside('/repo', '/tmp/m.json')).toBe(false);
+  });
+});
+
+describe('failedStepReason: why a step failed', () => {
+  const report = errors => ({
+    ok: false,
+    failedStep: 'compile-solutions',
+    steps: [
+      { name: 'validate-tests', ok: true, errors: [] },
+      { name: 'compile-solutions', ok: false, errors },
+    ],
+  });
+
+  it("gives the failed step's errors on one line", () => {
+    expect(
+      failedStepReason(
+        report([
+          'Failed to compile wa.cpp:\n  Process killed after 10000ms timeout',
+          'Failed to compile tle.cpp',
+        ])
+      )
+    ).toBe(
+      'Failed to compile wa.cpp: Process killed after 10000ms timeout; Failed to compile tle.cpp'
+    );
+  });
+
+  it('redacts secrets and apiKey/apiSig values', () => {
+    const reason = failedStepReason(
+      report(['GET /api?apiKey=abc123&apiSig=deadbeef failed, key s3cr3t']),
+      ['s3cr3t']
+    );
+    expect(reason).not.toMatch(/abc123|deadbeef|s3cr3t/);
+    expect(reason).toContain('apiKey=[REDACTED]');
+  });
+
+  it('cuts a long reason', () => {
+    expect(failedStepReason(report(['x'.repeat(700)]))).toHaveLength(600);
+  });
+
+  it('is empty when no step failed or the step listed nothing', () => {
+    expect(failedStepReason({ ok: true, failedStep: null, steps: [] })).toBe(
+      ''
+    );
+    expect(failedStepReason(report([]))).toBe('');
+  });
+
+  it('goes into the failed-step message, and only there', () => {
+    const want = expected({});
+    const got = {
+      ...structuredClone(want),
+      ok: false,
+      failedStep: 'compile-solutions',
+    };
+    expect(
+      failures(compare(want, got, 'Process killed after 10000ms timeout'))
+    ).toEqual([
+      'report ok: expected true, got false',
+      'failed step: expected none, got compile-solutions | polyman said: Process killed after 10000ms timeout',
+    ]);
+    expect(failures(compare(want, got))).toContain(
+      'failed step: expected none, got compile-solutions'
+    );
   });
 });
