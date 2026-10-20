@@ -371,6 +371,14 @@ export class PolygonSDK {
     }
 
     if (response.status >= 500) {
+      // Polygon can answer a 5xx with a JSON FAILED body that carries the
+      // real reason. That is a definitive answer, so do not retry it.
+      if (!returnRaw) {
+        const failed = await this.readFailedBody(response);
+        if (failed !== undefined) {
+          return { ok: true, value: failed };
+        }
+      }
       return {
         ok: false,
         retry: true,
@@ -420,6 +428,31 @@ export class PolygonSDK {
         ),
       };
     }
+  }
+
+  /**
+   * Reads a 5xx body and returns it only when it is JSON with
+   * `status: 'FAILED'`. Anything else (HTML, empty, unreadable) gives
+   * undefined so the caller treats the response as a transient failure.
+   *
+   * @internal
+   */
+  private async readFailedBody(
+    response: Response
+  ): Promise<PolygonResponse<unknown> | undefined> {
+    try {
+      const body: unknown = await response.json();
+      if (
+        typeof body === 'object' &&
+        body !== null &&
+        (body as { status?: unknown }).status === 'FAILED'
+      ) {
+        return body as PolygonResponse<unknown>;
+      }
+    } catch {
+      // Not JSON or unreadable: fall through to the generic 5xx handling.
+    }
+    return undefined;
   }
 
   // ==================== General Methods ====================

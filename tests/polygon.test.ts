@@ -994,6 +994,17 @@ describe('PolygonSDK', () => {
       expect(fetchMock).toHaveBeenCalledTimes(2);
     });
 
+    it('does not retry a 5xx that carries a JSON FAILED body', async () => {
+      fetchMock.mockResolvedValue({
+        status: 500,
+        ...makeJsonResponse({ status: 'FAILED', comment: 'X' }),
+      });
+      const r = await settle(sdk.listProblems());
+      expect(r.status).toBe('rejected');
+      expect(messageOf(r)).toBe('Polygon API Error: X');
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
     it('waits before the retry', async () => {
       fetchMock
         .mockResolvedValueOnce(makeStatusResponse(503, ''))
