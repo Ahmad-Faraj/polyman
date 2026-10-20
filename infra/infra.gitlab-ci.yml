@@ -91,8 +91,8 @@ infra:plan:
     - cat plan-report.txt
     - judge=0; node policy/check-plan.mjs /tmp/plan.json > policy-report.txt || judge=$?
     - cat policy-report.txt
-    - if [ "$drift" != 0 ]; then echo "infra:plan failed: DRIFT between Google Cloud and infra/ (plan-report.txt)"; fi
-    - if [ "$judge" != 0 ]; then echo "infra:plan failed: the policy judge rejected the plan (policy-report.txt)"; fi
+    - if [ "$drift" != 0 ]; then echo "infra:plan FAILED, DRIFT between Google Cloud and infra/ (plan-report.txt)"; fi
+    - if [ "$judge" != 0 ]; then echo "infra:plan FAILED, the policy judge rejected the plan (policy-report.txt)"; fi
     - test "$drift" = 0 && test "$judge" = 0
   after_script:
     - rm -f /tmp/gcp-oidc-token /tmp/gcp-creds.json /tmp/plan.bin /tmp/plan.json
