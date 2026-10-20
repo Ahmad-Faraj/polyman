@@ -270,13 +270,16 @@ describe("the project's Duo flows", () => {
     expect(text.split('Test where the output is used (the shell command line after Tab and Enter, eval, rendered HTML), not only the process that makes it; if input can split into words, try ; and rate it by what runs.').length - 1).toBe(3);
   });
 
-  // E-R (!165, reviewer 1.0.26) missed the bar set before its rerun: 9 of 17 P1/P2 against 15, so it is reverted
-  it('specialists are not told to reproduce every bug before rating it (E-R reverted)', () => {
+  // E-R2 (pre-registered, notes/e-r2-preregistration.md): E-R's reproduce rule comes back with a rating floor,
+  // because E-R's losses were ratings (!69's two findings were found and called P3), not detection
+  it('specialists reproduce every bug before rating it, and a reproduced wrong result is at least P2 (E-R2)', () => {
     const text = flat('mr-reviewer.yaml');
-    expect(text).not.toContain('reproduced: COMMAND -> OUTPUT');
-    expect(text).not.toContain('reproduce every bug');
-    expect(text).not.toContain("don't lower a reproduced P1");
-    expect(text.split('run the built code with hostile and edge-case input').length - 1).toBe(3);
+    expect(text.split('In that sandbox, reproduce every bug of any kind').length - 1).toBe(3);
+    expect(text.split('Under each P1 and P2 write "reproduced: COMMAND -> OUTPUT" or "not reproduced: WHY".').length - 1).toBe(3);
+    expect(text.split('An unreproduced bug is at most P2, and only when the code leaves no doubt.').length - 1).toBe(3);
+    expect(text.split('A reproduced wrong result, a reproduced crash, or an item or failure that is silently skipped or swallowed is at least P2, never P3.').length - 1).toBe(3);
+    expect(text.split('also try hostile and edge-case input').length - 1).toBe(3);
+    expect(text).toContain('Never lower a reproduced P1, and never rate a reproduced wrong result or crash, or a silently skipped or swallowed item or failure, below P2.');
   });
 
   // #61: 26 of 107 reviews were posted after their MR merged; the check stays, inside the last read turn
