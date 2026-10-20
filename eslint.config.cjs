@@ -42,7 +42,7 @@ module.exports = defineConfig([
     },
   },
   {
-    files: ['corpus/**/*.mjs'],
+    files: ['corpus/**/*.mjs', 'infra/**/*.mjs'],
     ...tseslint.configs.disableTypeChecked,
     languageOptions: {
       parserOptions: {

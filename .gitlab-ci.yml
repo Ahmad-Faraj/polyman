@@ -43,12 +43,16 @@ include:
   - template: Jobs/Secret-Detection.gitlab-ci.yml
   # known advisories in package-lock.json; autonomy:assess reads its report too
   - template: Jobs/Dependency-Scanning.gitlab-ci.yml
+  # IaC scanning (KICS): infra/*.tf, the Dockerfiles
+  - template: Jobs/SAST-IaC.gitlab-ci.yml
   # risk score, guard and flow checks on merge requests (engine/README.md)
   - local: engine/ci/autonomy.gitlab-ci.yml
   # the agents' carbon (SCI): metrics in the MR widget, a page on Pages at /sci/
   - local: engine/ci/autonomy-sci.gitlab-ci.yml
   # the verify web service (#19): its tests, image, sample check and Cloud Run deploy
   - local: service/ci/service.gitlab-ci.yml
+  # the verify service's Google Cloud setup in OpenTofu: policy judge, nightly drift plan (infra/README.md)
+  - local: infra/infra.gitlab-ci.yml
   # golden + mutant corpus: real compilers judging real solutions (corpus/README.md)
   - local: corpus/corpus.gitlab-ci.yml
   # canary channel: every merge published to this project's npm registry and judged
