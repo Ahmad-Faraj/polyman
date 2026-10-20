@@ -25,6 +25,26 @@ export function outcomeOf(report) {
   return { ok: report.ok, failedStep: report.failedStep, steps, solutions };
 }
 
+/** Separates a failure message from the reason polyman gave for it. */
+export const REASON = ' | polyman said: ';
+
+/**
+ * Why the report's failed step failed: that step's `errors` from
+ * `polyman verify --json`, redacted like the push output (the given secrets
+ * and apiKey/apiSig values), on one line and cut to `max` characters. Empty
+ * when no step failed or it listed no errors.
+ */
+export function failedStepReason(report, secrets = [], max = 600) {
+  const step = (report?.steps ?? []).find(
+    s => s.name === report.failedStep && !s.ok
+  );
+  const reason = (step?.errors ?? [])
+    .map(error => pushOutputTail(error, secrets, Infinity).replace(/\s+/g, ' '))
+    .filter(Boolean)
+    .join('; ');
+  return reason.length > max ? `${reason.slice(0, max - 3)}...` : reason;
+}
+
 /**
  * Lists differences as { kind: 'failure' | 'warning', message }.
  *
@@ -37,8 +57,11 @@ export function outcomeOf(report) {
  * short right after an expected OK that came back TLE is judged on the tests
  * that ran, and the rest are a warning, if an earlier expected OK still came
  * back OK and every test that didn't run expects OK.
+ *
+ * `reason` (from {@link failedStepReason}) is added to the failed-step
+ * message, so a log shows why the step failed and not only which one.
  */
-export function compare(expected, actual) {
+export function compare(expected, actual, reason = '') {
   const diffs = [];
   const fail = message => diffs.push({ kind: 'failure', message });
   const warn = message => diffs.push({ kind: 'warning', message });
@@ -47,7 +70,7 @@ export function compare(expected, actual) {
     fail(`report ok: expected ${expected.ok}, got ${actual.ok}`);
   if ((actual.failedStep ?? null) !== (expected.failedStep ?? null))
     fail(
-      `failed step: expected ${expected.failedStep ?? 'none'}, got ${actual.failedStep ?? 'none'}`
+      `failed step: expected ${expected.failedStep ?? 'none'}, got ${actual.failedStep ?? 'none'}${reason && actual.failedStep ? `${REASON}${reason}` : ''}`
     );
   for (const [step, ok] of Object.entries(expected.steps)) {
     if (actual.steps[step] !== ok)
@@ -289,9 +312,13 @@ export function nonEmpty(name, checks, reason) {
  * all counts as a regression, so a broken install can't pass as "nothing new".
  */
 export function regressions(baseline, candidate) {
+  // the reason polyman gave can differ between two runs of the same failure
   const failuresOf = summary =>
     new Map(
-      (summary?.problems ?? []).map(p => [p.name, new Set(p.failures ?? [])])
+      (summary?.problems ?? []).map(p => [
+        p.name,
+        new Set((p.failures ?? []).map(m => m.split(REASON)[0])),
+      ])
     );
   const before = failuresOf(baseline);
   const after = failuresOf(candidate);

@@ -6,6 +6,12 @@
 .corpus:
   extends: .node
   stage: test
+  variables:
+    # polyman gives each compile 10 s and starts them all at once, so on a
+    # 2-vCPU runner sum-parity's 7 compiles wait for a CPU and cross the limit
+    # (#88). The verify service already uses 60 s (service/src/verify.ts).
+    # Keep this until #88 compiles a few at a time.
+    POLYMAN_COMPILE_TIMEOUT_MS: "60000"
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
     - changes: [src/**/*, corpus/**/*, template/**/*, assets/**/*, package.json, package-lock.json]
