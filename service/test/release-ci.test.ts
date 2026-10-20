@@ -81,6 +81,25 @@ describe('the rest of the release stays automatic', () => {
   });
 });
 
+describe('no candidate is staged from a push the guard refused', () => {
+  const guardCi = readFileSync(new URL('../../engine/ci/autonomy.gitlab-ci.yml', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+
+  it('the candidate needs the golden check and the go-ahead guard on main', () => {
+    const candidate = job('service:deploy:candidate');
+    expect(candidate).toMatch(/\n  needs:\n    - service:golden\n/);
+    // optional: a pipeline started from the UI (a drill) has no guard job;
+    // artifacts: false, the guard's verdict is its exit code, not a file
+    expect(candidate).toContain("- { job: 'autonomy:guard:main', optional: true, artifacts: false }");
+  });
+
+  it('the guard job it names still exists and runs on every push to the default branch', () => {
+    // `optional: true` would hide a rename: the need would just be skipped
+    const guard = job('autonomy:guard:main', guardCi);
+    expect(guard).toContain('- if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"');
+    expect(guard).toContain('node engine/src/cli/guard.ts "$CI_COMMIT_BEFORE_SHA"');
+  });
+});
+
 describe('exit 3 is a warning, not a failure', () => {
   it('the promote and the production check let exit 3 through, so a switch that did nothing starts no rollback', () => {
     for (const name of ['service:promote:production', 'service:check:production']) {
