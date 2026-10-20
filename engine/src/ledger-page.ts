@@ -1,4 +1,5 @@
 import type { Counters, GuardRun, Ledger, NoteRef, OpenPush } from './ledger.ts';
+import { type Loop, type LoopGrams, type LoopSummary, gramsRange, summaryLine } from './loops.ts';
 
 /** The ledger as a static page for Pages: the counters, then every record. */
 
@@ -17,9 +18,59 @@ export interface PageInput {
   web: string;
   generatedAt: string;
   commit: string;
+  /** one row per loop; the agent sessions' counts, when there are any */
+  loops?: {
+    rows: (Loop & { grams: LoopGrams | null })[];
+    summary: LoopSummary;
+    sessions: { countedUpTo: string; source: string } | null;
+    grid: number;
+  };
 }
 
-export function renderLedgerPage({ ledger, open, runs, counters: c, web, generatedAt, commit }: PageInput): string {
+const when = (iso: string) => iso.replace('T', ' ').replace(/:\d\dZ$/, '').replace('Z', '');
+export const duration = (minutes: number) => (minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)} h ${String(minutes % 60).padStart(2, '0')} min`);
+
+/** The loops: the summary line, then one row per agent-built change a person merged. */
+export function renderLoops(loops: NonNullable<PageInput['loops']>, web: string): string {
+  const { rows, summary, sessions, grid } = loops;
+  const mr = (iid: number) => `<a href="${esc(web)}/-/merge_requests/${iid}">!${iid}</a>`;
+  const body = rows
+    .map((l) => {
+      const fixGivers = [...new Set(l.go_aheads.slice(1).map((g) => g.by))].filter((by) => by !== l.go_ahead.by);
+      const refused = [
+        l.refused_pushes.length ? `${l.refused_pushes.length} push${l.refused_pushes.length === 1 ? '' : 'es'} <span class="muted">(${[...new Set(l.refused_pushes.map((p) => p.mr))].map(mr).join(', ')})</span>` : '',
+        l.refused_go_aheads.length ? `${l.refused_go_aheads.length} go-ahead${l.refused_go_aheads.length === 1 ? '' : 's'} <span class="muted">(${l.refused_go_aheads.map((n) => `<a href="${esc(n.url)}">@${esc(n.by)}</a>`).join(', ')})</span>` : '',
+      ].filter(Boolean);
+      const g = l.grams;
+      const flows = g ? Object.entries(g.byFlow).map(([f, n]) => `${n} ${esc(f)}`).join(', ') : '';
+      return `<tr>
+<td>${l.issues.length ? l.issues.map((i) => `<a href="${esc(web)}/-/issues/${i}">#${i}</a>`).join(', ') : '<span class="muted">none: the MR was the request</span>'}</td>
+<td>${l.requesters.map(user).join('<br>') || '<span class="muted">nobody on record</span>'}</td>
+<td>${user(l.go_ahead.by)}<br><a class="muted" href="${esc(l.go_ahead.url)}">${esc(when(l.go_ahead.at))}</a>${fixGivers.length ? `<br><span class="muted">fix rounds: ${fixGivers.map(user).join(', ')}</span>` : ''}</td>
+<td>${mr(l.mr)}${l.moved_from.length ? `<br><span class="muted">moved from ${l.moved_from.map(mr).join(', ')}</span>` : ''}<br><span class="muted">${esc(l.flow)}</span></td>
+<td>${l.merged_by ? user(l.merged_by) : '<span class="muted">not given</span>'}${l.giver_merged ? '<br><span class="muted">also gave a go-ahead</span>' : ''}<br><span class="muted">${esc(when(l.merged_at))}</span></td>
+<td class="num">${esc(duration(l.minutes))}</td>
+<td class="num">${l.fix_rounds}</td>
+<td>${refused.join('<br>') || '<span class="muted">none</span>'}</td>
+<td style="min-width: 180px">${g && g.sessions ? `<span class="num">${esc(gramsRange(g.low, g.high))}</span><br><span class="muted">${g.sessions} session${g.sessions === 1 ? '' : 's'}: ${flows}${g.uncounted ? `; ${g.uncounted} without a count` : ''}${g.partial ? '; later sessions not counted yet' : ''}</span>` : '<span class="muted">not counted</span>'}</td>
+</tr>`;
+    })
+    .join('\n');
+  const method = sessions
+    ? `Grams: every agent session on the loop's issue and MRs up to the merge (the proposal, the build, each review, each fix round, the pipeline fixer), each session counted in one loop only (a session on an issue two merged MRs closed counts in the first of them to merge after it started), as counted from each session's checkpoint: the runner's measured time plus the counted model calls at 0.24-2.5 Wh each, at ${grid} gCO2e/kWh (<a href="${esc(web)}/-/blob/main/SUSTAINABILITY.md">SUSTAINABILITY.md</a>). The counts come from <a href="${esc(web)}/-/blob/main/sustainability/loop-sessions.json">sustainability/loop-sessions.json</a>, counted up to <strong>${esc(sessions.countedUpTo.replace('T', ' ').replace(/\.\d+Z$|Z$/, ' UTC'))}</strong>: CI can't read the session checkpoints with its job token, so a person's token counts them and the file is committed. A session that started from a pipeline event and isn't tied to the issue or MR (the one that opened an incident) isn't counted, so these lean low.`
+    : 'No agent session counts are committed, so the loops are shown without grams.';
+  return `<p class="summary">${esc(summaryLine(summary))}.</p>
+<p class="muted">A loop is an agent-built change a person merged, from the request to the merge. Requester: who wrote the issue (or opened the MR, when there was no issue); their go-ahead never counts. Go-ahead to merge: from the go-ahead for the first push to the merge${summary.medianMinutes !== null ? `, median ${esc(duration(Math.round(summary.medianMinutes)))}` : ''}. Fix rounds: reviewer pushes a person gave a go-ahead to. Refused: agent pushes the guard refused on the loop's MRs, and go-aheads a person wrote that didn't count (from the requester, or not in the words the guard takes), after which the agent waited for another.</p>
+<div class="scroll"><table>
+<thead><tr><th>Issue</th><th>Requester</th><th>Go-ahead</th><th>MR</th><th>Merged by</th><th>Go-ahead → merge</th><th>Fix rounds</th><th>Refused</th><th>gCO2e, low-high</th></tr></thead>
+<tbody>
+${body || '<tr><td colspan="9" class="muted">No agent-built change merged yet.</td></tr>'}
+</tbody>
+</table></div>
+<p class="muted">${method} As JSON: <a href="loops.json">loops.json</a>.</p>`;
+}
+
+export function renderLedgerPage({ ledger, open, runs, counters: c, web, generatedAt, commit, loops }: PageInput): string {
   const byWhom = Object.entries(c.byWhom)
     .sort(([, a], [, b]) => b - a)
     .map(([who, n]) => `${user(who)} ${n}`)
@@ -79,6 +130,8 @@ code { font: 13px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace; }
 .muted { color: var(--muted); font-size: 13px; }
 .ok { color: var(--ok); font-weight: 600; }
 .bad { color: var(--bad); font-weight: 600; }
+.summary { font-size: 18px; font-weight: 600; max-width: none; }
+.num { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin: 24px 0; }
 .tile { background: var(--tile); border: 1px solid var(--line); border-radius: 8px; padding: 16px; }
 .tile .label { color: var(--muted); font-size: 13px; }
@@ -96,6 +149,7 @@ tr:last-child td { border-bottom: 0; }
 <main>
 <h1>Go-ahead ledger</h1>
 <p>Every push an agent made to a merged MR since the go-ahead guard (<code>autonomy:goahead</code>) reached <code>main</code> (${sha(ledger.since.commit, web)}, ${esc(ledger.since.at.replace('T', ' ').replace('Z', ' UTC'))}), judged again by the guard's own code from what GitLab recorded: who wrote each note and when, who pushed what and when. Each record holds the SHA-256 of the record before it. CI rebuilds the chain from the GitLab API on every pipeline on <code>main</code> and fails if this published ledger isn't the start of the rebuilt one, so a record can't be changed after the fact. The rules: <a href="${esc(web)}/-/wikis/Assisted">Assisted</a>.</p>
+${loops ? `<h2>One row per loop</h2>\n${renderLoops(loops, web)}\n<h2>Every agent push</h2>` : ''}
 <div class="tiles">
 ${tiles}
 </div>

@@ -63,15 +63,15 @@ export function isProposal(body: string): boolean {
 
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+/** `@account` as a mention: not inside an email address or a longer name. */
+export const mentionOf = (account: string) => new RegExp(`(^|[^\\w.-])@${escape(account)}(?![\\w.-])`, 'i');
+
 /**
- * One line of the comment mentions this account and, apart from @mentions,
- * says exactly "go-ahead" (a trailing full stop is fine). "No go-ahead yet" is
- * not one, and neither is a go-ahead to another agent with this one mentioned
- * elsewhere in the comment. Lines in code blocks, quotes and HTML comments
- * don't count: they show or cite a go-ahead, they don't give one.
+ * The lines of a comment that say something themselves: lines in code blocks
+ * (fenced or indented), quotes and HTML comments only show or cite text.
  */
-export function saysGoAhead(body: string, account: string): boolean {
-  const mention = new RegExp(`(^|[^\\w.-])@${escape(account)}(?![\\w.-])`, 'i');
+export function ownLines(body: string): string[] {
+  const own: string[] = [];
   // the open fence (``` or ~~~, three or more): only a line of the same
   // character, at least as many times, closes it
   let fence: string | null = null;
@@ -102,10 +102,21 @@ export function saysGoAhead(body: string, account: string): boolean {
     // a quote runs on over the lines that follow it until a blank line
     quoted = /^\s*>/.test(line) || (quoted && !blank);
     boundary = blank || /^ {0,3}(#{1,6}(\s|$)|([-*_])( *\3){2,} *$)/.test(line);
-    if (indented || quoted) continue;
-    if (mention.test(line) && line.replace(/@[\w.-]+/g, ' ').trim().replace(/[.!]$/, '').toLowerCase() === 'go-ahead') return true;
+    if (!indented && !quoted) own.push(line);
   }
-  return false;
+  return own;
+}
+
+/**
+ * One line of the comment mentions this account and, apart from @mentions,
+ * says exactly "go-ahead" (a trailing full stop is fine). "No go-ahead yet" is
+ * not one, and neither is a go-ahead to another agent with this one mentioned
+ * elsewhere in the comment. Lines in code blocks, quotes and HTML comments
+ * don't count: they show or cite a go-ahead, they don't give one.
+ */
+export function saysGoAhead(body: string, account: string): boolean {
+  const mention = mentionOf(account);
+  return ownLines(body).some((line) => mention.test(line) && line.replace(/@[\w.-]+/g, ' ').trim().replace(/[.!]$/, '').toLowerCase() === 'go-ahead');
 }
 
 /** A push as GitLab's project events record it: who pushed, when, and what it moved the branch from and to. */
@@ -179,6 +190,13 @@ export function allowedApprovers(step: Step, config: AutonomyConfig): { from: 'a
 export type Verdict = { ok: true; note: Note; proposal: Note } | { ok: false; reason: string; proposal?: Note };
 
 /**
+ * When a proposal counts from for a push at `at` (ms): its last edit if that
+ * came before the push, else when it was written. A go-ahead must come after it.
+ */
+export const proposalTime = (n: Note, at: number) =>
+  n.updated_at && time(n.updated_at) < at ? Math.max(time(n.created_at), time(n.updated_at)) : time(n.created_at);
+
+/**
  * A push by an agent is allowed when a person the step allows wrote a go-ahead
  * that mentions the agent, after the agent's latest proposal before the push
  * (counting edits made before the push), after the agent's previous push to the
@@ -192,7 +210,7 @@ export function goAheadFor(
   previousPush?: string,
 ): Verdict {
   const at = time(push.at);
-  const touched = (n: Note) => (n.updated_at && time(n.updated_at) < at ? Math.max(time(n.created_at), time(n.updated_at)) : time(n.created_at));
+  const touched = (n: Note) => proposalTime(n, at);
   const own = notes.filter(
     (n) => !n.system && time(n.created_at) < at && n.author.username.toLowerCase() === push.pusher.toLowerCase() && isProposal(n.body),
   );
