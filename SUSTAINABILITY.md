@@ -1,5 +1,19 @@
 # What the agents cost the planet
 
+## SCI at a glance
+
+**SCI = ((E × I) + M) per R** (Software Carbon Intensity, ISO/IEC 21031:2024). Every figure here is from a section further down, named in brackets.
+
+- **R, the functional unit: one full merge request review.** Also per loop: one agent-built change a person merged, from the proposal to the merge (the [go-ahead ledger](https://showcase-ce2cdc.gitlab.io/ledger/), and "Per delivered fix").
+- **E, energy:** counted model calls × 0.24-2.5 Wh per call, plus runner time. 0.24 Wh is Google's median Gemini Apps text prompt (arXiv:2508.15734), 2.5 Wh Epoch AI's estimate for a GPT-4o query with ~10k input tokens; neither is measured for the model our flows use. Calls are counted from each session's checkpoints. Runner time is the job duration from the GitLab API, turned into energy with Cloud Carbon Footprint coefficients for a 2 vCPU, 8 GB runner (7.56 g per runner-hour) ["How it's calculated", "Same diffs"].
+- **I, grid intensity:** 579 gCO2e/kWh, us-east1 (Google's 2025 region data). The model's serving region isn't published ["How it's calculated"].
+- **M, embodied:** per vCPU-hour for the runner (1.2 g per vCPU-hour); not included for the model's hardware ["How it's calculated", "The warm verify instance"].
+- **The gain, on the same diffs (n=5):** the same five MRs, frozen at the heads of their first reviews, reviewed again. Median per review 8.4-70.0 → 4.0-31.1 gCO2e, and 13.1 → 5.8 credits (original reviews against reviewer 1.0.25). **The quality cost:** about two thirds of the original P1/P2 findings, 11 of 17 found at P1/P2, plus 6 new ones and no false P1; the one P1 was rated P2. n=5, one run per version ["Same diffs, three reviewer versions"].
+- **A change that failed its bar and was reverted (E-R):** a rule to reproduce each P1/P2 before rating it. The bar, written before the rerun, was at least 15 of 17; it found 9 of 17, so !182 reverted it ["The change that was reverted"].
+- **E-R2 (clean recall rerun): results on Friday.**
+- **The warm verify instance (judging window), counted too:** 92-146 gCO2e per day, 2,500-4,000 g for 20 Oct to 16 Nov (an upper bound), about the grams of 3 to 14 high-risk reviews a day. It saves a judge's first verify a 23.6 s cold start and goes back to 0 after judging ["The warm verify instance"].
+- **How to recompute:** the per-tier review figures (Oct 16-18) are in an Impact Framework manifest, [sustainability/agent-reviews.yml](sustainability/agent-reviews.yml), builtin Multiply and Sum only: `npx -y -p @grnsft/if@1.1.1 if-run -m sustainability/agent-reviews.yml`. The same-diff figures come from the session ids listed under "How it was verified", by the same method.
+
 Our agents run on GitLab: each Duo flow session is a CI job on a runner, and
 its model calls run on GitLab's side. We count both, and say which part is
 measured and which is estimated.
