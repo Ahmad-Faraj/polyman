@@ -79,7 +79,10 @@ It runs code anyone can upload, so:
   instance, cancelled if the visitor leaves.
 - **On Cloud Run:** a service account with no roles, all egress into a VPC with
   no route out (no NAT, egress denied), one request per instance, gVisor (gen1),
-  2 vCPU and 2 GiB. The upload is deleted when the response ends.
+  2 vCPU and 2 GiB. The upload is deleted when the response ends. Through
+  the judging window one instance is kept warm (`MIN_INSTANCES` in
+  `deploy/cloudrun.conf`, a service-level minimum, so only the revision with
+  traffic has it); its grams and cost are in SUSTAINABILITY.md.
 - **Known limit:** DNS lookups go through Cloud Run's metadata server, which the
   VPC firewall doesn't cover, so a solution could leak what it can read (its
   own upload and the image's public files) through DNS queries. The same

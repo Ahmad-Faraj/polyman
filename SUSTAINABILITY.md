@@ -227,6 +227,41 @@ from another folder. To rebuild the manifest from the committed sessions (no
 token): `node engine/src/cli/review-manifest.ts`. A test fails if the committed
 manifest and `sustainability/agent-tokens.json` drift apart.
 
+## The warm verify instance (judging window)
+
+From the next service release until judging ends (target 16 Nov), one
+instance of the verify service is kept warm (`MIN_INSTANCES=1` in
+`service/deploy/cloudrun.conf`), so a judge's first verify doesn't wait for a
+cold start (23.6 s, measured on 20 Oct). It is one 2 vCPU / 2 GiB instance on
+the revision that serves traffic, idle most of the time; tagged candidate
+revisions get none. It goes back to 0 after judging.
+
+These are estimates, not measurements, by the same method as the runner above:
+Cloud Carbon Footprint's GCP coefficients (0.71 W per vCPU at idle, 4.26 W at
+full load, 0.000392 kWh per GB-hour of memory), PUE 1.1, us-east1's grid at
+579 gCO2e/kWh, and 1.2 g per vCPU-hour embodied. The low end takes the CPU at
+idle; the high end at the 50% utilisation we assume for a CI job, a ceiling for
+an instance that mostly waits (Cloud Run throttles its CPU between requests).
+Requests from judges come on top and are not in these figures.
+
+| Warm instance | Energy | Operational gCO2e | Embodied gCO2e | Total gCO2e |
+|---|---|---|---|---|
+| per day | 60-153 Wh | 35-89 | 58 | 92-146 |
+| 20 Oct to 16 Nov (27 days, an upper bound: it starts at the next release) | 1.6-4.1 kWh | 930-2,400 | 1,560 | 2,500-4,000 |
+
+A day of the warm instance is about the grams of 3 to 14 high-risk reviews
+(table above, low end against low end and high against high). When Google
+Cloud's Carbon Footprint report has the project's figure for these months, it
+replaces this estimate here.
+
+Cost, from the [Cloud Run pricing page](https://cloud.google.com/run/pricing)
+(read 20 Oct 2026; request-based billing, Tier 1 regions, us-east1 among them):
+an idle minimum instance is billed $0.0000025 per vCPU-second and $0.0000025
+per GiB-second, so 2 vCPU and 2 GiB come to $0.86 a day, about $23 for the 27
+days, before the free tier (180,000 vCPU-seconds and 360,000 GiB-seconds a
+month, shared with the service's real requests). It is paid from the project's
+Google Cloud free trial credit.
+
 ## What's not here yet
 
 - A same-task test of tiering: the same MRs reviewed with tiering off (all high)

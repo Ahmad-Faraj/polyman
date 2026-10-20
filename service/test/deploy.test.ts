@@ -41,6 +41,11 @@ function run(mode: string, cloud: Cloud, env: Record<string, string> = {}) {
   *"services describe"*) echo polyman-verify ;;
 esac`,
   );
+  // the candidate copies its image with a downloaded crane: stand-ins for the
+  // download, the checksum and the unpacking leave a crane that only logs
+  stub('curl', ':');
+  stub('sha256sum', ':');
+  stub('tar', `printf '#!/bin/sh\\necho "crane $*" >> "${work}/calls.log"\\n' > crane && chmod +x crane`);
   const diffStatus = { same: 0, changed: 1, error: 128 }[cloud.serviceDiff ?? 'same'];
   stub(
     'git',
@@ -156,5 +161,22 @@ describe('cloudrun.sh discard', () => {
     const r = run('discard', { traffic: serving('rev-1', 'c-abc1234', 'c-other12'), mainHead: 'x' });
     expect(r.status).toBe(0);
     expect(r.switches[0]).toContain('--remove-tags c-abc1234,c-other12');
+  });
+});
+
+describe('cloudrun.sh candidate', () => {
+  const MIN = /^MIN_INSTANCES=(\d+)$/m.exec(readFileSync(new URL('../deploy/cloudrun.conf', import.meta.url), 'utf8'))?.[1];
+
+  it('deploys a tagged revision without traffic, warm instances on the service only', () => {
+    const r = run('candidate', { traffic: serving('rev-1'), mainHead: 'x' }, { SERVICE_IMAGE: 'registry.example/img:abc1234', CI_REGISTRY: 'registry.example', CI_REGISTRY_USER: 'u', CI_REGISTRY_PASSWORD: 'p' });
+    expect(r.status).toBe(0);
+    const deploy = r.calls.split('\n').find((l) => l.startsWith('gcloud run deploy')) ?? '';
+    expect(deploy).toContain('--no-traffic --tag c-abc1234');
+    // the service-level minimum goes to the revisions with traffic; a tagged
+    // candidate with a minimum of its own would be kept warm too
+    expect(MIN).toBeDefined();
+    expect(deploy).toContain(`--min ${MIN} `);
+    expect(deploy).toContain('--min-instances 0 ');
+    expect(r.dotenv).toContain('CANDIDATE_URL=https://c-abc1234---polyman-verify-x.run.app');
   });
 });
