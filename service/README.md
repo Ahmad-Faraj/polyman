@@ -156,6 +156,41 @@ With Google Cloud set up (below), the default branch also releases it:
    the monitor itself couldn't run (the MR lookup or the monitor failed), the
    check ends as a warning and the release stays; `monitor.txt` says why.
 
+### Nightly incident rehearsal
+
+A check that caught an incident once must keep catching it. Every past
+incident caused by a code change has a folder in `ci/rehearsals/` (a
+governance path: changes need a code owner). Each scheduled pipeline,
+`rehearsal:incidents` (`ci/rehearsals/rehearse.sh`) takes a throwaway copy of
+the commit, re-plants each incident's bug there and requires the checks that
+run before a merge to refuse it: the incident's `service:test` file fails, and
+the golden public-host upload (`ci/public-upload.sh`, the same script
+`service:golden` runs) gets the incident's HTTP status. Nothing is pushed or
+deployed. The report is in the job's `rehearsal/report.txt`, for example:
+
+```
+#65: re-planted, refused by service:test (5 failed) and golden (HTTP 403)
+```
+
+The job fails, with a NEXT STEP line, when a check lets a past bug through, or
+when a patch no longer applies because the code moved; then a maintainer
+re-creates the bug on today's main and refreshes the patch. A fire drill
+(like #57) has no code bug and gets no folder.
+
+**After a code incident**, whoever writes its fix adds a folder named after the
+incident's number:
+
+- `bug.patch`: the change that caused it, as merged, e.g.
+  `git diff MERGE^1 MERGE -- the/file.ts > ci/rehearsals/65/bug.patch`
+  (only the code, not its tests, so the tests still judge it).
+- `incident.env`: `INCIDENT`, `SOURCE` (the MR and merge commit), `TEST_FILE`
+  (the file under `service/` with the tests that must fail with the bug in) and
+  `GOLDEN_STATUS` (the HTTP status the public-host upload must get).
+
+Then run `bash service/ci/rehearsals/rehearse.sh` from the repository root
+(after `npm ci` in `service/`, with the folder committed) and check the new
+incident's line says "refused".
+
 CI signs in to Google Cloud with the job's OIDC token through Workload
 Identity Federation, so no Google key is stored in GitLab.
 

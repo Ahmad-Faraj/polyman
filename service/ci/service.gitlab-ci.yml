@@ -80,21 +80,10 @@ service:golden:
     - for i in $(seq 1 30); do curl -sf http://verify:8080/health && break; sleep 2; done
     - curl -sf http://verify:8080/health || { echo "the service never became healthy"; exit 1; }
     - node --disable-warning=ExperimentalWarning service/scripts/golden.ts http://verify:8080 --json golden.json
-    # Incident #65: !127 refused every upload that came by the public *.run.app
-    # name with no Origin header, which is how scripts, the curl call in
-    # public/docs.html and the production check send them. Every check before
-    # the merge passed, because none of them used that name. So make the
-    # documented call here too, as the public host, and require the upload to
-    # be taken and run to the end.
-    - |
-      node --disable-warning=ExperimentalWarning --input-type=module -e "import { zipFolder } from './service/scripts/golden.ts'; process.stdout.write(zipFolder('service/samples/even-sum', 'even-sum'))" > upload.zip
-      code=$(curl -sS -o upload.ndjson -w '%{http_code}' -H "Host: $PUBLIC_HOST" -F problem=@upload.zip http://verify:8080/api/verify)
-      if [ "$code" != 200 ] || ! tail -n 1 upload.ndjson | grep -q '"type":"done"'; then
-        echo "curl -F problem=@even-sum.zip as $PUBLIC_HOST, with no Origin: HTTP $code (#65)" >&2
-        cat upload.ndjson >&2; echo >&2
-        exit 1
-      fi
-      echo "ok   upload as $PUBLIC_HOST with no Origin (#65)"
+    # Incident #65: the documented curl upload, made as the public host, must be
+    # taken and run to the end. The nightly rehearsal (service/ci/rehearsals)
+    # runs the same script against #65's bug and requires it to fail.
+    - sh service/ci/public-upload.sh http://verify:8080 "$PUBLIC_HOST"
   variables:
     # the shape of the production hostname (a Cloud Run URL); the service sees
     # only the Host header, so no DNS is involved

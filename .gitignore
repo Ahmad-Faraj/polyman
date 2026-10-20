@@ -11,3 +11,6 @@ coverage/
 .claude/worktrees/
 # written by autonomy:guard-mutation
 guard-mutation-metrics.txt
+
+# written by rehearsal:incidents (service/ci/rehearsals/rehearse.sh)
+rehearsal/
