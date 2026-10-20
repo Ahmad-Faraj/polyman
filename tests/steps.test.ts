@@ -435,6 +435,22 @@ describe('steps.ts', () => {
         config.solutions
       );
       expect(testset.ensureTestsetsExist).toHaveBeenCalledWith(config.testsets);
+      expect(solution.validateTimeLimitMultipliers).toHaveBeenCalledWith(
+        config
+      );
+    });
+
+    it('should fail when timeLimitMultipliers is invalid', () => {
+      const config = baseConfig({ timeLimitMultipliers: { java: 0 } });
+      vi.mocked(solution.validateTimeLimitMultipliers).mockImplementationOnce(
+        () => {
+          throw new Error('Invalid timeLimitMultipliers.java');
+        }
+      );
+      expect(() => steps.stepValidateConfigForSolutions(1, config, [])).toThrow(
+        'Invalid timeLimitMultipliers.java'
+      );
+      expect(formatter.fmt.stepComplete).not.toHaveBeenCalled();
     });
   });
 
@@ -571,6 +587,26 @@ describe('steps.ts', () => {
       expect(() =>
         steps.stepValidateConfigForSolutionTest(1, 'missing')
       ).toThrow('No solution named "missing" found.');
+    });
+
+    it('should fail when timeLimitMultipliers is invalid', () => {
+      const main = { name: 'main', source: 'm.cpp', tag: 'MA' };
+      const config = baseConfig({
+        solutions: [main],
+        timeLimitMultipliers: { java: 0 },
+      });
+      vi.mocked(utils.readConfigFile).mockReturnValue(config);
+      vi.mocked(solution.validateTimeLimitMultipliers).mockImplementationOnce(
+        () => {
+          throw new Error('Invalid timeLimitMultipliers.java');
+        }
+      );
+      expect(() => steps.stepValidateConfigForSolutionTest(1, 'main')).toThrow(
+        'Invalid timeLimitMultipliers.java'
+      );
+      expect(solution.validateTimeLimitMultipliers).toHaveBeenCalledWith(
+        config
+      );
     });
   });
 

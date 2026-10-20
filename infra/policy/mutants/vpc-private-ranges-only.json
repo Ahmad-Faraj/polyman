@@ -1,0 +1,12 @@
+{
+  "description": "Only private-range traffic goes into the isolated VPC; public egress leaves through Google's network",
+  "expect": "run-egress",
+  "ops": [
+    {
+      "op": "set",
+      "address": "google_cloud_run_v2_service.verify",
+      "path": ["template", 0, "vpc_access", 0, "egress"],
+      "value": "PRIVATE_RANGES_ONLY"
+    }
+  ]
+}

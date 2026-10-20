@@ -422,6 +422,29 @@ describe('actions.ts', () => {
       expect(process.exit).toHaveBeenCalledWith(1);
     });
 
+    it('should stop before running anything when timeLimitMultipliers is invalid', async () => {
+      const config = { timeLimitMultipliers: { java: 0 } };
+      vi.mocked(utils.readConfigFile).mockReturnValue(config as any);
+      vi.mocked(solution.validateTimeLimitMultipliers).mockImplementationOnce(
+        () => {
+          throw new Error(
+            'Invalid timeLimitMultipliers.java in Config.json: 0'
+          );
+        }
+      );
+      await actions.fullVerificationAction();
+      expect(solution.validateTimeLimitMultipliers).toHaveBeenCalledWith(
+        config
+      );
+      expect(steps.stepCompileGeneratorsForTestsets).not.toHaveBeenCalled();
+      expect(steps.stepRunSolutionsForVerification).not.toHaveBeenCalled();
+      expect(formatter.fmt.successBox).not.toHaveBeenCalled();
+      expect(formatter.fmt.errorBox).toHaveBeenCalledWith(
+        'VERIFICATION FAILED!'
+      );
+      expect(process.exit).toHaveBeenCalledWith(1);
+    });
+
     it('should print the compile cache summary on success and failure', async () => {
       vi.mocked(utils.readConfigFile).mockReturnValue({} as any);
       await actions.fullVerificationAction();
@@ -1237,7 +1260,7 @@ describe('actions.ts', () => {
         command: 'new',
         ok: true,
         exitCode: 0,
-        path: '/mock/cwd/prob',
+        path: path.resolve('/mock/cwd', 'prob'),
         errors: [],
       });
       expect(typeof doc()['durationMs']).toBe('number');

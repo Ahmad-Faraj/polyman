@@ -228,15 +228,27 @@ my-problem/
   "description": "A brief description of the problem",
   "tags": ["implementation", "math", "greedy"],
   "tutorial": "Solution explanation and approach",
-  "cppStandard": "c++23"
+  "cppStandard": "c++23",
+  "timeLimitMultipliers": { "java": 2, "python": 3 }
 }
 ```
 
 | Field                  | Type   | Description                                                                          | Default          |
 | ---------------------- | ------ | ------------------------------------------------------------------------------------ | ---------------- |
 | `cppStandard`          | string | Standard passed to the local compiler as `-std=` (e.g. `c++17`, `c++20`)             | `c++23`          |
+| `timeLimitMultipliers` | object | Per-language factors applied to `timeLimit` for local runs (`cpp`, `java`, `python`) | every factor `1` |
 
 `cppStandard` only affects local compilation (`generate`, `validate`, `run`, `verify`). The compiler used on Polygon is chosen per file through `sourceType` (see [Source Types](#source-types)).
+
+`timeLimitMultipliers` also only affects local runs. Java and Python are slower than C++ at the same task (JVM startup, interpreter), so a correct `OK` solution can get TLE locally against a C++-sized limit and fail `polyman verify` even though the problem is fine. A factor scales `timeLimit` for that language only:
+
+```json
+{ "timeLimit": 1000, "timeLimitMultipliers": { "java": 2, "python": 3 } }
+```
+
+A Java solution then runs locally with `2000ms` and a Python one with `3000ms`; C++ keeps `1000ms` unless you list `cpp` too. The scaled limit is printed when a run starts, e.g. `Time Limit: 2000ms (x2 for java)`. Polygon has no per-language limits, so `polyman remote push` still sends the plain `timeLimit` — the scaling never changes the problem itself. Omitting the field keeps every solution on the declared limit, exactly as before. The language comes from the file extension (`.cpp`/`.cc`/`.cxx`, `.java`, `.py`), the same way polyman picks how to run the file locally; `sourceType` does not change it.
+
+`run`, `test` and `verify` check the field before anything runs and stop with an error if it is wrong: a key other than `cpp`, `java` or `python`, a factor that is not a positive number (including `null`), a value that is not an object, or a factor that makes the limit bigger than `2147483647ms`.
 
 #### Local Compiler Overrides
 

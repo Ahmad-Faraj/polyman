@@ -12,7 +12,8 @@ The single source of truth for the whole problem. Every other file is referenced
   "description": "Short description.",
   "tags": ["implementation", "math"],
 
-  "timeLimit": 1000,                     // ms, applied to every solution
+  "timeLimit": 1000,                     // ms, applied to every solution (scaled per language locally by timeLimitMultipliers)
+  "timeLimitMultipliers": { "java": 2 }, // optional; local-only scaling of timeLimit per language (cpp/java/python), Polygon keeps timeLimit
   "memoryLimit": 256,                    // MB
   "inputFile": "stdin",                  // keep "stdin" unless asked
   "outputFile": "stdout",                // keep "stdout" unless asked
@@ -79,6 +80,7 @@ Usually one named `"tests"`. Each entry:
 - **Add a solution / generator / manual test** → add the source file *and* the `Config.json` entry in the same edit.
 - **Change time/memory** → update `timeLimit` / `memoryLimit`, run `polyman verify`.
 - **Use another local compiler** (e.g. `g++-15`, `clang++`) → set `compiler.cpp`, or run with `POLYMAN_CXX=<compiler>` for one run; leave `sourceType` alone, it is what Polygon uses.
+- **A Java or Python solution TLEs locally but is correct** → add `timeLimitMultipliers` (`{ "java": 2 }`) instead of inflating `timeLimit` for every solution; the factor only applies to local runs, so Polygon keeps the real limit.
 - **Switch checker** → see `instructions/checker.md`.
 - **Multiple testsets** → append another `testsets[]` entry; each testset has its own script + manuals.
 
