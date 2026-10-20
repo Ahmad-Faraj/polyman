@@ -151,10 +151,21 @@ describe("git push's output and command", () => {
   });
 
   it('reads a long run of spaces at once, not over and over', () => {
-    const started = Date.now();
-    expect(pushedRefs(`To x\n${' '.repeat(50_000)}!`)).toEqual([]);
-    expect(pushedRefs(`To x\n ${' '.repeat(900)}!`)).toEqual([]);
-    expect(Date.now() - started).toBeLessThan(500);
+    // A 50k-space line (over the length cap) and 400 lines of 900 spaces (under it). This code takes
+    // 13-16 ms here. With an ambiguous flag (`([+\-*!= ]?)\s*`) and the cap kept, this test's best of
+    // three took 8.1 s; without the cap, the ambiguous flag took 210 s on the one 50k-space line. So
+    // 2 s, best of three, still catches either regression without failing on a busy machine.
+    const ms = (f: () => unknown) =>
+      Math.min(
+        ...[1, 2, 3].map(() => {
+          const t = performance.now();
+          f();
+          return performance.now() - t;
+        }),
+      );
+    const output = `To x\n${' '.repeat(50_000)}!\n` + `To x\n ${' '.repeat(900)}!\n`.repeat(400);
+    expect(pushedRefs(output)).toEqual([]);
+    expect(ms(() => pushedRefs(output))).toBeLessThan(2000);
   });
 
   it("doesn't read a fetch's refs as a push", () => {
