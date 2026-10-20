@@ -22,15 +22,16 @@ describe('requests that carry a token', () => {
     const bare = files.flatMap((f) =>
       readFileSync(f, 'utf8')
         .split('\n')
-        .filter((line) => /\bawait fetch\(/.test(line))
+        // `await fetch(` and `=> fetch(` (a fetch wrapped in readRetrying)
+        .filter((line) => /(\bawait|=>) fetch\(/.test(line))
         .map((line) => `${f}: ${line.trim()}`),
     );
     // the anonymous retry in gitlab.ts, the go-ahead check's anonymous GraphQL
     // read of notes, and the ledger's read of the ledger published on Pages
     expect(bare).toEqual([
-      'src/cli/ledger.ts: const res = await fetch(url);',
-      'src/gitlab.ts: let anon = await fetch(url);',
-      'src/gitlab.ts: anon = await fetch(url);',
+      'src/cli/ledger.ts: const res = await readRetrying(() => fetch(url));',
+      'src/gitlab.ts: let anon = await readRetrying(() => fetch(url));',
+      'src/gitlab.ts: anon = await readRetrying(() => fetch(url));',
       'src/goahead-mr.ts: let res = await fetch(url, post);',
       'src/goahead-mr.ts: res = await fetch(url, post);',
     ]);
