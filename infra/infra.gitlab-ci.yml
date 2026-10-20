@@ -139,19 +139,21 @@ infra:import:
     - export GOOGLE_APPLICATION_CREDENTIALS=/tmp/gcp-creds.json
     - export TF_HTTP_PASSWORD="$CI_JOB_TOKEN"
     - tofu init -input=false
-    - tofu plan -input=false -out=/tmp/import.bin > /tmp/plan.txt || { tail -20 /tmp/plan.txt; exit 1; }
+    # -no-color: the summary below is matched exactly, and in color the line
+    # starts with an escape code (the first run refused a clean plan for that)
+    - tofu plan -input=false -no-color -out=/tmp/import.bin > /tmp/plan.txt || { tail -20 /tmp/plan.txt; exit 1; }
     - summary=$(grep -E '^Plan:' /tmp/plan.txt || true); echo "$summary"
     - |
       if [ "$summary" != "Plan: 21 to import, 0 to add, 0 to change, 0 to destroy." ]; then
         echo "refusing: only a plan that imports all 21 resources and changes nothing may be applied"
         exit 1
       fi
-    - tofu apply -input=false /tmp/import.bin | tail -3
+    - tofu apply -input=false -no-color /tmp/import.bin | tail -3
     - echo "== plan again, must be no change"
     # job logs are public and plan values hold the IAM policy: on a non-clean
     # plan, print only the resource lines and the summary, never attributes
     - |
-      rc=0; tofu plan -input=false -lock=false -detailed-exitcode > /tmp/after.txt || rc=$?
+      rc=0; tofu plan -input=false -no-color -lock=false -detailed-exitcode > /tmp/after.txt || rc=$?
       if [ "$rc" = 0 ]; then echo "No changes. The GitLab state matches Google Cloud."; else
         echo "The plan after the import is not clean (exit $rc):"
         grep -E '^ *# |^Plan:|^Error' /tmp/after.txt || tail -5 /tmp/after.txt

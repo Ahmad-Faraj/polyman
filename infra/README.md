@@ -123,23 +123,29 @@ resources) and `policy-report.txt` (the judge) are exposed as "OpenTofu
 plan". The plan JSON itself holds the live project IAM policy, which includes
 people's addresses, so it stays in `/tmp` and is never uploaded.
 
-### The planner account (stage 2b, not created yet)
+### The planner account
 
-`infra:plan` needs a read-only service account, `gitlab-planner`, that does
-not exist yet:
+`infra:plan` and `infra:import` sign in as a read-only service account,
+`gitlab-planner`, set up on Oct 20:
 
-- it gets the read permissions below and nothing else;
+- it holds `roles/viewer` and `roles/iam.workloadIdentityPoolViewer` (the
+  permissions below) and nothing else;
 - the existing WIF principal for this project
   (`principalSet://…/workloadIdentityPools/gitlab/attribute.project_path/<project>`)
-  gets `roles/iam.workloadIdentityUser` on it. The provider's condition already
+  has `roles/iam.workloadIdentityUser` on it. The provider's condition already
   limits that principal to protected `main`, so only default-branch pipelines
   can plan;
-- `GCP_PLANNER_SA` is set to its email in Settings > CI/CD > Variables.
+- `GCP_PLANNER_SA` is set to its email in Settings > CI/CD > Variables;
+- the project has the Cloud Resource Manager and IAM APIs enabled
+  (`gcloud services enable cloudresourcemanager.googleapis.com
+  iam.googleapis.com`). Without them every read of a project service, the IAM
+  policy, the service accounts and the pool fails with 403, and the plan shows
+  only the 5 resources it could read ([#99](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues/99)).
 
-Once that is in place, the first plan shows the 21 imports. Whether to write
-them into the `verify` state (one reviewed `tofu apply` of imports only) is a
-stage 2b decision. Until then, every nightly plan shows the imports and no
-drift.
+With that in place, the plan on `main` shows the 21 imports and no drift
+([infra:plan](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17323792278)).
+`infra:import` writes them into the `verify` state once; until it has run,
+every nightly plan shows the imports and no drift.
 
 It must not be `gitlab-deployer`, which can write.
 
