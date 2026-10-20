@@ -151,10 +151,21 @@ describe("git push's output and command", () => {
   });
 
   it('reads a long run of spaces at once, not over and over', () => {
-    const started = Date.now();
-    expect(pushedRefs(`To x\n${' '.repeat(50_000)}!`)).toEqual([]);
-    expect(pushedRefs(`To x\n ${' '.repeat(900)}!`)).toEqual([]);
-    expect(Date.now() - started).toBeLessThan(500);
+    // A 50k-space line (over the length cap) and 400 lines of 900 spaces (under it). This code takes
+    // 13-16 ms here. With an ambiguous flag (`([+\-*!= ]?)\s*`) and the cap kept, this test's best of
+    // three took 8.1 s; without the cap, the ambiguous flag took 210 s on the one 50k-space line. So
+    // 2 s, best of three, still catches either regression without failing on a busy machine.
+    const ms = (f: () => unknown) =>
+      Math.min(
+        ...[1, 2, 3].map(() => {
+          const t = performance.now();
+          f();
+          return performance.now() - t;
+        }),
+      );
+    const output = `To x\n${' '.repeat(50_000)}!\n` + `To x\n ${' '.repeat(900)}!\n`.repeat(400);
+    expect(pushedRefs(output)).toEqual([]);
+    expect(ms(() => pushedRefs(output))).toBeLessThan(2000);
   });
 
   it("doesn't read a fetch's refs as a push", () => {
@@ -263,7 +274,8 @@ describe("git push's output and command", () => {
   });
 
   it('reads a long run of gits or a long shell flag in linear time', () => {
-    // the best of three runs, so a busy machine or a cold start does not fail it; the old checks took seconds
+    // The best of three runs against a 2 s bound: a loaded machine took 311-525 ms here and failed a
+    // 200 ms bound, and each input below is sized so the old quadratic check takes several times 2 s.
     const ms = (f: () => unknown) =>
       Math.min(
         ...[1, 2, 3].map(() => {
@@ -272,10 +284,12 @@ describe("git push's output and command", () => {
           return performance.now() - t;
         }),
       );
-    // one git after another with no push: the old check scanned to the end once per git
-    expect(ms(() => pushesOf([call({ args: { command: 'python3 ' + 'git '.repeat(40_000) }, response: 'Exit code: 0\n' })], session))).toBeLessThan(200);
-    // a flag of 40k c's that fails at the last letter: the old check tried every c as the one c
-    expect(ms(() => pushesInCommand('sh -' + 'c'.repeat(40_000) + 'A'))).toBeLessThan(200);
+    // one git after another with no push: the old check scanned to the end once per git (11-20 s on 40k)
+    expect(ms(() => pushesOf([call({ args: { command: 'python3 ' + 'git '.repeat(40_000) }, response: 'Exit code: 0\n' })], session))).toBeLessThan(2000);
+    // a flag of 100k c's that fails at the last letter: the old check tried every c as the one c.
+    // Its regex took 1.5-7 s on 40k c's and 28-29 s on 100k on a loaded machine; time grows with the
+    // square of the length, so 100k is about 10 s where 40k took 1.5 s. The new check takes under 1 ms.
+    expect(ms(() => pushesInCommand('sh -' + 'c'.repeat(100_000) + 'A'))).toBeLessThan(2000);
   });
 
   it('takes the credentials out of what a push was read from', () => {
