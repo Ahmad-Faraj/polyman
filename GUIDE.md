@@ -2135,6 +2135,8 @@ polyman remote package <problem-id> <type>
 | `windows` | Windows package | Generated tests, Windows compiled binaries |
 | `full` | Full package | All three types above |
 
+Every build is verified (Polygon runs all solutions on all tests). `linux` and `windows` build a full package on Polygon, because Polygon only builds those packages as part of a full one; `standard` does not.
+
 **Examples:**
 
 ```bash
