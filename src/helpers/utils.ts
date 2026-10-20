@@ -330,6 +330,26 @@ export function resolveCppStandard(): string {
   return configured;
 }
 
+const HEADER_FLAG_PREFIXES = [
+  '-include',
+  '-imacros',
+  '-isystem',
+  '-iquote',
+  '-idirafter',
+  '-I',
+  '@',
+];
+
+/**
+ * Whether a compiler flag can pull in files the compile cache does not hash:
+ * `-include`, `-imacros`, `-I`, `-isystem`, `-iquote`, `-idirafter` (attached
+ * to their value or not, as the value is then the next flag) and `@file`
+ * response files.
+ */
+function pullsInFiles(flag: string): boolean {
+  return HEADER_FLAG_PREFIXES.some(prefix => flag.startsWith(prefix));
+}
+
 /**
  * Compiles a C++ source file.
  * The compiler executable comes from {@link resolveCppCompiler} (`POLYMAN_CXX`,
@@ -342,6 +362,10 @@ export function resolveCppStandard(): string {
  * and the compiler is not run. A testlib program is compiled against a
  * declarations-only testlib and linked with testlib compiled once per
  * problem (see `prebuilt-testlib.ts`), falling back to the original header.
+ * When `compiler.flags` holds a flag that pulls in files the cache cannot see
+ * (`-include`, `-imacros`, `-I`, `-isystem`, `-iquote`, `-idirafter`,
+ * `@file`), neither the cache nor the prebuilt testlib is used: the source
+ * is compiled in full every time.
  *
  * @param {string} sourcePath - Path to the .cpp / .cc / .cxx source file
  * @param {Object} [options] - Compilation overrides
@@ -391,6 +415,11 @@ export async function compileCPP(
       timeout: COMPILE_TIMEOUT,
       silent: true,
     });
+
+  if (flags.some(pullsInFiles)) {
+    await run(command([process.cwd()]));
+    return;
+  }
 
   await cachedCompile(
     {

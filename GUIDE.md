@@ -1799,7 +1799,7 @@ polyman verify --no-cache # recompile everything this run, without reading or wr
 
 Entries unused for 30 days are removed, and the cache is capped at 256 MB (least recently used entries go first). The cache lives with the problem, so it survives across sessions; add `.polyman/` to your `.gitignore`.
 
-**Limitations.** Java solutions are not cached. Headers pulled in through angle brackets (`#include <...>`), or found only through your own `-I` flags in `compiler.flags`, are not tracked, so after editing such a header, run `polyman cache clear`.
+**Limitations.** Java solutions are not cached. Headers pulled in through angle brackets (`#include <...>`) are not tracked, so after editing such a header, run `polyman cache clear`. Header-bearing flags in `compiler.flags` (`-include`, `-imacros`, `-I`, `-isystem`, `-iquote`, `-idirafter` and `@file` response files) disable the compile cache for that compile, so it always runs the compiler in full.
 
 ---
 

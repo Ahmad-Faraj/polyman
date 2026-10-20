@@ -630,6 +630,47 @@ describe('utils.ts', () => {
         );
       });
 
+      describe('with flags that pull in files', () => {
+        it.each([
+          ['-include hdr.h', ['-include', 'hdr.h']],
+          ['-imacros', ['-imacros', 'm.h']],
+          ['-I dir', ['-I', 'inc']],
+          ['-Idir', ['-Iinc']],
+          ['-isystem', ['-isystem', 'sys']],
+          ['-iquote', ['-iquote', 'q']],
+          ['-idirafter', ['-idirafter', 'd']],
+          ['an @file response file', ['@flags.rsp']],
+        ])('skips the cache and prebuilt testlib for %s', async (_n, flags) => {
+          mockConfig({ compiler: { flags } });
+
+          await utils.compileCPP('solutions/main.cpp');
+
+          expect(vi.mocked(cachedCompile)).not.toHaveBeenCalled();
+          expect(vi.mocked(findPrebuiltTestlib)).not.toHaveBeenCalled();
+          expect(executeMock()).toHaveBeenCalledTimes(1);
+          const command = executeMock().mock.calls[0][0];
+          for (const flag of flags) expect(command).toContain(flag);
+          expect(command).toContain('main.cpp');
+        });
+
+        it('still uses the cache for flags without them', async () => {
+          mockConfig({ compiler: { flags: ['-Wall', '-DLOCAL'] } });
+
+          await utils.compileCPP('solutions/main.cpp');
+
+          expect(vi.mocked(cachedCompile)).toHaveBeenCalledTimes(1);
+        });
+
+        it('propagates a compile failure', async () => {
+          mockConfig({ compiler: { flags: ['-include', 'hdr.h'] } });
+          executeMock().mockRejectedValueOnce(new Error('boom'));
+
+          await expect(utils.compileCPP('solutions/main.cpp')).rejects.toThrow(
+            'boom'
+          );
+        });
+      });
+
       describe('with a prebuilt testlib', () => {
         const cwd = path.resolve('/p');
         const prebuilt = {
