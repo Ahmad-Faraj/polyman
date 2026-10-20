@@ -99,8 +99,7 @@ export class CommandExecutor {
   ): Promise<ExecutionResult> {
     const wrappedCommand = this.applyMemoryLimit(
       command,
-      options.memoryLimitMB,
-      options.silent
+      options.memoryLimitMB
     );
     const platformCommand = this.normalizeCommandForPlatform(wrappedCommand);
 
@@ -195,13 +194,9 @@ export class CommandExecutor {
    * Applies memory limit to a command using platform-specific methods.
    * For Java programs, uses `-Xmx` flag. On Linux, wraps in a `ulimit -v` subshell.
    * Windows and macOS memory limits are not enforced (`ulimit -v` fails on macOS);
-   * on macOS a warning is printed once, unless the call is silent.
+   * on macOS a warning is printed once per executor, even for silent calls.
    */
-  private applyMemoryLimit(
-    command: string,
-    memoryLimitMB?: number,
-    silent?: boolean
-  ): string {
+  private applyMemoryLimit(command: string, memoryLimitMB?: number): string {
     if (!memoryLimitMB) return command;
 
     const isJava = command.trim().startsWith('java ');
@@ -216,7 +211,7 @@ export class CommandExecutor {
     }
 
     if (process.platform === 'darwin') {
-      if (!silent && !this.warnedMacMemoryLimit) {
+      if (!this.warnedMacMemoryLimit) {
         this.warnedMacMemoryLimit = true;
         fmt.warning(
           `${fmt.warningIcon()} Memory limits are not enforced on macOS`

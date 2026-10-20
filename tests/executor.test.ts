@@ -569,12 +569,16 @@ describe('CommandExecutor', () => {
         expect(fmt.warning).not.toHaveBeenCalled();
       });
 
-      it('does not warn when silent, and keeps the one-time warning', async () => {
+      it('warns once even when the calls are silent', async () => {
         await run('./prog', { memoryLimitMB: 128, silent: true });
         // eslint-disable-next-line @typescript-eslint/unbound-method
-        expect(fmt.warning).not.toHaveBeenCalled();
+        expect(fmt.warning).toHaveBeenCalledTimes(1);
+        // eslint-disable-next-line @typescript-eslint/unbound-method
+        expect(fmt.warning).toHaveBeenCalledWith(
+          expect.stringContaining('not enforced on macOS')
+        );
 
-        await run('./prog', { memoryLimitMB: 128 });
+        await run('./prog', { memoryLimitMB: 128, silent: true });
         // eslint-disable-next-line @typescript-eslint/unbound-method
         expect(fmt.warning).toHaveBeenCalledTimes(1);
       });
