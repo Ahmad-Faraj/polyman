@@ -1237,7 +1237,7 @@ describe('actions.ts', () => {
         command: 'new',
         ok: true,
         exitCode: 0,
-        path: '/mock/cwd/prob',
+        path: path.resolve('/mock/cwd', 'prob'),
         errors: [],
       });
       expect(typeof doc()['durationMs']).toBe('number');
