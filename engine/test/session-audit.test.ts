@@ -274,9 +274,8 @@ describe("git push's output and command", () => {
   });
 
   it('reads a long run of gits or a long shell flag in linear time', () => {
-    // the best of three runs, so a busy machine or a cold start does not fail it.
-    // The bound is 2 s: the old quadratic checks took 11-20 s on this same 40k input, so 2 s still
-    // catches that regression, while a loaded machine took 311-525 ms here and failed a 200 ms bound.
+    // The best of three runs against a 2 s bound: a loaded machine took 311-525 ms here and failed a
+    // 200 ms bound, and each input below is sized so the old quadratic check takes several times 2 s.
     const ms = (f: () => unknown) =>
       Math.min(
         ...[1, 2, 3].map(() => {
@@ -285,10 +284,12 @@ describe("git push's output and command", () => {
           return performance.now() - t;
         }),
       );
-    // one git after another with no push: the old check scanned to the end once per git
+    // one git after another with no push: the old check scanned to the end once per git (11-20 s on 40k)
     expect(ms(() => pushesOf([call({ args: { command: 'python3 ' + 'git '.repeat(40_000) }, response: 'Exit code: 0\n' })], session))).toBeLessThan(2000);
-    // a flag of 40k c's that fails at the last letter: the old check tried every c as the one c
-    expect(ms(() => pushesInCommand('sh -' + 'c'.repeat(40_000) + 'A'))).toBeLessThan(2000);
+    // a flag of 100k c's that fails at the last letter: the old check tried every c as the one c.
+    // Its regex took 1.5-7 s on 40k c's and 28-29 s on 100k on a loaded machine; time grows with the
+    // square of the length, so 100k is about 10 s where 40k took 1.5 s. The new check takes under 1 ms.
+    expect(ms(() => pushesInCommand('sh -' + 'c'.repeat(100_000) + 'A'))).toBeLessThan(2000);
   });
 
   it('takes the credentials out of what a push was read from', () => {
