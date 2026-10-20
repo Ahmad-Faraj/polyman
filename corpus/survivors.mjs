@@ -582,6 +582,35 @@ export async function judgeMutant({
   return { typeErrors, status: 'Survived' };
 }
 
+/**
+ * The unmutated build, judged twice per problem, each run in its own folder:
+ * a difference either run shows is not held against a mutant. A timeout here
+ * stops the job, since without a baseline no kill can be told apart.
+ */
+export async function judgeBaseline(
+  problems,
+  work,
+  timeoutMs,
+  judgeOne = judge
+) {
+  const baseline = { problems: [] };
+  for (const problem of problems) {
+    const runs = [];
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const judged = await judgeOne(
+        problem,
+        path.join(work, `baseline-${attempt}`),
+        timeoutMs
+      );
+      if (judged.timedOut)
+        throw new Error(`the unmutated build timed out on ${problem}`);
+      runs.push(judged.entry);
+    }
+    baseline.problems.push(mergeBaseline(runs));
+  }
+  return baseline;
+}
+
 async function judgeShard(args) {
   const report = JSON.parse(fs.readFileSync(args.report, 'utf8'));
   const all = selectMutants(report);
@@ -611,22 +640,7 @@ async function judgeShard(args) {
   // The unmutated build, judged in this same job: kills are differences from it
   const base = await build();
   if (!base.ok) throw new Error(`the unmutated build fails:\n${base.output}`);
-  // Judged twice: a difference either run shows is not held against a mutant
-  const baseline = { problems: [] };
-  for (const problem of problems) {
-    const runs = [];
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const judged = await judge(
-        problem,
-        path.join(work, `baseline-${attempt}`),
-        timeoutMs
-      );
-      if (judged.timedOut)
-        throw new Error(`the unmutated build timed out on ${problem}`);
-      runs.push(judged.entry);
-    }
-    baseline.problems.push(mergeBaseline(runs));
-  }
+  const baseline = await judgeBaseline(problems, work, timeoutMs);
   const red = baseline.problems.filter(p => p.failures.length);
   const flaky = baseline.problems.filter(p => p.flaky);
   console.log(
