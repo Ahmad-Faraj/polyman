@@ -311,6 +311,14 @@ describe("the project's Duo flows", () => {
     expect(text).not.toContain('requested review from @GitLabDuo');
   });
 
+  it('on a mention the lead fetches only the assess job, never the whole jobs list', () => {
+    const text = promptOf('mr-reviewer.yaml');
+    expect(text).toContain(
+      '/projects/PROJECT_ID/repository/commits/HEAD_SHA/statuses?name=autonomy:assess&pipeline_id=PIPELINE_ID'
+    );
+    expect(text).not.toContain('/pipelines/PIPELINE_ID/jobs');
+  });
+
   it('a reviewer specialist never pushes in a review, only in a fix round with a named go-ahead', () => {
     const text = flat('mr-reviewer.yaml');
     expect(text.split("Push only when the lead's instructions say this is a fix round and name the go-ahead note it runs on.").length - 1).toBe(3);
