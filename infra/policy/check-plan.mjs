@@ -260,21 +260,24 @@ function wif(managed, v) {
       );
       continue;
     }
-    const terms = cond
-      .split('&&')
-      .map(s => s.replace(/\s+/g, '').replace(/"/g, "'"));
-    // Each term must be one claim compared with one literal. Splitting on &&
-    // can't see string literals, so `assertion.sub > "0 && <the three
-    // terms> && x"` would split into the required terms while CEL reads one
-    // string comparison; the pieces around it fail this shape.
-    const odd = terms.filter(t => !/^assertion\.[a-z_]+=='[^']*'$/.test(t));
-    if (odd.length) {
+    // Read the condition the way CEL does, not by splitting it: the whole
+    // condition must be `assertion.<claim> == <literal>` terms joined by &&,
+    // where a literal is quoted with ' or " and holds neither quote nor a
+    // backslash. Then no literal can swallow a term or end on the other
+    // quote (`assertion.ref=="x' && <the required terms> && z=='y"` is one
+    // comparison in CEL), and values are compared exactly, spaces included.
+    const lit = `'[^'"\\\\]*'|"[^'"\\\\]*"`;
+    const term = `assertion\\.([a-z_]+)\\s*==\\s*(${lit})`;
+    if (!new RegExp(`^\\s*${term}(?:\\s*&&\\s*${term})*\\s*$`).test(cond)) {
       v(
         'wif-condition',
-        `${r.address}: every term must be assertion.<claim>=='<value>', not ${odd.join(' and ')} (it is: ${cond || '(empty)'})`
+        `${r.address}: every term must be assertion.<claim>=='<value>', joined by && (it is: ${cond || '(empty)'})`
       );
       continue;
     }
+    const terms = [...cond.matchAll(new RegExp(term, 'g'))].map(
+      m => `assertion.${m[1]}=='${m[2].slice(1, -1)}'`
+    );
     for (const need of required)
       if (!terms.includes(need))
         v(

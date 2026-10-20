@@ -199,7 +199,7 @@ fails unless:
 | `run-egress` | `vpc_access.egress = ALL_TRAFFIC`, no connector, exactly one interface on `verify-isolated`/`verify-isolated` |
 | `fw-deny` | an enabled EGRESS rule on `verify-isolated` denies all protocols to `0.0.0.0/0` for every instance, and no rule on it allows egress |
 | `runtime-roles` | verify-runtime holds no project role, in this configuration or in the live project policy read during the plan |
-| `wif-condition` | the pool holds only the `gitlab-com` provider (any other provider id fails); its condition is a plain `&&` of terms, each `assertion.<claim>=='<value>'` (any `\|\|`, `!`, `?`, parentheses or other term shape fails, so a string literal can't hide the terms), that includes our project path, `ref=='main'` and `ref_protected=='true'`, with issuer `https://gitlab.com` |
+| `wif-condition` | the pool holds only the `gitlab-com` provider (any other provider id fails); its condition, read as CEL reads it, is `assertion.<claim> == <literal>` terms joined by `&&`, each literal in `'` or `"` with no quote or backslash inside (anything else fails, so a literal can't swallow terms), whose exact values include our project path, `ref=='main'` and `ref_protected=='true'`, with issuer `https://gitlab.com` |
 
 The expected values are constants in the judge, not read from the plan, so a
 change cannot edit a variable and move the goalposts with it. A resource that
@@ -232,3 +232,5 @@ node policy/test-mutants.mjs /tmp/plan.json  # a real plan
 | `wif-or-bypass.json`: every term kept, but `\|\| ref_type=='tag'` | `wif-condition` |
 | `wif-second-provider.json`: a second provider in the pool, another issuer and no condition | `wif-condition` |
 | `wif-string-literal.json`: the terms hidden in a string literal, `assertion.sub > "0 && … && x"` | `wif-condition` |
+| `wif-mixed-quotes.json`: a literal opened with `"` and closed with `'`, `assertion.ref=="x' && … && z=='y"` | `wif-condition` |
+| `wif-space-in-literal.json`: `ref=='ma in'`, which a reader that drops spaces takes for `main` | `wif-condition` |
