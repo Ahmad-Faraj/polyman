@@ -25,7 +25,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadConfig } from '../config.ts';
-import { GitLab, GitLabError, required } from '../gitlab.ts';
+import { GitLab, GitLabError, readRetrying, required } from '../gitlab.ts';
 import { type Note, type PushEvent, branchPushes, isPerson, isProjectPerson, tierFrom } from '../goahead.ts';
 import { allPages, checkMr, eventsSince, gitRepo, notesOf as fetchNotes, relatedIncident } from '../goahead-mr.ts';
 import { type Carrier, type GuardRun, type Ledger, type LedgerRecord, type OpenPush, byMerge, carriedRecords, chain, compare, counters, flowOf, recordsFor, second, verifyChain } from '../ledger.ts';
@@ -404,7 +404,7 @@ async function previousLedger(): Promise<Ledger | null> {
     return null;
   }
   // the published file is public: no credentials go with this request
-  const res = await fetch(url);
+  const res = await readRetrying(() => fetch(url));
   if (res.status === 404) {
     console.log(`no ledger published at ${url} yet: this one starts the chain`);
     return null;
