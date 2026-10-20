@@ -43,6 +43,8 @@ infra:check:
     - tofu validate
     # the real plan must pass, each mutant must be rejected by its rule
     - node policy/test-mutants.mjs
+    # the drift verdict, case by case (drift, no drift, not a plan)
+    - node policy/test-summary.mjs
 
 # Drift check. Signs in with the job's OIDC token through Workload Identity
 # Federation (the same provider and audience the deploy jobs use) as the
@@ -74,7 +76,7 @@ infra:check:
     TF_HTTP_USERNAME: gitlab-ci-token
     TF_HTTP_RETRY_WAIT_MIN: '5'
   after_script:
-    - rm -f /tmp/gcp-oidc-token /tmp/gcp-creds.json /tmp/plan.bin /tmp/plan.json /tmp/import.bin /tmp/plan.txt
+    - rm -f /tmp/gcp-oidc-token /tmp/gcp-creds.json /tmp/plan.bin /tmp/plan.json /tmp/import.bin /tmp/plan.txt /tmp/after.txt
 
 infra:plan:
   extends: .infra:gcp
@@ -146,4 +148,12 @@ infra:import:
       fi
     - tofu apply -input=false /tmp/import.bin | tail -3
     - echo "== plan again, must be no change"
-    - tofu plan -input=false -lock=false -detailed-exitcode > /dev/null && echo "No changes. The GitLab state matches Google Cloud."
+    # job logs are public and plan values hold the IAM policy: on a non-clean
+    # plan, print only the resource lines and the summary, never attributes
+    - |
+      rc=0; tofu plan -input=false -lock=false -detailed-exitcode > /tmp/after.txt || rc=$?
+      if [ "$rc" = 0 ]; then echo "No changes. The GitLab state matches Google Cloud."; else
+        echo "The plan after the import is not clean (exit $rc):"
+        grep -E '^ *# |^Plan:|^Error' /tmp/after.txt || tail -5 /tmp/after.txt
+        exit 1
+      fi

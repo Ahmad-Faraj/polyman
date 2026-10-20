@@ -220,12 +220,24 @@ function checkPolicy(where, policyData, member, v) {
 }
 
 function wif(managed, v) {
+  // The deployer's principalSet trusts the whole pool, so every provider in
+  // the plan is judged, and a provider other than the expected one is itself
+  // a violation: a second provider with an empty condition would otherwise
+  // open the deploy to any token its issuer signs.
   const providers = managed.filter(
-    r =>
-      r.type === 'google_iam_workload_identity_pool_provider' &&
-      r.values?.workload_identity_pool_provider_id === EXPECTED.wifProvider
+    r => r.type === 'google_iam_workload_identity_pool_provider'
   );
-  if (providers.length === 0) {
+  for (const r of providers)
+    if (r.values?.workload_identity_pool_provider_id !== EXPECTED.wifProvider)
+      v(
+        'wif-condition',
+        `${r.address}: unexpected WIF provider ${r.values?.workload_identity_pool_provider_id}; only ${EXPECTED.wifProvider} may be in the pool the deployer trusts`
+      );
+  if (
+    !providers.some(
+      r => r.values?.workload_identity_pool_provider_id === EXPECTED.wifProvider
+    )
+  ) {
     v(
       'wif-condition',
       `WIF provider ${EXPECTED.wifProvider} is not in the plan`

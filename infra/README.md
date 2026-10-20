@@ -89,7 +89,10 @@ skipped. It:
    (`$CI_API_V4_URL/projects/$CI_PROJECT_ID/terraform/state/verify`, user
    `gitlab-ci-token`, password `$CI_JOB_TOKEN`, all as `TF_HTTP_*` variables);
 3. runs `tofu plan -lock=false -detailed-exitcode`, so it never takes the lock
-   and never writes the state. There is no apply anywhere in CI;
+   and never writes the state. The only apply in CI is `infra:import`: a
+   manual job on `main`, run once, that adopts the 21 resources into the state
+   and refuses any plan but "21 to import, 0 to add, 0 to change, 0 to
+   destroy", so it writes the state and never changes Google Cloud;
 4. decides drift with [`policy/plan-summary.mjs`](policy/plan-summary.mjs) and
    judges the plan with [`policy/check-plan.mjs`](policy/check-plan.mjs). The
    job fails on either, with the reason in its log.

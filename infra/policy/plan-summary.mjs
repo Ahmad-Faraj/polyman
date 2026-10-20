@@ -18,6 +18,20 @@
 import { readFileSync, writeFileSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
+/**
+ * Why `plan` isn't a plan we can judge, or '' when it is. `tofu show -json`
+ * lists every managed resource in resource_changes, unchanged ones as
+ * "no-op", so an empty list means nothing was planned, not "no drift".
+ */
+export function notAPlan(plan) {
+  if (plan === null || typeof plan !== 'object' || Array.isArray(plan))
+    return 'not a JSON object';
+  if (!Array.isArray(plan.resource_changes)) return 'no resource_changes list';
+  if (plan.resource_changes.length === 0)
+    return 'resource_changes is empty: nothing was planned';
+  return '';
+}
+
 export function summarize(plan) {
   const changes = plan?.resource_changes ?? [];
   const actions = changes.flatMap(r => r.change?.actions ?? []);
@@ -38,7 +52,7 @@ export function summarize(plan) {
   return { report, imports, drifted };
 }
 
-function main(argv) {
+export function main(argv) {
   const [file, out] = argv.slice(2);
   if (!file) {
     console.error('usage: node plan-summary.mjs plan.json [summary.json]');
@@ -51,8 +65,20 @@ function main(argv) {
     console.error(`cannot read ${file}: ${e.message}`);
     return 2;
   }
+  const bad = notAPlan(plan);
+  if (bad) {
+    console.error(`${file} is not a plan to judge: ${bad}`);
+    return 2;
+  }
   const { report, imports, drifted } = summarize(plan);
-  if (out) writeFileSync(out, JSON.stringify(report) + '\n');
+  if (out)
+    try {
+      writeFileSync(out, JSON.stringify(report) + '\n');
+    } catch (e) {
+      // 1 means drift; a failed write is an error
+      console.error(`cannot write ${out}: ${e.message}`);
+      return 2;
+    }
   console.log(
     `plan: ${imports} to import, ${report.create} to add, ${report.update} to change, ${report.delete} to destroy`
   );
