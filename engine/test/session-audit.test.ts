@@ -263,7 +263,9 @@ describe("git push's output and command", () => {
   });
 
   it('reads a long run of gits or a long shell flag in linear time', () => {
-    // the best of three runs, so a busy machine or a cold start does not fail it; the old checks took seconds
+    // the best of three runs, so a busy machine or a cold start does not fail it.
+    // The bound is 2 s: the old quadratic checks took 11-20 s on this same 40k input, so 2 s still
+    // catches that regression, while a loaded machine took 311-525 ms here and failed a 200 ms bound.
     const ms = (f: () => unknown) =>
       Math.min(
         ...[1, 2, 3].map(() => {
@@ -273,9 +275,9 @@ describe("git push's output and command", () => {
         }),
       );
     // one git after another with no push: the old check scanned to the end once per git
-    expect(ms(() => pushesOf([call({ args: { command: 'python3 ' + 'git '.repeat(40_000) }, response: 'Exit code: 0\n' })], session))).toBeLessThan(200);
+    expect(ms(() => pushesOf([call({ args: { command: 'python3 ' + 'git '.repeat(40_000) }, response: 'Exit code: 0\n' })], session))).toBeLessThan(2000);
     // a flag of 40k c's that fails at the last letter: the old check tried every c as the one c
-    expect(ms(() => pushesInCommand('sh -' + 'c'.repeat(40_000) + 'A'))).toBeLessThan(200);
+    expect(ms(() => pushesInCommand('sh -' + 'c'.repeat(40_000) + 'A'))).toBeLessThan(2000);
   });
 
   it('takes the credentials out of what a push was read from', () => {
