@@ -630,7 +630,18 @@ describe('utils.ts', () => {
         );
       });
 
-      describe('with flags that pull in files', () => {
+      describe('with flags that are not known to be cache-safe', () => {
+        const source = path.resolve(cwd, 'solutions/main.cpp');
+        const output = path.resolve(cwd, 'solutions/main');
+        const fullCommand = (flags: string[]) =>
+          [
+            q('g++'),
+            ...flags.map(q),
+            `-iquote ${q(cwd)}`,
+            `-o ${q(output)}`,
+            q(source),
+          ].join(' ');
+
         it.each([
           ['-include hdr.h', ['-include', 'hdr.h']],
           ['-imacros', ['-imacros', 'm.h']],
@@ -639,6 +650,17 @@ describe('utils.ts', () => {
           ['-isystem', ['-isystem', 'sys']],
           ['-iquote', ['-iquote', 'q']],
           ['-idirafter', ['-idirafter', 'd']],
+          ['--include=', ['--include=h.h']],
+          ['-Wp,-include', ['-Wp,-include,h.h']],
+          ['-iprefix', ['-iprefix', 'p/', '-iwithprefix', 'inc']],
+          ['-specs=', ['-specs=my.specs']],
+          ['-L and -l', ['-Llib', '-lfoo']],
+          ['an object file', ['extra.o']],
+          ['a static library', ['libfoo.a']],
+          ['-Wl,@file', ['-Wl,@link.rsp']],
+          ['a linker script', ['-T', 'link.ld']],
+          ['-fprofile-use', ['-fprofile-use']],
+          ['-fplugin=', ['-fplugin=p.so']],
           ['an @file response file', ['@flags.rsp']],
         ])('skips the cache and prebuilt testlib for %s', async (_n, flags) => {
           mockConfig({ compiler: { flags } });
@@ -648,13 +670,38 @@ describe('utils.ts', () => {
           expect(vi.mocked(cachedCompile)).not.toHaveBeenCalled();
           expect(vi.mocked(findPrebuiltTestlib)).not.toHaveBeenCalled();
           expect(executeMock()).toHaveBeenCalledTimes(1);
-          const command = executeMock().mock.calls[0][0];
-          for (const flag of flags) expect(command).toContain(flag);
-          expect(command).toContain('main.cpp');
+          expect(executeMock().mock.calls[0][0]).toBe(
+            fullCommand(['-O2', '-std=c++23', ...flags])
+          );
         });
 
-        it('still uses the cache for flags without them', async () => {
-          mockConfig({ compiler: { flags: ['-Wall', '-DLOCAL'] } });
+        it('checks the flags after trimming and the default replacement', async () => {
+          mockConfig({
+            compiler: { flags: [' -I inc ', '-O0', '-std=gnu++20'] },
+          });
+
+          await utils.compileCPP('solutions/main.cpp');
+
+          expect(vi.mocked(cachedCompile)).not.toHaveBeenCalled();
+          expect(executeMock().mock.calls[0][0]).toBe(
+            fullCommand(['-I inc', '-O0', '-std=gnu++20'])
+          );
+        });
+
+        it.each([
+          ['-Wall', '-Wextra', '-Wno-unused-result', '-Werror=shadow'],
+          ['-DLOCAL', '-DN=100', '-UNDEBUG'],
+          ['-O0', '-Ofast', '--std=gnu++20', '-pedantic-errors', '-w'],
+          ['-fsanitize=address,undefined', '-fno-omit-frame-pointer'],
+          [
+            '-fmax-errors=3',
+            '-fdiagnostics-color=always',
+            '-fconstexpr-steps=100000000',
+          ],
+          ['-g', '-ggdb3', '-march=native', '-m64', '-mavx2'],
+          ['-static', '-pthread', '-pipe', '-s'],
+        ])('still uses the cache for %s ...', async (...flags) => {
+          mockConfig({ compiler: { flags } });
 
           await utils.compileCPP('solutions/main.cpp');
 

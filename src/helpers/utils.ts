@@ -330,24 +330,36 @@ export function resolveCppStandard(): string {
   return configured;
 }
 
-const HEADER_FLAG_PREFIXES = [
-  '-include',
-  '-imacros',
-  '-isystem',
-  '-iquote',
-  '-idirafter',
-  '-I',
-  '@',
+/**
+ * Flags known to read no file the compile cache does not hash. Anything else
+ * (`-I`, `-include`, `-L`, `-l`, `-specs=`, `-T`, `-Wl,...`, `@file`, object
+ * files, a flag's value given as the next item, ...) could change the binary
+ * without changing the cache key, so it disables the cache.
+ */
+const CACHE_SAFE_FLAG_PATTERNS = [
+  /^-O([0-3]|s|z|g|fast)?$/,
+  /^--?std=[a-z0-9+]+$/,
+  /^-D[A-Za-z_]\w*(=.*)?$/,
+  /^-U[A-Za-z_]\w*$/,
+  // No comma, so -Wl, -Wp, and -Wa, (pass-through to other tools) are out.
+  /^-W[a-z][a-z0-9+=-]*$/,
+  /^-w$/,
+  /^-pedantic(-errors)?$/,
+  // -fprofile-* and -fauto-profile read profile data files.
+  /^-f(?!profile-|auto-profile)[a-z0-9][a-z0-9-]*$/,
+  /^-f(no-)?sanitize=[a-z,-]+$/,
+  /^-f(max-errors|template-depth|constexpr-depth|constexpr-steps|constexpr-ops-limit|constexpr-loop-limit)=\d+$/,
+  /^-fdiagnostics-color=(auto|always|never)$/,
+  /^-g(gdb)?[0-3]?$/,
+  /^-m[a-z0-9][a-z0-9-]*(=[a-z0-9-]+)?$/,
+  /^-(static|pthread|pipe|s)$/,
 ];
 
 /**
- * Whether a compiler flag can pull in files the compile cache does not hash:
- * `-include`, `-imacros`, `-I`, `-isystem`, `-iquote`, `-idirafter` (attached
- * to their value or not, as the value is then the next flag) and `@file`
- * response files.
+ * Whether a compiler flag is on {@link CACHE_SAFE_FLAG_PATTERNS}.
  */
-function pullsInFiles(flag: string): boolean {
-  return HEADER_FLAG_PREFIXES.some(prefix => flag.startsWith(prefix));
+function isCacheSafeFlag(flag: string): boolean {
+  return CACHE_SAFE_FLAG_PATTERNS.some(pattern => pattern.test(flag));
 }
 
 /**
@@ -362,10 +374,10 @@ function pullsInFiles(flag: string): boolean {
  * and the compiler is not run. A testlib program is compiled against a
  * declarations-only testlib and linked with testlib compiled once per
  * problem (see `prebuilt-testlib.ts`), falling back to the original header.
- * When `compiler.flags` holds a flag that pulls in files the cache cannot see
- * (`-include`, `-imacros`, `-I`, `-isystem`, `-iquote`, `-idirafter`,
- * `@file`), neither the cache nor the prebuilt testlib is used: the source
- * is compiled in full every time.
+ * When `compiler.flags` holds a flag that is not known to be safe for the
+ * cache (see {@link CACHE_SAFE_FLAG_PATTERNS}: `-O`, `-std=`, `-D`, `-W`,
+ * `-f`, `-g`, `-m` and a few more), neither the cache nor the prebuilt
+ * testlib is used: the source is compiled in full every time.
  *
  * @param {string} sourcePath - Path to the .cpp / .cc / .cxx source file
  * @param {Object} [options] - Compilation overrides
@@ -416,7 +428,7 @@ export async function compileCPP(
       silent: true,
     });
 
-  if (flags.some(pullsInFiles)) {
+  if (!flags.every(isCacheSafeFlag)) {
     await run(command([process.cwd()]));
     return;
   }

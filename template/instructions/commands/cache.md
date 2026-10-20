@@ -25,7 +25,8 @@ testlib's definitions are compiled once into `.polyman/cache/testlib/` and linke
 ## When to bypass it
 
 - `--no-cache` on any compiling command recompiles everything for that run and leaves the cache untouched.
-- `polyman cache clear` if you edited a system header (`#include <...>`), a header found only through your own `-I` flag, or suspect the cache is wrong.
+- `polyman cache clear` if you edited a system header (`#include <...>`) or suspect the cache is wrong.
+- A `compiler.flags` entry that is not a plain `-O`, `-std=`, `-D`, `-W`, `-f`, `-g` or `-m` flag (for example `-I`, `-include` or `-l`) turns the cache off for that compile, so it always compiles in full.
 
 ## What NOT to do
 
