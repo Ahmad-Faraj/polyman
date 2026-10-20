@@ -271,6 +271,11 @@ const RUNNERS = ['env', 'command', 'exec', 'nohup', 'time', 'sudo'];
 const QUIET_GIT = ['add', 'commit', 'push', 'fetch', 'pull', 'checkout', 'switch', 'status', 'branch', 'rebase', 'reset', 'stash', 'rm', 'mv', 'merge', 'restore'];
 /** Commands that run code given in their arguments, where a push can sit in a string. */
 const INTERPRETERS = /(^|\/)(python[0-9.]*|node|perl|ruby|php|xargs)$/;
+/** git, then push after it. From the first git only: a run of gits is read once, not once per git. */
+const gitThenPush = (text: string) => {
+  const g = text.search(/\bgit\b/);
+  return g >= 0 && /\bpush\b/.test(text.slice(g + 3));
+};
 
 /** What a shell command does about pushing. */
 interface CommandRead {
@@ -300,7 +305,7 @@ function readCommand(command: string, depth = 0): CommandRead {
     const words = raw.slice(k).map(unquote);
     const cmd = words[0] ?? '';
     // a shell given the command as a string (sh -c "...", bash -lc '...') or eval: the string is a command too
-    const c = /(^|\/)(ba|da|k|z)?sh$/.test(cmd) ? words.findIndex((w) => /^-[a-z]*c[a-z]*$/.test(w)) : -1;
+    const c = /(^|\/)(ba|da|k|z)?sh$/.test(cmd) ? words.findIndex((w) => /^-[a-z]+$/.test(w) && w.includes('c')) : -1;
     const script = c > 0 ? words[c + 1] : cmd === 'eval' ? words.slice(1).join(' ') : undefined;
     if (script !== undefined && depth < 4) {
       const inner = readCommand(script, depth + 1);
@@ -318,7 +323,7 @@ function readCommand(command: string, depth = 0): CommandRead {
     }
     // git and push as words of their own, not in a commit message or a pattern to grep for
     const bare = raw.slice(k).filter((w) => !/["']/.test(w));
-    if ((bare.some((w) => /(^|\/)git$/.test(w)) && bare.includes('push')) || (INTERPRETERS.test(cmd) && /\bgit\b[\s\S]*\bpush\b/.test(segment))) read.unparsed = true;
+    if ((bare.some((w) => /(^|\/)git$/.test(w)) && bare.includes('push')) || (INTERPRETERS.test(cmd) && gitThenPush(segment))) read.unparsed = true;
     const filter = ['tail', 'head'].includes(cmd) && words.slice(1).every((w, i) => w.startsWith('-') || (/^\d+$/.test(w) && words[i] === '-n'));
     if (cmd && cmd !== 'cd' && !filter && !(isGit && QUIET_GIT.includes(words[gitSubcommand(words)]))) {
       read.prints = true;

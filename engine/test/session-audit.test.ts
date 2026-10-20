@@ -241,6 +241,43 @@ describe("git push's output and command", () => {
     expect(pushesOf([call({ args: { command: 'grep -n "git push" CONTRIBUTING.md' }, response: 'Exit code: 0\n' })], session)).toEqual([]);
   });
 
+  it('reads git then push in what an interpreter runs only in that order, as whole words', () => {
+    const unread = (command: string) => pushesOf([call({ args: { command }, response: 'Exit code: 0\n' })], session).length;
+    expect(unread(`node -e "require('child_process').execSync('git fetch && git push')"`)).toBe(1);
+    expect(unread(`perl -e 'system("/usr/bin/git", "push")'`)).toBe(1);
+    expect(unread(`python3 -c "print('push before git')"`)).toBe(0);
+    expect(unread(`python3 -c "import gitpush; github.pushed()"`)).toBe(0);
+    expect(unread(`node -e "console.log('git status; pushover')"`)).toBe(0);
+  });
+
+  it('takes any one-dash run of letters with a c in it as the shell flag that comes before the script', () => {
+    expect(pushesInCommand(`bash -c 'git push origin a'`)).toEqual(['a']);
+    expect(pushesInCommand(`sh -ec 'git push origin a'`)).toEqual(['a']);
+    expect(pushesInCommand(`zsh -cx 'git push origin a'`)).toEqual(['a']);
+    expect(pushesInCommand(`bash -lic 'git push origin a'`)).toEqual(['a']);
+    // no c, a capital letter, a digit or two dashes: not the flag
+    expect(pushesInCommand(`bash -x 'git push origin a'`)).toEqual([]);
+    expect(pushesInCommand(`bash -C 'git push origin a'`)).toEqual([]);
+    expect(pushesInCommand(`bash -c1 'git push origin a'`)).toEqual([]);
+    expect(pushesInCommand(`bash --c 'git push origin a'`)).toEqual([]);
+  });
+
+  it('reads a long run of gits or a long shell flag in linear time', () => {
+    // the best of three runs, so a busy machine or a cold start does not fail it; the old checks took seconds
+    const ms = (f: () => unknown) =>
+      Math.min(
+        ...[1, 2, 3].map(() => {
+          const t = performance.now();
+          f();
+          return performance.now() - t;
+        }),
+      );
+    // one git after another with no push: the old check scanned to the end once per git
+    expect(ms(() => pushesOf([call({ args: { command: 'python3 ' + 'git '.repeat(40_000) }, response: 'Exit code: 0\n' })], session))).toBeLessThan(200);
+    // a flag of 40k c's that fails at the last letter: the old check tried every c as the one c
+    expect(ms(() => pushesInCommand('sh -' + 'c'.repeat(40_000) + 'A'))).toBeLessThan(200);
+  });
+
   it('takes the credentials out of what a push was read from', () => {
     const token = 'glpat-' + 'x'.repeat(20);
     const [p] = pushesOf([call({ args: { command: `git push -q https://oauth2:${token}@gitlab.com/g/p.git evil` }, response: 'Exit code: 0\n' })], session);
