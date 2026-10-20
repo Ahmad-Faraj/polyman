@@ -49,6 +49,23 @@ describe('template/Config.schema.json', () => {
     }
   });
 
+  it('declares the optional local compile fields from ConfigFile', () => {
+    const properties = (schema.properties ?? {}) as Record<
+      string,
+      { properties?: Record<string, unknown>; additionalProperties?: unknown }
+    >;
+    expect(properties).toHaveProperty('cppStandard');
+    const compiler = properties['compiler'];
+    expect(compiler?.additionalProperties).toBe(false);
+    expect(Object.keys(compiler?.properties ?? {}).sort()).toEqual([
+      'cpp',
+      'flags',
+      'javac',
+    ]);
+    expect(schema.required).not.toContain('compiler');
+    expect(schema.required).not.toContain('cppStandard');
+  });
+
   it('template Config.json points at the schema file that ships with it', () => {
     expect(config['$schema']).toBe('./Config.schema.json');
     expect(fs.existsSync(schemaPath)).toBe(true);

@@ -72,9 +72,12 @@ export interface PrebuiltTestlib {
 export interface PrebuiltTestlibRequest {
   /** Absolute path of the source being compiled. */
   sourcePath: string;
-  /** Compiler executable, e.g. `g++`. */
+  /** Compiler executable, e.g. `g++`, not shell-quoted. */
   compiler: string;
-  /** Flags the program is compiled with; the object uses the same. */
+  /**
+   * Flags the program is compiled with, not shell-quoted; the object uses
+   * the same.
+   */
   flags: string[];
 }
 
@@ -169,8 +172,8 @@ async function prepare(
   try {
     await executor.execute(
       [
-        request.compiler,
-        ...request.flags,
+        quoteShellArgument(request.compiler),
+        ...request.flags.map(quoteShellArgument),
         '-c',
         '-o',
         quoteShellArgument(tmpObject),

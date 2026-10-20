@@ -63,6 +63,33 @@
       "type": "boolean",
       "description": "Whether the problem is interactive. Rare; requires an interactor on Polygon."
     },
+    "cppStandard": {
+      "type": "string",
+      "pattern": "^(c|gnu)\\+\\+(\\d{2}|0x|1y|1z|2a|2b|2c)$",
+      "description": "Local-only C++ standard, passed to the compiler as -std= (default \"c++23\"). A -std= item in compiler.flags replaces it. Polygon picks its compiler from each file's sourceType."
+    },
+    "compiler": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cpp": {
+          "type": "string",
+          "pattern": "\\S",
+          "description": "C++ compiler executable name or path (default \"g++\"). The POLYMAN_CXX environment variable overrides it."
+        },
+        "javac": {
+          "type": "string",
+          "pattern": "\\S",
+          "description": "Java compiler executable name or path (default \"javac\"). The POLYMAN_JAVAC environment variable overrides it. Java programs still run with java from PATH."
+        },
+        "flags": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "\\S" },
+          "description": "Extra flags for every C++ compile, one flag per item, added after -O2 -std=<cppStandard>. A -std= flag replaces cppStandard and an -O flag replaces -O2."
+        }
+      },
+      "description": "Local-only compiler overrides. Never pushed to Polygon, which picks its compiler from each file's sourceType."
+    },
     "tags": {
       "type": "array",
       "items": { "type": "string" },

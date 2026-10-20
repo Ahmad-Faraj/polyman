@@ -19,6 +19,12 @@ The single source of truth for the whole problem. Every other file is referenced
   "interactive": false,                  // see instructions/checker.md (custom checker) — true is rare
   "cppStandard": "c++23",                // optional; local g++ -std= value (default c++23; use c++17/c++20 on older compilers)
 
+  "compiler": {                          // optional, local-only; omit unless the user asks
+    "cpp": "g++-15",                     // C++ compiler executable or path (default "g++"); POLYMAN_CXX overrides it
+    "javac": "javac",                    // Java compiler executable or path (default "javac"); POLYMAN_JAVAC overrides it
+    "flags": ["-Wall"]                   // extra C++ flags, one per item; a -std= here replaces cppStandard, an -O replaces -O2
+  },
+
   "statements":  { …see statements.md… },
   "solutions":   [ …see solutions.md…  ],
   "generators":  [ …see generators.md… ],
@@ -27,6 +33,8 @@ The single source of truth for the whole problem. Every other file is referenced
   "testsets":    [ …below             ]
 }
 ```
+
+`cppStandard` and `compiler` only change how polyman compiles on this machine. They are never sent to Polygon (Polygon uses each file's `sourceType`). Every C++ compile runs `<compiler> -O2 -std=<cppStandard> <flags...>`, where a `-std=` item in `flags` replaces `-std=<cppStandard>` and an `-O` item replaces `-O2`. Java programs still run with `java` from `PATH`. A malformed `compiler` block (unknown key, blank string, `flags` not an array of strings) stops the compile with an error.
 
 ## Schema
 
@@ -70,6 +78,7 @@ Usually one named `"tests"`. Each entry:
 
 - **Add a solution / generator / manual test** → add the source file *and* the `Config.json` entry in the same edit.
 - **Change time/memory** → update `timeLimit` / `memoryLimit`, run `polyman verify`.
+- **Use another local compiler** (e.g. `g++-15`, `clang++`) → set `compiler.cpp`, or run with `POLYMAN_CXX=<compiler>` for one run; leave `sourceType` alone, it is what Polygon uses.
 - **Switch checker** → see `instructions/checker.md`.
 - **Multiple testsets** → append another `testsets[]` entry; each testset has its own script + manuals.
 

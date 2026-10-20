@@ -101,7 +101,7 @@ describe('prebuilt-testlib.ts', () => {
       expect(header).toContain('int nextId();');
       expect(objectBuilds()).toEqual([
         expect.stringMatching(
-          /^g\+\+ -O2 -std=c\+\+23 -c -o .*testlib\.impl\.cpp'?"?$/
+          /^(['"])g\+\+\1 \1-O2\1 \1-std=c\+\+23\1 -c -o .*testlib\.impl\.cpp\1$/
         ),
       ]);
     });
@@ -141,6 +141,38 @@ describe('prebuilt-testlib.ts', () => {
       expect(new Set([first?.key, edited?.key, cxx17?.key]).size).toBe(3);
       expect(objectBuilds()).toHaveLength(3);
     });
+
+    it('builds a new object for another compiler with the same version', async () => {
+      const first = await prebuilt.findPrebuiltTestlib(request());
+      const other = await prebuilt.findPrebuiltTestlib(
+        request({ compiler: '/opt/gcc wrapper/g++' })
+      );
+
+      expect(other?.key).not.toBe(first?.key);
+      expect(objectBuilds()).toHaveLength(2);
+    });
+
+    it.skipIf(process.platform === 'win32')(
+      'quotes the compiler and every flag in the object build',
+      async () => {
+        await prebuilt.findPrebuiltTestlib(
+          request({
+            compiler: '/opt/gcc wrapper/g++',
+            flags: ['-O2', '-std=c++23', '-DNAME=a b'],
+          })
+        );
+
+        expect(executeMock).toHaveBeenCalledWith(
+          "'/opt/gcc wrapper/g++' --version",
+          expect.anything()
+        );
+        expect(objectBuilds()).toEqual([
+          expect.stringMatching(
+            /^'\/opt\/gcc wrapper\/g\+\+' '-O2' '-std=c\+\+23' '-DNAME=a b' -c -o /
+          ),
+        ]);
+      }
+    );
 
     it.each([
       [
