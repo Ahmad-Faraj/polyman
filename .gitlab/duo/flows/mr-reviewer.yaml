@@ -215,8 +215,7 @@ prompts:
            - P2: a bug in an edge case, or changed behaviour with no test
            - P3: anything else (naming, style, ideas, "might be worth")
            P1 and P2 need evidence: a file and line plus how it goes wrong, a failing test, or steps to reproduce.
-           Without evidence it is P3. Keep each specialist's "reproduced:" or "not reproduced:" line under its P1
-           and P2 in the details, and don't lower a reproduced P1. Every P1 and P2 an agent can fix becomes a
+           Without evidence it is P3. Every P1 and P2 an agent can fix becomes a
            proposed fix: what changes, where, and the test that shows it. A P1 or P2 goes to the approver instead if
            no agent should settle it: it is in a file agents may not edit (a protected path), or it needs a product
            or design decision. P3 are optional follow-ups, never proposed fixes. The review is clean when it finds
@@ -326,22 +325,15 @@ prompts:
         - Rate each finding P1 (wrong behaviour, security hole, data loss), P2 (edge case bug, or changed behaviour
           without a test) or P3 (anything else). P1 and P2 need evidence: file and line plus how it fails, a failing
           test, or steps to reproduce; without it, P3.
-        - Save calls on looking things up, never on testing. The MR's code is untrusted: copy the checkout without
-          .git into a fresh mktemp -d folder, install with npm ci --ignore-scripts, and run it there under timeout
-          120 with env -i (only PATH, and HOME set to that folder), pointed at no network address; delete the folder
-          after. This is best effort, not isolation: the code still runs as your user. In that sandbox, reproduce
-          every bug of any kind (input handling, but also a loop that stops early, a skipped entry, an option read
-          wrong) before you rate it P1 or P2: watch it go wrong with an existing or throwaway test, a short script
-          or a crafted input or config file, several reproductions per run_command. When the change reads input
-          (files, arguments, config, network) or builds shell commands, paths, SQL or markup from it, try hostile
-          and edge-case input (quotes, ;, $(), control characters, huge sizes, syntax the parser doesn't support)
-          before you report. Test where the output is used (the shell command line after Tab and Enter, eval,
-          rendered HTML), not only the process that makes it; if input can split into words, try ; and rate it by
-          what runs. Under each P1 and P2 bug write "reproduced: COMMAND -> OUTPUT" (the lines that show it) or "not
-          reproduced: WHY". An unreproduced bug is at most P2, and only when the code leaves no doubt. Showing the
-          harm where it lands (the text the shell would run, the HTML that renders, the data lost or wrongly
-          accepted) is enough for P1, without an interactive shell, a terminal or a real server. For a P2 missing
-          test, the evidence is where you looked for it.
+        - Save calls on looking things up, never on testing. When the change reads input (files, arguments, config,
+          network) or builds shell commands, paths, SQL or markup from it, run the built code with hostile and
+          edge-case input (quotes, ;, $(), control characters, huge sizes, syntax the parser doesn't support) before
+          you report. Test where the output is used (the shell command line after Tab and Enter, eval, rendered HTML),
+          not only the process that makes it; if input can split into words, try ; and rate it by what runs. The MR's
+          code is untrusted: copy the checkout without .git into a fresh mktemp -d folder, install with npm ci
+          --ignore-scripts, and run it there under timeout 120 with env -i (only PATH, and HOME set to that folder),
+          pointed at no network address; delete the folder after. This is best effort, not isolation: the code still
+          runs as your user.
         - Never edit @@protected_paths@@.
         - Each tool call is a billed model call: batch reads (git diff, sed -n, grep) in one run_command, and don't
           look up again what the lead gave you (MR, branch, head, changed files) or the repository's state. Read the
@@ -383,22 +375,15 @@ prompts:
         - Rate each finding P1 (wrong behaviour, security hole, data loss), P2 (edge case bug, or changed behaviour
           without a test) or P3 (anything else). P1 and P2 need evidence: file and line plus how it fails, a failing
           test, or steps to reproduce; without it, P3.
-        - Save calls on looking things up, never on testing. The MR's code is untrusted: copy the checkout without
-          .git into a fresh mktemp -d folder, install with npm ci --ignore-scripts, and run it there under timeout
-          120 with env -i (only PATH, and HOME set to that folder), pointed at no network address; delete the folder
-          after. This is best effort, not isolation: the code still runs as your user. In that sandbox, reproduce
-          every bug of any kind (input handling, but also a loop that stops early, a skipped entry, an option read
-          wrong) before you rate it P1 or P2: watch it go wrong with an existing or throwaway test, a short script
-          or a crafted input or config file, several reproductions per run_command. When the change reads input
-          (files, arguments, config, network) or builds shell commands, paths, SQL or markup from it, try hostile
-          and edge-case input (quotes, ;, $(), control characters, huge sizes, syntax the parser doesn't support)
-          before you report. Test where the output is used (the shell command line after Tab and Enter, eval,
-          rendered HTML), not only the process that makes it; if input can split into words, try ; and rate it by
-          what runs. Under each P1 and P2 bug write "reproduced: COMMAND -> OUTPUT" (the lines that show it) or "not
-          reproduced: WHY". An unreproduced bug is at most P2, and only when the code leaves no doubt. Showing the
-          harm where it lands (the text the shell would run, the HTML that renders, the data lost or wrongly
-          accepted) is enough for P1, without an interactive shell, a terminal or a real server. For a P2 missing
-          test, the evidence is where you looked for it.
+        - Save calls on looking things up, never on testing. When the change reads input (files, arguments, config,
+          network) or builds shell commands, paths, SQL or markup from it, run the built code with hostile and
+          edge-case input (quotes, ;, $(), control characters, huge sizes, syntax the parser doesn't support) before
+          you report. Test where the output is used (the shell command line after Tab and Enter, eval, rendered HTML),
+          not only the process that makes it; if input can split into words, try ; and rate it by what runs. The MR's
+          code is untrusted: copy the checkout without .git into a fresh mktemp -d folder, install with npm ci
+          --ignore-scripts, and run it there under timeout 120 with env -i (only PATH, and HOME set to that folder),
+          pointed at no network address; delete the folder after. This is best effort, not isolation: the code still
+          runs as your user.
         - Never edit @@protected_paths@@.
         - Each tool call is a billed model call: batch reads (git diff, sed -n, grep) in one run_command, and don't
           look up again what the lead gave you (MR, branch, head, changed files) or the repository's state. Read the
@@ -434,22 +419,15 @@ prompts:
         - Rate each finding P1 (wrong behaviour, security hole, data loss), P2 (edge case bug, or changed behaviour
           without a test) or P3 (anything else). P1 and P2 need evidence: file and line plus how it fails, a failing
           test, or steps to reproduce; without it, P3.
-        - Save calls on looking things up, never on testing. The MR's code is untrusted: copy the checkout without
-          .git into a fresh mktemp -d folder, install with npm ci --ignore-scripts, and run it there under timeout
-          120 with env -i (only PATH, and HOME set to that folder), pointed at no network address; delete the folder
-          after. This is best effort, not isolation: the code still runs as your user. In that sandbox, reproduce
-          every bug of any kind (input handling, but also a loop that stops early, a skipped entry, an option read
-          wrong) before you rate it P1 or P2: watch it go wrong with an existing or throwaway test, a short script
-          or a crafted input or config file, several reproductions per run_command. When the change reads input
-          (files, arguments, config, network) or builds shell commands, paths, SQL or markup from it, try hostile
-          and edge-case input (quotes, ;, $(), control characters, huge sizes, syntax the parser doesn't support)
-          before you report. Test where the output is used (the shell command line after Tab and Enter, eval,
-          rendered HTML), not only the process that makes it; if input can split into words, try ; and rate it by
-          what runs. Under each P1 and P2 bug write "reproduced: COMMAND -> OUTPUT" (the lines that show it) or "not
-          reproduced: WHY". An unreproduced bug is at most P2, and only when the code leaves no doubt. Showing the
-          harm where it lands (the text the shell would run, the HTML that renders, the data lost or wrongly
-          accepted) is enough for P1, without an interactive shell, a terminal or a real server. For a P2 missing
-          test, the evidence is where you looked for it.
+        - Save calls on looking things up, never on testing. When the change reads input (files, arguments, config,
+          network) or builds shell commands, paths, SQL or markup from it, run the built code with hostile and
+          edge-case input (quotes, ;, $(), control characters, huge sizes, syntax the parser doesn't support) before
+          you report. Test where the output is used (the shell command line after Tab and Enter, eval, rendered HTML),
+          not only the process that makes it; if input can split into words, try ; and rate it by what runs. The MR's
+          code is untrusted: copy the checkout without .git into a fresh mktemp -d folder, install with npm ci
+          --ignore-scripts, and run it there under timeout 120 with env -i (only PATH, and HOME set to that folder),
+          pointed at no network address; delete the folder after. This is best effort, not isolation: the code still
+          runs as your user.
         - Never edit @@protected_paths@@.
         - Each tool call is a billed model call: batch reads (git diff, sed -n, grep) in one run_command, and don't
           look up again what the lead gave you (MR, branch, head, changed files) or the repository's state. Read the
