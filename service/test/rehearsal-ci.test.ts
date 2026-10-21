@@ -115,7 +115,7 @@ describe('service/ci/public-upload.sh', () => {
   function run(): Promise<{ code: number | null; out: string }> {
     return new Promise((ok) => {
       execFile('sh', [uploadScript, base, 'polyman-verify-1.us-east1.run.app'], { cwd: dir, timeout: 60_000 }, (err, stdout, stderr) => {
-        const code = err ? ((err as NodeJS.ErrnoException & { code?: unknown }).code as number | null) : 0;
+        const code: unknown = err ? err.code : 0;
         ok({ code: typeof code === 'number' ? code : null, out: stdout + stderr });
       });
     });
