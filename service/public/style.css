@@ -39,7 +39,7 @@
   --brand-soft: #ecfeff;
   --pass: #0891b2;
   --fail: #dc2626;
-  --slow: #d97706;
+  --slow: #b45309;
   --fail-ink: #b91c1c;
   --pass-ink: #0e7490;
   --out: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 17 17 7M8 7h9v9'/%3E%3C/svg%3E");
@@ -60,7 +60,7 @@ code { font-family: var(--font-mono); font-size: max(0.85em, 12.5px); background
 .badge[data-variant='success'] { background: #cffafe; color: #155e75; border-color: transparent; }
 .badge svg { width: 12px; height: 12px; }
 /* a focus ring that holds 3:1 against white, in place of the stock half-alpha one */
-:where(.btn, .sample, summary, .records a, .logo):focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; box-shadow: none; }
+:where(a, .btn, .sample, summary, .logo):focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; box-shadow: none; }
 
 /* header */
 .site-header { position: sticky; top: 0; z-index: 20; background: rgb(255 255 255 / 0.88); backdrop-filter: saturate(1.4) blur(8px); border-bottom: 1px solid var(--border); }
@@ -80,18 +80,21 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 .hero-lede { margin: 20px 0 0; max-width: 46ch; font-size: 1.1rem; line-height: 1.6; color: var(--muted-foreground); text-wrap: pretty; }
 .hero-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 32px; }
 /* while a run is on, the big button says so instead of fading out */
-#demo:disabled { opacity: 1; background-color: #155e75; }
+#demo:not([data-variant]):disabled { opacity: 1; background-color: #155e75; }
+#demo[data-variant]:disabled { opacity: 0.7; }
 #demo:disabled svg { animation: spin 900ms linear infinite; }
 .hero-note { margin: 24px 0 0; max-width: 46ch; font-size: 0.875rem; line-height: 1.55; color: var(--muted-foreground); text-wrap: pretty; }
 
 /* the result card: its headline is the verdict */
 .result { scroll-margin-top: 88px; transition: border-color 200ms; }
-.result.is-bad { border-color: #fca5a5; }
-.result.is-good { border-color: #67e8f9; }
+/* the card's edge is a ring, so the verdict tints the ring */
+.result.is-bad { --tw-ring-color: #fca5a5; }
+.result.is-good { --tw-ring-color: #67e8f9; }
 .result > header { row-gap: 6px; }
 /* the status badge sits beside the small meta line, so the verdict and its sentence get the full width */
 .result > header > .card-action { grid-row: 1; align-self: center; }
 .result > header > h2, .result > header > #run-sub { grid-column: 1 / -1; }
+.run-note { grid-column: 1 / -1; margin: 2px 0 0; font-size: 0.875rem; line-height: 1.55; color: var(--muted-foreground); text-wrap: pretty; }
 .run-meta { margin: 0; font-size: 0.8rem; font-weight: 500; color: var(--muted-foreground); }
 .result > header > h2 { font-size: 1.5rem; line-height: 1.25; font-weight: 650; letter-spacing: -0.025em; text-wrap: balance; outline: none; }
 .result.is-bad > header > h2 { color: var(--fail-ink); }
@@ -136,6 +139,8 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 .sols tr.waiting td.tests { grid-column: 2; grid-row: 1; align-self: center; }
 .sols tr.waiting td.res { display: none; }
 .sols tr.broken { background: #fef2f2; }
+/* the solution a sample is about */
+.sols tr.focus { background: var(--brand-soft); }
 /* before results: an empty strip where each solution's tests will go, shimmering once they run */
 .skeleton { display: block; height: 13px; max-width: 220px; border-radius: 4px; background: var(--muted); }
 .sols.is-running .skeleton { background: linear-gradient(90deg, var(--muted) 0%, #dff7fb 50%, var(--muted) 100%) 0 0 / 200% 100%; animation: shimmer 1.4s linear infinite; }
@@ -156,8 +161,11 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 .fails b { flex: none; min-width: 4.5em; font-family: var(--font-mono); font-weight: 600; font-size: 0.95em; }
 .fails .more-fails { color: var(--muted-foreground); }
 @keyframes dot-in { from { opacity: 0; transform: scale(0.5); } to { opacity: 1; transform: scale(1); } }
-.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: -6px 0 0; font-size: 0.8rem; color: var(--muted-foreground); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 0; font-size: 0.8rem; color: var(--muted-foreground); }
 .legend > span { display: inline-flex; align-items: center; gap: 6px; }
+.legend .legend-note { margin-left: auto; }
+/* every fifth test a little apart, so a long strip can be counted */
+.dots .dot:nth-child(5n):not(:last-child) { margin-right: 4px; }
 .legend .dot { animation: none; }
 .accordion summary { gap: 8px; }
 .checks { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 4px 24px; }
@@ -260,6 +268,10 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
   .hero-lede { font-size: 1rem; }
   .hero-actions { margin-top: 24px; }
   .hero-actions .btn { width: 100%; }
+  .header-nav .btn { height: 40px; min-width: 40px; }
+  .footer-links a { display: inline-block; padding-block: 10px; }
+  .result .btn, .dropzone .btn { height: 44px; }
+  .legend .legend-note { margin-left: 0; }
   .steps-live { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-auto-flow: row; }
   .flow { grid-template-columns: minmax(0, 1fr); gap: 24px; }
   .flow li { padding: 0 0 0 28px; }

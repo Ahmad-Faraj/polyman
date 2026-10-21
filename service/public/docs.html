@@ -79,7 +79,7 @@ cd my-problem &amp;&amp; zip -r ../my-problem.zip .</code></pre>
           <tr><td><span class="badge" data-variant="outline">ML</span></td><td>exceed the memory limit on at least one test</td></tr>
           <tr><td><span class="badge" data-variant="destructive">RE</span></td><td>crash on at least one test</td></tr>
           <tr><td><span class="badge" data-variant="destructive">PE</span></td><td>get Presentation Error on at least one test</td></tr>
-          <tr><td><span class="badge" data-variant="success">TO</span></td><td>be correct, though it may run out of time</td></tr>
+          <tr><td><span class="badge" data-variant="secondary">TO</span></td><td>be correct, though it may run out of time</td></tr>
           <tr><td><span class="badge" data-variant="destructive">RJ</span></td><td>fail at least one test, for any reason</td></tr>
         </tbody>
       </table></div>
@@ -107,7 +107,7 @@ cd my-problem &amp;&amp; zip -r ../my-problem.zip .</code></pre>
     <section id="api">
       <h2>API</h2>
       <p>The page uses the same API you can call from a script or CI.</p>
-<pre><code>curl -F problem=@my-problem.zip https://SERVICE_URL/api/verify</code></pre>
+<pre><code>curl -F problem=@my-problem.zip <span class="origin">https://SERVICE_URL</span>/api/verify</code></pre>
       <p>The answer streams one JSON object per line while it works:</p>
 <pre><code>{"type":"start","problems":["my-problem"],"polyman":"3.0.0"}
 {"type":"step","problem":"my-problem","step":1,"title":"Compiling Generators"}
@@ -150,5 +150,6 @@ cd my-problem &amp;&amp; zip -r ../my-problem.zip .</code></pre>
     </nav>
   </div>
 </footer>
+<script>for (const el of document.querySelectorAll(".origin")) el.textContent = location.origin;</script>
 </body>
 </html>
