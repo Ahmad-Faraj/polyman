@@ -208,8 +208,11 @@ function showIdle(name) {
 /** The sample card for the sample in the result card says so. */
 function markSample(name) {
   for (const b of els.samples.querySelectorAll('.sample')) {
-    if (b.dataset.sample === name) b.setAttribute('aria-current', 'true');
+    const current = b.dataset.sample === name;
+    if (current) b.setAttribute('aria-current', 'true');
     else b.removeAttribute('aria-current');
+    // in words too, not only the cyan edge
+    $('.sample-go', b).innerHTML = current ? 'In the card above' : `Run ${icon('i-arrow')}`;
   }
 }
 
@@ -350,7 +353,9 @@ function showActions(state) {
 /** "Step 3 of 10 · 7 s so far": what the wait is for, and how long it has been. */
 function progress(t0) {
   const so = `${Math.round((performance.now() - t0) / 1000)} s so far · usually about 20 s.`;
-  if (cards.size > 1) return cap(so);
+  if (cards.size > 1) return `${Math.round((performance.now() - t0) / 1000)} s so far · usually about 20 s a problem.`;
+  // (the first step builds the generators, and takes the longest)
+  if (step === 1) return `Step 1 of ${STEPS.length} · ${so} This first step takes the longest.`;
   return step ? `Step ${step} of ${STEPS.length} · ${so}` : `Starting the sandbox · ${so}`;
 }
 
@@ -369,11 +374,13 @@ async function start(url, body, name, tries = 1) {
   finished = false;
   step = 0;
   label = name;
-  // the address names the sample, so a reload or a shared link runs it again
+  // the address names the sample, so a reload or a shared link sets it up again
   history.replaceState(null, '', body ? location.pathname : `?sample=${encodeURIComponent(name)}`);
   // hold the card's height so the page doesn't jump while the run fills it back in
   els.run.style.minHeight = `${els.run.offsetHeight}px`;
-  els.problems.replaceChildren();
+  // a sample's rows stay in view until the service says what it is checking
+  if (!body && expected.has(name)) showPreview(name);
+  else els.problems.replaceChildren();
   els.run.classList.remove('is-bad', 'is-good');
   els.run.classList.add('is-running');
   setHead(`Checking ${label}`, 'Checking the problem…', 'Usually about 20 seconds.');
@@ -492,6 +499,7 @@ function card(name) {
 function handle(ev) {
   events.push(ev);
   if (ev.type === 'start') {
+    els.problems.replaceChildren();
     for (const name of ev.problems) {
       const node = els.tpl.content.firstElementChild.cloneNode(true);
       $('.problem-name', node).textContent = name;
@@ -509,6 +517,7 @@ function handle(ev) {
       list.insertAdjacentHTML('afterend', `<div class="step-bar" aria-hidden="true">${'<span></span>'.repeat(STEPS.length)}</div>`);
       waitingRows(node, name);
       els.problems.append(node);
+      node.id = `problem-${ev.problems.indexOf(name)}`;
       cards.set(name, node);
     }
   } else if (ev.type === 'step') {
@@ -536,7 +545,16 @@ function handle(ev) {
     if (cards.size > 1) {
       const ready = events.filter((e) => e.type === 'problem' && e.ok).length;
       els.verdict.textContent = ev.ok ? `All ${plural(cards.size, 'problem')} are ready to use.` : `${ready} of ${plural(cards.size, 'problem')} ready to use.`;
-      els.sub.textContent = 'Each problem has its own report below.';
+      // one line per problem, each a link to its report
+      els.sub.replaceChildren();
+      [...cards.keys()].forEach((name, i) => {
+        const ok = events.find((e) => e.type === 'problem' && e.problem === name)?.ok;
+        const a = document.createElement('a');
+        a.href = `#problem-${i}`;
+        a.textContent = `${name}: ${ok ? 'ready' : 'needs work'}`;
+        if (i) els.sub.append(' · ');
+        els.sub.append(a);
+      });
     }
     // a check that ended without a report (a timeout) judged nothing: it didn't finish, the problem isn't to blame
     const reports = events.filter((e) => e.type === 'problem');
@@ -545,6 +563,7 @@ function handle(ev) {
     setStatus(ev.ok ? 'All good' : unfinished ? 'Did not finish' : 'Needs work', ev.ok ? 'success' : 'destructive');
     showActions('done');
     if (!unfinished) suggestNext(ev.ok);
+    else if (lastRun?.body) els.choose.hidden = false;
     // a sample's point, answered first: the demo asked "can the check find it?", sandbox-check "does the sandbox hold?"
     const [, , about] = (!unfinished && !lastRun?.body && SAMPLES[label]) || [];
     const sol = about && reports[0]?.report?.solutions.find((s) => s.name === about);
@@ -578,7 +597,11 @@ function renderProblem(card, ev) {
   // the answer first: what is wrong and what to do
   let title;
   let body;
-  if (!report) {
+  if (!report && /time|timed out/i.test(ev.error ?? '')) {
+    // (the 120 s limit is the one the docs state)
+    title = 'It ran past the time limit.';
+    body = 'polyman stops a problem after 120 s. A solution may be stuck in a loop. Run it again, or see the limits in the docs.';
+  } else if (!report) {
     title = 'The check could not finish.';
     body = 'What polyman reported is below.';
   } else if (broken.length) {
@@ -611,12 +634,13 @@ function renderProblem(card, ev) {
   const focus = lastRun?.body ? null : SAMPLES[label]?.[2];
   // (a result that passes doesn't open on red: solutions that fail on purpose come last)
   const rank = (s) => (!s.matchesTag ? 0 : s.name === focus ? 0.5 : s.tests.some((t) => t.verdict !== 'OK') ? 2 : 1);
-  $('.sols tbody', card).replaceChildren(...[...solutions].sort((a, b) => rank(a) - rank(b)).map((s) => {
+  // (no report: the solutions it was about to judge stay listed, not judged)
+  if (solutions.length) $('.sols tbody', card).replaceChildren(...[...solutions].sort((a, b) => rank(a) - rank(b)).map((s) => {
     const tr = solutionRow(s);
     if (s.name === focus && s.matchesTag) tr.classList.add('focus');
     return tr;
   }));
-  $('.table-container', card).hidden = !solutions.length;
+  $('.table-container', card).hidden = !$('.sols tbody', card).children.length;
   // when the problem fails on its guidelines, not its solutions, the guidelines come first
   if (critical.length && !broken.length) card.insertBefore($('.more', card), $('.legend', card));
   $('.legend', card).hidden = !solutions.length;
@@ -794,10 +818,11 @@ function stopped() {
 function failMidway(message) {
   settle();
   setHead(`Did not finish: ${label}`, 'The check did not finish.', message);
-  // no step is still under way: the one that was stops spinning
+  // no step is still under way: the one that was stops, neutral (the connection broke, not that step)
   for (const li of els.problems.querySelectorAll('.steps-live li.now')) {
     li.className = 'stopped';
-    $('svg', li).outerHTML = icon('i-x');
+    $('svg', li).outerHTML = icon('i-dot');
+    $('span', li).append(' (stopped here)');
   }
   for (const seg of els.problems.querySelectorAll('.step-bar .now')) seg.className = 'stopped';
   els.run.classList.add('is-bad');

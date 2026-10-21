@@ -60,7 +60,7 @@ code { font-family: var(--font-mono); font-size: max(0.85em, 12.5px); background
 .badge[data-variant='success'] { background: #cffafe; color: #155e75; border-color: transparent; }
 .badge svg { width: 12px; height: 12px; }
 /* one focus ring everywhere, 5:1 against white, in place of Basecoat's half-alpha cyan (which outranks a :where()) */
-a:focus-visible, .btn:focus-visible, .sample:focus-visible, summary:focus-visible, pre:focus-visible, .accordion > details > summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; box-shadow: none; }
+a:focus-visible, .checks li:focus-visible, .btn:focus-visible, .sample:focus-visible, summary:focus-visible, pre:focus-visible, .accordion > details > summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; box-shadow: none; }
 /* (Basecoat animates every property, the ring included, and tints the border; neither, so the ring is the ring from the first frame) */
 .btn, .accordion > details > summary { transition-property: color, background-color, opacity, transform; }
 .btn[data-variant='outline']:focus-visible { border-color: var(--border); }
@@ -109,8 +109,8 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 .checks.folded li.ok { display: none; }
 .checks .met-toggle { display: block; grid-column: 1 / -1; padding: 2px 0 0 28px; }
 .checks .met-toggle .btn { padding-inline: 0; height: auto; min-height: 44px; }
-.steps-live li.stopped svg { color: var(--fail); }
-.step-bar .stopped { background: var(--fail); }
+.steps-live li.stopped { color: var(--muted-foreground); }
+.step-bar .stopped { background: var(--muted-foreground); }
 .run-meta { margin: 0; font-size: 0.8rem; font-weight: 500; color: var(--muted-foreground); }
 .result > header > h2 { font-size: 1.5rem; line-height: 1.25; font-weight: 650; letter-spacing: -0.025em; text-wrap: balance; outline: none; }
 .result.is-bad > header > h2 { color: var(--fail-ink); }
@@ -129,7 +129,7 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 .steps-live li svg { width: 16px; height: 16px; flex: none; color: #d4d4d8; }
 .steps-live li.done svg { color: var(--pass); }
 .steps-live li.now { color: var(--foreground); font-weight: 500; }
-.steps-live li.now svg { color: var(--brand); animation: spin 900ms linear infinite; }
+.steps-live li.now svg { color: var(--pass); animation: spin 900ms linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* solutions table */
@@ -167,7 +167,7 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 .step-bar { display: none; grid-template-columns: repeat(10, 1fr); gap: 3px; }
 .step-bar span { height: 6px; border-radius: 3px; background: var(--border); }
 .step-bar .done { background: var(--pass); }
-.step-bar .now { background: var(--brand); animation: pulse 1.2s ease-in-out infinite; }
+.step-bar .now { background: var(--pass); animation: pulse 1.2s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: 0.45; } }
 /* whether each solution kept its label: words and a mark, no pill */
 .res-ok, .res-bad { display: inline-flex; align-items: center; gap: 6px; font-size: 0.8125rem; font-weight: 500; }
@@ -179,7 +179,7 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 .skeleton { display: block; height: 13px; max-width: 220px; border-radius: 4px; background: var(--border); }
 .result:not(.is-running) .sols tr.waiting { grid-template-columns: minmax(0, 1fr); }
 .result:not(.is-running) .sols tr.waiting td.tests { display: none; }
-.sols.is-running .skeleton { background: linear-gradient(90deg, var(--muted) 0%, #dff7fb 50%, var(--muted) 100%) 0 0 / 200% 100%; animation: shimmer 1.4s linear infinite; }
+.result.is-running .skeleton { background: linear-gradient(90deg, var(--muted) 0%, #dff7fb 50%, var(--muted) 100%) 0 0 / 200% 100%; animation: shimmer 1.4s linear infinite; }
 @keyframes shimmer { to { background-position: -200% 0; } }
 .sol-name { display: block; font-family: var(--font-mono); font-size: 0.85rem; font-weight: 600; }
 .sol-label { display: block; margin-top: 2px; font-size: 0.8rem; color: var(--muted-foreground); }
@@ -198,7 +198,7 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 .fails .more-fails { color: var(--muted-foreground); }
 @keyframes dot-in { from { opacity: 0; transform: scale(0.5); } to { opacity: 1; transform: scale(1); } }
 .legend { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 0; font-size: 0.8rem; color: var(--muted-foreground); }
-.legend > span { display: inline-flex; align-items: center; gap: 6px; }
+.legend > span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .legend .legend-note { color: var(--foreground); font-weight: 500; }
 /* every fifth test a little apart, so a long strip can be counted */
 .dots .dot:nth-child(5n):not(:last-child) { margin-right: 4px; }
@@ -214,6 +214,11 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 .alert[data-variant='destructive'] > section { color: var(--foreground); }
 .result .alert { border: 0; border-radius: 0; padding-inline: 0; background: none; }
 .alert:not([data-variant]) > svg { color: var(--pass); }
+.result .alert:not([data-variant]) > h2 { color: var(--pass-ink); }
+/* a contest: each problem's report under its own ruled heading */
+.problem + .problem { border-top: 1px solid var(--border); padding-top: 24px; }
+.problem-name { scroll-margin-top: 96px; }
+.problem { scroll-margin-top: 96px; }
 .refusal p { margin: 0 0 8px; }
 .refusal .raw { color: var(--muted-foreground); font-size: 0.85rem; overflow-wrap: anywhere; }
 .refusal ul { margin: 0 0 8px; padding-left: 18px; }
