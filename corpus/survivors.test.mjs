@@ -7,6 +7,7 @@ import {
   combineShards,
   isInsideRoot,
   judge,
+  judgeBaseline,
   judgedEntry,
   judgeMutant,
   junitXml,
@@ -100,6 +101,27 @@ describe('withMutant: the source always comes back', () => {
       })
     ).rejects.toThrow('tsc crashed');
     expect(fs.readFileSync(file, 'utf8')).toBe(original);
+  });
+
+  it('a stopped job (restoreAll) puts the source back while the run is still going', async () => {
+    let planted;
+    const inside = new Promise(resolve => (planted = resolve));
+    let finish;
+    const stillRunning = new Promise(resolve => (finish = resolve));
+    const done = withMutant(file, m, () => {
+      planted();
+      return stillRunning;
+    });
+    await inside;
+    try {
+      expect(fs.readFileSync(file, 'utf8')).not.toBe(original);
+      restoreAll();
+      expect(fs.readFileSync(file, 'utf8')).toBe(original);
+    } finally {
+      // let withMutant finish, so no restorer of this deleted file is left
+      finish();
+      await done;
+    }
   });
 
   it('never writes when the location is invalid', async () => {
@@ -751,6 +773,15 @@ process.exit(3);
     });
   });
 
+  it('a run past its time limit is a timeout, not a failure of the problem', async () => {
+    const script = path.join(dir, 'slow.mjs');
+    fs.writeFileSync(script, 'setTimeout(() => {}, 60_000);\n');
+    const started = Date.now();
+    const r = await judge('p', path.join(dir, 'work'), 300, script);
+    expect(r).toEqual({ timedOut: true });
+    expect(Date.now() - started).toBeLessThan(4_000);
+  });
+
   it("never reads the previous attempt's summary", async () => {
     const script = stub();
     const work = path.join(dir, 'work');
@@ -762,4 +793,72 @@ process.exit(3);
       /^run\.mjs exited 3 without a summary/
     );
   });
+});
+
+describe('judgeBaseline: the unmutated build, judged twice', () => {
+  const clean = problem => ({ entry: { name: problem, failures: [] } });
+
+  it('judges every problem twice, each run in its own folder', async () => {
+    const calls = [];
+    const work = path.join('tmp', 'work');
+    const baseline = await judgeBaseline(
+      ['a', 'b'],
+      work,
+      500,
+      async (problem, folder, ms) => {
+        calls.push([problem, folder, ms]);
+        return clean(problem);
+      }
+    );
+    expect(calls).toEqual([
+      ['a', path.join(work, 'baseline-0'), 500],
+      ['a', path.join(work, 'baseline-1'), 500],
+      ['b', path.join(work, 'baseline-0'), 500],
+      ['b', path.join(work, 'baseline-1'), 500],
+    ]);
+    expect(baseline.problems).toEqual([
+      { name: 'a', failures: [], flaky: false },
+      { name: 'b', failures: [], flaky: false },
+    ]);
+  });
+
+  it('a difference only one run shows is flaky, so no mutant is blamed for it', async () => {
+    const baseline = await judgeBaseline(
+      ['a'],
+      'work',
+      500,
+      async (problem, folder) => ({
+        entry: {
+          name: problem,
+          failures: folder.endsWith('baseline-1') ? ['tests#3: got OK'] : [],
+        },
+      })
+    );
+    expect(baseline.problems).toEqual([
+      { name: 'a', failures: ['tests#3: got OK'], flaky: true },
+    ]);
+  });
+
+  // [problem, attempt] of the one call that times out; every case must stop
+  // the job, name that problem, and judge nothing after it
+  it.each([
+    ['a', 0, 1],
+    ['a', 1, 2],
+    ['b', 0, 3],
+    ['b', 1, 4],
+  ])(
+    'stops the job when the unmutated build times out (%s, attempt %i)',
+    async (slow, attempt, callsBefore) => {
+      let calls = 0;
+      await expect(
+        judgeBaseline(['a', 'b'], 'work', 500, async (problem, folder) => {
+          calls++;
+          return problem === slow && folder.endsWith(`baseline-${attempt}`)
+            ? { timedOut: true }
+            : clean(problem);
+        })
+      ).rejects.toThrow(`the unmutated build timed out on ${slow}`);
+      expect(calls).toBe(callsBefore);
+    }
+  );
 });
