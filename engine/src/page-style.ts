@@ -4,7 +4,7 @@
  * goes on verdicts only, and the figures sit in one divided strip.
  */
 export const EVIDENCE_CSS = `
-:root { --ground: #f3f5f9; --surface: #ffffff; --ink: #0d1321; --soft: #47506a; --rule: #dde2ec; --navy: #0e1a3a; --on-navy: #ffffff; --on-navy-soft: #b4c0e2; --ok-ink: #11622e; --ok-bg: #e3f3e8; --bad-ink: #9b2219; --bad-bg: #fbe6e4; --refused: #fdf1ef; --link: #1d3fa8; --gold: #f2c230; color-scheme: light; }
+:root { --ground: #f3f5f9; --surface: #ffffff; --ink: #0d1321; --soft: #47506a; --rule: #d5dbe7; --navy: #0e1a3a; --on-navy: #ffffff; --on-navy-soft: #a9b6dc; --ok-ink: #11622e; --ok-bg: #e3f3e8; --bad-ink: #9b2219; --bad-bg: #fbe6e4; --refused: #fdf1ef; --link: #1d3fa8; --gold: #f2c230; color-scheme: light; }
 @media (prefers-color-scheme: dark) { :root { --ground: #090e1c; --surface: #121a30; --ink: #e9edf6; --soft: #a3adc6; --rule: #26314f; --navy: #0f1c40; --ok-ink: #7fd99c; --ok-bg: #12301f; --bad-ink: #ff9a90; --bad-bg: #3a1714; --refused: #2a1714; --link: #a9b9ff; color-scheme: dark; } }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--ground); color: var(--ink); font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; font-variant-numeric: tabular-nums; }

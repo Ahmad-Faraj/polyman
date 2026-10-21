@@ -204,7 +204,7 @@ function writeReport(file, results, tools, polyman) {
     ? `<a href="${html(env.CI_PIPELINE_URL)}">pipeline ${html(env.CI_PIPELINE_ID)}</a>, commit ${html(env.CI_COMMIT_SHORT_SHA)}`
     : 'local run';
   const page = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>polyman corpus verdicts</title><style>
-:root{--ground:#f3f5f9;--surface:#fff;--ink:#0d1321;--soft:#47506a;--rule:#dde2ec;--navy:#0e1a3a;--on-navy-soft:#b4c0e2;--ok:#11622e;--okbg:#e3f3e8;--bad:#9b2219;--badbg:#fbe6e4;--warn:#6e4300;--warnbg:#fdf0d5;--link:#1d3fa8}
+:root{--ground:#f3f5f9;--surface:#fff;--ink:#0d1321;--soft:#47506a;--rule:#d5dbe7;--navy:#0e1a3a;--on-navy-soft:#a9b6dc;--ok:#11622e;--okbg:#e3f3e8;--bad:#9b2219;--badbg:#fbe6e4;--warn:#6e4300;--warnbg:#fdf0d5;--link:#1d3fa8}
 @media (prefers-color-scheme:dark){:root{--ground:#090e1c;--surface:#121a30;--ink:#e9edf6;--soft:#a3adc6;--rule:#26314f;--navy:#0f1c40;--ok:#7fd99c;--okbg:#12301f;--bad:#ff9a90;--badbg:#3a1714;--warn:#f2c46b;--warnbg:#352508;--link:#a9b9ff}}
 body{background:var(--ground);color:var(--ink);font:14px/1.55 ui-sans-serif,system-ui,sans-serif;font-variant-numeric:tabular-nums;margin:0}
 a{color:var(--link)}.band{background:var(--navy);color:#fff;padding:32px max(24px,calc((100% - 1232px) / 2)) 28px}.band h1{font-size:28px;letter-spacing:-.02em;margin:0 0 10px}.band p{color:var(--on-navy-soft);margin:0;max-width:80ch}.band a{color:#fff}

@@ -23,6 +23,9 @@
   --limit: #a4520a;
   --frozen: #3e56c4;
   --gold: #f2c230;
+  --gold-hover: #ffd45a;
+  --accepted-on-navy: var(--accepted-on-navy);
+  --rejected-on-navy: #ff9a90;
   --ok-bg: #e3f3e8;
   --ok-ink: #11622e;
   --bad-bg: #fbe6e4;
@@ -111,7 +114,7 @@ h1 { font-size: clamp(1.6rem, 1.3rem + 0.8vw, 2rem); line-height: 1.04; letter-s
 .button.quiet { background: var(--navy-2); color: var(--on-navy); }
 .button.quiet:hover { background: var(--navy-3); }
 .button.gold { background: var(--gold); color: var(--navy); }
-.button.gold:hover { background: #ffd45a; }
+.button.gold:hover { background: var(--gold-hover); }
 button:disabled, .button:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
 .privacy { margin: -12px 0 0; display: flex; gap: 8px; color: var(--soft); font-size: 0.88rem; }
 .privacy .icon { margin-top: 3px; }
@@ -204,7 +207,7 @@ button:disabled, .button:disabled { opacity: 0.45; cursor: not-allowed; transfor
 .grid td.v-none { background: var(--navy-3); color: var(--on-navy-soft); font-weight: 500; }
 .grid td.kept { background: none; min-width: 92px; font-size: 0.95rem; text-transform: uppercase; font-weight: 800; font-variation-settings: var(--narrow); }
 .grid td.kept span { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 3px; }
-.grid td.kept.yes span { color: #8fe0a8; }
+.grid td.kept.yes span { color: var(--accepted-on-navy); }
 .grid td.kept.no span { background: var(--gold); color: var(--navy); }
 /* the resolve: every judged cell starts frozen and flips to its verdict in reading order */
 .grid.resolving td.cell::after { content: ''; position: absolute; inset: 0; background: var(--frozen); transform-origin: 50% 0; animation: resolve 240ms cubic-bezier(0.16, 1, 0.3, 1) both; animation-delay: var(--d, 0ms); }
@@ -215,15 +218,15 @@ button:disabled, .button:disabled { opacity: 0.45; cursor: not-allowed; transfor
 .verdicts { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .verdicts li { background: var(--navy-2); border-radius: var(--radius); padding: 14px 16px; display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; font-size: 1.05rem; }
 .verdicts li .icon { grid-row: 1 / span 2; width: 22px; height: 22px; margin-top: 2px; color: var(--gold); }
-.verdicts li.clean .icon { color: #8fe0a8; }
+.verdicts li.clean .icon { color: var(--accepted-on-navy); }
 .verdicts li small { color: var(--on-navy-soft); font-size: 0.92rem; }
 
 .checks-title { margin: 8px 0 0; font-size: 0.95rem; color: var(--on-navy-soft); font-weight: 600; }
 .checks { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 6px 20px; }
 .checks li { display: grid; grid-template-columns: 20px 1fr; gap: 8px; align-items: start; font-size: 0.92rem; padding-block: 4px; }
 .checks li .icon { margin-top: 3px; }
-.checks .ok .icon { color: #8fe0a8; }
-.checks .critical .icon { color: #ff9a90; }
+.checks .ok .icon { color: var(--accepted-on-navy); }
+.checks .critical .icon { color: var(--rejected-on-navy); }
 .checks .warning .icon { color: var(--gold); }
 .checks .info .icon { color: var(--on-navy-soft); }
 .checks small { display: block; color: var(--on-navy-soft); }
