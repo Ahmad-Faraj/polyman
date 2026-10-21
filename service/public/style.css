@@ -101,6 +101,12 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 .result > header > .card-action { grid-row: 1; align-self: center; }
 .result > header > h2, .result > header > #run-sub { grid-column: 1 / -1; }
 .run-note { grid-column: 1 / -1; margin: 2px 0 0; font-size: 0.875rem; line-height: 1.55; color: var(--muted-foreground); text-wrap: pretty; }
+/* the demo's answer to its own question: the tool succeeded, whatever the problem's verdict */
+.run-note.found { display: flex; align-items: center; gap: 8px; font-size: 0.95rem; font-weight: 600; color: var(--pass-ink); }
+.run-note.found svg { width: 18px; height: 18px; flex: none; color: var(--pass); }
+.checks.folded li.ok { display: none; }
+.checks .met-toggle { display: block; grid-column: 1 / -1; padding: 2px 0 0 28px; }
+.checks .met-toggle .btn { padding-inline: 0; height: auto; }
 .run-meta { margin: 0; font-size: 0.8rem; font-weight: 500; color: var(--muted-foreground); }
 .result > header > h2 { font-size: 1.5rem; line-height: 1.25; font-weight: 650; letter-spacing: -0.025em; text-wrap: balance; outline: none; }
 .result.is-bad > header > h2 { color: var(--fail-ink); }
@@ -140,9 +146,10 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 .sols td.res { grid-column: 2; grid-row: 1; align-self: start; white-space: nowrap; }
 .sols td.tests { grid-column: 1 / -1; grid-row: 2; padding-top: 10px; padding-bottom: 14px; }
 /* before results a row is one line: the name, then an empty strip where its tests will go */
-.sols tr.waiting { grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); }
+/* (stacked, as a finished row is: the squares land where the strip was) */
+.sols tr.waiting { grid-template-columns: minmax(0, 1fr); }
 .sols tr.waiting td { padding-block: 12px; }
-.sols tr.waiting td.tests { grid-column: 2; grid-row: 1; align-self: center; }
+.sols tr.waiting td.tests { grid-column: 1; grid-row: 2; padding-top: 0; }
 .sols tr.waiting td.res { display: none; }
 .sols tbody tr:hover { background-color: transparent; }
 .sols tbody tr.broken, .sols tbody tr.broken:hover { background: #fef2f2; }
@@ -151,7 +158,7 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 /* a solution that fails as its label says: its marks drawn in outline, so a passing result doesn't shout red */
 .sols tr.expected-fail .dot.bad, .sols tr.expected-fail .dot.limit, .legend .dot.hollow { background: #fff; box-shadow: inset 0 0 0 1.5px currentColor; }
 .sols tr.expected-fail .dot.bad, .legend .dot.hollow.bad { color: var(--fail); }
-.sols tr.expected-fail .dot.limit { color: var(--slow); }
+.sols tr.expected-fail .dot.limit, .legend .dot.hollow.limit { color: var(--slow); }
 /* the phone's fold of the ten steps: a bar of ten, filled as each one finishes */
 .step-bar { display: none; grid-template-columns: repeat(10, 1fr); gap: 3px; }
 .step-bar span { height: 6px; border-radius: 3px; background: var(--border); }
@@ -252,6 +259,10 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 .records a:hover { background: #f8feff; }
 .records a:hover::after { background: var(--primary); transform: translate(1px, -1px); }
 .records a:focus-visible { outline-offset: -2px; }
+/* the inset ring follows the list's rounded corners */
+.records li:first-child a { border-radius: 11px 11px 0 0; }
+.records li:last-child a { border-radius: 0 0 11px 11px; }
+.dropzone-hint code { white-space: nowrap; }
 .records svg { width: 20px; height: 20px; margin-top: 1px; color: var(--primary); }
 .records b { display: block; font-weight: 600; }
 .records b + span { display: block; margin-top: 2px; font-size: 0.875rem; line-height: 1.5; color: var(--muted-foreground); text-wrap: pretty; }
@@ -302,8 +313,9 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
   /* the running card fits a phone screen: one line for the step and a bar of ten */
   .steps-live li:not(.now) { display: none; }
   .step-bar { display: grid; }
-  .sols tr.waiting { grid-template-columns: minmax(0, 1fr); }
-  .sols tr.waiting td.tests { grid-column: 1; grid-row: 2; padding-top: 0; }
+  /* the hero's run button is the phone's primary; the card's steps back to outline */
+  #start { background: var(--background); color: var(--foreground); box-shadow: inset 0 0 0 1px var(--border); }
+  .toc a:not(.btn) { min-width: 44px; text-align: center; }
   .logo { padding-block: 8px; }
   .footer-links a { padding-block: 12px; }
   .toc a:not(.btn) { padding-block: 12px; }

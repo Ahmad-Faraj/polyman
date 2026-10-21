@@ -190,7 +190,8 @@ function showIdle(name) {
   if (name === DEMO) setHead(...demoHead);
   else {
     const [title, desc] = SAMPLES[name] ?? [name, ''];
-    setHead(`Live check · sample problem “${name}”`, `${title}.`, `${desc} Run the check to see it happen. It takes about 20 seconds.`);
+    // the verdict slot only ever holds what a check found: before one, it asks
+    setHead(`Live check · sample problem “${name}”`, `${title}: is it ready to use?`, `What this sample is built to show: ${desc} Run the check to see what it really finds. It takes about 20 seconds.`);
   }
   setStatus('Not run yet', 'secondary');
   els.actions.hidden = false;
@@ -282,7 +283,7 @@ els.download.addEventListener('click', () => {
   const blob = new Blob([JSON.stringify(events, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = 'polyman-verify-report.json';
+  a.download = `polyman-verify-${String(label).replace(/\.zip$/i, '').replace(/[^\w.-]+/g, '-')}.json`;
   a.click();
   URL.revokeObjectURL(a.href);
 });
@@ -310,6 +311,7 @@ let noticeTimer = 0;
 /** A passing message, shown under the verdict for a few seconds as well as announced. */
 function notice(text) {
   say(text);
+  els.note.classList.remove('found');
   els.note.textContent = text;
   els.note.hidden = false;
   clearTimeout(noticeTimer);
@@ -349,6 +351,7 @@ function progress(t0) {
 async function start(url, body, name, tries = 1) {
   if (running) return;
   els.note.hidden = true;
+  els.note.classList.remove('found');
   clearTimeout(noticeTimer);
   // the sample cards mark the one in the result card; an upload is none of them
   if (!body) pending = name;
@@ -539,7 +542,9 @@ function handle(ev) {
     const found = events.find((e) => e.type === 'problem')?.report?.solutions.find((s) => s.name === about && !s.matchesTag);
     if (found) {
       // the demo asked "can the check find it?": say that it did
-      els.note.textContent = `Found it: ${about} is the planted mistake.`;
+      els.note.innerHTML = `${icon('i-check')}<span></span>`;
+      $('span', els.note).textContent = `Found it: ${about} is the planted mistake.`;
+      els.note.classList.add('found');
       els.note.hidden = false;
     } else if (about) {
       els.note.textContent = `What this sample shows: ${desc} That solution is ${about}, highlighted below.`;
@@ -610,6 +615,7 @@ function renderProblem(card, ev) {
   // when the problem fails on its guidelines, not its solutions, the guidelines come first
   if (critical.length && !broken.length) card.insertBefore($('.more', card), $('.legend', card));
   $('.legend', card).hidden = !solutions.length;
+  legendFor(card, solutions);
   $('.more', card).hidden = false;
 
   $('.guides-title', card).textContent = checks.length ? `Contest guidelines · ${checks.length - gaps.length} of ${checks.length} met` : 'Contest guidelines';
@@ -624,6 +630,20 @@ function renderProblem(card, ev) {
     $('small', li).textContent = c.ok ? cap(tidy(c.detail)) : `${cap(SEVERITY_WORDS[c.severity] ?? c.severity)}. ${cap(tidy(c.detail))}`;
     list.append(li);
   }
+  // when some guidelines aren't met, those lead and the met ones wait behind a toggle
+  const met = checks.length - gaps.length;
+  if (gaps.length && met) {
+    list.classList.add('folded');
+    const more = document.createElement('li');
+    more.className = 'met-toggle';
+    more.innerHTML = `<button type="button" class="btn" data-variant="link" data-size="sm"></button>`;
+    $('button', more).textContent = `Show the ${plural(met, 'guideline')} met`;
+    $('button', more).addEventListener('click', () => {
+      list.classList.remove('folded');
+      more.remove();
+    });
+    list.append(more);
+  }
 
   const failed = report?.steps.filter((s) => !s.ok) ?? [];
   const error = ev.error ?? failed.map((s) => `${s.name}:\n${s.errors.map((e) => `  ${e}`).join('\n') || '  failed'}`).join('\n\n');
@@ -633,6 +653,26 @@ function renderProblem(card, ev) {
     $('.problem-error', card).textContent = error;
     if (!solutions.length) log.open = true;
   }
+}
+
+/** The legend lists only the kinds of mark this report shows. */
+function legendFor(card, solutions) {
+  const seen = new Set();
+  for (const s of solutions) {
+    const onPurpose = s.matchesTag && s.tests.some((t) => t.verdict !== 'OK');
+    for (const t of s.tests) {
+      const kind = verdictKind(t.verdict);
+      seen.add(kind !== 'ok' && onPurpose ? `${kind}-hollow` : kind);
+    }
+  }
+  const items = [
+    ['ok', 'dot ok', '', 'passed'],
+    ['bad', 'dot bad', 'i-x', 'wrong answer or crash'],
+    ['limit', 'dot limit', 'i-clock', 'too slow'],
+    ['bad-hollow', 'dot bad hollow', 'i-x', 'wrong, on purpose'],
+    ['limit-hollow', 'dot limit hollow', 'i-clock', 'too slow, on purpose'],
+  ].filter(([kind]) => seen.has(kind));
+  $('.legend', card).innerHTML = `<span class="legend-note">One square per test:</span>${items.map(([, cls, glyph, words]) => `<span><span class="${cls}" aria-hidden="true">${glyph ? icon(glyph) : ''}</span>${words}</span>`).join('')}`;
 }
 
 /** What a solution got, in words: "wrong answer on 6 of 12 tests". */
@@ -754,8 +794,10 @@ function failMidway(message) {
 }
 
 /** The service's refusal as one sentence anyone can act on. */
+const BROKEN_ZIP = /central directory|not a zip|invalid zip|zip.*(corrupt|truncat)/i;
+
 function plainReason(message = '') {
-  if (/central directory|not a zip|invalid zip|zip.*(corrupt|truncat)/i.test(message)) return "This file isn't a zip, or it was cut short.";
+  if (BROKEN_ZIP.test(message)) return "This file isn't a zip, or it was cut short.";
   if (/config\.json/i.test(message) && /not found|missing|no /i.test(message)) return 'There is no Config.json at the top of the zip, or in one folder per problem.';
   return cap(message);
 }
@@ -766,9 +808,13 @@ function showError(message, issues, kind = 'refused', detail = '') {
   // the browser's own checks: a short fact and what to do, and the service never saw the file
   const local = kind === 'local';
   const plain = offline ? 'Could not reach the service.' : local ? message : plainReason(message);
-  setHead(label ? `Not checked: ${label}` : 'Not checked', plain, offline ? 'Check your connection and run it again. If it still fails, the service may be restarting: try again in a minute.' : local ? detail : 'Nothing was run. See how to prepare the zip, then try again.');
+  const next = BROKEN_ZIP.test(message) ? 'Nothing was run. Zip the folder again and choose the new file.' : 'Nothing was run. See how to prepare the zip, then try again.';
+  setHead(label ? `Not checked: ${label}` : 'Not checked', plain, offline ? 'Check your connection and run it again. If it still fails, the service may be restarting: try again in a minute.' : local ? detail : next);
   els.run.classList.add('is-bad');
-  setStatus(offline ? 'Not reached' : 'Refused', 'destructive');
+  // the browser's own check sent nothing, so the service refused nothing
+  setStatus(offline ? 'Not reached' : local ? 'Not sent' : 'Refused', 'destructive');
+  if (local) markSample(null);
+  $('span', els.instead).textContent = `Run the ${pending} sample instead`;
   const box = document.createElement('div');
   box.className = 'refusal';
   box.innerHTML = `<p class="raw"></p><ul></ul><p class="prep"><a href="/docs#prepare">How to prepare the zip</a></p>`;
