@@ -22,6 +22,7 @@ import {
   run,
   sameDifferences,
   selectMutants,
+  shardJudges,
   shardOf,
   summaryMarkdown,
   withMutant,
@@ -795,6 +796,37 @@ process.exit(3);
       /^run\.mjs exited 3 without a summary/
     );
   });
+
+  // a stand-in run.mjs that records the arguments it was given
+  const argvOf = async cache => {
+    const script = path.join(dir, 'argv.mjs');
+    const log = path.join(dir, 'argv.json');
+    fs.writeFileSync(
+      script,
+      `import fs from 'node:fs';
+fs.writeFileSync(${JSON.stringify(log)}, JSON.stringify(process.argv.slice(2)));
+`
+    );
+    const work = path.join(dir, 'work');
+    await (cache
+      ? judge('p', work, 20_000, script, cache)
+      : judge('p', work, 20_000, script));
+    return JSON.parse(fs.readFileSync(log, 'utf8'));
+  };
+
+  it("hands the cache flags to run.mjs's command line", async () => {
+    const junit = path.join(dir, 'work', 'p', 'junit.xml');
+    expect(await argvOf(['--cache', '/c', '--save-cache'])).toEqual([
+      '--only',
+      'p',
+      '--junit',
+      junit,
+      '--cache',
+      '/c',
+      '--save-cache',
+    ]);
+    expect(await argvOf()).toEqual(['--only', 'p', '--junit', junit]);
+  });
 });
 
 describe('judgeBaseline: the unmutated build, judged twice', () => {
@@ -903,6 +935,45 @@ describe('the compile cache: only the cold baseline run writes it', () => {
   it('gives a mutant --cache and never --save-cache', () => {
     expect(cacheArgs('/c')).toEqual(['--cache', '/c']);
     expect(cacheArgs(null)).toEqual([]);
+  });
+});
+
+describe("shardJudges: a shard's judges share one cache, mutants only read it", () => {
+  const work = path.join('tmp', 'work');
+  const cache = path.join(work, 'compile-cache');
+  const recorder = () => {
+    const calls = [];
+    const judgeOne = async (problem, folder, ms, script, flags) => {
+      calls.push([problem, folder, ms, script, flags]);
+      return { entry: { name: problem, failures: [] } };
+    };
+    return { calls, judgeOne };
+  };
+
+  it('the baseline fills the cache on its cold run and reads it on the second', async () => {
+    const { calls, judgeOne } = recorder();
+    await shardJudges(work, judgeOne).baseline(['a'], 500);
+    expect(calls).toEqual([
+      [
+        'a',
+        path.join(work, 'baseline-0'),
+        500,
+        undefined,
+        ['--cache', cache, '--save-cache'],
+      ],
+      ['a', path.join(work, 'baseline-1'), 500, undefined, ['--cache', cache]],
+    ]);
+  });
+
+  it('a mutant reads the same cache and never saves to it', async () => {
+    const { calls, judgeOne } = recorder();
+    const judgeMutantRun = shardJudges(work, judgeOne).mutant({ id: '42' });
+    await judgeMutantRun('a', 500);
+    await judgeMutantRun('b', 700);
+    expect(calls).toEqual([
+      ['a', path.join(work, '42'), 500, undefined, ['--cache', cache]],
+      ['b', path.join(work, '42'), 700, undefined, ['--cache', cache]],
+    ]);
   });
 });
 

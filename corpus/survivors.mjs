@@ -626,6 +626,29 @@ export async function judgeBaseline(
   return baseline;
 }
 
+/**
+ * The judges one shard runs, sharing a compile cache in `work`. g++ binaries
+ * depend on the problems' sources, testlib and the compiler, never on
+ * polyman's own code: the unmutated build's first (cold) run fills the cache,
+ * and its second run and every mutant start from a copy of it. Mutants never
+ * write to it.
+ */
+export function shardJudges(work, judgeOne = judge) {
+  const cache = path.join(work, 'compile-cache');
+  return {
+    baseline: (problems, timeoutMs) =>
+      judgeBaseline(problems, work, timeoutMs, judgeOne, cache),
+    mutant: mutant => (problem, ms) =>
+      judgeOne(
+        problem,
+        path.join(work, mutant.id),
+        ms,
+        undefined,
+        cacheArgs(cache)
+      ),
+  };
+}
+
 async function judgeShard(args) {
   const report = JSON.parse(fs.readFileSync(args.report, 'utf8'));
   const all = selectMutants(report);
@@ -655,12 +678,8 @@ async function judgeShard(args) {
   // The unmutated build, judged in this same job: kills are differences from it
   const base = await build();
   if (!base.ok) throw new Error(`the unmutated build fails:\n${base.output}`);
-  // g++ binaries depend on the problems' sources, testlib and the compiler,
-  // never on polyman's own code: the unmutated build's first (cold) run fills
-  // a compile cache, and its second run and every mutant start from a copy
-  // of it. Mutants never write to it.
-  const cache = path.join(work, 'compile-cache');
-  const baseline = await judgeBaseline(problems, work, timeoutMs, judge, cache);
+  const judges = shardJudges(work);
+  const baseline = await judges.baseline(problems, timeoutMs);
   const red = baseline.problems.filter(p => p.failures.length);
   const flaky = baseline.problems.filter(p => p.flaky);
   console.log(
@@ -683,14 +702,7 @@ async function judgeShard(args) {
               problems,
               baseline,
               build,
-              judge: (problem, ms) =>
-                judge(
-                  problem,
-                  path.join(work, mutant.id),
-                  ms,
-                  undefined,
-                  cacheArgs(cache)
-                ),
+              judge: judges.mutant(mutant),
               timeoutSeconds: args.timeout,
             })
           );
