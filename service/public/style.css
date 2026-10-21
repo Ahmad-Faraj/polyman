@@ -102,11 +102,15 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 .result > header > h2, .result > header > #run-sub { grid-column: 1 / -1; }
 .run-note { grid-column: 1 / -1; margin: 2px 0 0; font-size: 0.875rem; line-height: 1.55; color: var(--muted-foreground); text-wrap: pretty; }
 /* the demo's answer to its own question: the tool succeeded, whatever the problem's verdict */
-.run-note.found { display: flex; align-items: center; gap: 8px; font-size: 0.95rem; font-weight: 600; color: var(--pass-ink); }
-.run-note.found svg { width: 18px; height: 18px; flex: none; color: var(--pass); }
+/* (it sits right under the meta line, before the problem's own verdict) */
+.result > header > .run-note { grid-row: 2; color: var(--muted-foreground); }
+.result > header > .run-note.found { display: flex; align-items: flex-start; gap: 8px; margin: 0; font-size: 1rem; font-weight: 650; color: var(--pass-ink); }
+.run-note.found svg { width: 18px; height: 18px; margin-top: 3px; flex: none; color: var(--pass); }
 .checks.folded li.ok { display: none; }
 .checks .met-toggle { display: block; grid-column: 1 / -1; padding: 2px 0 0 28px; }
-.checks .met-toggle .btn { padding-inline: 0; height: auto; }
+.checks .met-toggle .btn { padding-inline: 0; height: auto; min-height: 44px; }
+.steps-live li.stopped svg { color: var(--fail); }
+.step-bar .stopped { background: var(--fail); }
 .run-meta { margin: 0; font-size: 0.8rem; font-weight: 500; color: var(--muted-foreground); }
 .result > header > h2 { font-size: 1.5rem; line-height: 1.25; font-weight: 650; letter-spacing: -0.025em; text-wrap: balance; outline: none; }
 .result.is-bad > header > h2 { color: var(--fail-ink); }
@@ -266,8 +270,9 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 .records svg { width: 20px; height: 20px; margin-top: 1px; color: var(--primary); }
 .records b { display: block; font-weight: 600; }
 .records b + span { display: block; margin-top: 2px; font-size: 0.875rem; line-height: 1.5; color: var(--muted-foreground); text-wrap: pretty; }
-.privacy { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 12px 0 0 !important; font-size: 0.875rem; color: var(--muted-foreground); }
-.privacy svg { width: 16px; height: 16px; }
+.privacy { display: block; text-align: center; margin: 12px 0 0 !important; font-size: 0.875rem; color: var(--muted-foreground); }
+.privacy svg { display: inline; width: 16px; height: 16px; margin-right: 6px; vertical-align: -3px; }
+.refusal .prep a { display: inline-block; padding-block: 13px; }
 .site-footer { border-top: 1px solid var(--border); margin-top: 40px; }
 .footer-row { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px 24px; padding-block: 28px 40px; font-size: 0.875rem; color: var(--muted-foreground); }
 .footer-links { display: flex; flex-wrap: wrap; gap: 4px 20px; }

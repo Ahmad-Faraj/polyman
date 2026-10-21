@@ -54,7 +54,7 @@
     <div class="hero-copy">
       <span class="badge" data-variant="outline"><span class="live-dot" aria-hidden="true"></span><span id="version">Live on Google Cloud Run</span></span>
       <h1 id="title">Is this contest problem ready to use?</h1>
-      <p class="hero-lede">polyman verify judges a programming-contest problem the way a real contest would. Every solution is judged on the problem's own tests with real compilers, in a locked-down sandbox, and you get a plain answer about what is wrong.</p>
+      <p class="hero-lede">polyman verify judges a programming-contest problem the way a real contest would. Every solution runs on the problem's own tests with real compilers, in a locked-down sandbox, and you get a plain answer about what is wrong.</p>
       <div class="hero-actions">
         <button type="button" id="demo" class="btn" data-size="lg"><svg aria-hidden="true"><use href="#i-play"/></svg>Run a live check</button>
         <button type="button" id="own" class="btn" data-variant="outline" data-size="lg"><svg aria-hidden="true"><use href="#i-upload"/></svg>Check your own problem</button>
@@ -75,7 +75,7 @@
         <div id="problems" class="problems"></div>
       </section>
       <footer id="run-actions" hidden>
-        <button type="button" id="start" class="btn"><svg aria-hidden="true"><use href="#i-play"/></svg>Run the check</button>
+        <button type="button" id="start" class="btn" data-size="lg"><svg aria-hidden="true"><use href="#i-play"/></svg>Run the check</button>
         <button type="button" id="stop" class="btn" data-variant="outline" hidden><svg aria-hidden="true"><use href="#i-stop"/></svg>Stop</button>
         <button type="button" id="next" class="btn" hidden><span></span><svg aria-hidden="true"><use href="#i-arrow"/></svg></button>
         <button type="button" id="again" class="btn" data-variant="outline">Run it again</button>
@@ -92,6 +92,19 @@
       <p>Each one shows a different kind of problem the check catches. The result appears in the card above.</p>
     </div>
     <div id="sample-list" class="sample-grid"></div>
+  </section>
+
+  <section class="container section gitlab" aria-labelledby="gitlab-title">
+    <div class="gitlab-copy">
+      <h2 id="gitlab-title" tabindex="-1">Built and shipped on GitLab</h2>
+      <p>AI agents write changes to this service on GitLab, and they start only after a person says go ahead. CI rebuilds the record of every go-ahead from GitLab's own data, so you can check it yourself.</p>
+    </div>
+    <ul class="records">
+      <li><a href="https://showcase-ce2cdc.gitlab.io/ledger/"><svg aria-hidden="true"><use href="#i-ledger"/></svg><span><b>Go-ahead ledger</b><span>Every push an agent made, judged against who said go ahead. Hash-chained, so a record can't be changed later.</span></span></a></li>
+      <li><a href="https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/pipelines"><svg aria-hidden="true"><use href="#i-pipe"/></svg><span><b>Pipelines</b><span>The builds, tests and deploys behind this page.</span></span></a></li>
+      <li><a href="https://showcase-ce2cdc.gitlab.io/sci/"><svg aria-hidden="true"><use href="#i-leaf"/></svg><span><b>Agent carbon</b><span>The carbon the review agents emit per merge request, measured as Software Carbon Intensity.</span></span></a></li>
+      <li><a href="https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase"><svg aria-hidden="true"><use href="#i-git"/></svg><span><b>Source</b><span>The service, the agents' setup and this page.</span></span></a></li>
+    </ul>
   </section>
 
   <section class="container section" aria-labelledby="own-title">
@@ -119,18 +132,6 @@
     </ol>
   </section>
 
-  <section class="container section gitlab" aria-labelledby="gitlab-title">
-    <div class="gitlab-copy">
-      <h2 id="gitlab-title" tabindex="-1">Built and shipped on GitLab</h2>
-      <p>AI agents write changes to this service on GitLab, and they start only after a person says go ahead. CI rebuilds the record of every go-ahead from GitLab's own data, so you can check it yourself.</p>
-    </div>
-    <ul class="records">
-      <li><a href="https://showcase-ce2cdc.gitlab.io/ledger/"><svg aria-hidden="true"><use href="#i-ledger"/></svg><span><b>Go-ahead ledger</b><span>Every push an agent made, judged against who said go ahead. Hash-chained, so a record can't be changed later.</span></span></a></li>
-      <li><a href="https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/pipelines"><svg aria-hidden="true"><use href="#i-pipe"/></svg><span><b>Pipelines</b><span>The builds, tests and deploys behind this page.</span></span></a></li>
-      <li><a href="https://showcase-ce2cdc.gitlab.io/sci/"><svg aria-hidden="true"><use href="#i-leaf"/></svg><span><b>Agent carbon</b><span>The carbon the review agents emit per merge request, measured as Software Carbon Intensity.</span></span></a></li>
-      <li><a href="https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase"><svg aria-hidden="true"><use href="#i-git"/></svg><span><b>Source</b><span>The service, the agents' setup and this page.</span></span></a></li>
-    </ul>
-  </section>
 </main>
 
 <footer class="site-footer">

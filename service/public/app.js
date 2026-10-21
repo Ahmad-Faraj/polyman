@@ -92,6 +92,12 @@ const GUIDE_FIX = {
 };
 /** What a solution did on a test, as a verb phrase: "got a wrong answer". */
 const DID_WORDS = { OK: 'passed', WA: 'got a wrong answer', TLE: 'was too slow', MLE: 'used too much memory', RE: 'crashed', PE: 'printed badly formatted output', CE: 'did not compile' };
+/** What each sample asks before it runs: a question, never its outcome. */
+const SAMPLE_ASK = {
+  'even-sum': 'Is this problem ready for a contest?',
+  'not-ready': 'Every solution works. Is it ready for a round?',
+  'sandbox-check': 'One solution needs root. Does the sandbox hold?',
+};
 const SEVERITY_WORDS = { critical: 'must fix', warning: 'recommended', info: 'nice to have' };
 const NUMBER_WORDS = ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine'];
 
@@ -191,7 +197,7 @@ function showIdle(name) {
   else {
     const [title, desc] = SAMPLES[name] ?? [name, ''];
     // the verdict slot only ever holds what a check found: before one, it asks
-    setHead(`Live check · sample problem “${name}”`, `${title}: is it ready to use?`, `What this sample is built to show: ${desc} Run the check to see what it really finds. It takes about 20 seconds.`);
+    setHead(`Live check · sample problem “${name}”`, SAMPLE_ASK[name] ?? `Is ${title.toLowerCase()} ready to use?`, 'Each solution below is labelled with how it should behave. Run the check to see what it finds. It takes about 20 seconds.');
   }
   setStatus('Not run yet', 'secondary');
   els.actions.hidden = false;
@@ -532,22 +538,21 @@ function handle(ev) {
       els.verdict.textContent = ev.ok ? `All ${plural(cards.size, 'problem')} are ready to use.` : `${ready} of ${plural(cards.size, 'problem')} ready to use.`;
       els.sub.textContent = 'Each problem has its own report below.';
     }
+    // a check that ended without a report (a timeout) judged nothing: it didn't finish, the problem isn't to blame
+    const reports = events.filter((e) => e.type === 'problem');
+    const unfinished = !reports.length || reports.every((e) => !e.report);
     els.run.classList.add(ev.ok ? 'is-good' : 'is-bad');
-    setStatus(ev.ok ? 'All good' : 'Needs work', ev.ok ? 'success' : 'destructive');
+    setStatus(ev.ok ? 'All good' : unfinished ? 'Did not finish' : 'Needs work', ev.ok ? 'success' : 'destructive');
     showActions('done');
-    suggestNext(ev.ok);
-    // a sample's own story under its verdict, so its result says what it set out to show
-    // (only when the verdict alone doesn't tell it: a sample whose point is one solution)
-    const [, desc, about] = (!lastRun?.body && SAMPLES[label]) || [];
-    const found = events.find((e) => e.type === 'problem')?.report?.solutions.find((s) => s.name === about && !s.matchesTag);
-    if (found) {
-      // the demo asked "can the check find it?": say that it did
+    if (!unfinished) suggestNext(ev.ok);
+    // a sample's point, answered first: the demo asked "can the check find it?", sandbox-check "does the sandbox hold?"
+    const [, , about] = (!unfinished && !lastRun?.body && SAMPLES[label]) || [];
+    const sol = about && reports[0]?.report?.solutions.find((s) => s.name === about);
+    const win = !sol ? '' : !sol.matchesTag ? `Found it: ${about} is the planted mistake.` : sol.tests.some((t) => t.verdict !== 'OK') ? `The sandbox held: ${about} never got root, so it failed as labelled.` : '';
+    if (win) {
       els.note.innerHTML = `${icon('i-check')}<span></span>`;
-      $('span', els.note).textContent = `Found it: ${about} is the planted mistake.`;
+      $('span', els.note).textContent = win;
       els.note.classList.add('found');
-      els.note.hidden = false;
-    } else if (about) {
-      els.note.textContent = `What this sample shows: ${desc} That solution is ${about}, highlighted below.`;
       els.note.hidden = false;
     }
     say(`Checked ${label} in ${ev.seconds.toFixed(1)} seconds. ${els.verdict.textContent}`);
@@ -641,6 +646,10 @@ function renderProblem(card, ev) {
     $('button', more).addEventListener('click', () => {
       list.classList.remove('folded');
       more.remove();
+      // keep the keyboard's place: on the first guideline that was hidden
+      const first = $('li.ok', list);
+      first.tabIndex = -1;
+      first.focus();
     });
     list.append(more);
   }
@@ -784,9 +793,15 @@ function stopped() {
 /** An error after results started arriving: keep what came, say what broke. */
 function failMidway(message) {
   settle();
-  setHead(null, 'The check did not finish.', message);
+  setHead(`Did not finish: ${label}`, 'The check did not finish.', message);
+  // no step is still under way: the one that was stops spinning
+  for (const li of els.problems.querySelectorAll('.steps-live li.now')) {
+    li.className = 'stopped';
+    $('svg', li).outerHTML = icon('i-x');
+  }
+  for (const seg of els.problems.querySelectorAll('.step-bar .now')) seg.className = 'stopped';
   els.run.classList.add('is-bad');
-  setStatus('Failed', 'destructive');
+  setStatus('Did not finish', 'destructive');
   showActions('done');
   setBusy(false);
   say(`The check did not finish. ${message}`);
