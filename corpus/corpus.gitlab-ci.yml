@@ -196,13 +196,19 @@ corpus:mutation:
 # one at a time, polyman is rebuilt and the corpus judges all problems; a kill
 # is any verdict or step that differs from the unmutated build in the same job.
 # On the default branch, and on demand in merge requests that change the script
-# or the verdict code (play corpus:survivors:mutants). A measurement: it never
-# fails the pipeline because the judges miss a mutant.
+# or the verdict code (play corpus:survivors:mutants). A merge to the default
+# branch runs it only when something it reads changed: polyman's source and
+# runtime files, the tests Stryker runs, the corpus, the dependencies, the
+# TypeScript and Vitest config, or the CI it runs in. Nightly, web and API
+# pipelines always run it. A measurement: it never fails the pipeline because
+# the judges miss a mutant.
 .corpus-survivors:
   extends: .node
   stage: test
   rules:
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"
+      changes: &survivors-inputs [src/**/*, tests/**/*, corpus/**/*, template/**/*, assets/**/*, package.json, package-lock.json, tsconfig*.json, vitest.config.ts, .gitlab-ci.yml]
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "push"
     - changes: [corpus/survivors.mjs, corpus/lib.mjs, corpus/run.mjs, corpus/stryker.config.json, src/helpers/solution.ts]
   allow_failure: true
 
@@ -213,7 +219,9 @@ corpus:survivors:mutants:
   variables:
     TZ: Asia/Kolkata
   rules:
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"
+      changes: *survivors-inputs
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "push"
     - changes: [corpus/survivors.mjs, corpus/lib.mjs, corpus/run.mjs, corpus/stryker.config.json, src/helpers/solution.ts]
       when: manual
       allow_failure: true
