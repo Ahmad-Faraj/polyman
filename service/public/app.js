@@ -1,6 +1,6 @@
 // The page talks to the API and renders the newline-delimited JSON events
-// that /api/verify streams back while it works, as a plain-English report.
-// Components are Basecoat (shadcn/ui for plain HTML): .card, .alert, .table, .badge, .btn.
+// that /api/verify streams back while it works, as a plain-English report in
+// the result card. Components are Basecoat (shadcn/ui for plain HTML).
 const $ = (sel, root = document) => root.querySelector(sel);
 
 const els = {
@@ -12,31 +12,60 @@ const els = {
   samples: $('#sample-list'),
   run: $('#run'),
   title: $('#run-title'),
+  verdict: $('#run-verdict'),
   sub: $('#run-sub'),
   status: $('#run-status'),
   announce: $('#announce'),
   problems: $('#problems'),
   actions: $('#run-actions'),
-  download: $('#download'),
+  stop: $('#stop'),
   again: $('#again'),
+  choose: $('#choose'),
+  download: $('#download'),
   tpl: $('#problem-tpl'),
 };
 
-/** The sample the big button runs: it has one mistake for the check to find. */
+const GITLAB = 'https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase';
+const MAX_BYTES = 20 * 1024 * 1024;
+/** The sample the big button runs: it has one planted mistake for the check to find. */
 const DEMO = 'wrong-tag';
-/** What each sample shows, in words for someone who has never set a contest problem. */
-const SAMPLE_TITLES = {
-  'even-sum': 'A problem that is ready',
-  'not-ready': 'Correct, but too few tests',
-  'sandbox-check': 'A solution that tries to break out',
-  'wrong-tag': 'A solution with the wrong label',
+/** Each sample in words for someone who has never set a contest problem. */
+const SAMPLES = {
+  'even-sum': ['A problem that is ready', 'Every solution behaves as labelled and every contest guideline is met.'],
+  'not-ready': ['Correct, but not contest-ready', 'All solutions behave as labelled, but it has too few tests and no tutorial.'],
+  'sandbox-check': ['A solution that needs admin rights', 'One solution only works when run as root. The sandbox never grants that, so it fails as labelled.'],
+  'wrong-tag': ['A solution with the wrong label', 'One solution is labelled correct but gives wrong answers.'],
 };
 /** What a solution's label promises, and what a test's verdict means. */
-const TAG_WORDS = { MA: 'Main correct solution', OK: 'Correct', WA: 'Wrong answer', TL: 'Too slow', ML: 'Too much memory', RE: 'Crashes', PE: 'Badly formatted output', TO: 'Correct, may be slow', RJ: 'Fails somehow' };
+const TAG_WORDS = { MA: 'main correct solution', OK: 'correct', WA: 'wrong answer', TL: 'too slow', ML: 'too much memory', RE: 'crashes', PE: 'badly formatted output', TO: 'correct, may be slow', RJ: 'fails somehow' };
 const VERDICT_WORDS = { OK: 'passed', WA: 'wrong answer', TLE: 'too slow', MLE: 'too much memory', RE: 'crashed', PE: 'badly formatted output', CE: 'did not compile' };
 const RELABEL = { WA: 'a wrong answer', TLE: 'too slow', MLE: 'using too much memory', RE: 'crashing', PE: 'badly formatted output' };
+/** polyman's step names, said plainly. */
+const STEP_WORDS = {
+  'Compiling Generators': 'Building the test generators',
+  'Generating Tests': 'Generating the tests',
+  'Compiling Validator': 'Building the input validator',
+  'Testing Validator': 'Testing the input validator',
+  'Validating Generated Tests': 'Checking that every test is valid',
+  'Compiling Checker': 'Building the answer checker',
+  'Testing Checker': 'Testing the answer checker',
+  'Compiling Solutions': 'Compiling every solution',
+  'Running Solutions': 'Running every solution on every test',
+  'Verifying Solutions Against Main Correct': 'Comparing each solution with its label',
+};
+/** The contest guidelines, said plainly. */
+const GUIDE_WORDS = {
+  statement_completeness: 'The statement has a story, input and output',
+  test_coverage: 'At least 10 tests',
+  checker_presence: 'Has an answer checker',
+  validator_presence: 'Has an input validator',
+  checker_correctness: 'The answer checker passes its own tests',
+  solution_presence: 'Has a main correct solution',
+  solution_diversity: 'Correct solutions in C++ and Java, plus a wrong one',
+  tags_presence: 'Has topic tags',
+  tutorial_presence: 'Has a written tutorial',
+};
 const SEVERITY_WORDS = { critical: 'must fix', warning: 'recommended', info: 'nice to have' };
-const STEPS = 10;
 
 const tagWords = (t) => TAG_WORDS[t] ?? t;
 const verdictWords = (v) => VERDICT_WORDS[v] ?? v;
@@ -45,11 +74,20 @@ const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const seconds = (s) => `${s.toFixed(1)} s`;
 const icon = (id) => `<svg aria-hidden="true"><use href="#${id}"/></svg>`;
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+/** The service's own detail text, with "(s)" plurals and "./" paths tidied. */
+const tidy = (s = '') =>
+  s
+    .replace(/(\d+) ([a-z]+)\(s\)/gi, (_, n, w) => plural(Number(n), w))
+    .replace(/\.\//g, '')
+    .replace(/compile-checker: ok, test-checker: ok/, 'it builds and passes its own tests');
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 
 let events = [];
 let running = false;
 let label = '';
+let lastRun = null;
+let controller = null;
+let timer = 0;
 let polymanVersion = '';
 
 fetch('/api/version')
@@ -57,21 +95,27 @@ fetch('/api/version')
   .then((v) => {
     polymanVersion = v.polyman;
     $('#version').textContent = `Live on Google Cloud Run · polyman ${v.polyman}`;
-    $('#commit').textContent = `polyman ${v.polyman} · commit ${String(v.commit).slice(0, 7)}`;
+    const commit = $('#commit');
+    commit.textContent = `Deployed commit ${String(v.commit).slice(0, 7)}`;
+    if (/^[0-9a-f]{7,40}$/i.test(String(v.commit))) commit.href = `${GITLAB}/-/commit/${v.commit}`;
   })
   .catch((err) => console.warn('version unavailable', err));
 
 fetch('/api/samples')
   .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
   .then((samples) => {
+    const demo = samples.find((s) => s.name === DEMO);
+    if (demo && !running && !events.length) showPreview(demo);
     for (const s of samples) {
+      if (s.name === DEMO) continue;
+      const [title, desc] = SAMPLES[s.name] ?? [s.name, s.description];
       const b = document.createElement('button');
       b.type = 'button';
       b.className = 'sample card';
       b.dataset.size = 'sm';
       b.innerHTML = `<header><h3></h3><p></p></header><footer><span class="badge" data-variant="secondary"></span><span class="sample-go">Run ${icon('i-arrow')}</span></footer>`;
-      $('h3', b).textContent = SAMPLE_TITLES[s.name] ?? s.name;
-      $('p', b).textContent = s.description;
+      $('h3', b).textContent = title;
+      $('p', b).textContent = desc;
       $('.badge', b).textContent = s.name;
       b.addEventListener('click', () => start(`/api/samples/${encodeURIComponent(s.name)}/verify`, null, s.name));
       els.samples.append(b);
@@ -82,9 +126,23 @@ fetch('/api/samples')
     els.samples.textContent = 'The sample problems could not be loaded. You can still check your own.';
   });
 
+/** Before any run: the demo sample's real solution names, waiting to be judged. */
+function showPreview(sample) {
+  const node = els.tpl.content.firstElementChild.cloneNode(true);
+  $('.problem-name', node).classList.add('sr-only');
+  $('.problem-name', node).textContent = sample.name;
+  for (const name of Object.keys(sample.expected?.solutions ?? {})) {
+    const tr = document.createElement('tr');
+    tr.className = 'waiting';
+    tr.innerHTML = `<td class="sol"><b class="sol-name"></b></td><td class="tests"><span class="pending">Not run yet</span></td><td class="res"><span class="badge" data-variant="secondary">Waiting</span></td>`;
+    $('.sol-name', tr).textContent = name;
+    $('tbody', node).append(tr);
+  }
+  els.problems.replaceChildren(node);
+}
+
 els.demo.addEventListener('click', () => start(`/api/samples/${DEMO}/verify`, null, DEMO));
-els.own.addEventListener('click', () => els.file.click());
-els.pick.addEventListener('click', () => els.file.click());
+for (const b of [els.own, els.pick, els.choose]) b.addEventListener('click', () => els.file.click());
 els.file.addEventListener('change', () => {
   const f = els.file.files[0];
   // clear it, so choosing the same file again (after fixing it) still starts a run
@@ -100,15 +158,16 @@ for (const ev of ['dragenter', 'dragover']) {
 for (const ev of ['dragleave', 'drop']) els.form.addEventListener(ev, () => els.form.classList.remove('over'));
 els.form.addEventListener('drop', (e) => {
   e.preventDefault();
-  const f = e.dataTransfer.files[0];
-  if (f) upload(f);
+  const files = e.dataTransfer.files;
+  if (files.length > 1) {
+    label = 'Your upload';
+    return showError(`You dropped ${files.length} files. Drop one .zip; for a contest, put every problem in that one zip.`);
+  }
+  if (files[0]) upload(files[0]);
 });
 els.form.addEventListener('submit', (e) => e.preventDefault());
-els.again.addEventListener('click', () => {
-  els.run.hidden = true;
-  window.scrollTo({ top: 0, behavior: reducedMotion.matches ? 'auto' : 'smooth' });
-  els.demo.focus({ preventScroll: true });
-});
+els.stop.addEventListener('click', () => controller?.abort());
+els.again.addEventListener('click', () => lastRun && start(lastRun.url, lastRun.body, lastRun.name));
 els.download.addEventListener('click', () => {
   const blob = new Blob([JSON.stringify(events, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
@@ -119,10 +178,9 @@ els.download.addEventListener('click', () => {
 });
 
 function upload(file) {
-  if (!/\.zip$/i.test(file.name)) {
-    label = file.name;
-    return showError(`${file.name} is not a .zip file. Zip the problem folder and try again.`);
-  }
+  label = file.name;
+  if (!/\.zip$/i.test(file.name)) return showError(`${file.name} is not a .zip file. Zip the problem folder and choose the zip.`);
+  if (file.size > MAX_BYTES) return showError(`${file.name} is ${(file.size / 1024 / 1024).toFixed(1)} MB, over the 20 MB limit. Leave out compiled files and generated tests; they are made fresh.`);
   const body = new FormData();
   body.append('problem', file);
   start('/api/verify', body, file.name);
@@ -137,31 +195,57 @@ function say(text) {
   els.announce.textContent = text;
 }
 
+/** Bring the card's head into view unless it already is. */
+function showCard() {
+  const top = els.run.getBoundingClientRect().top;
+  if (top < 64 || top > window.innerHeight * 0.5) els.run.scrollIntoView({ behavior: reducedMotion.matches ? 'auto' : 'smooth', block: 'start' });
+}
+
+function setHead(meta, verdict, sub) {
+  if (meta !== null) els.title.textContent = meta;
+  els.verdict.textContent = verdict;
+  els.sub.textContent = sub;
+}
+
+function showActions(state) {
+  els.actions.hidden = false;
+  els.stop.hidden = state !== 'running';
+  els.again.hidden = state === 'running' || state === 'refused';
+  els.choose.hidden = state !== 'refused';
+  els.download.hidden = state === 'running' || state === 'refused';
+}
+
 async function start(url, body, name) {
   if (running) return;
   setBusy(true);
+  lastRun = { url, body, name };
   events = [];
   cards.clear();
   finished = false;
-  els.problems.replaceChildren();
-  els.actions.hidden = true;
-  els.download.hidden = false;
-  els.run.hidden = false;
   label = name;
-  els.title.textContent = `Checking ${label}`;
-  els.sub.textContent = 'Compiling and running every solution on every test.';
-  setStatus('Working', 'secondary');
+  els.problems.replaceChildren();
+  els.run.classList.remove('is-bad', 'is-good');
+  setHead(`Checking ${label}`, 'Judging the problem…', 'Usually about 20 seconds.');
+  setStatus('Running', 'secondary');
+  showActions('running');
   say(`Checking ${label}.`);
-  els.run.scrollIntoView({ behavior: reducedMotion.matches ? 'auto' : 'smooth', block: 'start' });
+  showCard();
+  const t0 = performance.now();
+  clearInterval(timer);
+  timer = setInterval(() => {
+    if (!finished) els.sub.textContent = `${Math.round((performance.now() - t0) / 1000)} s so far · usually about 20 s.`;
+  }, 1000);
+  controller = new AbortController();
 
   try {
-    const res = await fetch(url, { method: 'POST', body });
+    const res = await fetch(url, { method: 'POST', body, signal: controller.signal });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
       if (res.status === 429) {
         const wait = Number(res.headers.get('retry-after'));
-        return showError(`The service is busy with another check.${wait ? ` Try again in ${plural(wait, 'second')}.` : ' Try again in a moment.'}`);
+        return showError(`The service is busy with another check.${wait ? ` Try again in ${plural(wait, 'second')}.` : ' Try again in a moment.'}`, null, 'busy');
       }
+      if (res.status === 413) return showError('This file is over the 20 MB limit. Leave out compiled files and generated tests; they are made fresh.');
       return showError(err.error, err.issues);
     }
     const reader = res.body.getReader();
@@ -172,6 +256,7 @@ async function start(url, body, name) {
       try {
         chunk = await reader.read();
       } catch (err) {
+        if (err.name === 'AbortError') return stopped();
         return failMidway(`The connection broke: ${err.message}`);
       }
       if (chunk.done) break;
@@ -183,8 +268,10 @@ async function start(url, body, name) {
     if (buffer.trim()) handleLine(buffer);
     if (!finished) failMidway('The check stopped before it finished, so this report is incomplete. Try again.');
   } catch (err) {
-    showError(`Could not reach the service: ${err.message}`);
+    if (err.name === 'AbortError') return stopped();
+    showError(`Could not reach the service: ${err.message}`, null, 'busy');
   } finally {
+    clearInterval(timer);
     setBusy(false);
   }
 }
@@ -219,26 +306,40 @@ function handle(ev) {
     for (const name of ev.problems) {
       const node = els.tpl.content.firstElementChild.cloneNode(true);
       $('.problem-name', node).textContent = name;
-      // one problem: the run title already names it; the heading stays for screen readers
+      // one problem: the card's head already names it; the heading stays for screen readers
       if (ev.problems.length === 1) $('.problem-name', node).classList.add('sr-only');
+      $('.table-container', node).hidden = true;
       els.problems.append(node);
       cards.set(name, node);
     }
   } else if (ev.type === 'step') {
     const c = card(ev.problem);
-    const bar = $('.progress', c);
-    bar.setAttribute('aria-valuenow', ev.step);
-    $('span', bar).style.width = `${Math.min(100, (ev.step / STEPS) * 100)}%`;
-    $('.progress-label', c).textContent = `Step ${ev.step} of ${STEPS}: ${ev.title}`;
-    if (cards.size === 1) say(`Step ${ev.step}: ${ev.title}.`);
+    const list = $('.steps-live', c);
+    for (const li of list.children) li.className = 'done';
+    for (const svg of list.querySelectorAll('.now-icon')) svg.outerHTML = icon('i-check');
+    const li = document.createElement('li');
+    li.className = 'now';
+    li.innerHTML = `<span class="now-icon">${icon('i-spin')}</span><span></span>`;
+    $('span:last-child', li).textContent = STEP_WORDS[ev.title] ?? ev.title;
+    list.append(li);
+    if (cards.size === 1) say(`Step ${ev.step}: ${STEP_WORDS[ev.title] ?? ev.title}.`);
   } else if (ev.type === 'problem') {
     renderProblem(card(ev.problem), ev);
   } else if (ev.type === 'done') {
     finished = true;
-    setStatus(ev.ok ? 'All good' : 'Needs work', ev.ok ? 'success' : 'destructive');
+    clearInterval(timer);
+    // scripts wait on this line: it reads "Checked <name> in <s> s" when the run is over
     els.title.textContent = `Checked ${label} in ${seconds(ev.seconds)}`;
-    els.actions.hidden = false;
-    say(`Checked ${label} in ${ev.seconds.toFixed(1)} seconds: ${ev.ok ? 'all good' : 'needs work'}.`);
+    if (cards.size > 1) {
+      const ready = events.filter((e) => e.type === 'problem' && e.ok).length;
+      els.verdict.textContent = ev.ok ? `All ${plural(cards.size, 'problem')} are ready to use.` : `${ready} of ${plural(cards.size, 'problem')} ready to use.`;
+      els.sub.textContent = 'Each problem has its own report below.';
+    }
+    els.run.classList.add(ev.ok ? 'is-good' : 'is-bad');
+    setStatus(ev.ok ? 'All good' : 'Needs work', ev.ok ? 'success' : 'destructive');
+    showActions('done');
+    say(`Checked ${label} in ${ev.seconds.toFixed(1)} seconds. ${els.verdict.textContent}`);
+    els.verdict.focus({ preventScroll: true });
   } else if (ev.type === 'error') {
     finished = true;
     failMidway(ev.message);
@@ -252,13 +353,9 @@ function renderProblem(card, ev) {
   const broken = solutions.filter((s) => !s.matchesTag);
   const gaps = checks.filter((c) => !c.ok);
   const critical = gaps.filter((c) => c.severity === 'critical');
-  const tests = new Set(solutions.flatMap((s) => s.tests.map((t) => `${t.testset}#${t.index}`))).size;
-  $('.running', card).hidden = true;
-  $('.outcome', card).hidden = false;
-  if (cards.size === 1 && solutions.length) els.sub.textContent = `${plural(solutions.length, 'solution')} on ${plural(tests, 'test')}${polymanVersion ? ` · polyman ${polymanVersion}` : ''}`;
+  $('.steps-live', card).hidden = true;
 
-  // the answer first: one alert that says what is wrong and what to do
-  const alert = $('.verdict', card);
+  // the answer first: what is wrong and what to do
   let title;
   let body;
   if (!report) {
@@ -266,37 +363,43 @@ function renderProblem(card, ev) {
     body = 'What polyman reported is below.';
   } else if (broken.length) {
     title = `${plural(broken.length, 'solution')} ${broken.length === 1 ? "doesn't" : "don't"} behave as labelled.`;
-    body = broken.map((s) => `${s.name} is labelled ${tagWords(s.tag).toLowerCase()}, but ${outcome(s)}. ${nextStep(s)}`).join(' ');
+    body = broken.map((s) => `${s.name} is labelled ${tagWords(s.tag)}, but ${outcome(s)}. ${nextStep(s)}`).join(' ');
   } else if (!report.ok) {
     title = 'One of the checks failed.';
     body = 'What polyman reported is below.';
   } else if (critical.length) {
     title = "Every solution behaves as labelled, but it isn't ready for a contest yet.";
-    body = `Fix first: ${critical.map((c) => c.title).join(', ')}.`;
+    body = `Fix first: ${critical.map((c) => (GUIDE_WORDS[c.id] ?? c.title).toLowerCase()).join(', ')}.`;
   } else {
     title = 'Ready to use.';
     body = `Every solution behaves exactly as labelled${checks.length ? `, and all ${checks.length} contest guidelines are met` : ''}.`;
   }
-  const bad = !ev.ok;
-  if (bad) alert.dataset.variant = 'destructive';
-  alert.innerHTML = `${icon(bad ? 'i-alert' : 'i-ok')}<h2></h2><section></section>`;
-  $('h2', alert).textContent = title;
-  $('section', alert).textContent = body;
+  if (cards.size === 1) setHead(null, title, body);
+  else {
+    const alert = $('.verdict', card);
+    if (!ev.ok) alert.dataset.variant = 'destructive';
+    alert.innerHTML = `${icon(ev.ok ? 'i-ok' : 'i-alert')}<h2></h2><section></section>`;
+    $('h2', alert).textContent = title;
+    $('section', alert).textContent = body;
+    $('.outcome', card).hidden = false;
+  }
 
   const tbody = $('.sols tbody', card);
   for (const s of solutions) tbody.append(solutionRow(s));
-  if (!solutions.length) $('.table-container', card).hidden = true;
+  $('.table-container', card).hidden = !solutions.length;
+  $('.legend', card).hidden = !solutions.length;
+  $('.more', card).hidden = false;
 
   $('.guides-title', card).textContent = checks.length ? `Contest guidelines · ${checks.length - gaps.length} of ${checks.length} met` : 'Contest guidelines';
   if (!checks.length) $('.guides', card).hidden = true;
   if (gaps.length) $('.guides', card).open = true;
   const list = $('.checks', card);
-  for (const c of checks) {
+  for (const c of [...checks].sort((a, b) => Number(a.ok) - Number(b.ok))) {
     const li = document.createElement('li');
     li.className = c.ok ? 'ok' : c.severity;
     li.innerHTML = `${icon(c.ok ? 'i-check' : 'i-x')}<span><span class="t"></span><small></small></span>`;
-    $('.t', li).textContent = c.title;
-    $('small', li).textContent = c.ok ? c.detail : `${SEVERITY_WORDS[c.severity] ?? c.severity}: ${c.detail}`;
+    $('.t', li).textContent = GUIDE_WORDS[c.id] ?? c.title;
+    $('small', li).textContent = c.ok ? cap(tidy(c.detail)) : `${cap(SEVERITY_WORDS[c.severity] ?? c.severity)}. ${cap(tidy(c.detail))}`;
     list.append(li);
   }
 
@@ -318,28 +421,27 @@ function outcome(s) {
   return `${kinds.map((k) => `${verdictWords(k)} on ${wrong.filter((t) => t.verdict === k).length}`).join(', ')} of ${plural(s.tests.length, 'test')}`;
 }
 
-/** One table row: name, label, a dot per test, and whether it behaved as labelled. */
+/** One table row: the name and its label, a dot per test, and whether it behaved as labelled. */
 function solutionRow(s) {
   const tr = document.createElement('tr');
   if (!s.matchesTag) tr.className = 'broken';
-  tr.innerHTML = `<td class="name"></td><td class="tagged"></td><td><div class="dots" role="img"></div><small class="dots-note"></small></td><td class="res"></td>`;
-  $('.name', tr).textContent = s.name;
-  $('.tagged', tr).textContent = tagWords(s.tag);
+  tr.innerHTML = `<td class="sol"><b class="sol-name"></b><span class="sol-label"></span></td><td class="tests"><div class="dots" role="img"></div><small class="dots-note"></small></td><td class="res"></td>`;
+  $('.sol-name', tr).textContent = s.name;
+  $('.sol-label', tr).textContent = `labelled ${tagWords(s.tag)}`;
   const dots = $('.dots', tr);
   dots.setAttribute('aria-label', s.tests.map((t) => `test ${t.index} ${verdictWords(t.verdict)}`).join(', '));
   s.tests.forEach((t, i) => {
     const d = document.createElement('span');
     const kind = verdictKind(t.verdict);
     d.className = `dot ${kind}`;
-    d.title = `Test ${t.index}: ${verdictWords(t.verdict)}, ${t.timeMs} ms${t.message ? `. ${t.message}` : ''}`;
+    d.title = `Test ${t.index}: ${verdictWords(t.verdict)}, ${t.timeMs} ms`;
     d.style.setProperty('--i', i);
     if (kind !== 'ok') d.innerHTML = icon(kind === 'limit' ? 'i-clock' : 'i-x');
     dots.append(d);
   });
-  $('.dots-note', tr).textContent = cap(outcome(s));
-  const res = $('.res', tr);
-  res.innerHTML = s.matchesTag ? `<span class="badge" data-variant="outline">${icon('i-check')}As labelled</span>` : `<span class="badge" data-variant="destructive">${icon('i-x')}Mislabelled</span>`;
-  res.firstElementChild.title = s.reason;
+  const stoppedEarly = s.tests.length === 1 && s.tests[0].verdict !== 'OK';
+  $('.dots-note', tr).textContent = stoppedEarly ? `${cap(verdictWords(s.tests[0].verdict))} on the first test, so it was stopped there.` : `${cap(outcome(s))}.`;
+  $('.res', tr).innerHTML = s.matchesTag ? `<span class="badge" data-variant="outline">${icon('i-check')}As labelled</span>` : `<span class="badge" data-variant="destructive">${icon('i-x')}Wrong label</span>`;
   return tr;
 }
 
@@ -358,18 +460,23 @@ function setStatus(text, variant) {
   els.status.dataset.variant = variant;
 }
 
-/** An error after results started arriving: keep what came, add the error below it. */
+function stopped() {
+  finished = true;
+  els.problems.replaceChildren();
+  setHead(`Stopped ${label}`, 'You stopped the check.', 'Nothing was kept. Run it again whenever you like.');
+  setStatus('Stopped', 'secondary');
+  showActions('done');
+  els.download.hidden = true;
+}
+
+/** An error after results started arriving: keep what came, say what broke. */
 function failMidway(message) {
   finished = true;
+  clearInterval(timer);
+  setHead(null, 'The check did not finish.', message);
+  els.run.classList.add('is-bad');
   setStatus('Failed', 'destructive');
-  const box = document.createElement('div');
-  box.className = 'alert';
-  box.dataset.variant = 'destructive';
-  box.setAttribute('role', 'alert');
-  box.innerHTML = `${icon('i-alert')}<h2>The check did not finish</h2><section></section>`;
-  $('section', box).textContent = message;
-  els.problems.append(box);
-  els.actions.hidden = false;
+  showActions('done');
   setBusy(false);
 }
 
@@ -380,18 +487,17 @@ function plainReason(message = '') {
   return cap(message);
 }
 
-function showError(message, issues) {
-  els.run.hidden = false;
-  els.title.textContent = label || 'Your upload';
-  els.sub.textContent = 'Nothing was run.';
-  setStatus('Refused', 'destructive');
+function showError(message, issues, kind = 'refused') {
+  finished = true;
+  clearInterval(timer);
+  const plain = plainReason(message);
+  setHead(label ? `Not checked: ${label}` : 'Not checked', plain, kind === 'busy' ? '' : 'Nothing was run. See how to prepare the zip, then try again.');
+  els.run.classList.add('is-bad');
+  setStatus(kind === 'busy' ? 'Busy' : 'Refused', 'destructive');
   const box = document.createElement('div');
-  box.className = 'alert';
-  box.dataset.variant = 'destructive';
-  box.setAttribute('role', 'alert');
-  box.innerHTML = `${icon('i-alert')}<h2></h2><section><p class="raw"></p><ul></ul><p>See <a href="/docs#prepare">how to prepare the zip</a>, then try again.</p></section>`;
-  $('h2', box).textContent = plainReason(message);
-  if (plainReason(message) !== message) $('.raw', box).textContent = message;
+  box.className = 'refusal';
+  box.innerHTML = `<p class="raw"></p><ul></ul><p><a href="/docs#prepare">How to prepare the zip</a></p>`;
+  if (plain !== message) $('.raw', box).textContent = `The service said: ${message}`;
   else $('.raw', box).remove();
   const ul = $('ul', box);
   for (const i of issues ?? []) {
@@ -401,8 +507,8 @@ function showError(message, issues) {
   }
   if (!issues?.length) ul.remove();
   els.problems.replaceChildren(box);
-  // nothing ran, so there is no report to download
+  showActions(kind === 'busy' ? 'done' : 'refused');
   els.download.hidden = true;
-  els.actions.hidden = false;
   setBusy(false);
+  showCard();
 }
