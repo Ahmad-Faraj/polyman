@@ -42,6 +42,7 @@
   --slow: #d97706;
   --fail-ink: #b91c1c;
   --pass-ink: #15803d;
+  --out: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 17 17 7M8 7h9v9'/%3E%3C/svg%3E");
   color-scheme: light;
 }
 html { scroll-behavior: smooth; }
@@ -68,19 +69,26 @@ code { font-family: var(--font-mono); font-size: 0.85em; background: var(--muted
 .header-nav { display: flex; align-items: center; gap: 4px; }
 
 /* hero: the claim on the left, the product itself on the right */
-.hero { display: grid; grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.25fr); gap: 48px; align-items: start; padding-block: 72px 64px; }
+.hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.12fr); gap: 48px; align-items: start; padding-block: 72px 64px; }
 .hero-copy { padding-top: 24px; }
 .hero .badge { gap: 8px; padding-inline: 12px; height: 28px; font-size: 0.8rem; }
 .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--pass); }
 h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-height: 1.05; font-weight: 700; letter-spacing: -0.04em; text-wrap: balance; }
 .hero-lede { margin: 20px 0 0; max-width: 46ch; font-size: 1.1rem; line-height: 1.6; color: var(--muted-foreground); text-wrap: pretty; }
 .hero-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 32px; }
+/* while a run is on, the big button says so instead of fading out */
+#demo:disabled { opacity: 1; background-color: #155e75; }
+#demo:disabled svg { animation: spin 900ms linear infinite; }
+.hero-note { margin: 24px 0 0; max-width: 46ch; font-size: 0.875rem; line-height: 1.55; color: var(--muted-foreground); text-wrap: pretty; }
 
 /* the result card: its headline is the verdict */
 .result { scroll-margin-top: 88px; transition: border-color 200ms; }
 .result.is-bad { border-color: #fca5a5; }
 .result.is-good { border-color: #86efac; }
 .result > header { row-gap: 6px; }
+/* the status badge sits beside the small meta line, so the verdict and its sentence get the full width */
+.result > header > .card-action { grid-row: 1; align-self: center; }
+.result > header > h2, .result > header > #run-sub { grid-column: 1 / -1; }
 .run-meta { margin: 0; font-size: 0.8rem; font-weight: 500; color: var(--muted-foreground); }
 .result > header > h2 { font-size: 1.5rem; line-height: 1.25; font-weight: 650; letter-spacing: -0.025em; text-wrap: balance; outline: none; }
 .result.is-bad > header > h2 { color: var(--fail-ink); }
@@ -91,29 +99,43 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 .problem { display: grid; gap: 16px; }
 .problem-name { margin: 0; font-size: 1.05rem; font-weight: 600; }
 
-/* the live checklist while polyman works */
-.steps-live { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-.steps-live li { display: flex; align-items: center; gap: 10px; font-size: 0.9rem; color: var(--muted-foreground); }
-.steps-live li svg { width: 16px; height: 16px; flex: none; }
+/* the live checklist while polyman works: all ten steps, done, now and still to come */
+.steps-live { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(5, auto); grid-auto-flow: column; gap: 6px 24px; }
+.steps-live li { display: flex; align-items: center; gap: 10px; font-size: 0.875rem; color: var(--muted-foreground); transition: color 200ms; }
+.steps-live li svg { width: 16px; height: 16px; flex: none; color: #d4d4d8; }
 .steps-live li.done svg { color: var(--pass); }
 .steps-live li.now { color: var(--foreground); font-weight: 500; }
 .steps-live li.now svg { color: var(--brand); animation: spin 900ms linear infinite; }
-.steps-live li.now { animation: step-in 300ms cubic-bezier(0.16, 1, 0.3, 1) both; }
 @keyframes spin { to { transform: rotate(360deg); } }
-@keyframes step-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 
 /* solutions table */
 .table-container { overflow-x: auto; }
 .sols { border: 1px solid var(--border); border-radius: var(--radius); border-collapse: separate; border-spacing: 0; overflow: hidden; }
 .sols tbody tr:last-child td { border-bottom: 0; }
 .sols th { background: var(--muted); font-size: 0.8rem; color: var(--muted-foreground); }
-.sols th, .sols td { padding: 12px 14px; text-align: left; vertical-align: middle; }
-.sols td.tests { min-width: 200px; }
-.sols tr.broken td { background: #fef2f2; }
+/* each solution stacks: name, label and result on top, then every test across the full width */
+.sols thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.sols, .sols tbody { display: block; }
+.sols tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; border-bottom: 1px solid var(--border); }
+.sols tbody tr:last-child { border-bottom: 0; }
+.sols td { display: block; border: 0 !important; padding: 14px 16px 0; white-space: normal; }
+.sols td.sol { grid-column: 1; grid-row: 1; }
+.sols td.res { grid-column: 2; grid-row: 1; align-self: start; white-space: nowrap; }
+.sols td.tests { grid-column: 1 / -1; grid-row: 2; padding-top: 10px; padding-bottom: 14px; }
+/* before results a row is one line: the name, then an empty strip where its tests will go */
+.sols tr.waiting { grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); }
+.sols tr.waiting td { padding-block: 12px; }
+.sols tr.waiting td.tests { grid-column: 2; grid-row: 1; align-self: center; }
+.sols tr.waiting td.res { display: none; }
+.sols tr.broken { background: #fef2f2; }
+/* before results: an empty strip where each solution's tests will go, shimmering once they run */
+.skeleton { display: block; height: 13px; max-width: 220px; border-radius: 4px; background: var(--muted); }
+.sols.is-running .skeleton { background: linear-gradient(90deg, var(--muted) 0%, #dff7fb 50%, var(--muted) 100%) 0 0 / 200% 100%; animation: shimmer 1.4s linear infinite; }
+@keyframes shimmer { to { background-position: -200% 0; } }
 .sol-name { display: block; font-family: var(--font-mono); font-size: 0.85rem; font-weight: 600; }
 .sol-label { display: block; margin-top: 2px; font-size: 0.8rem; color: var(--muted-foreground); }
 .pending { font-size: 0.85rem; color: var(--muted-foreground); }
-.dots { display: flex; flex-wrap: wrap; gap: 3px; max-width: 300px; }
+.dots { display: flex; flex-wrap: wrap; gap: 3px; }
 .dot { display: inline-grid; place-items: center; width: 13px; height: 13px; border-radius: 4px; background: var(--pass); color: #fff; vertical-align: -2px; animation: dot-in 240ms ease-out both; animation-delay: calc(var(--i, 0) * 20ms); }
 .dot.bad { background: var(--fail); }
 .dot.limit { background: var(--slow); }
@@ -130,7 +152,7 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 .checks li svg { width: 16px; height: 16px; margin-top: 2px; color: var(--pass); }
 .checks li.critical svg { color: var(--fail); }
 .checks li.warning svg, .checks li.info svg { color: var(--slow); }
-.checks small { display: block; color: var(--muted-foreground); }
+.checks small { display: block; margin-top: 2px; font-size: 0.8125rem; line-height: 1.45; color: var(--muted-foreground); }
 .problem-error { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--font-mono); font-size: 0.8rem; color: var(--muted-foreground); max-height: 16em; overflow: auto; }
 .alert[data-variant='destructive'] > section { color: var(--foreground); }
 .alert:not([data-variant]) > svg { color: var(--pass); }
@@ -142,8 +164,8 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 .section { padding-block: 40px; }
 .section-head { margin-bottom: 24px; }
 .section-head h2 { margin: 0; font-size: 1.75rem; font-weight: 700; letter-spacing: -0.03em; }
-.section-head p { margin: 6px 0 0; color: var(--muted-foreground); }
-.sample-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+.section-head p { margin: 6px 0 0; color: var(--muted-foreground); text-wrap: pretty; }
+.sample-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
 .sample { justify-content: space-between; text-align: left; font: inherit; color: inherit; cursor: pointer; transition: border-color 150ms, background-color 150ms; }
 .sample:hover:not(:disabled) { border-color: var(--brand); background: #f8feff; }
 .sample:disabled { cursor: not-allowed; opacity: 0.75; }
@@ -161,9 +183,27 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 .dropzone p { margin: 0; color: var(--muted-foreground); max-width: 56ch; text-wrap: pretty; }
 .dropzone .btn { margin-top: 8px; }
 .dropzone-hint { font-size: 0.85rem; margin-top: 8px !important; }
-.steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
-.steps h3 { margin: 0; font-size: 1.05rem; font-weight: 600; }
-.steps p { color: var(--muted-foreground); text-wrap: pretty; }
+/* three steps on one rail; each marker is a test dot, the page's own unit */
+.flow { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 32px; }
+.flow li { position: relative; padding-top: 28px; }
+.flow li::before { content: ''; position: absolute; top: 0; left: 0; width: 13px; height: 13px; border-radius: 4px; background: var(--brand); }
+.flow li:not(:last-child)::after { content: ''; position: absolute; top: 6px; left: 21px; right: -24px; height: 1px; background: var(--border); }
+.flow h3 { margin: 0; font-size: 1.05rem; font-weight: 600; letter-spacing: -0.01em; }
+.flow p { margin: 8px 0 0; color: var(--muted-foreground); line-height: 1.6; text-wrap: pretty; }
+/* the GitLab records, as links to the pages themselves */
+.gitlab { display: grid; grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr); gap: 48px; align-items: start; padding-top: 56px; }
+.gitlab h2 { margin: 0; font-size: 1.75rem; font-weight: 700; letter-spacing: -0.03em; text-wrap: balance; outline: none; scroll-margin-top: 96px; }
+.gitlab-copy p { margin: 12px 0 0; color: var(--muted-foreground); line-height: 1.6; text-wrap: pretty; }
+.records { list-style: none; margin: 0; padding: 0; display: grid; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.records li + li { border-top: 1px solid var(--border); }
+.records a { display: grid; grid-template-columns: 20px minmax(0, 1fr) 16px; gap: 14px; align-items: start; padding: 16px 18px; color: var(--foreground); text-decoration: none; transition: background-color 150ms; }
+.records a::after { content: ''; width: 16px; height: 16px; margin-top: 2px; background: var(--muted-foreground); mask: var(--out) center / contain no-repeat; transition: transform 150ms; }
+.records a:hover { background: #f8feff; }
+.records a:hover::after { background: var(--primary); transform: translate(1px, -1px); }
+.records a:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+.records svg { width: 20px; height: 20px; margin-top: 1px; color: var(--primary); }
+.records b { display: block; font-weight: 600; }
+.records b + span { display: block; margin-top: 2px; font-size: 0.875rem; line-height: 1.5; color: var(--muted-foreground); text-wrap: pretty; }
 .privacy { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 32px 0 0; font-size: 0.875rem; color: var(--muted-foreground); }
 .privacy svg { width: 16px; height: 16px; }
 .site-footer { border-top: 1px solid var(--border); margin-top: 40px; }
@@ -193,25 +233,27 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 @media (max-width: 960px) {
   .hero { grid-template-columns: minmax(0, 1fr); gap: 32px; padding-block: 48px 40px; }
   .hero-copy { padding-top: 0; }
+  .gitlab { grid-template-columns: minmax(0, 1fr); gap: 24px; }
 }
 @media (max-width: 760px) {
   .container { padding-inline: 16px; }
-  .nav-api { display: none; }
+  /* on a phone each page links to the other one, and Source keeps only its icon */
+  .header-nav [aria-current] { display: none; }
+  .header-nav .nav-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .hero { padding-block: 32px; }
+  .hero-lede { font-size: 1rem; }
+  .hero-actions { margin-top: 24px; }
   .hero-actions .btn { width: 100%; }
+  .steps-live { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-auto-flow: row; }
+  .flow { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+  .flow li { padding: 0 0 0 28px; }
+  .flow li::before { top: 4px; }
+  .flow li:not(:last-child)::after { top: 23px; left: 6px; right: auto; bottom: -20px; width: 1px; height: auto; }
+  .gitlab { padding-top: 40px; }
   .docs-layout { grid-template-columns: minmax(0, 1fr); gap: 24px; padding-top: 32px; }
   .toc { position: static; flex-direction: row; flex-wrap: wrap; }
   .toc p { width: 100%; }
-  /* each solution stacks: name, label and result on top, then every test */
-  .sols thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
-  .sols, .sols tbody { display: block; }
-  .sols tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; border-bottom: 1px solid var(--border); }
-  .sols tbody tr:last-child { border-bottom: 0; }
-  .sols td { display: block; border: 0 !important; padding: 12px 14px 0; }
-  .sols td.sol { grid-column: 1; grid-row: 1; }
-  .sols td.res { grid-column: 2; grid-row: 1; align-self: start; }
-  .sols td.tests { grid-column: 1 / -1; grid-row: 2; min-width: 0; padding-bottom: 14px; }
   .result > header > h2 { font-size: 1.25rem; }
-  .dots { max-width: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 1ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; scroll-behavior: auto !important; }

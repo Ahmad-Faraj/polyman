@@ -88,7 +88,7 @@ beforeAll(() => {
   mkdirSync(join(base, 'public', 'fonts'));
   writeFileSync(join(base, 'public', 'fonts', 'geist.woff2'), Buffer.from('wOF2-test'));
   mkdirSync(join(base, 'public', 'vendor'));
-  writeFileSync(join(base, 'public', 'vendor', 'basecoat.min.css'), '.btn{}');
+  writeFileSync(join(base, 'public', 'vendor', 'basecoat.css'), '.btn{}');
   mkdirSync(join(base, 'samples', 'demo'), { recursive: true });
   for (const [name, text] of Object.entries(problem('', { description: 'a demo' }))) writeFileSync(join(base, 'samples', 'demo', name), text);
   writeFileSync(join(base, 'samples', 'demo.expected.json'), JSON.stringify({ ok: true }));

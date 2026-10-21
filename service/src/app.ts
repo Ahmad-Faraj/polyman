@@ -50,7 +50,7 @@ const STATIC: Record<string, string> = {
   '/docs': 'docs.html',
   '/app.js': 'app.js',
   '/style.css': 'style.css',
-  '/vendor/basecoat.css': 'vendor/basecoat.min.css',
+  '/vendor/basecoat.css': 'vendor/basecoat.css',
   '/fonts/geist.woff2': 'fonts/geist.woff2',
   '/fonts/geist-mono.woff2': 'fonts/geist-mono.woff2',
 };
