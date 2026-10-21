@@ -3,122 +3,104 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>polyman verify</title>
-<meta name="description" content="Check a competitive programming problem or a whole contest before the round: every solution against its tag, the validator, the checker, and the contest guidelines.">
+<title>polyman verify: is this contest problem ready?</title>
+<meta name="description" content="polyman verify judges a programming-contest problem the way a contest would: every solution on every test, with real compilers in a sandbox, and a plain answer about what is wrong.">
 <meta name="theme-color" content="#0e1a3a">
 <link rel="preload" href="/fonts/archivo.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/style.css">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='4' fill='%230e1a3a'/%3E%3Crect x='6' y='6' width='9' height='9' rx='1.5' fill='%23167a3a'/%3E%3Crect x='17' y='6' width='9' height='9' rx='1.5' fill='%23167a3a'/%3E%3Crect x='6' y='17' width='9' height='9' rx='1.5' fill='%23167a3a'/%3E%3Crect x='17' y='17' width='9' height='9' rx='1.5' fill='%23f2c230'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230e1a3a'/%3E%3Cpath d='M9 16.5l4.5 4.5L23 11' stroke='white' stroke-width='3.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   <symbol id="i-cross" viewBox="0 0 24 24"><path d="M6.5 6.5l11 11m0-11l-11 11" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M12 7.5V12l3 2" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3.5l9.5 16.5h-19z" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><path d="M12 10v4.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><circle cx="12" cy="17.3" r="1.3" fill="currentColor"/></symbol>
   <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M12 11v6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><circle cx="12" cy="7.6" r="1.3" fill="currentColor"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5z" fill="currentColor"/></symbol>
   <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 15V4m0 0L7.5 8.5M12 4l4.5 4.5M4.5 15v3.5A1.5 1.5 0 006 20h12a1.5 1.5 0 001.5-1.5V15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
-  <symbol id="i-chev" viewBox="0 0 24 24"><path d="M9 5.5l6.5 6.5L9 18.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10" rx="1.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8.5 10.5V7.5a3.5 3.5 0 017 0v3" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="M9 5.5l6.5 6.5L9 18.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
 </svg>
-<a class="skip" href="#run">Skip to the board</a>
+<a class="skip" href="#main">Skip to content</a>
 <header class="top">
-  <div class="bar">
+  <div class="wrap bar">
     <a class="brand" href="/">polyman <span>verify</span></a>
-    <nav class="nav" aria-label="Main"><a href="/" aria-current="page">Check a problem</a><a href="/docs">How it works</a><a href="/docs#api">API</a><span class="version" id="version"></span></nav>
+    <nav class="nav" aria-label="Main"><a href="/docs">How it works</a><a href="/docs#api">API</a><a href="https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase">Source on GitLab</a></nav>
   </div>
 </header>
 
-<main class="desk">
-  <section class="start" aria-labelledby="title">
-    <div>
-      <h1 id="title">Is your problem ready for the round?</h1>
-      <p class="lede">Drop a polyman problem, or a contest of them. Every solution runs on every test with real compilers, and each verdict is held to the tag you gave it.</p>
-    </div>
-
-    <form id="upload" class="drop" aria-label="Upload a problem">
-      <input id="file" type="file" name="problem" accept=".zip,application/zip" hidden>
-      <p class="drop-title">Drop a .zip</p>
-      <p class="drop-sub">One problem, or a contest of up to 26. Up to 20&nbsp;MB.</p>
-      <button type="button" id="pick" class="button"><svg class="icon" aria-hidden="true"><use href="#i-upload"/></svg>Choose a file</button>
-      <p class="drop-hint">Make one with <code>polyman remote pull ID ./problem</code>, then zip the folder. <a href="/docs#prepare">How to prepare it</a></p>
-    </form>
-    <p class="privacy"><svg class="icon" aria-hidden="true"><use href="#i-lock"/></svg><span>Your code runs as its own user with no route to the internet. The upload is deleted when the check ends.</span></p>
-
-    <div class="samples">
-      <h2>Or run one of ours</h2>
-      <div id="sample-list" class="sample-list"></div>
+<main id="main">
+  <section class="hero wrap" aria-labelledby="title">
+    <h1 id="title">Is this contest problem ready to use?</h1>
+    <p class="lede">polyman verify judges a programming-contest problem the way a real contest would: it compiles everything, runs every solution on every test in a locked-down sandbox on Google Cloud, and tells you in plain words what is wrong.</p>
+    <div class="cta">
+      <button type="button" id="demo" class="button big"><svg class="icon" aria-hidden="true"><use href="#i-play"/></svg>Run a live check</button>
+      <p class="cta-note">Checks a sample problem with one deliberate mistake in it. It takes about 20&nbsp;seconds.</p>
     </div>
   </section>
 
-  <section id="run" class="board" aria-labelledby="run-title" tabindex="-1">
-    <div class="run-head">
-      <h2 id="run-title">The board</h2>
-      <span id="run-status" class="stamp">waiting</span>
-    </div>
-    <p id="announce" class="sr-only" aria-live="polite"></p>
-
-    <div id="idle" class="idle">
-      <p>Pick a sample or drop a zip. While polyman works the board stays frozen; then every solution's result on every test turns up here.</p>
-      <ul class="legend" aria-label="What the cells mean">
-        <li><i style="background:var(--accepted)">12</i>Accepted, with its time in ms</li>
-        <li><i style="background:var(--rejected)">WA</i>Rejected, with the verdict</li>
-        <li><i style="background:var(--limit)">TLE</i>Over a limit</li>
-        <li><i style="background:var(--navy-3)">–</i>Not run</li>
-      </ul>
-      <div class="golden" id="golden" hidden>
-        <h3>What each sample must give</h3>
-        <p>CI runs every sample three times per release: against the new image, against the candidate before it gets traffic, and against production after the switch. Any difference fails the release.</p>
-        <div class="grid-wrap"><table class="golden-table">
-          <thead><tr><th scope="col">Sample</th><th scope="col">Solutions that must keep their tag</th><th scope="col">Guidelines that must fail</th></tr></thead>
-          <tbody></tbody>
-        </table></div>
+  <section id="run" class="run wrap" aria-labelledby="run-title" tabindex="-1" hidden>
+    <div class="card result-card">
+      <div class="run-head">
+        <h2 id="run-title">Checking</h2>
+        <span id="run-status" class="pill">working</span>
       </div>
-      <div class="idle-steps">
-        <div><h3>It runs</h3><p>Generators, the validator and its tests, the checker and its tests, every solution on every test, with the limits from <code>Config.json</code>.</p></div>
-        <div><h3>It compares</h3><p>Each solution's verdicts against its tag: <code>MA</code> and <code>OK</code> pass everything, <code>WA</code> fails somewhere, <code>TL</code> times out.</p></div>
-        <div><h3>It reviews</h3><p>Statement, at least ten tests, checker and validator, correct solutions in C++ and Java plus a wrong one, tags, tutorial.</p></div>
+      <p id="announce" class="sr-only" aria-live="polite"></p>
+      <div id="problems" class="problems"></div>
+      <div class="run-actions" id="run-actions" hidden>
+        <button type="button" id="again" class="button">Run another check</button>
+        <button type="button" id="download" class="button quiet">Download the full report (JSON)</button>
       </div>
     </div>
+  </section>
 
-    <div id="problems" class="problems"></div>
-    <div class="run-actions" id="run-actions" hidden>
-      <button type="button" id="download" class="button gold">Download the report (JSON)</button>
-      <button type="button" id="again" class="button quiet">Verify another</button>
+  <section class="more wrap">
+    <div class="samples">
+      <h2>Try another sample</h2>
+      <p class="muted">Each one shows a different kind of problem the check catches.</p>
+      <div id="sample-list" class="sample-list"></div>
     </div>
+    <form id="upload" class="drop" aria-labelledby="own-title">
+      <input id="file" type="file" name="problem" accept=".zip,application/zip" hidden>
+      <h2 id="own-title">Check your own problem</h2>
+      <p>Drop a .zip of a polyman problem folder here, or a contest of up to 26&nbsp;problems (up to 20&nbsp;MB).</p>
+      <button type="button" id="pick" class="button quiet"><svg class="icon" aria-hidden="true"><use href="#i-upload"/></svg>Choose a .zip</button>
+      <p class="hint">Make one with <code>polyman remote pull ID ./problem</code>, then zip the folder. <a href="/docs#prepare">How to prepare it</a></p>
+    </form>
+  </section>
+
+  <section class="how wrap" aria-labelledby="how-title">
+    <h2 id="how-title">How it works</h2>
+    <ol class="how-steps">
+      <li><h3>You send a problem</h3><p>A contest problem is a statement, its tests, a correct solution, and solutions that are meant to fail, each labelled with how it should fail.</p></li>
+      <li><h3>It is judged for real</h3><p>Real compilers run every solution on every test with the problem's own time and memory limits, inside an isolated sandbox with no internet access.</p></li>
+      <li><h3>You get a plain answer</h3><p>Which solution doesn't behave as labelled, on which tests, what to change, and whether the problem meets common contest guidelines.</p></li>
+    </ol>
+    <p class="privacy"><svg class="icon" aria-hidden="true"><use href="#i-lock"/></svg>Your upload is deleted when the check ends. Nothing is stored.</p>
   </section>
 </main>
 
-<section class="how" aria-labelledby="how-title">
-  <h2 id="how-title">Good to know</h2>
-  <dl class="how-list">
-    <div><dt>Compiled fresh</dt><dd>You don't send <code>testlib.h</code>, binaries or generated tests. They are made on the spot, and polyman's compile cache is ignored.</dd></div>
-    <div><dt>Held to the tag</dt><dd>Tags work as on the problem platform: <code>MA</code>, <code>OK</code>, <code>WA</code>, <code>TL</code>, <code>ML</code>, <code>RE</code>, <code>PE</code>, <code>TO</code>, <code>RJ</code>. <a href="/docs#checks">What each one must do</a></dd></div>
-    <div><dt>Same in CI</dt><dd>The page uses the API you can call from a script: <code>curl -F problem=@p.zip …/api/verify</code>. <a href="/docs#api">API</a></dd></div>
-  </dl>
-</section>
-
-<footer class="foot">
-  <span>Built on <a href="https://www.npmjs.com/package/polyman-cli">polyman</a>, the open-source CLI for problem setters.</span>
-  <a href="/docs#limits">Limits and privacy</a>
+<footer class="wrap foot">
+  <span>Built on <a href="https://www.npmjs.com/package/polyman-cli">polyman</a>, the open-source CLI for problem setters. <a href="https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase">Source and pipelines on GitLab</a>.</span>
+  <span id="version"></span>
 </footer>
 
 <template id="problem-tpl">
   <article class="problem">
-    <header class="problem-head">
-      <h3 class="problem-name"></h3>
-      <span class="stamp problem-state">waiting</span>
-    </header>
-    <ol class="track" aria-hidden="true"></ol>
-    <p class="track-label"></p>
+    <h3 class="problem-name"></h3>
+    <div class="progress">
+      <div class="meter" role="progressbar" aria-label="Progress" aria-valuemin="0" aria-valuemax="10" aria-valuenow="0"><span></span></div>
+      <p class="progress-label">Starting</p>
+    </div>
     <div class="result" hidden>
-      <div class="grid-wrap"><table class="grid">
-        <caption class="sr-only">Every solution on every test</caption>
-        <thead></thead>
-        <tbody></tbody>
-      </table></div>
-      <ul class="verdicts"></ul>
-      <h4 class="checks-title">Contest guidelines</h4>
-      <ul class="checks"></ul>
+      <p class="lead"></p>
+      <ul class="sols"></ul>
+      <ul class="guides"></ul>
+      <details class="more-checks">
+        <summary><svg class="icon chev" aria-hidden="true"><use href="#i-chev"/></svg>See all contest checks</summary>
+        <ul class="checks"></ul>
+      </details>
       <details class="log" hidden>
         <summary><svg class="icon chev" aria-hidden="true"><use href="#i-chev"/></svg>What polyman reported</summary>
         <p class="problem-error"></p>
