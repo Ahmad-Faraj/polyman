@@ -12,6 +12,7 @@ import ConfigFile, {
 } from '../types';
 import { executor } from '../executor';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { logError, throwError } from './utils';
 import {
@@ -479,22 +480,45 @@ export async function compileSolution(sourcePath: string): Promise<void> {
 }
 
 /**
- * Compiles all matching solutions.
- * Compiles each solution based on file extension.
+ * Compiles all solutions, at most `limit` at a time.
+ * A compile starts only when a slot is free, so its timeout covers the time
+ * it spends compiling and not the time it waits for a CPU. Compilation order
+ * follows the order of `solutions`.
  *
  * @param {LocalSolution[]} solutions - Array of solutions to compile
+ * @param {number} [limit=os.availableParallelism()] - Most compiles running at once (at least 1)
  * @returns {Promise<void>} Resolves when all compilations complete
  *
- * @throws {Error} If any compilation fails
+ * @throws {Error} If any compilation fails; no new compile starts after that
  *
  * @example
  * await compileAllSolutions(config.solutions);
- * // Compiles all solutions in parallel
+ * // Compiles all solutions, one per CPU at a time
  */
 export async function compileAllSolutions(
-  solutions: LocalSolution[]
+  solutions: LocalSolution[],
+  limit: number = os.availableParallelism()
 ): Promise<void> {
-  await Promise.all(solutions.map(s => compileSolution(s.source)));
+  const workers = Math.max(
+    1,
+    Math.min(Math.floor(limit) || 1, solutions.length)
+  );
+  let next = 0;
+  let failed = false;
+
+  const worker = async (): Promise<void> => {
+    while (!failed && next < solutions.length) {
+      const solution = solutions[next++];
+      try {
+        await compileSolution(solution.source);
+      } catch (err) {
+        failed = true;
+        throw err;
+      }
+    }
+  };
+
+  await Promise.all(Array.from({ length: workers }, () => worker()));
 }
 
 /**

@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.0.3
+
+- polyman compiles solutions a few at a time (one per CPU), so a slow or small machine no longer fails a compile on the 10 s limit while it waits for a CPU (#88).
+
 ## 3.0.2
 
 - polyman retries a Polygon call once after a network error, an HTTP 5xx or an HTML page, for reads and for uploads that replace an item; calls that could create a duplicate are never retried. A 5xx that carries Polygon's JSON `FAILED` answer is reported as that error, not retried (#86).

@@ -271,6 +271,75 @@ describe('solution.ts', () => {
       expect(mockedCompileCPP).toHaveBeenCalledWith('s1.cpp');
       expect(mockedCompileJava).toHaveBeenCalledWith('s2.java');
     });
+
+    const makeSolutions = (n: number): LocalSolution[] =>
+      Array.from({ length: n }, (_, i) => ({
+        name: `s${i}`,
+        source: `s${i}.cpp`,
+        tag: 'MA' as const,
+      }));
+
+    it('should run at most `limit` compiles at once and compile all', async () => {
+      vi.spyOn(path, 'extname').mockReturnValue('.cpp');
+      let running = 0;
+      let peak = 0;
+      const started: string[] = [];
+      mockedCompileCPP.mockImplementation(async (source: string) => {
+        started.push(source);
+        running++;
+        peak = Math.max(peak, running);
+        await new Promise(resolve => setTimeout(resolve, 5));
+        running--;
+        return source;
+      });
+
+      await solution.compileAllSolutions(makeSolutions(7), 2);
+
+      expect(peak).toBe(2);
+      expect(started).toEqual(makeSolutions(7).map(s => s.source));
+    });
+
+    it('should reject with the failing compile error and skip solutions not started', async () => {
+      vi.spyOn(path, 'extname').mockReturnValue('.cpp');
+      const started: string[] = [];
+      mockedCompileCPP.mockImplementation((source: string) => {
+        started.push(source);
+        return source === 's1.cpp'
+          ? Promise.reject(new Error('boom s1'))
+          : Promise.resolve(source);
+      });
+
+      await expect(
+        solution.compileAllSolutions(makeSolutions(5), 1)
+      ).rejects.toThrow('boom s1');
+      expect(started).toEqual(['s0.cpp', 's1.cpp']);
+    });
+
+    it('should compile everything when the limit exceeds the solution count', async () => {
+      vi.spyOn(path, 'extname').mockReturnValue('.cpp');
+      mockedCompileCPP.mockImplementation((source: string) =>
+        Promise.resolve(source)
+      );
+
+      await solution.compileAllSolutions(makeSolutions(3), 10);
+
+      expect(mockedCompileCPP).toHaveBeenCalledTimes(3);
+    });
+
+    it('should treat a limit below 1 as 1', async () => {
+      vi.spyOn(path, 'extname').mockReturnValue('.cpp');
+      mockedCompileCPP.mockImplementation((source: string) =>
+        Promise.resolve(source)
+      );
+
+      await solution.compileAllSolutions(makeSolutions(2), 0);
+
+      expect(mockedCompileCPP).toHaveBeenCalledTimes(2);
+    });
+
+    it('should resolve for an empty list', async () => {
+      await expect(solution.compileAllSolutions([])).resolves.toBeUndefined();
+    });
   });
 
   // `path.extname` is spied on by earlier suites and this project does not
