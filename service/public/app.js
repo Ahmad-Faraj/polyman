@@ -321,7 +321,6 @@ function renderProblem(card, ev) {
   const reached = Number(card.dataset.reached ?? 0);
   // steps never reached stay empty: the run stopped before them; the failed one shows with the verdict
   [...track.children].forEach((li, i) => (li.className = i < reached ? 'done' : ''));
-  if (stopped && reached) afterResolve(() => (track.children[reached - 1].className = 'failed'));
   const solutions = report?.solutions ?? [];
   const tests = new Set(solutions.flatMap((s) => s.tests.map((t) => `${t.testset}#${t.index}`))).size;
   // one problem: the run title already gives the time, so it isn't repeated here
@@ -388,6 +387,7 @@ function renderProblem(card, ev) {
   afterResolve(() => {
     for (const el of held) el.classList.remove('held');
     setState($('.problem-state', card), ...state);
+    if (stopped && reached) track.children[reached - 1].className = 'failed';
   });
 }
 
