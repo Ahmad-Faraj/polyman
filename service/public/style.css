@@ -37,11 +37,11 @@
   /* polyman's own */
   --brand: #06b6d4;
   --brand-soft: #ecfeff;
-  --pass: #16a34a;
+  --pass: #0891b2;
   --fail: #dc2626;
   --slow: #d97706;
   --fail-ink: #b91c1c;
-  --pass-ink: #15803d;
+  --pass-ink: #0e7490;
   --out: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 17 17 7M8 7h9v9'/%3E%3C/svg%3E");
   color-scheme: light;
 }
@@ -57,7 +57,7 @@ code { font-family: var(--font-mono); font-size: max(0.85em, 12.5px); background
 /* the primary button darkens on hover, so its label keeps its contrast */
 .btn:not([data-variant]):hover:not(:disabled), .btn[data-variant='primary']:hover:not(:disabled) { background-color: #155e75; color: var(--primary-foreground); }
 .badge[data-variant='destructive'] { color: var(--fail-ink); }
-.badge[data-variant='success'] { background: #dcfce7; color: var(--pass-ink); border-color: transparent; }
+.badge[data-variant='success'] { background: #cffafe; color: #155e75; border-color: transparent; }
 .badge svg { width: 12px; height: 12px; }
 /* a focus ring that holds 3:1 against white, in place of the stock half-alpha one */
 :where(.btn, .sample, summary, .records a, .logo):focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; box-shadow: none; }
@@ -75,7 +75,7 @@ code { font-family: var(--font-mono); font-size: max(0.85em, 12.5px); background
 /* the claim stays in view beside a long result, instead of leaving an empty column */
 .hero-copy { padding-top: 24px; position: sticky; top: 88px; }
 .hero .badge { gap: 8px; padding-inline: 12px; height: 28px; font-size: 0.8rem; }
-.live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--pass); }
+.live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--brand); }
 h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-height: 1.05; font-weight: 700; letter-spacing: -0.04em; text-wrap: balance; }
 .hero-lede { margin: 20px 0 0; max-width: 46ch; font-size: 1.1rem; line-height: 1.6; color: var(--muted-foreground); text-wrap: pretty; }
 .hero-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 32px; }
@@ -87,7 +87,7 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 /* the result card: its headline is the verdict */
 .result { scroll-margin-top: 88px; transition: border-color 200ms; }
 .result.is-bad { border-color: #fca5a5; }
-.result.is-good { border-color: #86efac; }
+.result.is-good { border-color: #67e8f9; }
 .result > header { row-gap: 6px; }
 /* the status badge sits beside the small meta line, so the verdict and its sentence get the full width */
 .result > header > .card-action { grid-row: 1; align-self: center; }
@@ -115,7 +115,10 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 
 /* solutions table */
 .table-container { overflow-x: auto; }
-.sols { border: 1px solid var(--border); border-radius: var(--radius); border-collapse: separate; border-spacing: 0; overflow: hidden; }
+/* the solutions run edge to edge inside the card: rows and dividers, no frame of their own */
+.result .table-container { width: calc(100% + 48px); max-width: none; margin-inline: -24px; border-block: 1px solid var(--border); }
+.result .sols td { padding-inline: 24px; }
+.sols { border: 0; border-collapse: separate; border-spacing: 0; }
 .sols tbody tr:last-child td { border-bottom: 0; }
 .sols th { background: var(--muted); font-size: 0.8rem; color: var(--muted-foreground); }
 /* each solution stacks: name, label and result on top, then every test across the full width */
@@ -165,6 +168,7 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 .checks small { display: block; margin-top: 2px; font-size: 0.8125rem; line-height: 1.45; color: var(--muted-foreground); }
 .problem-error { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--font-mono); font-size: 0.8rem; color: var(--muted-foreground); max-height: 16em; overflow: auto; }
 .alert[data-variant='destructive'] > section { color: var(--foreground); }
+.result .alert { border: 0; border-radius: 0; padding-inline: 0; background: none; }
 .alert:not([data-variant]) > svg { color: var(--pass); }
 .refusal p { margin: 0 0 8px; }
 .refusal .raw { color: var(--muted-foreground); font-size: 0.85rem; overflow-wrap: anywhere; }
