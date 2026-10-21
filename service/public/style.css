@@ -195,7 +195,7 @@ button:disabled, .button:disabled { opacity: 0.45; cursor: not-allowed; transfor
 .grid th.sol { text-align: left; }
 .grid th.group { text-align: left; color: var(--on-navy); font-size: 0.78rem; }
 .grid td { height: 46px; min-width: 40px; padding: 0 4px; text-align: center; font-size: 0.8rem; font-weight: 700; border-radius: 3px; position: relative; overflow: hidden; }
-.grid.dense td.cell { min-width: 22px; height: 36px; font-size: 0; }
+.grid.dense td.cell { min-width: 22px; height: 36px; padding: 0; font-size: 0.7rem; }
 .grid td.sol { text-align: left; background: none; padding: 0 12px 0 0; white-space: nowrap; font-size: 1.05rem; }
 /* the solution names stay put while a long row of tests scrolls under them */
 .grid td.sol, .grid th.sol { position: sticky; left: 0; z-index: 1; background: var(--navy); }

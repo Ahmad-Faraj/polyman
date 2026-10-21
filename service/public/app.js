@@ -440,7 +440,8 @@ function renderGrid(table, solutions) {
   tr.append(th('Tag', ''));
   head.append(tr);
 
-  table.classList.toggle('dense', columns.length > 24);
+  const dense = columns.length > 24;
+  table.classList.toggle('dense', dense);
   const cells = solutions.length * columns.length;
   const step = Math.min(30, 1400 / Math.max(cells, 1));
   const body = $('tbody', table);
@@ -460,7 +461,8 @@ function renderGrid(table, solutions) {
       td.style.setProperty('--d', `${Math.round((r * columns.length + i) * step)}ms`);
       if (t) {
         td.className = `cell ${verdictClass(t.verdict)}`;
-        td.textContent = t.verdict === 'OK' ? t.timeMs : t.verdict;
+        // dense rows have no room for times: accepted stays empty, every other verdict keeps a letter, so colour is never alone
+        td.textContent = dense ? (t.verdict === 'OK' ? '' : t.verdict.charAt(0)) : t.verdict === 'OK' ? t.timeMs : t.verdict;
         td.title = `${s.name}, test ${c.index}${testsets.length > 1 ? ` (${c.testset})` : ''}: ${verdictName(t.verdict)}, ${t.timeMs} ms${t.message ? `. ${t.message}` : ''}`;
       } else {
         td.className = 'cell v-none';
