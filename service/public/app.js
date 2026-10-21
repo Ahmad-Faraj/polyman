@@ -88,12 +88,10 @@ let label = '';
 let lastRun = null;
 let controller = null;
 let timer = 0;
-let polymanVersion = '';
 
 fetch('/api/version')
   .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
   .then((v) => {
-    polymanVersion = v.polyman;
     $('#version').textContent = `Live on Google Cloud Run · polyman ${v.polyman}`;
     const commit = $('#commit');
     commit.textContent = `Deployed commit ${String(v.commit).slice(0, 7)}`;
