@@ -458,7 +458,8 @@ export async function judge(
   problem,
   work,
   timeoutMs,
-  script = path.join(CORPUS, 'run.mjs')
+  script = path.join(CORPUS, 'run.mjs'),
+  cache = []
 ) {
   const junit = path.join(work, problem, 'junit.xml');
   const summaryFile = path.join(path.dirname(junit), 'summary.json');
@@ -466,7 +467,7 @@ export async function judge(
   fs.rmSync(summaryFile, { force: true });
   const result = await run(
     process.execPath,
-    [script, '--only', problem, '--junit', junit],
+    [script, '--only', problem, '--junit', junit, ...cache],
     { timeoutMs }
   );
   if (result.timedOut) return { timedOut: true };
@@ -583,15 +584,27 @@ export async function judgeMutant({
 }
 
 /**
+ * run.mjs's flags for the shard's compile cache: none without one. Only
+ * `save` (the unmutated build's first, cold run) may write it back; every
+ * other run gets its own copy, so one mutant's writes never reach the next.
+ */
+export function cacheArgs(cache, { save = false } = {}) {
+  if (!cache) return [];
+  return ['--cache', cache, ...(save ? ['--save-cache'] : [])];
+}
+
+/**
  * The unmutated build, judged twice per problem, each run in its own folder:
  * a difference either run shows is not held against a mutant. A timeout here
- * stops the job, since without a baseline no kill can be told apart.
+ * stops the job, since without a baseline no kill can be told apart. With a
+ * `cache` folder, only the first (cold) run fills it (see cacheArgs).
  */
 export async function judgeBaseline(
   problems,
   work,
   timeoutMs,
-  judgeOne = judge
+  judgeOne = judge,
+  cache = null
 ) {
   const baseline = { problems: [] };
   for (const problem of problems) {
@@ -600,7 +613,9 @@ export async function judgeBaseline(
       const judged = await judgeOne(
         problem,
         path.join(work, `baseline-${attempt}`),
-        timeoutMs
+        timeoutMs,
+        undefined,
+        cacheArgs(cache, { save: attempt === 0 })
       );
       if (judged.timedOut)
         throw new Error(`the unmutated build timed out on ${problem}`);
@@ -640,7 +655,12 @@ async function judgeShard(args) {
   // The unmutated build, judged in this same job: kills are differences from it
   const base = await build();
   if (!base.ok) throw new Error(`the unmutated build fails:\n${base.output}`);
-  const baseline = await judgeBaseline(problems, work, timeoutMs);
+  // g++ binaries depend on the problems' sources, testlib and the compiler,
+  // never on polyman's own code: the unmutated build's first (cold) run fills
+  // a compile cache, and its second run and every mutant start from a copy
+  // of it. Mutants never write to it.
+  const cache = path.join(work, 'compile-cache');
+  const baseline = await judgeBaseline(problems, work, timeoutMs, judge, cache);
   const red = baseline.problems.filter(p => p.failures.length);
   const flaky = baseline.problems.filter(p => p.flaky);
   console.log(
@@ -664,7 +684,13 @@ async function judgeShard(args) {
               baseline,
               build,
               judge: (problem, ms) =>
-                judge(problem, path.join(work, mutant.id), ms),
+                judge(
+                  problem,
+                  path.join(work, mutant.id),
+                  ms,
+                  undefined,
+                  cacheArgs(cache)
+                ),
               timeoutSeconds: args.timeout,
             })
           );
