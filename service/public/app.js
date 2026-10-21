@@ -135,6 +135,9 @@ let timer = 0;
 let retry = 0;
 let step = 0;
 let runStart = 0;
+/** The verdict waits for the rows to land; this holds it until then. */
+let headTimer = 0;
+let lastVerdict = '';
 /** Each sample's solution names, so a run shows who is being judged before results arrive. */
 const expected = new Map();
 const demoLabel = els.demo.innerHTML;
@@ -180,7 +183,11 @@ fetch('/api/samples')
   })
   .catch((err) => {
     console.error(err);
-    els.samples.textContent = 'The sample problems could not be loaded. You can still check your own.';
+    els.samples.innerHTML = '<p class="switcher-error">The samples could not be loaded right now.</p>';
+    if (!running && !events.length) {
+      setHead('Live check', 'The samples are unavailable right now.', 'You can still check your own problem: choose a .zip below.');
+      els.start.hidden = true;
+    }
   });
 
 const runSample = (name) => start(`/api/samples/${encodeURIComponent(name)}/verify`, null, name);
@@ -395,7 +402,10 @@ async function start(url, body, name, tries = 1) {
   // a sample's rows stay in view until the service says what it is checking
   if (!body && expected.has(name)) showPreview(name);
   else els.problems.replaceChildren();
-  els.run.classList.remove('is-bad', 'is-good', 'revealing', 'has-found');
+  els.run.classList.remove('is-bad', 'is-good', 'revealing', 'has-found', 'landed');
+  clearTimeout(headTimer);
+  lastVerdict = '';
+  document.querySelector('.hero').classList.remove('answered');
   els.run.classList.add('is-running');
   setHead(`Checking ${label}`, 'Checking the problem…', 'Usually about 20 seconds.');
   setStatus('Running', 'secondary');
@@ -583,14 +593,18 @@ function handle(ev) {
     const sol = about && reports[0]?.report?.solutions.find((s) => s.name === about);
     const win = !sol ? '' : !sol.matchesTag ? `Found it: ${about} is the planted mistake.` : sol.tests.some((t) => t.verdict !== 'OK') ? `The sandbox held: ${about} never got root, so it failed as labelled.` : '';
     if (win) {
-      els.note.innerHTML = `${icon('i-check')}<span></span>`;
+      // a stamp in the mark's own hexagon draws itself in, then the answer
+      els.note.innerHTML = `<svg class="stamp" viewBox="0 0 32 32" aria-hidden="true"><path class="hex" d="M16 2.6 27.6 9.3v13.4L16 29.4 4.4 22.7V9.3Z"/><path class="tick" d="m10.5 16.6 3.9 3.9 7.3-8.2"/></svg><span></span>`;
       $('span', els.note).textContent = win;
       els.note.classList.add('found');
       els.run.classList.add('has-found');
       els.note.hidden = false;
     }
-    say(`Checked ${label} in ${ev.seconds.toFixed(1)} seconds. ${els.verdict.textContent}`);
-    els.verdict.focus({ preventScroll: true });
+    // the page has answered its own question: the hero's question steps back
+    if (!unfinished) document.querySelector('.hero').classList.add('answered');
+    if (unfinished && reports.some((e) => /time|timed out/i.test(e.error ?? ''))) els.title.textContent = `Checked ${label}: stopped at the time limit`;
+    say(`Checked ${label} in ${ev.seconds.toFixed(1)} seconds. ${win} ${lastVerdict || els.verdict.textContent}`);
+    (win ? els.note : els.verdict).focus({ preventScroll: true });
   } else if (ev.type === 'error') {
     failMidway(ev.message);
   }
@@ -635,13 +649,22 @@ function renderProblem(card, ev) {
       : `Every solution behaves exactly as labelled${checks.length ? `, and all ${checks.length} contest guidelines are met` : ''}.`;
   }
   if (cards.size === 1) {
-    setHead(null, title, body);
-    if (/see the limits in the docs:$/.test(body)) {
-      const a = document.createElement('a');
-      a.href = '/docs#limits';
-      a.textContent = 'Limits and privacy';
-      els.sub.append(' ', a);
-    }
+    lastVerdict = title;
+    const land = () => {
+      setHead(null, title, body);
+      if (/see the limits in the docs:$/.test(body)) {
+        const a = document.createElement('a');
+        a.href = '/docs#limits';
+        a.textContent = 'Limits and privacy';
+        els.sub.append(' ', a);
+      }
+      els.run.classList.add('landed');
+    };
+    // the evidence lands first, row by row; the verdict follows as the last beat (at once if motion is reduced)
+    clearTimeout(headTimer);
+    const landing = solutions.length && !reducedMotion.matches ? Math.min(solutions.length * 160 + 420, 1500) : 0;
+    if (landing) headTimer = setTimeout(land, landing);
+    else land();
   }
   else {
     const alert = $('.verdict', card);
@@ -671,7 +694,7 @@ function renderProblem(card, ev) {
     }));
   }
   // the sample's answer in the card's head waits until the last row has landed
-  els.run.style.setProperty('--landed', `${Math.min(order.length * 110 + 260, 1100)}ms`);
+  els.run.style.setProperty('--landed', `${Math.min(order.length * 160 + 420, 1500)}ms`);
   if (cards.size === 1 && rows.length) els.run.classList.add('revealing');
   $('.table-container', card).hidden = !$('.sols tbody', card).children.length;
   // when the problem fails on its guidelines, not its solutions, the guidelines come first
@@ -827,9 +850,12 @@ function wireSquares(strip, line) {
   // focus and hover preview a square; a click or tap pins it, one pinned square per report
   const show = (d) => {
     const pinned = $('.dot.picked', strip);
-    line.textContent = d ? d.dataset.detail : pinned ? pinned.dataset.detail : '';
-    line.classList.toggle('on', !!line.textContent);
+    const at = d ?? pinned;
+    // the line is always there (no jump), and says what the squares are for until one is chosen
+    line.textContent = at ? at.dataset.detail : 'Hover, tap or arrow to a square to read that test.';
+    line.classList.toggle('hint', !at);
   };
+  show(null);
   const pin = (d) => {
     for (const other of strip.closest('.problem').querySelectorAll('.dot.picked')) {
       other.classList.remove('picked');
@@ -848,6 +874,8 @@ function wireSquares(strip, line) {
   strip.addEventListener('pointerleave', () => show(null));
   strip.addEventListener('focusin', (e) => {
     const d = e.target.closest('.dot');
+    // one ring at a time: moving by keyboard lets go of a pinned square
+    for (const q of strip.closest('.problem').querySelectorAll('.dot.picked')) q.classList.remove('picked');
     for (const q of squares) q.tabIndex = q === d ? 0 : -1;
     show(d);
   });
