@@ -10,7 +10,8 @@ export const EVIDENCE_CSS = `
 body { margin: 0; background: var(--ground); color: var(--ink); font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; font-variant-numeric: tabular-nums; }
 ::selection { background: var(--gold); color: var(--navy); }
 a { color: var(--link); text-underline-offset: 3px; }
-a:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+a:focus-visible { outline: 3px solid var(--link); outline-offset: 2px; }
+.band a:focus-visible { outline-color: var(--gold); }
 .band { background: var(--navy); color: var(--on-navy); }
 .band .wrap { padding-block: 40px 36px; }
 .band h1 { font-size: 32px; line-height: 1.1; letter-spacing: -0.02em; font-weight: 800; margin: 0 0 14px; }
