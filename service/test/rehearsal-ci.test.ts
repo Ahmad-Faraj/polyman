@@ -76,8 +76,12 @@ describe('rehearsal:incidents', () => {
 describe('the root pipeline', () => {
   it('includes the rehearsal and the service jobs', () => {
     const includes = root.split('\ninclude:\n')[1]?.split(/\n\S/)[0] ?? '';
-    expect(includes).toContain('- local: service/ci/rehearsals/rehearsals.gitlab-ci.yml');
-    expect(includes).toContain('- local: service/ci/service.gitlab-ci.yml');
+    const lines = includes
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => !l.startsWith('#'));
+    expect(lines).toContain('- local: service/ci/rehearsals/rehearsals.gitlab-ci.yml');
+    expect(lines).toContain('- local: service/ci/service.gitlab-ci.yml');
   });
 });
 
