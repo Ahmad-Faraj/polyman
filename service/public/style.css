@@ -49,7 +49,7 @@ html { scroll-behavior: smooth; }
 body { font-feature-settings: 'tnum' 1; -webkit-font-smoothing: antialiased; }
 ::selection { background: #cffafe; }
 a:where(:not(.btn, .badge, .logo)) { color: var(--primary); text-underline-offset: 3px; }
-code { font-family: var(--font-mono); font-size: 0.85em; background: var(--muted); border-radius: 6px; padding: 2px 6px; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+code { font-family: var(--font-mono); font-size: max(0.85em, 12.5px); background: var(--muted); border-radius: 6px; padding: 2px 6px; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .skip { position: absolute; left: 16px; top: -48px; z-index: 30; background: var(--primary); color: var(--primary-foreground); padding: 8px 12px; border-radius: 8px; }
 .skip:focus { top: 8px; }
@@ -59,6 +59,8 @@ code { font-family: var(--font-mono); font-size: 0.85em; background: var(--muted
 .badge[data-variant='destructive'] { color: var(--fail-ink); }
 .badge[data-variant='success'] { background: #dcfce7; color: var(--pass-ink); border-color: transparent; }
 .badge svg { width: 12px; height: 12px; }
+/* a focus ring that holds 3:1 against white, in place of the stock half-alpha one */
+:where(.btn, .sample, summary, .records a, .logo):focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; box-shadow: none; }
 
 /* header */
 .site-header { position: sticky; top: 0; z-index: 20; background: rgb(255 255 255 / 0.88); backdrop-filter: saturate(1.4) blur(8px); border-bottom: 1px solid var(--border); }
@@ -70,7 +72,8 @@ code { font-family: var(--font-mono); font-size: 0.85em; background: var(--muted
 
 /* hero: the claim on the left, the product itself on the right */
 .hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.12fr); gap: 48px; align-items: start; padding-block: 72px 64px; }
-.hero-copy { padding-top: 24px; }
+/* the claim stays in view beside a long result, instead of leaving an empty column */
+.hero-copy { padding-top: 24px; position: sticky; top: 88px; }
 .hero .badge { gap: 8px; padding-inline: 12px; height: 28px; font-size: 0.8rem; }
 .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--pass); }
 h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-height: 1.05; font-weight: 700; letter-spacing: -0.04em; text-wrap: balance; }
@@ -95,12 +98,14 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 .result.is-good > header > h2 { color: var(--pass-ink); }
 .result > header > p:not(.run-meta) { color: var(--foreground); line-height: 1.55; text-wrap: pretty; }
 .result > footer { display: flex; flex-wrap: wrap; gap: 8px; }
+.result > footer #download { margin-left: auto; }
 .problems { display: flex; flex-direction: column; gap: 28px; }
 .problem { display: grid; gap: 16px; }
 .problem-name { margin: 0; font-size: 1.05rem; font-weight: 600; }
 
 /* the live checklist while polyman works: all ten steps, done, now and still to come */
 .steps-live { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(5, auto); grid-auto-flow: column; gap: 6px 24px; }
+.steps-live:empty { display: none; }
 .steps-live li { display: flex; align-items: center; gap: 10px; font-size: 0.875rem; color: var(--muted-foreground); transition: color 200ms; }
 .steps-live li svg { width: 16px; height: 16px; flex: none; color: #d4d4d8; }
 .steps-live li.done svg { color: var(--pass); }
@@ -142,6 +147,11 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 .dot svg { width: 10px; height: 10px; }
 .dots-note { display: block; margin-top: 6px; color: var(--muted-foreground); font-size: 0.8rem; white-space: normal; }
 .sols tr.broken .dots-note { color: var(--fail-ink); }
+/* what the checker saw on each failing test, under the row that broke its label */
+.fails { list-style: none; margin: 10px 0 0; padding: 10px 0 0; border-top: 1px dashed #fecaca; display: grid; gap: 4px; font-size: 0.8125rem; line-height: 1.45; }
+.fails li { display: flex; gap: 10px; }
+.fails b { flex: none; min-width: 4.5em; font-family: var(--font-mono); font-weight: 600; font-size: 0.95em; }
+.fails .more-fails { color: var(--muted-foreground); }
 @keyframes dot-in { from { opacity: 0; transform: scale(0.5); } to { opacity: 1; transform: scale(1); } }
 .legend { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: -6px 0 0; font-size: 0.8rem; color: var(--muted-foreground); }
 .legend > span { display: inline-flex; align-items: center; gap: 6px; }
@@ -179,6 +189,8 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 .dropzone { border-style: dashed; border-width: 2px; text-align: center; transition: border-color 150ms, background-color 150ms; }
 .dropzone > section { display: flex; flex-direction: column; align-items: center; gap: 8px; padding-block: 16px; }
 .dropzone.over { border-color: var(--brand); background: var(--brand-soft); }
+.dropzone.flash { animation: flash 1.6s cubic-bezier(0.16, 1, 0.3, 1); }
+@keyframes flash { from { border-color: var(--brand); background: var(--brand-soft); } }
 .dropzone h2 { margin: 0; font-size: 1.25rem; font-weight: 600; letter-spacing: -0.02em; }
 .dropzone p { margin: 0; color: var(--muted-foreground); max-width: 56ch; text-wrap: pretty; }
 .dropzone .btn { margin-top: 8px; }
@@ -204,7 +216,7 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 .records svg { width: 20px; height: 20px; margin-top: 1px; color: var(--primary); }
 .records b { display: block; font-weight: 600; }
 .records b + span { display: block; margin-top: 2px; font-size: 0.875rem; line-height: 1.5; color: var(--muted-foreground); text-wrap: pretty; }
-.privacy { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 32px 0 0; font-size: 0.875rem; color: var(--muted-foreground); }
+.privacy { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 12px 0 0 !important; font-size: 0.875rem; color: var(--muted-foreground); }
 .privacy svg { width: 16px; height: 16px; }
 .site-footer { border-top: 1px solid var(--border); margin-top: 40px; }
 .footer-row { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px 24px; padding-block: 28px 40px; font-size: 0.875rem; color: var(--muted-foreground); }
@@ -224,7 +236,7 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 .docs .lede { font-size: 1.125rem; color: var(--muted-foreground); }
 .docs ol, .docs ul { padding-left: 22px; display: grid; gap: 6px; list-style: revert; }
 .docs pre { margin: 12px 0 16px; background: #fafafa; border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; overflow-x: auto; font-size: 0.85rem; line-height: 1.6; }
-.docs pre code { background: none; padding: 0; }
+.docs pre code { background: none; padding: 0; font-size: 1em; }
 .docs .table-container { margin: 12px 0 4px; }
 .docs .table { border: 1px solid var(--border); border-radius: var(--radius); border-collapse: separate; border-spacing: 0; overflow: hidden; }
 .docs .table th, .docs .table td { padding: 10px 14px; white-space: normal; }
@@ -232,7 +244,7 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 
 @media (max-width: 960px) {
   .hero { grid-template-columns: minmax(0, 1fr); gap: 32px; padding-block: 48px 40px; }
-  .hero-copy { padding-top: 0; }
+  .hero-copy { padding-top: 0; position: static; }
   .gitlab { grid-template-columns: minmax(0, 1fr); gap: 24px; }
 }
 @media (max-width: 760px) {
