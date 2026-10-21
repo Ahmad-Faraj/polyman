@@ -5,6 +5,8 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     include: ['test/**/*.test.ts'],
-    env: { AUTONOMY_CONFIG: 'test/fixtures/autonomy.yml' },
+    // GITLAB_RETRY_MS: reads are tried again after a 5xx or a dropped
+    // connection (#98); no test, nor the CLIs they spawn, waits for that
+    env: { AUTONOMY_CONFIG: 'test/fixtures/autonomy.yml', GITLAB_RETRY_MS: '0' },
   },
 });

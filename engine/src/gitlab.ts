@@ -31,21 +31,23 @@ export class GitLab {
       headers: { ...this.auth, 'Content-Type': 'application/json' },
       body: body === undefined ? undefined : JSON.stringify(body),
     };
-    let res = await tokenFetch(url, init);
+    // a read is sent again after a server error or a dropped connection; a write never is
+    const send = () => (method === 'GET' ? readRetrying(() => tokenFetch(url, init)) : tokenFetch(url, init));
+    let res = await send();
     // GitLab.com limits requests per minute (per IP address without a token):
     // a 429 was not served, so wait as long as it asks and send it again
     for (let tries = 1; res.status === 429 && tries <= RATE_LIMIT_RETRIES; tries++) {
       await backOff(res);
-      res = await tokenFetch(url, init);
+      res = await send();
     }
     // The job token only covers part of the API. Reads it can't do are public
     // on a public project, so retry those without credentials.
     if ((res.status === 401 || res.status === 403) && method === 'GET' && Object.keys(this.auth).length) {
       const refused = await res.text();
-      let anon = await fetch(url);
+      let anon = await readRetrying(() => fetch(url));
       for (let tries = 1; anon.status === 429 && tries <= RATE_LIMIT_RETRIES; tries++) {
         await backOff(anon);
-        anon = await fetch(url);
+        anon = await readRetrying(() => fetch(url));
       }
       if (anon.ok) {
         // public data only: confidential notes and restricted fields are missing
@@ -94,6 +96,39 @@ export async function finishedJobs(gl: Pick<GitLab, 'get'>, pipelineIds: number[
 }
 
 export const RATE_LIMIT_RETRIES = 3;
+
+/**
+ * How often a read is tried again after a server error, and the wait before
+ * try n (n × ms). GITLAB_RETRY_MS overrides the wait (tests set 0).
+ */
+export const SERVER_RETRIES = { times: 3, ms: 5_000 };
+
+const retryStepMs = () => {
+  const set = process.env.GITLAB_RETRY_MS;
+  return set === undefined || set === '' ? SERVER_RETRIES.ms : Number(set);
+};
+
+/**
+ * A read, sent again when GitLab answers 5xx or the connection drops (#98: a
+ * 500 on an old job's artifact, then "fetch failed", each turned main red).
+ * Reads only: a write that failed halfway may still have happened, so it is
+ * never sent twice. After the last try the 5xx or the error goes to the caller.
+ */
+export async function readRetrying(send: () => Promise<Response>): Promise<Response> {
+  for (let attempt = 1; ; attempt++) {
+    const last = attempt > SERVER_RETRIES.times;
+    try {
+      const res = await send();
+      if (res.status < 500 || last) return res;
+      await res.body?.cancel();
+      console.warn(`warning: GitLab answered ${res.status}; trying again (${attempt} of ${SERVER_RETRIES.times})`);
+    } catch (err) {
+      if (last) throw err;
+      console.warn(`warning: ${(err as Error).message}; trying again (${attempt} of ${SERVER_RETRIES.times})`);
+    }
+    await new Promise((done) => setTimeout(done, attempt * retryStepMs()));
+  }
+}
 
 /** Waits as long as a 429 answer's Retry-After asks (10 s if it doesn't say, at most a minute). */
 export async function backOff(res: Response) {

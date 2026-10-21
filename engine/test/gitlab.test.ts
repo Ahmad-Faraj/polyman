@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { GitLab, GitLabError, finishedJobs } from '../src/gitlab.ts';
+import { GitLab, GitLabError, SERVER_RETRIES, finishedJobs } from '../src/gitlab.ts';
 
 const BASE = 'https://gitlab.test/api/v4';
 const baseEnv = { CI_API_V4_URL: BASE, CI_PROJECT_ID: 'group/proj' };
@@ -30,6 +30,9 @@ function fakeFetch(...replies: Response[]) {
 const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status });
 
 afterEach(() => vi.unstubAllGlobals());
+
+/** `n` replies, made fresh: a Response body can be read once */
+const times = (n: number, reply: () => Response) => Array.from({ length: n }, reply);
 
 describe('GitLab client construction', () => {
   it('needs the API URL and project ID', () => {
@@ -134,10 +137,17 @@ describe('GitLab anonymous GET retry', () => {
     expect(seen[0].method).toBe(method);
   });
 
-  it.each([404, 500, 502])('does not retry a GET after a %i', async (status) => {
-    const seen = fakeFetch(json({ message: 'nope' }, status), json({}));
-    await expect(withJobToken().get('/:project/x')).rejects.toMatchObject({ status });
+  it('does not retry a GET after a 404', async () => {
+    const seen = fakeFetch(json({ message: 'nope' }, 404), json({}));
+    await expect(withJobToken().get('/:project/x')).rejects.toMatchObject({ status: 404 });
     expect(seen).toHaveLength(1);
+  });
+
+  it.each([500, 502])('a GET after a %i is an outage, not a refusal: sent again with the token, never anonymously', async (status) => {
+    const seen = fakeFetch(...times(SERVER_RETRIES.times + 1, () => json({ message: 'nope' }, status)));
+    await expect(withJobToken().get('/:project/x')).rejects.toMatchObject({ status });
+    expect(seen).toHaveLength(SERVER_RETRIES.times + 1);
+    for (const s of seen) expect(s.headers['JOB-TOKEN']).toBe('job-secret');
   });
 
   it('does not retry when there were no credentials to drop', async () => {
@@ -187,7 +197,7 @@ describe('GitLab anonymous retry warning', () => {
   });
 
   it('throws the first reply even when the retry reply is a non-JSON error page', async () => {
-    fakeFetch(json({ message: 'forbidden' }, 403), new Response('<html>oops</html>', { status: 502 }));
+    fakeFetch(json({ message: 'forbidden' }, 403), ...times(SERVER_RETRIES.times + 1, () => new Response('<html>oops</html>', { status: 502 })));
     await expect(withJobToken().get('/:project/x')).rejects.toMatchObject({ status: 403 });
   });
 });
@@ -231,7 +241,7 @@ describe('GitLab non-JSON replies', () => {
   });
 
   it('an error status with a non-JSON body still reports the error status and body', async () => {
-    fakeFetch(new Response('Bad Gateway', { status: 502 }));
+    fakeFetch(...times(SERVER_RETRIES.times + 1, () => new Response('Bad Gateway', { status: 502 })));
     await expect(client().get('/:project/x')).rejects.toMatchObject({ status: 502, message: expect.stringContaining('Bad Gateway') });
   });
 });
@@ -273,6 +283,77 @@ describe("GitLab.com's rate limit", () => {
     const err = (await new GitLab({ ...baseEnv, CI_JOB_TOKEN: 'job' }).get('/:project/merge_requests/7/notes').catch((e: unknown) => e)) as GitLabError;
     expect(err).toBeInstanceOf(GitLabError);
     expect(err.status).toBe(429);
+  });
+});
+
+describe('server errors and dropped connections (#98)', () => {
+  const failed = (status = 500) => new Response('Internal Server Error', { status });
+  /** like fakeFetch, but a reply that is an Error is thrown, as fetch does when a connection drops */
+  function flakyFetch(...replies: (Response | Error)[]) {
+    const seen: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init: { method?: string } = {}) => {
+        seen.push(init.method ?? 'GET');
+        const next = replies.shift();
+        if (!next) throw new Error('unexpected extra request');
+        if (next instanceof Error) throw next;
+        return next;
+      }),
+    );
+    return seen;
+  }
+
+  it('sends a read again after a 5xx', async () => {
+    const seen = flakyFetch(failed(500), failed(503), json({ tier: 'low' }));
+    expect(await new GitLab({ ...baseEnv, CI_JOB_TOKEN: 'job' }).get('/:project/jobs/1/artifacts/risk-report.json')).toEqual({ tier: 'low' });
+    expect(seen).toEqual(['GET', 'GET', 'GET']);
+  });
+
+  it('sends a read again after the connection drops', async () => {
+    const seen = flakyFetch(new TypeError('fetch failed'), json({ iid: 7 }));
+    expect(await new GitLab({ ...baseEnv, CI_JOB_TOKEN: 'job' }).get('/:project/merge_requests/7')).toEqual({ iid: 7 });
+    expect(seen).toHaveLength(2);
+  });
+
+  it(`gives up after ${SERVER_RETRIES.times} more tries and reports the server error`, async () => {
+    const seen = flakyFetch(failed(), failed(), failed(), failed());
+    const err = (await new GitLab({ ...baseEnv, CI_JOB_TOKEN: 'job' }).get('/:project/jobs/1/artifacts/x.json').catch((e: unknown) => e)) as GitLabError;
+    expect(err).toBeInstanceOf(GitLabError);
+    expect(err.status).toBe(500);
+    expect(seen).toHaveLength(SERVER_RETRIES.times + 1);
+  });
+
+  it('passes the last dropped connection on, not a made-up answer', async () => {
+    flakyFetch(...Array.from({ length: SERVER_RETRIES.times + 1 }, () => new TypeError('fetch failed')));
+    await expect(new GitLab({ ...baseEnv, CI_JOB_TOKEN: 'job' }).get('/:project/merge_requests/7')).rejects.toThrow('fetch failed');
+  });
+
+  it('the anonymous fallback also tries a read again after a 5xx', async () => {
+    const seen = flakyFetch(json({ message: '403 Forbidden' }, 403), failed(503), json({ id: 1 }));
+    expect(await new GitLab({ ...baseEnv, CI_JOB_TOKEN: 'job' }).get('/:project/merge_requests/1/notes')).toEqual({ id: 1 });
+    expect(seen).toEqual(['GET', 'GET', 'GET']);
+  });
+
+  it('a 429 then a 5xx still ends in the answer: the rate-limit re-send is a read too', async () => {
+    const limited = new Response('{"message":"Rate limit exceeded"}', { status: 429, headers: { 'Retry-After': '0' } });
+    const seen = flakyFetch(limited, failed(500), json({ iid: 7 }));
+    expect(await new GitLab({ ...baseEnv, CI_JOB_TOKEN: 'job' }).get('/:project/merge_requests/7')).toEqual({ iid: 7 });
+    expect(seen).toHaveLength(3);
+  });
+
+  it('never sends a write twice: it may have happened before the error', async () => {
+    const seen = flakyFetch(failed());
+    const err = (await new GitLab({ ...baseEnv, CI_JOB_TOKEN: 'job' }).post('/:project/releases', { tag_name: 'v1' }).catch((e: unknown) => e)) as GitLabError;
+    expect(err.status).toBe(500);
+    expect(seen).toEqual(['POST']);
+  });
+
+  it('a 4xx is an answer, not an outage: it is not sent again', async () => {
+    const seen = flakyFetch(json({ message: '404 Not found' }, 404));
+    const err = (await new GitLab({ ...baseEnv, CI_JOB_TOKEN: 'job' }).get('/:project/jobs/1/artifacts/x.json').catch((e: unknown) => e)) as GitLabError;
+    expect(err.status).toBe(404);
+    expect(seen).toHaveLength(1);
   });
 });
 
