@@ -21,6 +21,7 @@ const els = {
   start: $('#start'),
   note: $('#run-note'),
   stop: $('#stop'),
+  instead: $('#instead'),
   again: $('#again'),
   next: $('#next'),
   choose: $('#choose'),
@@ -44,8 +45,8 @@ const EVEN_SUM_TAGS = { main: 'MA', correct2: 'OK', tle_solution: 'TL', first_on
 const SAMPLES = {
   'even-sum': ['A problem that is ready', 'Every solution behaves as labelled and every contest guideline is met.', null, EVEN_SUM_TAGS],
   'not-ready': ['Correct, but not contest-ready', 'All solutions behave as labelled, but it has too few tests and no tutorial.', null, EVEN_SUM_TAGS],
-  'sandbox-check': ['A solution that needs admin rights', 'One solution only works when run as root. The sandbox never grants that, so it fails as labelled.', 'not_root', { ...EVEN_SUM_TAGS, not_root: 'WA' }],
-  'wrong-tag': ['A solution with the wrong label', 'One solution is labelled correct but gives wrong answers.', null, { ...EVEN_SUM_TAGS, first_only: 'OK' }],
+  'sandbox-check': ['A solution needing admin rights', 'One solution only works when run as root. The sandbox never grants that, so it fails as labelled.', 'not_root', { ...EVEN_SUM_TAGS, not_root: 'WA' }],
+  'wrong-tag': ['A solution with the wrong label', 'One solution is labelled correct but gives wrong answers.', 'first_only', { ...EVEN_SUM_TAGS, first_only: 'OK' }],
 };
 /** What a solution's label promises, and what a test's verdict means. */
 const TAG_WORDS = { MA: 'main correct solution', OK: 'correct', WA: 'wrong answer', TL: 'too slow', ML: 'too much memory', RE: 'crashes', PE: 'badly formatted output', TO: 'correct, may be slow', RJ: 'fails somehow' };
@@ -193,7 +194,7 @@ function showIdle(name) {
   }
   setStatus('Not run yet', 'secondary');
   els.actions.hidden = false;
-  for (const b of [els.stop, els.again, els.next, els.choose, els.download]) b.hidden = true;
+  for (const b of [els.stop, els.instead, els.again, els.next, els.choose, els.download]) b.hidden = true;
   els.start.hidden = false;
 }
 
@@ -208,7 +209,9 @@ function markSample(name) {
 /** A row per solution the sample is known to have, with an empty strip where its tests will go. */
 function waitingRows(node, name) {
   const tbody = $('tbody', node);
-  for (const sol of expected.get(name) ?? []) {
+  // the solution the sample is about comes first, where its result will be
+  const about = SAMPLES[name]?.[2];
+  for (const sol of [...(expected.get(name) ?? [])].sort((a, b) => Number(b === about) - Number(a === about))) {
     const tr = document.createElement('tr');
     tr.className = 'waiting';
     tr.innerHTML = `<td class="sol"><b class="sol-name"></b><span class="sol-label"></span></td><td class="tests"><span class="skeleton" aria-hidden="true"></span></td><td class="res"></td>`;
@@ -227,6 +230,7 @@ addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && running && !els.stop.hidden) els.stop.click();
 });
 els.start.addEventListener('click', () => runSample(pending));
+els.instead.addEventListener('click', () => runSample(pending));
 // the hero's button leads to the upload box first: it says what to zip before the file picker opens
 els.own.addEventListener('click', () => {
   els.form.scrollIntoView({ behavior: reducedMotion.matches ? 'auto' : 'smooth', block: 'center' });
@@ -257,11 +261,11 @@ addEventListener('drop', (e) => {
   if (!carriesFiles(e)) return;
   e.preventDefault();
   els.form.classList.remove('over');
-  if (running) return say('A check is already running. Drop the zip again when it ends.');
+  if (running) return notice('A check is already running. Drop the zip again when it ends.');
   const files = e.dataTransfer.files;
   if (files.length > 1) {
     label = 'Your upload';
-    return showError(`You dropped ${files.length} files. Drop one .zip; for a contest, put every problem in that one zip.`, null, 'local');
+    return showError(`You dropped ${files.length} files.`, null, 'local', 'Drop one .zip. For a contest, put every problem in that one zip.');
   }
   if (files[0]) upload(files[0]);
 });
@@ -285,8 +289,8 @@ els.download.addEventListener('click', () => {
 
 function upload(file) {
   label = file.name;
-  if (!/\.zip$/i.test(file.name)) return showError(`This file, ${file.name}, is not a .zip. Zip the problem folder and choose the zip.`, null, 'local');
-  if (file.size > MAX_BYTES) return showError(`This file, ${file.name}, is ${(file.size / 1024 / 1024).toFixed(1)} MB, over the 20 MB limit. Leave out compiled files and generated tests; they are made fresh.`, null, 'local');
+  if (!/\.zip$/i.test(file.name)) return showError(`${file.name} isn't a .zip.`, null, 'local', 'Nothing was sent. Zip the problem folder and choose the zip.');
+  if (file.size > MAX_BYTES) return showError(`${file.name} is over the 20 MB limit.`, null, 'local', `It is ${(file.size / 1024 / 1024).toFixed(1)} MB, and nothing was sent. Leave out compiled files and generated tests; they are made fresh.`);
   const body = new FormData();
   body.append('problem', file);
   start('/api/verify', body, file.name);
@@ -300,6 +304,16 @@ function setBusy(on) {
 
 function say(text) {
   els.announce.textContent = text;
+}
+
+let noticeTimer = 0;
+/** A passing message, shown under the verdict for a few seconds as well as announced. */
+function notice(text) {
+  say(text);
+  els.note.textContent = text;
+  els.note.hidden = false;
+  clearTimeout(noticeTimer);
+  noticeTimer = setTimeout(() => (els.note.hidden = true), 5000);
 }
 
 /** Bring the card's head into view unless it already is. */
@@ -317,6 +331,7 @@ function setHead(meta, verdict, sub) {
 function showActions(state) {
   els.actions.hidden = false;
   els.start.hidden = true;
+  els.instead.hidden = state !== 'refused' || !expected.has(pending);
   els.next.hidden = true;
   els.stop.hidden = state !== 'running';
   els.again.hidden = state === 'running' || state === 'refused';
@@ -327,16 +342,17 @@ function showActions(state) {
 /** "Step 3 of 10 · 7 s so far": what the wait is for, and how long it has been. */
 function progress(t0) {
   const so = `${Math.round((performance.now() - t0) / 1000)} s so far · usually about 20 s.`;
-  return step && cards.size === 1 ? `Step ${step} of ${STEPS.length} · ${so}` : cap(so);
+  if (cards.size > 1) return cap(so);
+  return step ? `Step ${step} of ${STEPS.length} · ${so}` : `Starting the sandbox · ${so}`;
 }
 
 async function start(url, body, name, tries = 1) {
   if (running) return;
   els.note.hidden = true;
-  if (!body) {
-    pending = name;
-    markSample(name);
-  }
+  clearTimeout(noticeTimer);
+  // the sample cards mark the one in the result card; an upload is none of them
+  if (!body) pending = name;
+  markSample(body ? null : name);
   setBusy(true);
   lastRun = { url, body, name };
   events = [];
@@ -351,7 +367,7 @@ async function start(url, body, name, tries = 1) {
   els.problems.replaceChildren();
   els.run.classList.remove('is-bad', 'is-good');
   els.run.classList.add('is-running');
-  setHead(`Checking ${label}`, 'Judging the problem…', 'Usually about 20 seconds.');
+  setHead(`Checking ${label}`, 'Checking the problem…', 'Usually about 20 seconds.');
   setStatus('Running', 'secondary');
   showActions('running');
   say(`Checking ${label}. This usually takes about 20 seconds.`);
@@ -480,6 +496,8 @@ function handle(ev) {
         $('span', li).textContent = STEP_WORDS[title];
         list.append(li);
       }
+      // on a phone the ten steps fold into one line and a bar of ten
+      list.insertAdjacentHTML('afterend', `<div class="step-bar" aria-hidden="true">${'<span></span>'.repeat(STEPS.length)}</div>`);
       waitingRows(node, name);
       els.problems.append(node);
       cards.set(name, node);
@@ -493,6 +511,7 @@ function handle(ev) {
       li.className = state;
       $('svg', li).outerHTML = icon(state === 'done' ? 'i-check' : state === 'now' ? 'i-spin' : 'i-dot');
     });
+    [...$('.step-bar', c).children].forEach((seg, i) => (seg.className = i < at ? 'done' : i === at ? 'now' : ''));
     $('.sols', c).classList.toggle('is-running', ev.title === 'Running Solutions');
     if (cards.size === 1) {
       step = at + 1;
@@ -517,7 +536,12 @@ function handle(ev) {
     // a sample's own story under its verdict, so its result says what it set out to show
     // (only when the verdict alone doesn't tell it: a sample whose point is one solution)
     const [, desc, about] = (!lastRun?.body && SAMPLES[label]) || [];
-    if (about) {
+    const found = events.find((e) => e.type === 'problem')?.report?.solutions.find((s) => s.name === about && !s.matchesTag);
+    if (found) {
+      // the demo asked "can the check find it?": say that it did
+      els.note.textContent = `Found it: ${about} is the planted mistake.`;
+      els.note.hidden = false;
+    } else if (about) {
       els.note.textContent = `What this sample shows: ${desc} That solution is ${about}, highlighted below.`;
       els.note.hidden = false;
     }
@@ -539,6 +563,7 @@ function renderProblem(card, ev) {
   const recommended = gaps.filter((c) => c.severity !== 'critical');
   const also = recommended.length ? ` Also recommended: ${fix(recommended)}.` : '';
   $('.steps-live', card).hidden = true;
+  $('.step-bar', card)?.remove();
 
   // the answer first: what is wrong and what to do
   let title;
@@ -578,7 +603,7 @@ function renderProblem(card, ev) {
   const rank = (s) => (!s.matchesTag ? 0 : s.name === focus ? 0.5 : s.tests.some((t) => t.verdict !== 'OK') ? 2 : 1);
   $('.sols tbody', card).replaceChildren(...[...solutions].sort((a, b) => rank(a) - rank(b)).map((s) => {
     const tr = solutionRow(s);
-    if (s.name === focus) tr.classList.add('focus');
+    if (s.name === focus && s.matchesTag) tr.classList.add('focus');
     return tr;
   }));
   $('.table-container', card).hidden = !solutions.length;
@@ -735,20 +760,20 @@ function plainReason(message = '') {
   return cap(message);
 }
 
-function showError(message, issues, kind = 'refused') {
+function showError(message, issues, kind = 'refused', detail = '') {
   settle();
   const offline = kind === 'offline';
-  // the browser's own checks: the sentence is already plain, and the service never saw the file
+  // the browser's own checks: a short fact and what to do, and the service never saw the file
   const local = kind === 'local';
   const plain = offline ? 'Could not reach the service.' : local ? message : plainReason(message);
-  setHead(label ? `Not checked: ${label}` : 'Not checked', plain, offline ? 'Check your connection and run it again. If it still fails, the service may be restarting: try again in a minute.' : local ? 'Nothing was sent. See how to prepare the zip, then choose it again.' : 'Nothing was run. See how to prepare the zip, then try again.');
+  setHead(label ? `Not checked: ${label}` : 'Not checked', plain, offline ? 'Check your connection and run it again. If it still fails, the service may be restarting: try again in a minute.' : local ? detail : 'Nothing was run. See how to prepare the zip, then try again.');
   els.run.classList.add('is-bad');
   setStatus(offline ? 'Not reached' : 'Refused', 'destructive');
   const box = document.createElement('div');
   box.className = 'refusal';
   box.innerHTML = `<p class="raw"></p><ul></ul><p class="prep"><a href="/docs#prepare">How to prepare the zip</a></p>`;
   if (offline) $('.prep', box).remove();
-  if (plain !== message) $('.raw', box).textContent = `${offline ? 'Your browser said' : 'The service said'}: ${message}`;
+  if (plain !== message) $('.raw', box).textContent = `${offline ? 'Your browser said' : 'The service said'}: ${message.replace(/^the zip was refused:\s*/i, '')}`;
   else $('.raw', box).remove();
   const ul = $('ul', box);
   for (const i of issues ?? []) {

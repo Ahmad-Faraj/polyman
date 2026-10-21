@@ -61,6 +61,10 @@ code { font-family: var(--font-mono); font-size: max(0.85em, 12.5px); background
 .badge svg { width: 12px; height: 12px; }
 /* one focus ring everywhere, 5:1 against white, in place of Basecoat's half-alpha cyan (which outranks a :where()) */
 a:focus-visible, .btn:focus-visible, .sample:focus-visible, summary:focus-visible, pre:focus-visible, .accordion > details > summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; box-shadow: none; }
+/* (Basecoat animates every property, the ring included, and tints the border; neither, so the ring is the ring from the first frame) */
+.btn, .accordion > details > summary { transition-property: color, background-color, opacity, transform; }
+.btn[data-variant='outline']:focus-visible { border-color: var(--border); }
+.accordion > details > summary:focus-visible { border-color: transparent; outline-offset: 4px; }
 .nowrap { white-space: nowrap; }
 section[aria-labelledby] h2 { scroll-margin-top: 96px; }
 
@@ -145,9 +149,15 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 /* the solution a sample is about */
 .sols tbody tr.focus, .sols tbody tr.focus:hover { background: var(--brand-soft); }
 /* a solution that fails as its label says: its marks drawn in outline, so a passing result doesn't shout red */
-.sols tr.expected-fail .dot.bad, .sols tr.expected-fail .dot.limit { background: #fff; box-shadow: inset 0 0 0 1.5px currentColor; }
-.sols tr.expected-fail .dot.bad { color: var(--fail); }
+.sols tr.expected-fail .dot.bad, .sols tr.expected-fail .dot.limit, .legend .dot.hollow { background: #fff; box-shadow: inset 0 0 0 1.5px currentColor; }
+.sols tr.expected-fail .dot.bad, .legend .dot.hollow.bad { color: var(--fail); }
 .sols tr.expected-fail .dot.limit { color: var(--slow); }
+/* the phone's fold of the ten steps: a bar of ten, filled as each one finishes */
+.step-bar { display: none; grid-template-columns: repeat(10, 1fr); gap: 3px; }
+.step-bar span { height: 6px; border-radius: 3px; background: var(--border); }
+.step-bar .done { background: var(--pass); }
+.step-bar .now { background: var(--brand); animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.45; } }
 /* whether each solution kept its label: words and a mark, no pill */
 .res-ok, .res-bad { display: inline-flex; align-items: center; gap: 6px; font-size: 0.8125rem; font-weight: 500; }
 .res-ok { color: var(--muted-foreground); }
@@ -155,7 +165,7 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 .res-ok svg, .res-bad svg { width: 14px; height: 14px; }
 .res-ok svg { color: var(--pass); }
 /* while a run is on: an empty strip where each solution's tests will go, shimmering once they run */
-.skeleton { display: block; height: 13px; max-width: 220px; border-radius: 4px; background: var(--muted); }
+.skeleton { display: block; height: 13px; max-width: 220px; border-radius: 4px; background: var(--border); }
 .result:not(.is-running) .sols tr.waiting { grid-template-columns: minmax(0, 1fr); }
 .result:not(.is-running) .sols tr.waiting td.tests { display: none; }
 .sols.is-running .skeleton { background: linear-gradient(90deg, var(--muted) 0%, #dff7fb 50%, var(--muted) 100%) 0 0 / 200% 100%; animation: shimmer 1.4s linear infinite; }
@@ -178,7 +188,7 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 @keyframes dot-in { from { opacity: 0; transform: scale(0.5); } to { opacity: 1; transform: scale(1); } }
 .legend { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 0; font-size: 0.8rem; color: var(--muted-foreground); }
 .legend > span { display: inline-flex; align-items: center; gap: 6px; }
-.legend .legend-note { margin-left: auto; }
+.legend .legend-note { color: var(--foreground); font-weight: 500; }
 /* every fifth test a little apart, so a long strip can be counted */
 .dots .dot:nth-child(5n):not(:last-child) { margin-right: 4px; }
 .legend .dot { animation: none; }
@@ -288,7 +298,15 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
   .header-nav .btn { height: 44px; min-width: 44px; }
   .footer-links a { display: inline-block; padding-block: 10px; }
   .result .btn, .dropzone .btn { height: 44px; }
-  .legend .legend-note { margin-left: 0; }
+  .legend .legend-note { width: 100%; }
+  /* the running card fits a phone screen: one line for the step and a bar of ten */
+  .steps-live li:not(.now) { display: none; }
+  .step-bar { display: grid; }
+  .sols tr.waiting { grid-template-columns: minmax(0, 1fr); }
+  .sols tr.waiting td.tests { grid-column: 1; grid-row: 2; padding-top: 0; }
+  .logo { padding-block: 8px; }
+  .footer-links a { padding-block: 12px; }
+  .toc a:not(.btn) { padding-block: 12px; }
   .steps-live { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-auto-flow: row; }
   .flow { grid-template-columns: minmax(0, 1fr); gap: 24px; }
   .flow li { padding: 0 0 0 28px; }
@@ -304,9 +322,12 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
   *, *::before, *::after { animation-duration: 1ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; scroll-behavior: auto !important; }
 }
 
-/* the result card has the run button beside the claim on a wide screen; the hero's copy of it is for phones */
+/* the result card has the run button beside the claim on a wide screen; the hero's copy of it is for phones,
+   and the upload is a quiet link there, so the card's button is the one filled action on screen */
 @media (min-width: 961px) {
   #demo { display: none; }
+  #own { background: none; border-color: transparent; box-shadow: none; padding-inline: 0; height: auto; color: var(--primary); }
+  #own:hover { text-decoration: underline; text-underline-offset: 3px; }
 }
 /* no dragging on a touch screen */
 @media (hover: none) {

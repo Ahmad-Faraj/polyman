@@ -80,6 +80,7 @@
         <button type="button" id="next" class="btn" hidden><span></span><svg aria-hidden="true"><use href="#i-arrow"/></svg></button>
         <button type="button" id="again" class="btn" data-variant="outline">Run it again</button>
         <button type="button" id="choose" class="btn" data-variant="outline" hidden><svg aria-hidden="true"><use href="#i-upload"/></svg>Choose another file</button>
+        <button type="button" id="instead" class="btn" data-variant="ghost" hidden><svg aria-hidden="true"><use href="#i-play"/></svg>Run a sample instead</button>
         <button type="button" id="download" class="btn" data-variant="ghost"><svg aria-hidden="true"><use href="#i-down"/></svg>Download JSON</button>
       </footer>
     </section>
@@ -151,7 +152,7 @@
     <div class="outcome" hidden>
       <div class="alert verdict" role="status"></div>
     </div>
-    <p class="legend" hidden><span><span class="dot ok" aria-hidden="true"></span>passed</span><span><span class="dot bad" aria-hidden="true"><svg><use href="#i-x"/></svg></span>wrong answer or crash</span><span><span class="dot limit" aria-hidden="true"><svg><use href="#i-clock"/></svg></span>too slow</span><span class="legend-note">one square per test</span></p>
+    <p class="legend" hidden><span class="legend-note">One square per test:</span><span><span class="dot ok" aria-hidden="true"></span>passed</span><span><span class="dot bad" aria-hidden="true"><svg><use href="#i-x"/></svg></span>wrong answer or crash</span><span><span class="dot limit" aria-hidden="true"><svg><use href="#i-clock"/></svg></span>too slow</span><span><span class="dot bad hollow" aria-hidden="true"><svg><use href="#i-x"/></svg></span>failed on purpose</span></p>
     <div class="table-container">
       <table class="table sols">
         <thead><tr><th scope="col">Solution</th><th scope="col">Result on each test</th><th scope="col">Result</th></tr></thead>
