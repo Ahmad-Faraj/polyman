@@ -5,17 +5,29 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>polyman verify: how it works</title>
 <meta name="description" content="What polyman verify checks, how to prepare a problem or a contest, the API, and the limits.">
-<meta name="theme-color" content="#0e1a3a">
-<link rel="preload" href="/fonts/archivo.woff2" as="font" type="font/woff2" crossorigin>
+<meta name="theme-color" content="#ffffff">
+<link rel="preload" href="/fonts/geist.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/vendor/basecoat.css">
 <link rel="stylesheet" href="/style.css">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='4' fill='%230e1a3a'/%3E%3Crect x='6' y='6' width='9' height='9' rx='1.5' fill='%23167a3a'/%3E%3Crect x='17' y='6' width='9' height='9' rx='1.5' fill='%23167a3a'/%3E%3Crect x='6' y='17' width='9' height='9' rx='1.5' fill='%23167a3a'/%3E%3Crect x='17' y='17' width='9' height='9' rx='1.5' fill='%23f2c230'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2306b6d4'/%3E%3Cpath d='M9 16.5l4.5 4.5L23 11' stroke='white' stroke-width='3.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-git" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="9" r="3"/><path d="M6 9v6M18 12a6 6 0 0 1-6 6H9"/></symbol>
+</svg>
 <a class="skip" href="#content">Skip to the content</a>
-<header class="top">
-  <div class="wrap bar">
-    <a class="brand" href="/">polyman <span>verify</span></a>
-    <nav class="nav" aria-label="Main"><a href="/">Check a problem</a><a href="/docs" aria-current="page">How it works</a><a href="/docs#api">API</a><a href="https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase">Source on GitLab</a></nav>
+<header class="site-header">
+  <div class="container header-row">
+    <a class="logo" href="/" aria-label="polyman verify, home">
+      <span class="logo-mark" aria-hidden="true"><svg><use href="#i-check"/></svg></span>
+      polyman <span>verify</span>
+    </a>
+    <nav class="header-nav" aria-label="Main">
+      <a class="btn" data-variant="ghost" data-size="sm" href="/">Check a problem</a>
+      <a class="btn" data-variant="secondary" data-size="sm" href="/docs" aria-current="page">How it works</a>
+      <a class="btn" data-variant="outline" data-size="sm" href="https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase"><svg aria-hidden="true"><use href="#i-git"/></svg>Source</a>
+    </nav>
   </div>
 </header>
 
@@ -56,18 +68,18 @@ cd my-problem &amp;&amp; zip -r ../my-problem.zip .</code></pre>
         <li>Every solution compiles and runs on every test, with the time and memory limits from <code>Config.json</code>.</li>
         <li>Each solution's verdicts match its tag (the same tags as on the problem platform):</li>
       </ol>
-      <div class="table-wrap"><table>
+      <div class="table-container"><table class="table">
         <thead><tr><th scope="col">Tag</th><th scope="col">Must</th></tr></thead>
         <tbody>
-          <tr><td><span class="tagcode ok">MA</span></td><td>pass every test (the main correct solution)</td></tr>
-          <tr><td><span class="tagcode ok">OK</span></td><td>pass every test</td></tr>
-          <tr><td><span class="tagcode bad">WA</span></td><td>get Wrong Answer on at least one test</td></tr>
-          <tr><td><span class="tagcode limit">TL</span></td><td>exceed the time limit on at least one test</td></tr>
-          <tr><td><span class="tagcode limit">ML</span></td><td>exceed the memory limit on at least one test</td></tr>
-          <tr><td><span class="tagcode bad">RE</span></td><td>crash on at least one test</td></tr>
-          <tr><td><span class="tagcode bad">PE</span></td><td>get Presentation Error on at least one test</td></tr>
-          <tr><td><span class="tagcode ok">TO</span></td><td>be correct, though it may run out of time</td></tr>
-          <tr><td><span class="tagcode bad">RJ</span></td><td>fail at least one test, for any reason</td></tr>
+          <tr><td><span class="badge" data-variant="success">MA</span></td><td>pass every test (the main correct solution)</td></tr>
+          <tr><td><span class="badge" data-variant="success">OK</span></td><td>pass every test</td></tr>
+          <tr><td><span class="badge" data-variant="destructive">WA</span></td><td>get Wrong Answer on at least one test</td></tr>
+          <tr><td><span class="badge" data-variant="outline">TL</span></td><td>exceed the time limit on at least one test</td></tr>
+          <tr><td><span class="badge" data-variant="outline">ML</span></td><td>exceed the memory limit on at least one test</td></tr>
+          <tr><td><span class="badge" data-variant="destructive">RE</span></td><td>crash on at least one test</td></tr>
+          <tr><td><span class="badge" data-variant="destructive">PE</span></td><td>get Presentation Error on at least one test</td></tr>
+          <tr><td><span class="badge" data-variant="success">TO</span></td><td>be correct, though it may run out of time</td></tr>
+          <tr><td><span class="badge" data-variant="destructive">RJ</span></td><td>fail at least one test, for any reason</td></tr>
         </tbody>
       </table></div>
     </section>
@@ -75,18 +87,18 @@ cd my-problem &amp;&amp; zip -r ../my-problem.zip .</code></pre>
     <section id="guidelines">
       <h2>Contest guidelines</h2>
       <p>A problem can run correctly and still not be ready for a round. These checks read the files; the critical ones decide whether it's marked ready.</p>
-      <div class="table-wrap"><table>
+      <div class="table-container"><table class="table">
         <thead><tr><th scope="col">Check</th><th scope="col">Severity</th></tr></thead>
         <tbody>
-          <tr><td>Statement has legend, input and output</td><td><span class="sev critical">critical</span></td></tr>
-          <tr><td>At least 10 tests</td><td><span class="sev critical">critical</span></td></tr>
-          <tr><td>Has a checker</td><td><span class="sev critical">critical</span></td></tr>
-          <tr><td>Has a validator</td><td><span class="sev critical">critical</span></td></tr>
-          <tr><td>Has a main correct solution</td><td><span class="sev critical">critical</span></td></tr>
-          <tr><td>Checker compiles and passes its tests</td><td><span class="sev warning">warning</span></td></tr>
-          <tr><td>Correct solutions in C++ and Java, and at least one wrong solution</td><td><span class="sev warning">warning</span></td></tr>
-          <tr><td>Has a tutorial</td><td><span class="sev warning">warning</span></td></tr>
-          <tr><td>Has tags</td><td><span class="sev info">info</span></td></tr>
+          <tr><td>Statement has legend, input and output</td><td><span class="badge" data-variant="destructive">critical</span></td></tr>
+          <tr><td>At least 10 tests</td><td><span class="badge" data-variant="destructive">critical</span></td></tr>
+          <tr><td>Has a checker</td><td><span class="badge" data-variant="destructive">critical</span></td></tr>
+          <tr><td>Has a validator</td><td><span class="badge" data-variant="destructive">critical</span></td></tr>
+          <tr><td>Has a main correct solution</td><td><span class="badge" data-variant="destructive">critical</span></td></tr>
+          <tr><td>Checker compiles and passes its tests</td><td><span class="badge" data-variant="outline">warning</span></td></tr>
+          <tr><td>Correct solutions in C++ and Java, and at least one wrong solution</td><td><span class="badge" data-variant="outline">warning</span></td></tr>
+          <tr><td>Has a tutorial</td><td><span class="badge" data-variant="outline">warning</span></td></tr>
+          <tr><td>Has tags</td><td><span class="badge" data-variant="secondary">info</span></td></tr>
         </tbody>
       </table></div>
     </section>
@@ -101,7 +113,7 @@ cd my-problem &amp;&amp; zip -r ../my-problem.zip .</code></pre>
 {"type":"problem","problem":"my-problem","ok":true,"seconds":19.3,"report":{...},"readiness":[...]}
 {"type":"done","ok":true,"seconds":19.4}</code></pre>
       <p><code>report</code> is exactly what <code>polyman verify --json</code> prints (or <code>null</code> with an <code>error</code> if the run timed out or crashed), and <code>readiness</code> is the list of guideline checks. The last line is <code>done</code>, or <code>{"type":"error"}</code> if the service itself failed.</p>
-      <div class="table-wrap"><table>
+      <div class="table-container"><table class="table">
         <thead><tr><th scope="col">Route</th><th scope="col">What it does</th></tr></thead>
         <tbody>
           <tr><td><code>POST /api/verify</code></td><td>multipart field <code>problem</code>: the zip</td></tr>
@@ -126,9 +138,11 @@ cd my-problem &amp;&amp; zip -r ../my-problem.zip .</code></pre>
   </main>
 </div>
 
-<footer class="foot">
-  <span>Built on <a href="https://www.npmjs.com/package/polyman-cli">polyman</a>, the open-source CLI for problem setters.</span>
-  <a href="/">Check a problem</a>
+<footer class="site-footer">
+  <div class="container footer-row">
+    <span>Built on <a href="https://www.npmjs.com/package/polyman-cli">polyman</a>, the open-source CLI for problem setters.</span>
+    <a href="/">Check a problem</a>
+  </div>
 </footer>
 </body>
 </html>

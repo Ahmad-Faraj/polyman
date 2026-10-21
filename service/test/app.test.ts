@@ -86,7 +86,9 @@ beforeAll(() => {
   writeFileSync(join(base, 'public', 'index.html'), '<h1>verify</h1>');
   writeFileSync(join(base, 'public', 'docs.html'), '<h1>how it works</h1>');
   mkdirSync(join(base, 'public', 'fonts'));
-  writeFileSync(join(base, 'public', 'fonts', 'archivo.woff2'), Buffer.from('wOF2-test'));
+  writeFileSync(join(base, 'public', 'fonts', 'geist.woff2'), Buffer.from('wOF2-test'));
+  mkdirSync(join(base, 'public', 'vendor'));
+  writeFileSync(join(base, 'public', 'vendor', 'basecoat.min.css'), '.btn{}');
   mkdirSync(join(base, 'samples', 'demo'), { recursive: true });
   for (const [name, text] of Object.entries(problem('', { description: 'a demo' }))) writeFileSync(join(base, 'samples', 'demo', name), text);
   writeFileSync(join(base, 'samples', 'demo.expected.json'), JSON.stringify({ ok: true }));
@@ -122,8 +124,12 @@ describe('read-only routes', () => {
     expect((await app.inject('/api/version')).json()).toEqual({ polyman: '9.9.9', service: '0.1.0', commit: 'abc1234' });
   });
 
-  it('serves the page font as woff2', async () => {
-    const font = await app.inject('/fonts/archivo.woff2');
+  it('serves the vendored component styles and the page font', async () => {
+    const css = await app.inject('/vendor/basecoat.css');
+    expect(css.statusCode).toBe(200);
+    expect(css.headers['content-type']).toContain('text/css');
+    expect(css.body).toBe('.btn{}');
+    const font = await app.inject('/fonts/geist.woff2');
     expect(font.statusCode).toBe(200);
     expect(font.headers['content-type']).toBe('font/woff2');
     expect(font.rawPayload.toString()).toBe('wOF2-test');

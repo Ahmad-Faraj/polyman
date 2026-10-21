@@ -50,7 +50,9 @@ const STATIC: Record<string, string> = {
   '/docs': 'docs.html',
   '/app.js': 'app.js',
   '/style.css': 'style.css',
-  '/fonts/archivo.woff2': 'fonts/archivo.woff2',
+  '/vendor/basecoat.css': 'vendor/basecoat.min.css',
+  '/fonts/geist.woff2': 'fonts/geist.woff2',
+  '/fonts/geist-mono.woff2': 'fonts/geist-mono.woff2',
 };
 const TYPES: Record<string, string> = { html: 'text/html; charset=utf-8', js: 'text/javascript; charset=utf-8', css: 'text/css; charset=utf-8', woff2: 'font/woff2' };
 
