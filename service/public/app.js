@@ -276,8 +276,8 @@ function handle(ev) {
     for (const name of ev.problems) {
       const node = els.tpl.content.firstElementChild.cloneNode(true);
       $('.problem-name', node).textContent = name;
-      // one problem: the run title already names it
-      if (ev.problems.length === 1) $('.problem-head', node).hidden = true;
+      // one problem: the run title already names it, so the head stays for screen readers only (it keeps the heading order)
+      if (ev.problems.length === 1) $('.problem-head', node).classList.add('sr-only');
       // polyman verify reports ten steps; the slots fill as they run
       for (let i = 0; i < STEPS; i++) $('.track', node).append(document.createElement('li'));
       els.problems.append(node);
