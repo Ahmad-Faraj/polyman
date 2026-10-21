@@ -104,7 +104,10 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 /* the demo's answer to its own question: the tool succeeded, whatever the problem's verdict */
 /* (it sits right under the meta line, before the problem's own verdict) */
 .result > header > .run-note { grid-row: 2; color: var(--muted-foreground); }
-.result > header > .run-note.found { display: flex; align-items: flex-start; gap: 8px; margin: 0; font-size: 1rem; font-weight: 650; color: var(--pass-ink); }
+.result > header > .run-note.found { display: flex; align-items: flex-start; gap: 10px; margin: 0; font-size: 1.5rem; line-height: 1.25; font-weight: 650; letter-spacing: -0.025em; color: var(--pass-ink); text-wrap: balance; }
+.result > header > .run-note.found svg { width: 24px !important; height: 24px !important; margin-top: 4px !important; }
+/* when a sample's answer leads, the problem's own verdict is the line under it */
+.result.has-found > header > h2 { font-size: 1.125rem; }
 .run-note.found svg { width: 18px; height: 18px; margin-top: 3px; flex: none; color: var(--pass); }
 .checks.folded li.ok { display: none; }
 .checks .met-toggle { display: block; grid-column: 1 / -1; padding: 2px 0 0 28px; }
@@ -126,7 +129,7 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 .steps-live { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(5, auto); grid-auto-flow: column; gap: 6px 24px; }
 .steps-live:empty { display: none; }
 .steps-live li { display: flex; align-items: center; gap: 10px; font-size: 0.875rem; color: var(--muted-foreground); transition: color 200ms; }
-.steps-live li svg { width: 16px; height: 16px; flex: none; color: #d4d4d8; }
+.steps-live li svg { width: 16px; height: 16px; flex: none; color: #8a8a94; }
 .steps-live li.done svg { color: var(--pass); }
 .steps-live li.now { color: var(--foreground); font-weight: 500; }
 .steps-live li.now svg { color: var(--pass); animation: spin 900ms linear infinite; }
@@ -190,12 +193,18 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 button.dot { position: relative; padding: 0; border: 0; font: inherit; cursor: pointer; transition: transform 120ms cubic-bezier(0.16, 1, 0.3, 1); }
 button.dot::after { content: ''; position: absolute; inset: -3px -2px; }
 button.dot:hover { transform: scale(1.25); z-index: 1; }
-button.dot.picked { outline: 2px solid var(--foreground); outline-offset: 1px; }
+button.dot.picked { outline: 2px solid var(--primary); outline-offset: 1px; }
 button.dot:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .dot-detail { margin: 6px 0 0; min-height: 0; font-family: var(--font-mono); font-size: 0.8rem; color: var(--foreground); }
 .dot-detail:not(.on) { display: none; }
 /* the reveal: each row's squares land in turn (the order is set per row), then the sample's answer */
-.sols tr.reveal .dot { animation: dot-in 260ms cubic-bezier(0.16, 1, 0.3, 1) both; animation-delay: calc(var(--r, 0) * 110ms + var(--i, 0) * 16ms); }
+/* (backwards, not both: once landed a square lets go of its transform, so hover can grow it) */
+.sols tr.reveal .dot { animation: dot-in 260ms cubic-bezier(0.16, 1, 0.3, 1) backwards; animation-delay: calc(var(--r, 0) * 110ms + var(--i, 0) * 16ms); }
+/* each mistake lands with one beat */
+.sols tr.reveal.broken .dot.bad { animation: dot-in 260ms cubic-bezier(0.16, 1, 0.3, 1) backwards, hit 380ms ease-out; animation-delay: calc(var(--r, 0) * 110ms + var(--i, 0) * 16ms), calc(var(--r, 0) * 110ms + var(--i, 0) * 16ms + 260ms); }
+@keyframes hit { 40% { transform: scale(1.4); } }
+/* the verdict lands as the last row does, then the sample's answer */
+.result.revealing > header > h2, .result.revealing > header > #run-sub { animation: found-in 360ms cubic-bezier(0.16, 1, 0.3, 1) backwards; animation-delay: calc(var(--landed, 0ms) - 260ms); }
 .sols tr.reveal.broken { animation: broken-in 500ms ease-out both; animation-delay: calc(var(--r, 0) * 110ms); }
 @keyframes broken-in { from { background-color: transparent; } }
 .result > header > .run-note.found { animation: found-in 420ms cubic-bezier(0.16, 1, 0.3, 1) both; animation-delay: var(--landed, 0ms); }
@@ -246,7 +255,9 @@ button.dot:focus-visible { outline: 2px solid var(--primary); outline-offset: 2p
 .section-head p { margin: 6px 0 0; color: var(--muted-foreground); text-wrap: pretty; }
 /* the samples, as tabs along the top of the result card (no frames of their own); pressing one checks it live */
 .switcher { display: grid; gap: 4px; margin-top: -4px; padding: 0 24px; border-bottom: 1px solid var(--border); }
-.switcher-label { font-size: 0.75rem; font-weight: 600; color: var(--muted-foreground); letter-spacing: 0.02em; }
+.switcher-label { display: inline-flex; align-items: center; gap: 6px; font-size: 0.75rem; font-weight: 600; color: var(--muted-foreground); letter-spacing: 0.02em; }
+.switcher-label svg { width: 10px; height: 10px; color: var(--primary); }
+.card-action { display: flex; align-items: center; gap: 8px; }
 .switcher-list { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .sample { display: grid; gap: 1px; padding: 10px 2px 12px; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; background: none; text-align: left; font: inherit; color: inherit; cursor: pointer; transition: border-color 200ms, color 150ms; }
 .sample b { font-family: var(--font-mono); font-size: 0.8rem; font-weight: 600; color: var(--muted-foreground); overflow-wrap: anywhere; transition: color 150ms; }
@@ -254,6 +265,8 @@ button.dot:focus-visible { outline: 2px solid var(--primary); outline-offset: 2p
 .sample:hover:not(:disabled) b { color: var(--foreground); }
 .sample:hover:not(:disabled) { border-bottom-color: var(--border); }
 .sample:disabled { cursor: not-allowed; }
+.sample:disabled:not([aria-pressed='true']) { opacity: 0.45; }
+.sample:focus-visible { outline-offset: -2px; }
 .sample[aria-pressed='true'] { border-bottom-color: var(--primary); }
 .sample[aria-pressed='true'] b { color: var(--primary); }
 /* the sample now in the result card */
@@ -349,7 +362,10 @@ button.dot:focus-visible { outline: 2px solid var(--primary); outline-offset: 2p
   .toc a:not(.btn) { padding-block: 12px; }
   .steps-live { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-auto-flow: row; }
   .flow { grid-template-columns: minmax(0, 1fr); gap: 24px; }
-  .switcher-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  /* on a phone the tabs stay one row, scrolling sideways, so the underline sits on the card's rule */
+  .switcher-list { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(118px, 1fr); overflow-x: auto; scrollbar-width: none; margin-inline: -24px; padding-inline: 24px; }
+  .result.has-found > header > .run-note.found { font-size: 1.25rem; }
+  .result.has-found > header > h2 { font-size: 1rem; }
   .gitlab { padding-top: 40px; }
   .docs-layout { grid-template-columns: minmax(0, 1fr); gap: 24px; padding-top: 32px; }
   .toc { position: static; flex-direction: row; flex-wrap: wrap; }
@@ -379,3 +395,12 @@ button.dot:focus-visible { outline: 2px solid var(--primary); outline-offset: 2p
 .sev { font-weight: 500; }
 .sev-must-fix { color: var(--fail-ink); }
 .sev-recommended, .sev-nice-to-have { color: var(--muted-foreground); }
+
+/* a finger needs bigger squares: on touch screens they grow to a tappable size */
+@media (pointer: coarse) {
+  .sols button.dot { width: 22px; height: 22px; border-radius: 6px; }
+  .sols button.dot svg { width: 14px; height: 14px; }
+  .sols .dots { gap: 4px; }
+  .sols .dots .dot:nth-child(5n):not(:last-child) { margin-right: 6px; }
+  .sols button.dot::after { inset: -1px; }
+}

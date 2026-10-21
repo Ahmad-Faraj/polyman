@@ -95,7 +95,7 @@ const DID_WORDS = { OK: 'passed', WA: 'got a wrong answer', TLE: 'was too slow',
 /** Each sample on its switch: its name and a few words on what it holds, never its outcome. */
 const SAMPLE_HINT = {
   'wrong-tag': 'a planted mistake',
-  'even-sum': 'the clean one',
+  'even-sum': 'the baseline',
   'not-ready': 'missing pieces',
   'sandbox-check': 'asks for root',
 };
@@ -223,7 +223,9 @@ function waitingRows(node, name) {
   const tbody = $('tbody', node);
   // the solution the sample is about comes first, where its result will be
   const about = SAMPLES[name]?.[2];
-  for (const sol of [...(expected.get(name) ?? [])].sort((a, b) => Number(b === about) - Number(a === about))) {
+  // (not for the demo: putting its planted mistake first would give the answer away)
+  const lead = name === DEMO ? null : about;
+  for (const sol of [...(expected.get(name) ?? [])].sort((a, b) => Number(b === lead) - Number(a === lead))) {
     const tr = document.createElement('tr');
     tr.className = 'waiting';
     tr.innerHTML = `<td class="sol"><b class="sol-name"></b><span class="sol-label"></span></td><td class="tests"><span class="skeleton" aria-hidden="true"></span></td><td class="res"></td>`;
@@ -242,6 +244,15 @@ addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && running && !els.stop.hidden) els.stop.click();
 });
 els.start.addEventListener('click', () => runSample(pending));
+// the sample tabs read like tabs to the keyboard too: arrows move along them
+els.samples.addEventListener('keydown', (e) => {
+  const tabs = [...els.samples.querySelectorAll('.sample')];
+  const at = tabs.indexOf(document.activeElement);
+  const to = { ArrowRight: at + 1, ArrowLeft: at - 1, Home: 0, End: tabs.length - 1 }[e.key];
+  if (to === undefined || at < 0) return;
+  e.preventDefault();
+  tabs[(to + tabs.length) % tabs.length].focus();
+});
 els.instead.addEventListener('click', () => runSample(pending));
 // the hero's button leads to the upload box first: it says what to zip before the file picker opens
 els.own.addEventListener('click', () => {
@@ -365,6 +376,7 @@ async function start(url, body, name, tries = 1) {
   if (running) return;
   els.note.hidden = true;
   els.note.classList.remove('found');
+  els.run.classList.remove('has-found');
   clearTimeout(noticeTimer);
   // the sample cards mark the one in the result card; an upload is none of them
   if (!body) pending = name;
@@ -383,7 +395,7 @@ async function start(url, body, name, tries = 1) {
   // a sample's rows stay in view until the service says what it is checking
   if (!body && expected.has(name)) showPreview(name);
   else els.problems.replaceChildren();
-  els.run.classList.remove('is-bad', 'is-good');
+  els.run.classList.remove('is-bad', 'is-good', 'revealing', 'has-found');
   els.run.classList.add('is-running');
   setHead(`Checking ${label}`, 'Checking the problem…', 'Usually about 20 seconds.');
   setStatus('Running', 'secondary');
@@ -574,6 +586,7 @@ function handle(ev) {
       els.note.innerHTML = `${icon('i-check')}<span></span>`;
       $('span', els.note).textContent = win;
       els.note.classList.add('found');
+      els.run.classList.add('has-found');
       els.note.hidden = false;
     }
     say(`Checked ${label} in ${ev.seconds.toFixed(1)} seconds. ${els.verdict.textContent}`);
@@ -602,7 +615,7 @@ function renderProblem(card, ev) {
   if (!report && /time|timed out/i.test(ev.error ?? '')) {
     // (the 120 s limit is the one the docs state)
     title = 'It ran past the time limit.';
-    body = 'polyman stops a problem after 120 s. A solution may be stuck in a loop. Run it again, or see the limits in the docs.';
+    body = 'polyman stops a problem after 120 s. A solution may be stuck in a loop. Run it again, or see the limits in the docs:';
   } else if (!report) {
     title = 'The check could not finish.';
     body = 'What polyman reported is below.';
@@ -621,7 +634,15 @@ function renderProblem(card, ev) {
       ? `Every solution behaves exactly as labelled, and every required contest guideline is met.${also}`
       : `Every solution behaves exactly as labelled${checks.length ? `, and all ${checks.length} contest guidelines are met` : ''}.`;
   }
-  if (cards.size === 1) setHead(null, title, body);
+  if (cards.size === 1) {
+    setHead(null, title, body);
+    if (/see the limits in the docs:$/.test(body)) {
+      const a = document.createElement('a');
+      a.href = '/docs#limits';
+      a.textContent = 'Limits and privacy';
+      els.sub.append(' ', a);
+    }
+  }
   else {
     const alert = $('.verdict', card);
     if (!ev.ok) alert.dataset.variant = 'destructive';
@@ -651,6 +672,7 @@ function renderProblem(card, ev) {
   }
   // the sample's answer in the card's head waits until the last row has landed
   els.run.style.setProperty('--landed', `${Math.min(order.length * 110 + 260, 1100)}ms`);
+  if (cards.size === 1 && rows.length) els.run.classList.add('revealing');
   $('.table-container', card).hidden = !$('.sols tbody', card).children.length;
   // when the problem fails on its guidelines, not its solutions, the guidelines come first
   if (critical.length && !broken.length) card.insertBefore($('.more', card), $('.legend', card));
@@ -691,7 +713,9 @@ function renderProblem(card, ev) {
 
   const failed = report?.steps.filter((s) => !s.ok) ?? [];
   const error = ev.error ?? failed.map((s) => `${s.name}:\n${s.errors.map((e) => `  ${e}`).join('\n') || '  failed'}`).join('\n\n');
-  if (error) {
+  // (a solution breaking its label fails only the comparing step, and the rows above already say it all)
+  const onlyCompare = !ev.error && broken.length && failed.every((s) => s.name === 'verify-solutions');
+  if (error && !onlyCompare) {
     const log = $('.log', card);
     log.hidden = false;
     $('.problem-error', card).textContent = error;
@@ -740,7 +764,7 @@ function solutionRow(s) {
   const expectedToFail = s.matchesTag && s.tests.some((t) => t.verdict !== 'OK');
   if (!s.matchesTag) tr.className = 'broken';
   if (expectedToFail) tr.className = 'expected-fail';
-  tr.innerHTML = `<td class="sol"><b class="sol-name"></b><span class="sol-label"></span></td><td class="tests"><div class="dots" role="group"></div><p class="dot-detail" aria-live="polite"></p><small class="dots-note"></small><ul class="fails"></ul></td><td class="res"></td>`;
+  tr.innerHTML = `<td class="sol"><b class="sol-name"></b><span class="sol-label"></span></td><td class="tests"><div class="dots" role="group"></div><p class="dot-detail"></p><small class="dots-note"></small><ul class="fails"></ul></td><td class="res"></td>`;
   $('.sol-name', tr).textContent = s.name;
   // the setter's own tag letters stay visible beside the plain words
   $('.sol-label', tr).textContent = `labelled ${tagWords(s.tag)} (${s.tag})`;
@@ -787,7 +811,10 @@ function solutionRow(s) {
 /** One test in words: "Test 4 · wrong answer · expected YES, found NO · 7 ms". */
 function testDetail(t) {
   const said = verdictWords(t.verdict);
-  const seen = (t.message ?? '').replace(new RegExp(`^${said}\\s*`, 'i'), '').trim();
+  const seen = (t.message ?? '')
+    .replace(new RegExp(`^${said}\\s*`, 'i'), '')
+    .replace(/^time limit exceeded after (\d+) ?ms$/i, 'over the $1 ms limit')
+    .trim();
   return [`Test ${t.index}`, said, seen, `${t.timeMs} ms`].filter(Boolean).join(' · ');
 }
 
@@ -797,25 +824,34 @@ function testDetail(t) {
  */
 function wireSquares(strip, line) {
   const squares = [...strip.children];
-  let picked = null;
+  // focus and hover preview a square; a click or tap pins it, one pinned square per report
   const show = (d) => {
-    line.textContent = d ? d.dataset.detail : picked ? picked.dataset.detail : '';
+    const pinned = $('.dot.picked', strip);
+    line.textContent = d ? d.dataset.detail : pinned ? pinned.dataset.detail : '';
     line.classList.toggle('on', !!line.textContent);
   };
-  const pick = (d) => {
-    picked?.classList.remove('picked');
-    picked = d;
+  const pin = (d) => {
+    for (const other of strip.closest('.problem').querySelectorAll('.dot.picked')) {
+      other.classList.remove('picked');
+      const otherLine = $('.dot-detail', other.closest('td'));
+      otherLine.textContent = '';
+      otherLine.classList.remove('on');
+    }
     d.classList.add('picked');
-    for (const q of squares) q.tabIndex = q === d ? 0 : -1;
     show(d);
   };
   strip.addEventListener('click', (e) => {
     const d = e.target.closest('.dot');
-    if (d) pick(d);
+    if (d) pin(d);
   });
   strip.addEventListener('pointerover', (e) => show(e.target.closest('.dot')));
   strip.addEventListener('pointerleave', () => show(null));
-  strip.addEventListener('focusin', (e) => pick(e.target.closest('.dot')));
+  strip.addEventListener('focusin', (e) => {
+    const d = e.target.closest('.dot');
+    for (const q of squares) q.tabIndex = q === d ? 0 : -1;
+    show(d);
+  });
+  strip.addEventListener('focusout', () => show(null));
   strip.addEventListener('keydown', (e) => {
     const at = squares.indexOf(document.activeElement);
     const to = { ArrowRight: at + 1, ArrowDown: at + 1, ArrowLeft: at - 1, ArrowUp: at - 1, Home: 0, End: squares.length - 1 }[e.key];
@@ -908,7 +944,7 @@ function showError(message, issues, kind = 'refused', detail = '') {
   setHead(label ? `Not checked: ${label}` : 'Not checked', plain, offline ? 'Check your connection and run it again. If it still fails, the service may be restarting: try again in a minute.' : local ? detail : next);
   els.run.classList.add('is-bad');
   // the browser's own check sent nothing, so the service refused nothing
-  setStatus(offline ? 'Not reached' : local ? 'Not sent' : 'Refused', 'destructive');
+  setStatus(offline ? 'Not reached' : local ? 'Not sent' : BROKEN_ZIP.test(message) ? 'Not a zip' : 'Refused', 'destructive');
   if (local) markSample(null);
   $('span', els.instead).textContent = `Run the ${pending} sample instead`;
   const box = document.createElement('div');
