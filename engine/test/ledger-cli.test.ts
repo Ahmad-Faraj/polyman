@@ -493,6 +493,60 @@ describe('autonomy:ledger against a git repo and a stand-in for GitLab', () => {
     expect(missing.code).toBe(0);
   });
 
+  describe('a new project whose default branch has no guard yet', () => {
+    /** main with only the policy, fetched as origin/main, and the MR's branch checked out with `file` added. */
+    function fresh(file: string) {
+      const dir = mkdtempSync(join(tmpdir(), 'ledger-'));
+      const git = (...args: string[]) =>
+        execFileSync('git', ['-c', 'user.name=Mazen', '-c', 'user.email=mazen@example.com', ...args], { cwd: dir, encoding: 'utf8' }).trim();
+      git('init', '-q', '-b', 'main');
+      copyFileSync(CONFIG, join(dir, '.autonomy.yml'));
+      git('add', '.');
+      git('commit', '-qm', 'policy');
+      git('update-ref', 'refs/remotes/origin/main', 'main');
+      git('checkout', '-qb', 'adopt');
+      mkdirSync(join(dir, 'engine/src/cli'), { recursive: true });
+      writeFileSync(join(dir, file), '// added by the MR');
+      git('add', '.');
+      git('commit', '-qm', 'adopt the flows');
+      const head = git('rev-parse', 'HEAD');
+      return { dir, base: head, head, merge: head, git: (_at: string, ...args: string[]) => git(...args) };
+    }
+    const mrPipeline = { CI_DEFAULT_BRANCH: 'main', CI_PIPELINE_SOURCE: 'merge_request_event' };
+
+    it('passes the MR that installs the guard, saying the ledger starts at its merge, and publishes nothing', async () => {
+      const r = fresh('engine/src/cli/goahead.ts');
+      const { code, text } = await run(r, { env: mrPipeline });
+      expect(text).toContain('first install: this MR adds the guard (engine/src/cli/goahead.ts) and origin/main has none yet; the ledger starts at its merge');
+      expect(code).toBe(0);
+      expect(existsSync(join(r.dir, 'out'))).toBe(false);
+    });
+
+    it("still fails an MR that doesn't add the guard", async () => {
+      const r = fresh('engine/src/cli/other.ts');
+      const { code, text } = await run(r, { env: mrPipeline });
+      expect(text).toContain('no commit on origin/main adds engine/src/cli/goahead.ts, so there is no guard to rebuild a ledger from');
+      expect(text).not.toContain('first install');
+      expect(code).toBe(1);
+    });
+
+    it('still fails outside a merge request pipeline, even on a branch that adds the guard', async () => {
+      const r = fresh('engine/src/cli/goahead.ts');
+      const { code, text } = await run(r, { env: { ...mrPipeline, CI_PIPELINE_SOURCE: 'push' } });
+      expect(text).toContain('no commit on origin/main adds engine/src/cli/goahead.ts');
+      expect(code).toBe(1);
+    });
+  });
+
+  it('builds the ledger as before in a merge request pipeline once the guard is on the default branch', async () => {
+    const r = repo();
+    r.git('2026-10-18T08:00:00Z', 'update-ref', 'refs/remotes/origin/main', 'main');
+    const { code, text, ledger } = await run(r, { env: { CI_DEFAULT_BRANCH: 'main', CI_PIPELINE_SOURCE: 'merge_request_event' } });
+    expect(text).not.toContain('first install');
+    expect(code).toBe(0);
+    expect(ledger().records).toHaveLength(1);
+  });
+
   describe('a closed MR whose commits a person moved to a merged MR (!8 -> !9)', () => {
     it('chains the accepted push with the go-ahead given on !8, after the close, and keeps the refused push open', async () => {
       const m = moved('accepted');
