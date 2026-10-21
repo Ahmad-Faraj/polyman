@@ -50,8 +50,9 @@ const STATIC: Record<string, string> = {
   '/docs': 'docs.html',
   '/app.js': 'app.js',
   '/style.css': 'style.css',
+  '/fonts/archivo.woff2': 'fonts/archivo.woff2',
 };
-const TYPES: Record<string, string> = { html: 'text/html; charset=utf-8', js: 'text/javascript; charset=utf-8', css: 'text/css; charset=utf-8' };
+const TYPES: Record<string, string> = { html: 'text/html; charset=utf-8', js: 'text/javascript; charset=utf-8', css: 'text/css; charset=utf-8', woff2: 'font/woff2' };
 
 export function buildApp(opts: AppOptions) {
   const maxUploadBytes = opts.maxUploadBytes ?? 20 * 1024 * 1024;
