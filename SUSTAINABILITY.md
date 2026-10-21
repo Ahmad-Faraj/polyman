@@ -229,10 +229,13 @@ manifest and `sustainability/agent-tokens.json` drift apart.
 
 ## The warm verify instance (judging window)
 
-From the next service release until judging ends (target 16 Nov), one
-instance of the verify service is kept warm (`MIN_INSTANCES=1` in
-`service/deploy/cloudrun.conf`), so a judge's first verify doesn't wait for a
-cold start (23.6 s, measured on 20 Oct). It is one 2 vCPU / 2 GiB instance on
+Since the production promote of 20 Oct 20:32 UTC and until the winners are
+announced (the estimate below runs to 16 Nov), one instance of the verify
+service is kept warm (`MIN_INSTANCES=1` in `service/deploy/cloudrun.conf`;
+`gcloud run services describe` showed minimum instances 1 on 21 Oct 12:35 UTC),
+so a judge's first verify doesn't wait for a cold start (23.6 s, measured on
+20 Oct): five `/health` requests took 0.28-0.31 s (median 0.29 s) on 21 Oct
+12:35 UTC. It is one 2 vCPU / 2 GiB instance on
 the revision that serves traffic, idle most of the time; tagged candidate
 revisions get none. It goes back to 0 after judging.
 
@@ -247,7 +250,7 @@ Requests from judges come on top and are not in these figures.
 | Warm instance | Energy | Operational gCO2e | Embodied gCO2e | Total gCO2e |
 |---|---|---|---|---|
 | per day | 60-153 Wh | 35-89 | 58 | 92-146 |
-| 20 Oct to 16 Nov (27 days, an upper bound: it starts at the next release) | 1.6-4.1 kWh | 930-2,400 | 1,560 | 2,500-4,000 |
+| 20 Oct to 16 Nov (27 days, from the 20 Oct promote) | 1.6-4.1 kWh | 930-2,400 | 1,560 | 2,500-4,000 |
 
 A day of the warm instance is about the grams of 3 to 14 high-risk reviews
 (table above, low end against low end and high against high). When Google
@@ -261,6 +264,14 @@ per GiB-second, so 2 vCPU and 2 GiB come to $0.86 a day, about $23 for the 27
 days, before the free tier (180,000 vCPU-seconds and 360,000 GiB-seconds a
 month, shared with the service's real requests). It is paid from the project's
 Google Cloud free trial credit.
+
+**Region.** The service runs in us-east1, which Google's
+[region carbon page](https://cloud.google.com/sustainability/region-carbon)
+lists at 31% carbon-free energy and 579 gCO2e/kWh, not marked Low CO2 (read
+21 Oct 2026). It stays there by team decision: the live URL is in every link
+of this project. us-central1 (88%) and us-west1 (83%) are the low-carbon
+options; the same instance there would emit less, at the same price tier. The
+warm instance's grams above are counted at us-east1's 579 g.
 
 ## What's not here yet
 
