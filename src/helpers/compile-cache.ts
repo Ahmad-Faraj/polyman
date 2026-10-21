@@ -3,8 +3,9 @@
  *
  * Every C++ compile goes through {@link cachedCompile}. The cache key is a
  * SHA-256 over everything that decides the produced binary:
- *   - the compiler identity (`<compiler> --version`),
- *   - the path-independent flags (`-O2`, `-std=...`),
+ *   - the compiler executable as resolved (`POLYMAN_CXX`, `compiler.cpp`
+ *     or `g++`) and its identity (`<compiler> --version`),
+ *   - the flags (`-O2`, `-std=...`, `compiler.flags`),
  *   - the source bytes,
  *   - the bytes of every local header reached through `#include "..."`
  *     (recursively; `testlib.h` included).
@@ -25,6 +26,7 @@ import fs from 'fs';
 import path from 'path';
 import { executor } from '../executor';
 import { fmt } from '../formatter';
+import { quoteShellArgument } from './shell';
 
 /** Bumped whenever the key derivation or on-disk layout changes. */
 export const CACHE_FORMAT_VERSION = 1;
@@ -50,9 +52,12 @@ export interface CompileRequest {
   sourcePath: string;
   /** Absolute path of the file the compiler writes (`.exe` on Windows). */
   binaryPath: string;
-  /** Compiler executable, e.g. `g++`. */
+  /**
+   * Compiler executable as resolved (`g++`, `g++-15`, an absolute path...),
+   * not shell-quoted. Part of the key, so switching compilers recompiles.
+   */
   compiler: string;
-  /** Flags that affect the binary and do not embed paths. */
+  /** Flags that affect the binary, not shell-quoted. Part of the key. */
   flags: string[];
   /**
    * Directories searched for `#include "..."` after the including file's own
@@ -271,7 +276,7 @@ export function getCompilerIdentity(compiler: string): Promise<string> {
   let identity = compilerIdentities.get(compiler);
   if (!identity) {
     identity = executor
-      .execute(`${compiler} --version`, {
+      .execute(`${quoteShellArgument(compiler)} --version`, {
         timeout: COMPILER_PROBE_TIMEOUT_MS,
         silent: true,
       })
