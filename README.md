@@ -33,6 +33,20 @@ In the roles problem setters already know: issue-builder is the author, the judg
 - **A bad change reached production, was rolled back automatically in 94 s, and became two checks that refuse the same bug before merge.** *([promote](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17285820678) and [rollback](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17285820680) job logs; [!163](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/163))*
 - **A full review costs about half the credits and carbon on the same diffs, and it lost about a third of the earlier P1/P2 findings: it caught 11 of 17.** *([SUSTAINABILITY.md](SUSTAINABILITY.md#same-diffs-three-reviewer-versions-n5-oct-18-20), n=5)*
 
+**The nine stages at a glance** (each link opens without logging in; the table after it has who decided and the full story):
+
+| Stage | GitLab feature our automation uses | Latest event |
+|---|---|---|
+| Plan | Issues and issue templates; Duo flows started from an issue | [issue-builder's proposal on #95](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues/95#note_4049072276), 20 Oct |
+| Create | Merge requests built by Duo flows | [!186](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/186), merged 20 Oct |
+| Verify | CI pipelines on Linux, macOS and Windows runners; "Pipelines must succeed" | [nightly pipeline](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/pipelines/2970207051), 21 Oct 03:08 |
+| Package | This project's npm, generic and container registries | [Packages](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/packages) |
+| Secure | SAST, Secret Detection, Dependency Scanning and IaC scanning, every night | [IaC scan in the nightly](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17335759843), 21 Oct; [triage](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues/20#note_4059866508) |
+| Release | GitLab Releases, environments and deployments | [Release v3.0.3](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/releases/v3.0.3), 21 Oct 17:10 |
+| Configure | GitLab-managed OpenTofu state; `infra:plan` drift check every night | [`infra:plan` in the nightly](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17335759844), 21 Oct |
+| Monitor | Incident management; automatic rollback | [Incident #65](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues/65) and [rollback](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17285820680), 19 Oct |
+| Govern | Release evidence; vulnerability management | [v3.0.3 evidence](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/releases/v3.0.3/evidences/25380835.json), 21 Oct |
+
 | Stage | What ran on GitLab | Who decided | One link |
 |---|---|---|---|
 | Plan | 16 Oct 14:08: Ahmed filed #22, a bug the judges found (Python solutions judged Runtime Error where there is no `python` command). 17 Oct 20:56: issue-builder posted a proposal and waited. | Ahmed filed it; Mazen gave the go-ahead (17 Oct 22:09) | [proposal on #22](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues/22#note_4035973201) |
