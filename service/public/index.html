@@ -87,7 +87,7 @@
 
   <section class="container section" aria-labelledby="samples-title">
     <div class="section-head">
-      <h2 id="samples-title">More samples</h2>
+      <h2 id="samples-title">Try each sample</h2>
       <p>Each one shows a different kind of problem the check catches. The result appears in the card above.</p>
     </div>
     <div id="sample-list" class="sample-grid"></div>
@@ -98,9 +98,9 @@
       <input id="file" type="file" name="problem" accept=".zip,application/zip" hidden>
       <section>
         <h2 id="own-title">Check your own problem</h2>
-        <p>Choose a .zip of a polyman problem folder, or drop one here. A contest of up to 26&nbsp;problems works too, up to 20&nbsp;MB.</p>
+        <p>Choose a .zip of a polyman problem folder<span class="drop-hint">, or drop one here</span>. A contest of up to 26&nbsp;problems works too, up to 20&nbsp;MB.</p>
         <button type="button" id="pick" class="btn" data-variant="outline"><svg aria-hidden="true"><use href="#i-upload"/></svg>Choose a .zip</button>
-        <p class="dropzone-hint">Make one with <code>polyman remote pull ID ./problem</code>, then zip the folder. <a href="/docs#prepare">How to prepare it</a></p>
+        <p class="dropzone-hint">Make one with <code>polyman remote pull ID ./problem</code>, then zip the folder. <a class="nowrap" href="/docs#prepare">How to prepare it</a></p>
         <p class="privacy"><svg aria-hidden="true"><use href="#i-lock"/></svg>Your upload is deleted when the check ends. Nothing is stored.</p>
       </section>
     </form>

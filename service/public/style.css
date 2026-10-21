@@ -59,8 +59,10 @@ code { font-family: var(--font-mono); font-size: max(0.85em, 12.5px); background
 .badge[data-variant='destructive'] { color: var(--fail-ink); }
 .badge[data-variant='success'] { background: #cffafe; color: #155e75; border-color: transparent; }
 .badge svg { width: 12px; height: 12px; }
-/* a focus ring that holds 3:1 against white, in place of the stock half-alpha one */
-:where(a, .btn, .sample, summary, .logo):focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; box-shadow: none; }
+/* one focus ring everywhere, 5:1 against white, in place of Basecoat's half-alpha cyan (which outranks a :where()) */
+a:focus-visible, .btn:focus-visible, .sample:focus-visible, summary:focus-visible, pre:focus-visible, .accordion > details > summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; box-shadow: none; }
+.nowrap { white-space: nowrap; }
+section[aria-labelledby] h2 { scroll-margin-top: 96px; }
 
 /* header */
 .site-header { position: sticky; top: 0; z-index: 20; background: rgb(255 255 255 / 0.88); backdrop-filter: saturate(1.4) blur(8px); border-bottom: 1px solid var(--border); }
@@ -138,11 +140,24 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 .sols tr.waiting td { padding-block: 12px; }
 .sols tr.waiting td.tests { grid-column: 2; grid-row: 1; align-self: center; }
 .sols tr.waiting td.res { display: none; }
-.sols tr.broken { background: #fef2f2; }
+.sols tbody tr:hover { background-color: transparent; }
+.sols tbody tr.broken, .sols tbody tr.broken:hover { background: #fef2f2; }
 /* the solution a sample is about */
-.sols tr.focus { background: var(--brand-soft); }
-/* before results: an empty strip where each solution's tests will go, shimmering once they run */
+.sols tbody tr.focus, .sols tbody tr.focus:hover { background: var(--brand-soft); }
+/* a solution that fails as its label says: its marks drawn in outline, so a passing result doesn't shout red */
+.sols tr.expected-fail .dot.bad, .sols tr.expected-fail .dot.limit { background: #fff; box-shadow: inset 0 0 0 1.5px currentColor; }
+.sols tr.expected-fail .dot.bad { color: var(--fail); }
+.sols tr.expected-fail .dot.limit { color: var(--slow); }
+/* whether each solution kept its label: words and a mark, no pill */
+.res-ok, .res-bad { display: inline-flex; align-items: center; gap: 6px; font-size: 0.8125rem; font-weight: 500; }
+.res-ok { color: var(--muted-foreground); }
+.res-bad { color: var(--fail-ink); font-weight: 600; }
+.res-ok svg, .res-bad svg { width: 14px; height: 14px; }
+.res-ok svg { color: var(--pass); }
+/* while a run is on: an empty strip where each solution's tests will go, shimmering once they run */
 .skeleton { display: block; height: 13px; max-width: 220px; border-radius: 4px; background: var(--muted); }
+.result:not(.is-running) .sols tr.waiting { grid-template-columns: minmax(0, 1fr); }
+.result:not(.is-running) .sols tr.waiting td.tests { display: none; }
 .sols.is-running .skeleton { background: linear-gradient(90deg, var(--muted) 0%, #dff7fb 50%, var(--muted) 100%) 0 0 / 200% 100%; animation: shimmer 1.4s linear infinite; }
 @keyframes shimmer { to { background-position: -200% 0; } }
 .sol-name { display: block; font-family: var(--font-mono); font-size: 0.85rem; font-weight: 600; }
@@ -172,7 +187,7 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 .checks li { display: grid; grid-template-columns: 18px 1fr; gap: 10px; padding: 6px 0; font-size: 0.875rem; }
 .checks li svg { width: 16px; height: 16px; margin-top: 2px; color: var(--pass); }
 .checks li.critical svg { color: var(--fail); }
-.checks li.warning svg, .checks li.info svg { color: var(--slow); }
+.checks li.warning svg, .checks li.info svg { color: var(--muted-foreground); }
 .checks small { display: block; margin-top: 2px; font-size: 0.8125rem; line-height: 1.45; color: var(--muted-foreground); }
 .problem-error { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--font-mono); font-size: 0.8rem; color: var(--muted-foreground); max-height: 16em; overflow: auto; }
 .alert[data-variant='destructive'] > section { color: var(--foreground); }
@@ -194,7 +209,9 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 .sample h3 { margin: 0; font-size: 1rem; font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
 .sample p { color: var(--muted-foreground); font-size: 0.875rem; line-height: 1.5; text-wrap: pretty; }
 .sample > footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.sample .badge { font-family: var(--font-mono); font-size: 0.75rem; }
+.sample-name { font-family: var(--font-mono); font-size: 0.8rem; color: var(--muted-foreground); }
+/* the sample now in the result card */
+.sample[aria-current] { border-color: var(--brand); --tw-ring-color: var(--brand); background: #f8feff; }
 .sample-go { display: inline-flex; align-items: center; gap: 4px; font-size: 0.85rem; font-weight: 500; color: var(--primary); }
 .sample-go svg { width: 14px; height: 14px; transition: transform 150ms; }
 .sample:hover .sample-go svg { transform: translateX(2px); }
@@ -224,7 +241,7 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 .records a::after { content: ''; width: 16px; height: 16px; margin-top: 2px; background: var(--muted-foreground); mask: var(--out) center / contain no-repeat; transition: transform 150ms; }
 .records a:hover { background: #f8feff; }
 .records a:hover::after { background: var(--primary); transform: translate(1px, -1px); }
-.records a:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+.records a:focus-visible { outline-offset: -2px; }
 .records svg { width: 20px; height: 20px; margin-top: 1px; color: var(--primary); }
 .records b { display: block; font-weight: 600; }
 .records b + span { display: block; margin-top: 2px; font-size: 0.875rem; line-height: 1.5; color: var(--muted-foreground); text-wrap: pretty; }
@@ -267,8 +284,8 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
   .hero { padding-block: 32px; }
   .hero-lede { font-size: 1rem; }
   .hero-actions { margin-top: 24px; }
-  .hero-actions .btn { width: 100%; }
-  .header-nav .btn { height: 40px; min-width: 40px; }
+  .hero-actions .btn { width: 100%; height: 44px; }
+  .header-nav .btn { height: 44px; min-width: 44px; }
   .footer-links a { display: inline-block; padding-block: 10px; }
   .result .btn, .dropzone .btn { height: 44px; }
   .legend .legend-note { margin-left: 0; }
@@ -286,3 +303,20 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 1ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; scroll-behavior: auto !important; }
 }
+
+/* the result card has the run button beside the claim on a wide screen; the hero's copy of it is for phones */
+@media (min-width: 961px) {
+  #demo { display: none; }
+}
+/* no dragging on a touch screen */
+@media (hover: none) {
+  .drop-hint { display: none; }
+}
+/* the docs' tag letters and guideline severities, as words, not pills */
+.tag { font-family: var(--font-mono); font-weight: 650; font-size: 0.85rem; }
+.tag-pass { color: var(--pass-ink); }
+.tag-fail { color: var(--fail-ink); }
+.tag-slow { color: var(--slow); }
+.sev { font-weight: 500; }
+.sev-must-fix { color: var(--fail-ink); }
+.sev-recommended, .sev-nice-to-have { color: var(--muted-foreground); }

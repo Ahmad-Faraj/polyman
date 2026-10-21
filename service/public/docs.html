@@ -72,34 +72,34 @@ cd my-problem &amp;&amp; zip -r ../my-problem.zip .</code></pre>
       <div class="table-container"><table class="table">
         <thead><tr><th scope="col">Tag</th><th scope="col">Must</th></tr></thead>
         <tbody>
-          <tr><td><span class="badge" data-variant="success">MA</span></td><td>pass every test (the main correct solution)</td></tr>
-          <tr><td><span class="badge" data-variant="success">OK</span></td><td>pass every test</td></tr>
-          <tr><td><span class="badge" data-variant="destructive">WA</span></td><td>get Wrong Answer on at least one test</td></tr>
-          <tr><td><span class="badge" data-variant="outline">TL</span></td><td>exceed the time limit on at least one test</td></tr>
-          <tr><td><span class="badge" data-variant="outline">ML</span></td><td>exceed the memory limit on at least one test</td></tr>
-          <tr><td><span class="badge" data-variant="destructive">RE</span></td><td>crash on at least one test</td></tr>
-          <tr><td><span class="badge" data-variant="destructive">PE</span></td><td>get Presentation Error on at least one test</td></tr>
-          <tr><td><span class="badge" data-variant="secondary">TO</span></td><td>be correct, though it may run out of time</td></tr>
-          <tr><td><span class="badge" data-variant="destructive">RJ</span></td><td>fail at least one test, for any reason</td></tr>
+          <tr><td><b class="tag tag-pass">MA</b></td><td>pass every test (the main correct solution)</td></tr>
+          <tr><td><b class="tag tag-pass">OK</b></td><td>pass every test</td></tr>
+          <tr><td><b class="tag tag-fail">WA</b></td><td>get Wrong Answer on at least one test</td></tr>
+          <tr><td><b class="tag tag-slow">TL</b></td><td>exceed the time limit on at least one test</td></tr>
+          <tr><td><b class="tag tag-slow">ML</b></td><td>exceed the memory limit on at least one test</td></tr>
+          <tr><td><b class="tag tag-fail">RE</b></td><td>crash on at least one test</td></tr>
+          <tr><td><b class="tag tag-fail">PE</b></td><td>get Presentation Error on at least one test</td></tr>
+          <tr><td><b class="tag tag-pass">TO</b></td><td>be correct, though it may run out of time</td></tr>
+          <tr><td><b class="tag tag-fail">RJ</b></td><td>fail at least one test, for any reason</td></tr>
         </tbody>
       </table></div>
     </section>
 
     <section id="guidelines">
       <h2>Contest guidelines</h2>
-      <p>A problem can run correctly and still not be ready for a round. These checks read the files; the critical ones decide whether it's marked ready.</p>
+      <p>A problem can run correctly and still not be ready for a round. These checks read the files; the must-fix ones decide whether it's marked ready.</p>
       <div class="table-container"><table class="table">
         <thead><tr><th scope="col">Check</th><th scope="col">Severity</th></tr></thead>
         <tbody>
-          <tr><td>Statement has legend, input and output</td><td><span class="badge" data-variant="destructive">critical</span></td></tr>
-          <tr><td>At least 10 tests</td><td><span class="badge" data-variant="destructive">critical</span></td></tr>
-          <tr><td>Has a checker</td><td><span class="badge" data-variant="destructive">critical</span></td></tr>
-          <tr><td>Has a validator</td><td><span class="badge" data-variant="destructive">critical</span></td></tr>
-          <tr><td>Has a main correct solution</td><td><span class="badge" data-variant="destructive">critical</span></td></tr>
-          <tr><td>Checker compiles and passes its tests</td><td><span class="badge" data-variant="outline">warning</span></td></tr>
-          <tr><td>Correct solutions in C++ and Java, and at least one wrong solution</td><td><span class="badge" data-variant="outline">warning</span></td></tr>
-          <tr><td>Has a tutorial</td><td><span class="badge" data-variant="outline">warning</span></td></tr>
-          <tr><td>Has tags</td><td><span class="badge" data-variant="secondary">info</span></td></tr>
+          <tr><td>The statement has a story, input and output</td><td class="sev sev-must-fix">Must fix</td></tr>
+          <tr><td>At least 10 tests</td><td class="sev sev-must-fix">Must fix</td></tr>
+          <tr><td>Has an answer checker</td><td class="sev sev-must-fix">Must fix</td></tr>
+          <tr><td>Has an input validator</td><td class="sev sev-must-fix">Must fix</td></tr>
+          <tr><td>Has a main correct solution</td><td class="sev sev-must-fix">Must fix</td></tr>
+          <tr><td>The answer checker passes its own tests</td><td class="sev sev-recommended">Recommended</td></tr>
+          <tr><td>Correct solutions in C++ and Java, plus a wrong one</td><td class="sev sev-recommended">Recommended</td></tr>
+          <tr><td>Has a written tutorial</td><td class="sev sev-recommended">Recommended</td></tr>
+          <tr><td>Has topic tags</td><td class="sev sev-nice-to-have">Nice to have</td></tr>
         </tbody>
       </table></div>
     </section>

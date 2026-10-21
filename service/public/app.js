@@ -36,12 +36,16 @@ const DEMO = 'wrong-tag';
 const PASSING = 'even-sum';
 /** How many times a run waits for a free slot before it gives up. */
 const MAX_TRIES = 5;
-/** Each sample in words for someone who has never set a contest problem, and the solution its story is about. */
+/**
+ * Each sample in words for someone who has never set a contest problem, the solution its story
+ * is about (if one), and each solution's tag as the sample's Config.json sets it.
+ */
+const EVEN_SUM_TAGS = { main: 'MA', correct2: 'OK', tle_solution: 'TL', first_only: 'WA' };
 const SAMPLES = {
-  'even-sum': ['A problem that is ready', 'Every solution behaves as labelled and every contest guideline is met.'],
-  'not-ready': ['Correct, but not contest-ready', 'All solutions behave as labelled, but it has too few tests and no tutorial.'],
-  'sandbox-check': ['A solution that needs admin rights', 'One solution only works when run as root. The sandbox never grants that, so it fails as labelled.', 'not_root'],
-  'wrong-tag': ['A solution with the wrong label', 'One solution is labelled correct but gives wrong answers.'],
+  'even-sum': ['A problem that is ready', 'Every solution behaves as labelled and every contest guideline is met.', null, EVEN_SUM_TAGS],
+  'not-ready': ['Correct, but not contest-ready', 'All solutions behave as labelled, but it has too few tests and no tutorial.', null, EVEN_SUM_TAGS],
+  'sandbox-check': ['A solution that needs admin rights', 'One solution only works when run as root. The sandbox never grants that, so it fails as labelled.', 'not_root', { ...EVEN_SUM_TAGS, not_root: 'WA' }],
+  'wrong-tag': ['A solution with the wrong label', 'One solution is labelled correct but gives wrong answers.', null, { ...EVEN_SUM_TAGS, first_only: 'OK' }],
 };
 /** What a solution's label promises, and what a test's verdict means. */
 const TAG_WORDS = { MA: 'main correct solution', OK: 'correct', WA: 'wrong answer', TL: 'too slow', ML: 'too much memory', RE: 'crashes', PE: 'badly formatted output', TO: 'correct, may be slow', RJ: 'fails somehow' };
@@ -103,7 +107,7 @@ const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 /** The service's own detail text, with "(s)" plurals and "./" paths tidied. */
 const tidy = (s = '') =>
   s
-    .replace(/(\d+) ([a-z]+)\(s\)/gi, (_, n, w) => plural(Number(n), w))
+    .replace(/(\d+) ((?:[a-z]+ )*)([a-z]+)\(s\)/gi, (_, n, words, w) => `${n} ${words}${Number(n) === 1 ? w : `${w}s`}`)
     .replace(/\.\//g, '')
     .replace(/compile-checker: ok, test-checker: ok/, 'it builds and passes its own tests');
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
@@ -119,7 +123,7 @@ let step = 0;
 let runStart = 0;
 /** Each sample's solution names, so a run shows who is being judged before results arrive. */
 const expected = new Map();
-let demoLabel = els.demo.innerHTML;
+const demoLabel = els.demo.innerHTML;
 /** The sample the card's own button runs, and the card's words before the demo has run. */
 let pending = DEMO;
 const demoHead = [els.title.textContent, els.verdict.textContent, els.sub.textContent];
@@ -144,20 +148,22 @@ fetch('/api/samples')
       if (linked && expected.has(linked)) showIdle(linked);
       else if (expected.has(DEMO)) showIdle(DEMO);
     }
-    for (const s of samples) {
-      if (s.name === DEMO) continue;
+    // the demo first, then the rest: one card per sample, the one in the result card marked
+    for (const s of [...samples].sort((a, b) => Number(b.name === DEMO) - Number(a.name === DEMO))) {
       const [title, desc] = SAMPLES[s.name] ?? [s.name, s.description];
       const b = document.createElement('button');
       b.type = 'button';
       b.className = 'sample card';
       b.dataset.size = 'sm';
-      b.innerHTML = `<header><h3></h3><p></p></header><footer><span class="badge" data-variant="secondary"></span><span class="sample-go">Run ${icon('i-arrow')}</span></footer>`;
+      b.dataset.sample = s.name;
+      b.innerHTML = `<header><h3></h3><p></p></header><footer><span class="sample-name"></span><span class="sample-go">Run ${icon('i-arrow')}</span></footer>`;
       $('h3', b).textContent = title;
       $('p', b).textContent = desc;
-      $('.badge', b).textContent = s.name;
+      $('.sample-name', b).textContent = s.name;
       b.addEventListener('click', () => runSample(s.name));
       els.samples.append(b);
     }
+    markSample(pending);
   })
   .catch((err) => {
     console.error(err);
@@ -178,6 +184,7 @@ function showPreview(name) {
 /** Before a sample runs: its solutions in the card, its story in the head, and the card's own button. */
 function showIdle(name) {
   pending = name;
+  markSample(name);
   showPreview(name);
   if (name === DEMO) setHead(...demoHead);
   else {
@@ -190,20 +197,35 @@ function showIdle(name) {
   els.start.hidden = false;
 }
 
+/** The sample card for the sample in the result card says so. */
+function markSample(name) {
+  for (const b of els.samples.querySelectorAll('.sample')) {
+    if (b.dataset.sample === name) b.setAttribute('aria-current', 'true');
+    else b.removeAttribute('aria-current');
+  }
+}
+
 /** A row per solution the sample is known to have, with an empty strip where its tests will go. */
 function waitingRows(node, name) {
   const tbody = $('tbody', node);
   for (const sol of expected.get(name) ?? []) {
     const tr = document.createElement('tr');
     tr.className = 'waiting';
-    tr.innerHTML = `<td class="sol"><b class="sol-name"></b></td><td class="tests"><span class="skeleton" aria-hidden="true"></span></td><td class="res"></td>`;
+    tr.innerHTML = `<td class="sol"><b class="sol-name"></b><span class="sol-label"></span></td><td class="tests"><span class="skeleton" aria-hidden="true"></span></td><td class="res"></td>`;
     $('.sol-name', tr).textContent = sol;
+    const tag = SAMPLES[name]?.[3]?.[sol];
+    if (tag) $('.sol-label', tr).textContent = `labelled ${tagWords(tag)} (${tag})`;
+    else $('.sol-label', tr).remove();
     tbody.append(tr);
   }
   $('.table-container', node).hidden = !tbody.children.length;
 }
 
-els.demo.addEventListener('click', () => runSample(DEMO));
+els.demo.addEventListener('click', () => runSample(pending));
+// Esc stops a running check, as the Stop button does
+addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && running && !els.stop.hidden) els.stop.click();
+});
 els.start.addEventListener('click', () => runSample(pending));
 // the hero's button leads to the upload box first: it says what to zip before the file picker opens
 els.own.addEventListener('click', () => {
@@ -239,7 +261,7 @@ addEventListener('drop', (e) => {
   const files = e.dataTransfer.files;
   if (files.length > 1) {
     label = 'Your upload';
-    return showError(`You dropped ${files.length} files. Drop one .zip; for a contest, put every problem in that one zip.`);
+    return showError(`You dropped ${files.length} files. Drop one .zip; for a contest, put every problem in that one zip.`, null, 'local');
   }
   if (files[0]) upload(files[0]);
 });
@@ -263,8 +285,8 @@ els.download.addEventListener('click', () => {
 
 function upload(file) {
   label = file.name;
-  if (!/\.zip$/i.test(file.name)) return showError(`${file.name} is not a .zip file. Zip the problem folder and choose the zip.`);
-  if (file.size > MAX_BYTES) return showError(`${file.name} is ${(file.size / 1024 / 1024).toFixed(1)} MB, over the 20 MB limit. Leave out compiled files and generated tests; they are made fresh.`);
+  if (!/\.zip$/i.test(file.name)) return showError(`This file, ${file.name}, is not a .zip. Zip the problem folder and choose the zip.`, null, 'local');
+  if (file.size > MAX_BYTES) return showError(`This file, ${file.name}, is ${(file.size / 1024 / 1024).toFixed(1)} MB, over the 20 MB limit. Leave out compiled files and generated tests; they are made fresh.`, null, 'local');
   const body = new FormData();
   body.append('problem', file);
   start('/api/verify', body, file.name);
@@ -310,12 +332,11 @@ function progress(t0) {
 
 async function start(url, body, name, tries = 1) {
   if (running) return;
-  // after the first run the result card holds the next step, so the hero's button steps back
-  if (!els.demo.dataset.variant) {
-    els.demo.dataset.variant = 'outline';
-    demoLabel = `${icon('i-play')}Run the demo again`;
-  }
   els.note.hidden = true;
+  if (!body) {
+    pending = name;
+    markSample(name);
+  }
   setBusy(true);
   lastRun = { url, body, name };
   events = [];
@@ -494,9 +515,10 @@ function handle(ev) {
     showActions('done');
     suggestNext(ev.ok);
     // a sample's own story under its verdict, so its result says what it set out to show
-    if (!lastRun?.body && SAMPLES[label]) {
-      const [, desc, about] = SAMPLES[label];
-      els.note.textContent = `What this sample shows: ${desc}${about ? ` That solution is ${about}, highlighted below.` : ''}`;
+    // (only when the verdict alone doesn't tell it: a sample whose point is one solution)
+    const [, desc, about] = (!lastRun?.body && SAMPLES[label]) || [];
+    if (about) {
+      els.note.textContent = `What this sample shows: ${desc} That solution is ${about}, highlighted below.`;
       els.note.hidden = false;
     }
     say(`Checked ${label} in ${ev.seconds.toFixed(1)} seconds. ${els.verdict.textContent}`);
@@ -550,15 +572,18 @@ function renderProblem(card, ev) {
   }
 
   $('.sols', card).classList.remove('is-running');
-  // the ones that broke their label first, then the ones that fail as their label says, then the clean passes
+  // the ones that broke their label first, then the one the sample is about, the clean passes, and those that fail as labelled
   const focus = lastRun?.body ? null : SAMPLES[label]?.[2];
-  const rank = (s) => (!s.matchesTag ? 0 : s.name === focus ? 0.5 : s.tests.some((t) => t.verdict !== 'OK') ? 1 : 2);
+  // (a result that passes doesn't open on red: solutions that fail on purpose come last)
+  const rank = (s) => (!s.matchesTag ? 0 : s.name === focus ? 0.5 : s.tests.some((t) => t.verdict !== 'OK') ? 2 : 1);
   $('.sols tbody', card).replaceChildren(...[...solutions].sort((a, b) => rank(a) - rank(b)).map((s) => {
     const tr = solutionRow(s);
     if (s.name === focus) tr.classList.add('focus');
     return tr;
   }));
   $('.table-container', card).hidden = !solutions.length;
+  // when the problem fails on its guidelines, not its solutions, the guidelines come first
+  if (critical.length && !broken.length) card.insertBefore($('.more', card), $('.legend', card));
   $('.legend', card).hidden = !solutions.length;
   $('.more', card).hidden = false;
 
@@ -569,7 +594,7 @@ function renderProblem(card, ev) {
   for (const c of [...checks].sort((a, b) => Number(a.ok) - Number(b.ok))) {
     const li = document.createElement('li');
     li.className = c.ok ? 'ok' : c.severity;
-    li.innerHTML = `${icon(c.ok ? 'i-check' : 'i-x')}<span><span class="t"></span><small></small></span>`;
+    li.innerHTML = `${icon(c.ok ? 'i-check' : c.severity === 'critical' ? 'i-x' : 'i-alert')}<span><span class="t"></span><small></small></span>`;
     $('.t', li).textContent = GUIDE_WORDS[c.id] ?? c.title;
     $('small', li).textContent = c.ok ? cap(tidy(c.detail)) : `${cap(SEVERITY_WORDS[c.severity] ?? c.severity)}. ${cap(tidy(c.detail))}`;
     list.append(li);
@@ -603,7 +628,9 @@ function outcome(s) {
 /** One table row: the name and its label, a dot per test, and whether it behaved as labelled. */
 function solutionRow(s) {
   const tr = document.createElement('tr');
+  const expectedToFail = s.matchesTag && s.tests.some((t) => t.verdict !== 'OK');
   if (!s.matchesTag) tr.className = 'broken';
+  if (expectedToFail) tr.className = 'expected-fail';
   tr.innerHTML = `<td class="sol"><b class="sol-name"></b><span class="sol-label"></span></td><td class="tests"><div class="dots" role="img"></div><small class="dots-note"></small><ul class="fails"></ul></td><td class="res"></td>`;
   $('.sol-name', tr).textContent = s.name;
   // the setter's own tag letters stay visible beside the plain words
@@ -621,9 +648,9 @@ function solutionRow(s) {
   });
   const stoppedEarly = s.tests.length === 1 && s.tests[0].verdict !== 'OK';
   // the slowest test in words, since a dot's own time is only in its tooltip
-  const slowest = s.tests.length > 1 ? `, slowest ${ms(Math.max(...s.tests.map((t) => t.timeMs)))}` : '';
+  // (only for a solution that passed: on a failing one the time says nothing)
+  const slowest = s.tests.length > 1 && s.tests.every((t) => t.verdict === 'OK') ? `, slowest ${ms(Math.max(...s.tests.map((t) => t.timeMs)))}` : '';
   // a solution meant to fail that fails is fine: say so, so its red dots don't read as a problem
-  const expectedToFail = s.matchesTag && s.tests.some((t) => t.verdict !== 'OK');
   const asLabelled = expectedToFail ? ' That is what its label expects.' : '';
   $('.dots-note', tr).textContent = stoppedEarly ? `${cap(verdictWords(s.tests[0].verdict))} on the first test, so it was stopped there.${asLabelled}` : `${cap(outcome(s))}${slowest}.${asLabelled}`;
   // the proof for a solution that broke its label: each failing test and what the checker saw
@@ -640,7 +667,7 @@ function solutionRow(s) {
   }
   if (failing.length > 6) fails.insertAdjacentHTML('beforeend', `<li class="more-fails">and ${failing.length - 6} more in the report below</li>`);
   if (!failing.length) fails.remove();
-  $('.res', tr).innerHTML = s.matchesTag ? `<span class="badge" data-variant="outline">${icon('i-check')}${expectedToFail ? 'Fails as labelled' : 'As labelled'}</span>` : `<span class="badge" data-variant="destructive">${icon('i-x')}Not as labelled</span>`;
+  $('.res', tr).innerHTML = s.matchesTag ? `<span class="res-ok">${icon('i-check')}${expectedToFail ? 'Fails as labelled' : 'As labelled'}</span>` : `<span class="res-bad">${icon('i-x')}Not as labelled</span>`;
   return tr;
 }
 
@@ -711,8 +738,10 @@ function plainReason(message = '') {
 function showError(message, issues, kind = 'refused') {
   settle();
   const offline = kind === 'offline';
-  const plain = offline ? 'Could not reach the service.' : plainReason(message);
-  setHead(label ? `Not checked: ${label}` : 'Not checked', plain, offline ? 'Check your connection and run it again. If it still fails, the service may be restarting: try again in a minute.' : 'Nothing was run. See how to prepare the zip, then try again.');
+  // the browser's own checks: the sentence is already plain, and the service never saw the file
+  const local = kind === 'local';
+  const plain = offline ? 'Could not reach the service.' : local ? message : plainReason(message);
+  setHead(label ? `Not checked: ${label}` : 'Not checked', plain, offline ? 'Check your connection and run it again. If it still fails, the service may be restarting: try again in a minute.' : local ? 'Nothing was sent. See how to prepare the zip, then choose it again.' : 'Nothing was run. See how to prepare the zip, then try again.');
   els.run.classList.add('is-bad');
   setStatus(offline ? 'Not reached' : 'Refused', 'destructive');
   const box = document.createElement('div');
