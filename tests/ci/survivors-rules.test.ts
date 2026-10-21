@@ -112,16 +112,44 @@ const CI_PATTERNS = [
 
 const JOBS = ['.corpus-survivors', 'corpus:survivors:mutants'];
 
-describe('survivors job rules', () => {
-  const pushLists: string[][] = [];
+const quoted = (v?: string) => (v ? v.replace(/^'|'$/g, '') : v);
 
+describe('survivors job rules', () => {
   for (const job of JOBS) {
     describe(job, () => {
       const rules = rulesOf(job);
-      const quoted = (v?: string) => (v ? v.replace(/^'|'$/g, '') : v);
 
-      it('has three rules', () => {
-        expect(rules).toHaveLength(3);
+      // GitLab takes the first matching rule, so the order is part of the behaviour:
+      // a changes-only rule above the non-push rule would make nightly runs manual.
+      it('keeps the rules in order: push with changes, non-push, merge request', () => {
+        const manual = job === 'corpus:survivors:mutants';
+        expect(
+          rules.map(r => ({
+            if: quoted(r.if),
+            changes: r.changes !== undefined,
+            when: r.when,
+            allow_failure: r.allow_failure,
+          }))
+        ).toEqual([
+          {
+            if: PUSH,
+            changes: true,
+            when: undefined,
+            allow_failure: undefined,
+          },
+          {
+            if: NOT_PUSH,
+            changes: false,
+            when: undefined,
+            allow_failure: undefined,
+          },
+          {
+            if: undefined,
+            changes: true,
+            when: manual ? 'manual' : undefined,
+            allow_failure: manual ? 'true' : undefined,
+          },
+        ]);
       });
 
       it('runs a push to the default branch only when inputs changed', () => {
@@ -129,7 +157,6 @@ describe('survivors job rules', () => {
         expect(rule).toBeDefined();
         expect(rule!.changes?.length).toBeGreaterThan(0);
         expect(rule!.when).toBeUndefined();
-        pushLists.push(rule!.changes!);
       });
 
       it('always runs a non-push pipeline on the default branch', () => {
@@ -172,7 +199,10 @@ describe('survivors job rules', () => {
   }
 
   it('uses the same push changes list on both jobs', () => {
-    expect(pushLists).toHaveLength(2);
-    expect(pushLists[1]).toEqual(pushLists[0]);
+    const [a, b] = JOBS.map(
+      j => rulesOf(j).find(r => quoted(r.if) === PUSH)?.changes
+    );
+    expect(a).toBeDefined();
+    expect(b).toEqual(a);
   });
 });
