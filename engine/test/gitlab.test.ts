@@ -329,6 +329,19 @@ describe('server errors and dropped connections (#98)', () => {
     await expect(new GitLab({ ...baseEnv, CI_JOB_TOKEN: 'job' }).get('/:project/merge_requests/7')).rejects.toThrow('fetch failed');
   });
 
+  it('the anonymous fallback also tries a read again after a 5xx', async () => {
+    const seen = flakyFetch(json({ message: '403 Forbidden' }, 403), failed(503), json({ id: 1 }));
+    expect(await new GitLab({ ...baseEnv, CI_JOB_TOKEN: 'job' }).get('/:project/merge_requests/1/notes')).toEqual({ id: 1 });
+    expect(seen).toEqual(['GET', 'GET', 'GET']);
+  });
+
+  it('a 429 then a 5xx still ends in the answer: the rate-limit re-send is a read too', async () => {
+    const limited = new Response('{"message":"Rate limit exceeded"}', { status: 429, headers: { 'Retry-After': '0' } });
+    const seen = flakyFetch(limited, failed(500), json({ iid: 7 }));
+    expect(await new GitLab({ ...baseEnv, CI_JOB_TOKEN: 'job' }).get('/:project/merge_requests/7')).toEqual({ iid: 7 });
+    expect(seen).toHaveLength(3);
+  });
+
   it('never sends a write twice: it may have happened before the error', async () => {
     const seen = flakyFetch(failed());
     const err = (await new GitLab({ ...baseEnv, CI_JOB_TOKEN: 'job' }).post('/:project/releases', { tag_name: 'v1' }).catch((e: unknown) => e)) as GitLabError;

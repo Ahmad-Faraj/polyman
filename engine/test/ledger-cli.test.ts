@@ -166,10 +166,19 @@ const note = (id: number, at: string, author: string, body: string, updated = at
 const proposal = note(1, '20:56:18', BUILDER, 'Proposal for #22:\n\n**Change**\n- a.txt');
 const goAhead = (updated?: string) => note(2, '22:09:49', 'Mazen-Ghanaym', `@${BUILDER} go-ahead`, updated);
 
-/** Answers like GitLab's API for the given paths, plus the published ledger at /pages/ledger/ledger.json. */
-function gitlab(routes: Record<string, unknown>) {
+/**
+ * Answers like GitLab's API for the given paths, plus the published ledger at
+ * /pages/ledger/ledger.json. A path in failFirst answers 503 that many times first.
+ */
+function gitlab(routes: Record<string, unknown>, failFirst: Record<string, number> = {}) {
+  const fails = { ...failFirst };
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? '', 'http://x');
+    if (fails[url.pathname] > 0) {
+      fails[url.pathname]--;
+      res.writeHead(503).end('Service Unavailable');
+      return;
+    }
     const body = routes[url.pathname];
     if (body === undefined) {
       res.writeHead(404).end('{"message":"404 Not Found"}');
@@ -188,7 +197,7 @@ function gitlab(routes: Record<string, unknown>) {
 
 async function run(
   r: ReturnType<typeof repo>,
-  opts: { issueNotes?: unknown[]; published?: Ledger; routes?: Record<string, unknown>; env?: Record<string, string> } = {},
+  opts: { issueNotes?: unknown[]; published?: Ledger; routes?: Record<string, unknown>; env?: Record<string, string>; failFirst?: Record<string, number> } = {},
 ) {
   const p = '/api/v4/projects/1';
   const api = await gitlab({
@@ -226,7 +235,7 @@ async function run(
     [`${p}/issues/22/notes`]: opts.issueNotes ?? [proposal, goAhead()],
     ...(opts.published ? { '/pages/ledger/ledger.json': opts.published } : {}),
     ...Object.fromEntries(Object.entries(opts.routes ?? {}).map(([k, v]) => [`${p}${k}`, v])),
-  });
+  }, opts.failFirst);
   const out = join(r.dir, 'out');
   const child = spawn('node', [CLI, out], {
     cwd: r.dir,
@@ -348,6 +357,15 @@ describe('autonomy:ledger against a git repo and a stand-in for GitLab', () => {
     const { code, text } = await run(r, { published: first, issueNotes: [proposal, goAhead('23:30:00')], env: { LOOP_SESSIONS: sessions } });
     expect(text).toMatch(/Pages keeps the published one/);
     expect(code).toBe(1);
+  });
+
+  it('reads the published ledger again after a 5xx from Pages (#98)', async () => {
+    const r = repo();
+    const first = (await run(r)).ledger();
+    const { code, text } = await run(r, { published: first, failFirst: { '/pages/ledger/ledger.json': 1 } });
+    expect(text).toMatch(/answered 503; trying again/);
+    expect(text).toMatch(/the published ledger \(1 record\(s\), head \w+\) is the start of this one/);
+    expect(code).toBe(0);
   });
 
   it('passes when the published ledger comes back unchanged', async () => {
