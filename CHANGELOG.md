@@ -3,6 +3,7 @@
 ## 3.0.3
 
 - polyman compiles solutions a few at a time (one per CPU), so a slow or small machine no longer fails a compile on the 10 s limit while it waits for a CPU (#88).
+- A local C++ or Java compiler can be picked with `POLYMAN_CXX` / `POLYMAN_JAVAC` or the optional `compiler` block in `Config.json` (`cpp`, `javac`, `flags`). Local runs only, Polygon still uses each file's `sourceType`. The compile cache also rebuilds when the compiler or `compiler.flags` change (GitHub PR 24).
 
 ## 3.0.2
 
