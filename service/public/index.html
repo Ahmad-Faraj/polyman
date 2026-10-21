@@ -9,7 +9,7 @@
 <link rel="preload" href="/fonts/geist.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/vendor/basecoat.css">
 <link rel="stylesheet" href="/style.css">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='3' y='3' width='12' height='12' rx='3.5' fill='%2306b6d4'/%3E%3Crect x='17' y='3' width='12' height='12' rx='3.5' fill='%2306b6d4'/%3E%3Crect x='3' y='17' width='12' height='12' rx='3.5' fill='%2306b6d4'/%3E%3Crect x='17' y='17' width='12' height='12' rx='3.5' fill='%2309090b'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2.6 27.6 9.3v13.4L16 29.4 4.4 22.7V9.3Z' fill='white' stroke='%2306b6d4' stroke-width='2.6' stroke-linejoin='round'/%3E%3Cpath d='M9.6 22.2V10.2h3.3l3.1 4.5 3.1-4.5h3.3v12h-3.2v-6.7L16 19.4l-3.2-3.9v6.7Z' fill='%230e7490'/%3E%3C/svg%3E">
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -31,7 +31,7 @@
   <symbol id="i-pipe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="12" r="2.5"/><circle cx="19" cy="12" r="2.5"/><circle cx="12" cy="12" r="2.5"/><path d="M7.5 12h2M14.5 12h2"/></symbol>
   <symbol id="i-leaf" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.5 19 2c1 2 2 4.2 2 8 0 5.5-4.8 10-10 10Z"/><path d="M2 21c0-3 1.9-5.4 5.1-6.1 2.4-.5 4.9-2 5.9-3.9"/></symbol>
   <symbol id="i-git" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="9" r="3"/><path d="M6 9v6M18 12a6 6 0 0 1-6 6H9"/></symbol>
-  <symbol id="i-mark" viewBox="0 0 32 32"><rect x="3" y="3" width="12" height="12" rx="3.5" fill="#06b6d4"/><rect x="17" y="3" width="12" height="12" rx="3.5" fill="#06b6d4"/><rect x="3" y="17" width="12" height="12" rx="3.5" fill="#06b6d4"/><rect x="17" y="17" width="12" height="12" rx="3.5" fill="#09090b"/></symbol>
+  <symbol id="i-mark" viewBox="0 0 32 32"><path d="M16 2.6 27.6 9.3v13.4L16 29.4 4.4 22.7V9.3Z" fill="none" stroke="#06b6d4" stroke-width="2.6" stroke-linejoin="round"/><path d="M9.6 22.2V10.2h3.3l3.1 4.5 3.1-4.5h3.3v12h-3.2v-6.7L16 19.4l-3.2-3.9v6.7Z" fill="#0e7490"/></symbol>
 </svg>
 <a class="skip" href="#main">Skip to content</a>
 
@@ -63,6 +63,10 @@
     </div>
 
     <section id="run" class="card result" aria-labelledby="run-verdict" tabindex="-1">
+      <div class="switcher" role="group" aria-labelledby="switcher-label">
+        <span id="switcher-label" class="switcher-label">Check a sample live</span>
+        <div id="sample-list" class="switcher-list"></div>
+      </div>
       <header>
         <p id="run-title" class="run-meta">Live check · sample problem “wrong-tag”</p>
         <h2 id="run-verdict" tabindex="-1">This sample has one planted mistake. Can the check find it?</h2>
@@ -84,14 +88,6 @@
         <button type="button" id="download" class="btn" data-variant="ghost"><svg aria-hidden="true"><use href="#i-down"/></svg>Download JSON</button>
       </footer>
     </section>
-  </section>
-
-  <section class="container section" aria-labelledby="samples-title">
-    <div class="section-head">
-      <h2 id="samples-title">Try each sample</h2>
-      <p>Each one shows a different kind of problem the check catches. The result appears in the card above.</p>
-    </div>
-    <div id="sample-list" class="sample-grid"></div>
   </section>
 
   <section class="container section gitlab" aria-labelledby="gitlab-title">
@@ -123,12 +119,12 @@
   <section class="container section" aria-labelledby="how-title">
     <div class="section-head">
       <h2 id="how-title">What the check does</h2>
-      <p>The same checks a contest coordinator runs by hand, done in one pass.</p>
+      <p>polyman's own ten steps, in three parts. These are the steps you watch tick off in the card.</p>
     </div>
     <ol class="flow">
-      <li><h3>You send a problem</h3><p>A contest problem is a statement, its tests, a correct solution, and solutions that are meant to fail, each labelled with how it should fail.</p></li>
-      <li><h3>It is judged for real</h3><p>Real compilers run each solution on the problem's tests with its own time and memory limits, in an isolated sandbox with no internet access. Its own checker decides each answer.</p></li>
-      <li><h3>You get a plain answer</h3><p>Which solution doesn't behave as labelled, on which tests, what to change, and whether the problem meets common contest guidelines.</p></li>
+      <li><div class="flow-marks" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div><h3>Make the tests, then prove them</h3><p>It builds the generators, generates every test, builds the validator, tests it, and checks that every generated test is valid.</p></li>
+      <li><div class="flow-marks" aria-hidden="true"><i></i><i></i></div><h3>Prove the checker</h3><p>The problem's own answer checker is built and run on its own tests, because it decides every answer that follows.</p></li>
+      <li><div class="flow-marks" aria-hidden="true"><i></i><i></i><i></i></div><h3>Judge every solution</h3><p>Each solution is compiled and run on the tests with the problem's time and memory limits, in a sandbox with no internet, then compared with its label.</p></li>
     </ol>
   </section>
 

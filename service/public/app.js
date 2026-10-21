@@ -92,6 +92,13 @@ const GUIDE_FIX = {
 };
 /** What a solution did on a test, as a verb phrase: "got a wrong answer". */
 const DID_WORDS = { OK: 'passed', WA: 'got a wrong answer', TLE: 'was too slow', MLE: 'used too much memory', RE: 'crashed', PE: 'printed badly formatted output', CE: 'did not compile' };
+/** Each sample on its switch: its name and a few words on what it holds, never its outcome. */
+const SAMPLE_HINT = {
+  'wrong-tag': 'a planted mistake',
+  'even-sum': 'the clean one',
+  'not-ready': 'missing pieces',
+  'sandbox-check': 'asks for root',
+};
 /** What each sample asks before it runs: a question, never its outcome. */
 const SAMPLE_ASK = {
   'even-sum': 'Is this problem ready for a contest?',
@@ -155,18 +162,17 @@ fetch('/api/samples')
       if (linked && expected.has(linked)) showIdle(linked);
       else if (expected.has(DEMO)) showIdle(DEMO);
     }
-    // the demo first, then the rest: one card per sample, the one in the result card marked
+    // one switch per sample along the top of the card, the demo first; pressing one checks it live
     for (const s of [...samples].sort((a, b) => Number(b.name === DEMO) - Number(a.name === DEMO))) {
-      const [title, desc] = SAMPLES[s.name] ?? [s.name, s.description];
+      const [title] = SAMPLES[s.name] ?? [s.name];
       const b = document.createElement('button');
       b.type = 'button';
-      b.className = 'sample card';
-      b.dataset.size = 'sm';
+      b.className = 'sample';
       b.dataset.sample = s.name;
-      b.innerHTML = `<header><h3></h3><p></p></header><footer><span class="sample-name"></span><span class="sample-go">Run ${icon('i-arrow')}</span></footer>`;
-      $('h3', b).textContent = title;
-      $('p', b).textContent = desc;
-      $('.sample-name', b).textContent = s.name;
+      b.title = title;
+      b.innerHTML = `<b></b><span></span>`;
+      $('b', b).textContent = s.name;
+      $('span', b).textContent = SAMPLE_HINT[s.name] ?? s.description;
       b.addEventListener('click', () => runSample(s.name));
       els.samples.append(b);
     }
@@ -208,11 +214,7 @@ function showIdle(name) {
 /** The sample card for the sample in the result card says so. */
 function markSample(name) {
   for (const b of els.samples.querySelectorAll('.sample')) {
-    const current = b.dataset.sample === name;
-    if (current) b.setAttribute('aria-current', 'true');
-    else b.removeAttribute('aria-current');
-    // in words too, not only the cyan edge
-    $('.sample-go', b).innerHTML = current ? 'In the card above' : `Run ${icon('i-arrow')}`;
+    b.setAttribute('aria-pressed', String(b.dataset.sample === name));
   }
 }
 
@@ -634,12 +636,21 @@ function renderProblem(card, ev) {
   const focus = lastRun?.body ? null : SAMPLES[label]?.[2];
   // (a result that passes doesn't open on red: solutions that fail on purpose come last)
   const rank = (s) => (!s.matchesTag ? 0 : s.name === focus ? 0.5 : s.tests.some((t) => t.verdict !== 'OK') ? 2 : 1);
+  const rows = [...solutions].sort((a, b) => rank(a) - rank(b));
+  // the reveal: each solution's squares land in turn, and a broken label (listed first) lands last
+  const order = [...rows.filter((s) => s.matchesTag), ...rows.filter((s) => !s.matchesTag)];
   // (no report: the solutions it was about to judge stay listed, not judged)
-  if (solutions.length) $('.sols tbody', card).replaceChildren(...[...solutions].sort((a, b) => rank(a) - rank(b)).map((s) => {
-    const tr = solutionRow(s);
-    if (s.name === focus && s.matchesTag) tr.classList.add('focus');
-    return tr;
-  }));
+  if (rows.length) {
+    $('.sols tbody', card).replaceChildren(...rows.map((s) => {
+      const tr = solutionRow(s);
+      if (s.name === focus && s.matchesTag) tr.classList.add('focus');
+      tr.classList.add('reveal');
+      tr.style.setProperty('--r', order.indexOf(s));
+      return tr;
+    }));
+  }
+  // the sample's answer in the card's head waits until the last row has landed
+  els.run.style.setProperty('--landed', `${Math.min(order.length * 110 + 260, 1100)}ms`);
   $('.table-container', card).hidden = !$('.sols tbody', card).children.length;
   // when the problem fails on its guidelines, not its solutions, the guidelines come first
   if (critical.length && !broken.length) card.insertBefore($('.more', card), $('.legend', card));
@@ -729,21 +740,25 @@ function solutionRow(s) {
   const expectedToFail = s.matchesTag && s.tests.some((t) => t.verdict !== 'OK');
   if (!s.matchesTag) tr.className = 'broken';
   if (expectedToFail) tr.className = 'expected-fail';
-  tr.innerHTML = `<td class="sol"><b class="sol-name"></b><span class="sol-label"></span></td><td class="tests"><div class="dots" role="img"></div><small class="dots-note"></small><ul class="fails"></ul></td><td class="res"></td>`;
+  tr.innerHTML = `<td class="sol"><b class="sol-name"></b><span class="sol-label"></span></td><td class="tests"><div class="dots" role="group"></div><p class="dot-detail" aria-live="polite"></p><small class="dots-note"></small><ul class="fails"></ul></td><td class="res"></td>`;
   $('.sol-name', tr).textContent = s.name;
   // the setter's own tag letters stay visible beside the plain words
   $('.sol-label', tr).textContent = `labelled ${tagWords(s.tag)} (${s.tag})`;
   const dots = $('.dots', tr);
-  dots.setAttribute('aria-label', s.tests.map((t) => `test ${t.index} ${verdictWords(t.verdict)}`).join(', '));
+  dots.setAttribute('aria-label', `${s.name}: one square per test. Use the arrow keys to read each one.`);
   s.tests.forEach((t, i) => {
-    const d = document.createElement('span');
+    const d = document.createElement('button');
     const kind = verdictKind(t.verdict);
+    d.type = 'button';
     d.className = `dot ${kind}`;
-    d.title = `Test ${t.index}: ${verdictWords(t.verdict)}, ${t.timeMs} ms`;
+    d.tabIndex = i ? -1 : 0;
+    d.dataset.detail = testDetail(t);
+    d.setAttribute('aria-label', d.dataset.detail);
     d.style.setProperty('--i', i);
     if (kind !== 'ok') d.innerHTML = icon(kind === 'limit' ? 'i-clock' : 'i-x');
     dots.append(d);
   });
+  wireSquares(dots, $('.dot-detail', tr));
   const stoppedEarly = s.tests.length === 1 && s.tests[0].verdict !== 'OK';
   // the slowest test in words, since a dot's own time is only in its tooltip
   // (only for a solution that passed: on a failing one the time says nothing)
@@ -767,6 +782,47 @@ function solutionRow(s) {
   if (!failing.length) fails.remove();
   $('.res', tr).innerHTML = s.matchesTag ? `<span class="res-ok">${icon('i-check')}${expectedToFail ? 'Fails as labelled' : 'As labelled'}</span>` : `<span class="res-bad">${icon('i-x')}Not as labelled</span>`;
   return tr;
+}
+
+/** One test in words: "Test 4 · wrong answer · expected YES, found NO · 7 ms". */
+function testDetail(t) {
+  const said = verdictWords(t.verdict);
+  const seen = (t.message ?? '').replace(new RegExp(`^${said}\\s*`, 'i'), '').trim();
+  return [`Test ${t.index}`, said, seen, `${t.timeMs} ms`].filter(Boolean).join(' · ');
+}
+
+/**
+ * A strip of squares reads like a list: hover, tap or arrow to a square and its test is spelled out
+ * underneath. One square at a time takes Tab (roving focus), so a long strip is one stop.
+ */
+function wireSquares(strip, line) {
+  const squares = [...strip.children];
+  let picked = null;
+  const show = (d) => {
+    line.textContent = d ? d.dataset.detail : picked ? picked.dataset.detail : '';
+    line.classList.toggle('on', !!line.textContent);
+  };
+  const pick = (d) => {
+    picked?.classList.remove('picked');
+    picked = d;
+    d.classList.add('picked');
+    for (const q of squares) q.tabIndex = q === d ? 0 : -1;
+    show(d);
+  };
+  strip.addEventListener('click', (e) => {
+    const d = e.target.closest('.dot');
+    if (d) pick(d);
+  });
+  strip.addEventListener('pointerover', (e) => show(e.target.closest('.dot')));
+  strip.addEventListener('pointerleave', () => show(null));
+  strip.addEventListener('focusin', (e) => pick(e.target.closest('.dot')));
+  strip.addEventListener('keydown', (e) => {
+    const at = squares.indexOf(document.activeElement);
+    const to = { ArrowRight: at + 1, ArrowDown: at + 1, ArrowLeft: at - 1, ArrowUp: at - 1, Home: 0, End: squares.length - 1 }[e.key];
+    if (to === undefined || at < 0) return;
+    e.preventDefault();
+    squares[Math.max(0, Math.min(squares.length - 1, to))].focus();
+  });
 }
 
 /** What to do about a solution that broke its label, from its verdicts. */

@@ -185,7 +185,23 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 .sol-label { display: block; margin-top: 2px; font-size: 0.8rem; color: var(--muted-foreground); }
 .pending { font-size: 0.85rem; color: var(--muted-foreground); }
 .dots { display: flex; flex-wrap: wrap; gap: 3px; }
-.dot { display: inline-grid; place-items: center; width: 13px; height: 13px; border-radius: 4px; background: var(--pass); color: #fff; vertical-align: -2px; animation: dot-in 240ms ease-out both; animation-delay: calc(var(--i, 0) * 20ms); }
+.dot { display: inline-grid; place-items: center; width: 13px; height: 13px; border-radius: 4px; background: var(--pass); color: #fff; vertical-align: -2px; }
+/* a square in a result is a control: it says which test it is */
+button.dot { position: relative; padding: 0; border: 0; font: inherit; cursor: pointer; transition: transform 120ms cubic-bezier(0.16, 1, 0.3, 1); }
+button.dot::after { content: ''; position: absolute; inset: -3px -2px; }
+button.dot:hover { transform: scale(1.25); z-index: 1; }
+button.dot.picked { outline: 2px solid var(--foreground); outline-offset: 1px; }
+button.dot:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.dot-detail { margin: 6px 0 0; min-height: 0; font-family: var(--font-mono); font-size: 0.8rem; color: var(--foreground); }
+.dot-detail:not(.on) { display: none; }
+/* the reveal: each row's squares land in turn (the order is set per row), then the sample's answer */
+.sols tr.reveal .dot { animation: dot-in 260ms cubic-bezier(0.16, 1, 0.3, 1) both; animation-delay: calc(var(--r, 0) * 110ms + var(--i, 0) * 16ms); }
+.sols tr.reveal.broken { animation: broken-in 500ms ease-out both; animation-delay: calc(var(--r, 0) * 110ms); }
+@keyframes broken-in { from { background-color: transparent; } }
+.result > header > .run-note.found { animation: found-in 420ms cubic-bezier(0.16, 1, 0.3, 1) both; animation-delay: var(--landed, 0ms); }
+@keyframes found-in { from { opacity: 0; transform: translateY(4px); } }
+.result { transition: box-shadow 300ms ease-out; }
+.btn:active:not(:disabled), .sample:active:not(:disabled) { transform: scale(0.98); }
 .dot.bad { background: var(--fail); }
 .dot.limit { background: var(--slow); }
 .dot svg { width: 10px; height: 10px; }
@@ -228,19 +244,20 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 .section-head { margin-bottom: 24px; }
 .section-head h2 { margin: 0; font-size: 1.75rem; font-weight: 700; letter-spacing: -0.03em; }
 .section-head p { margin: 6px 0 0; color: var(--muted-foreground); text-wrap: pretty; }
-.sample-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
-.sample { justify-content: space-between; text-align: left; font: inherit; color: inherit; cursor: pointer; transition: border-color 150ms, background-color 150ms; }
-.sample:hover:not(:disabled) { border-color: var(--brand); background: #f8feff; }
-.sample:disabled { cursor: not-allowed; opacity: 0.75; }
-.sample h3 { margin: 0; font-size: 1rem; font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
-.sample p { color: var(--muted-foreground); font-size: 0.875rem; line-height: 1.5; text-wrap: pretty; }
-.sample > footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.sample-name { font-family: var(--font-mono); font-size: 0.8rem; color: var(--muted-foreground); }
+/* the samples, as tabs along the top of the result card (no frames of their own); pressing one checks it live */
+.switcher { display: grid; gap: 4px; margin-top: -4px; padding: 0 24px; border-bottom: 1px solid var(--border); }
+.switcher-label { font-size: 0.75rem; font-weight: 600; color: var(--muted-foreground); letter-spacing: 0.02em; }
+.switcher-list { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.sample { display: grid; gap: 1px; padding: 10px 2px 12px; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; background: none; text-align: left; font: inherit; color: inherit; cursor: pointer; transition: border-color 200ms, color 150ms; }
+.sample b { font-family: var(--font-mono); font-size: 0.8rem; font-weight: 600; color: var(--muted-foreground); overflow-wrap: anywhere; transition: color 150ms; }
+.sample span { font-size: 0.75rem; color: var(--muted-foreground); }
+.sample:hover:not(:disabled) b { color: var(--foreground); }
+.sample:hover:not(:disabled) { border-bottom-color: var(--border); }
+.sample:disabled { cursor: not-allowed; }
+.sample[aria-pressed='true'] { border-bottom-color: var(--primary); }
+.sample[aria-pressed='true'] b { color: var(--primary); }
 /* the sample now in the result card */
-.sample[aria-current] { border-color: var(--brand); --tw-ring-color: var(--brand); background: #f8feff; }
-.sample-go { display: inline-flex; align-items: center; gap: 4px; font-size: 0.85rem; font-weight: 500; color: var(--primary); }
-.sample-go svg { width: 14px; height: 14px; transition: transform 150ms; }
-.sample:hover .sample-go svg { transform: translateX(2px); }
+
 .dropzone { border-style: dashed; border-width: 2px; text-align: center; transition: border-color 150ms, background-color 150ms; }
 .dropzone > section { display: flex; flex-direction: column; align-items: center; gap: 8px; padding-block: 16px; }
 .dropzone.over { border-color: var(--brand); background: var(--brand-soft); }
@@ -252,9 +269,10 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 .dropzone-hint { font-size: 0.85rem; margin-top: 8px !important; }
 /* three steps on one rail; each marker is a test dot, the page's own unit */
 .flow { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 32px; }
-.flow li { position: relative; padding-top: 28px; }
-.flow li::before { content: ''; position: absolute; top: 0; left: 0; width: 13px; height: 13px; border-radius: 4px; background: var(--brand); }
-.flow li:not(:last-child)::after { content: ''; position: absolute; top: 6px; left: 21px; right: -24px; height: 1px; background: var(--border); }
+.flow li { position: relative; }
+/* each part shows its steps as the squares the card's progress bar uses */
+.flow-marks { display: flex; gap: 3px; margin-bottom: 14px; }
+.flow-marks i { width: 13px; height: 13px; border-radius: 4px; background: var(--pass); }
 .flow h3 { margin: 0; font-size: 1.05rem; font-weight: 600; letter-spacing: -0.01em; }
 .flow p { margin: 8px 0 0; color: var(--muted-foreground); line-height: 1.6; text-wrap: pretty; }
 /* the GitLab records, as links to the pages themselves */
@@ -331,9 +349,7 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
   .toc a:not(.btn) { padding-block: 12px; }
   .steps-live { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-auto-flow: row; }
   .flow { grid-template-columns: minmax(0, 1fr); gap: 24px; }
-  .flow li { padding: 0 0 0 28px; }
-  .flow li::before { top: 4px; }
-  .flow li:not(:last-child)::after { top: 23px; left: 6px; right: auto; bottom: -20px; width: 1px; height: auto; }
+  .switcher-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .gitlab { padding-top: 40px; }
   .docs-layout { grid-template-columns: minmax(0, 1fr); gap: 24px; padding-top: 32px; }
   .toc { position: static; flex-direction: row; flex-wrap: wrap; }
