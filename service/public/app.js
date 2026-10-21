@@ -566,7 +566,7 @@ function solutionRow(s) {
     const detail = (t.message ?? '').replace(new RegExp(`^${said}\\s*`, 'i'), '').trim();
     li.innerHTML = `<b></b><span></span>`;
     $('b', li).textContent = `Test ${t.index}`;
-    $('span', li).textContent = detail ? `${said}: ${detail}` : said;
+    $('span', li).textContent = detail || said;
     fails.append(li);
   }
   if (failing.length > 6) fails.insertAdjacentHTML('beforeend', `<li class="more-fails">and ${failing.length - 6} more in the report below</li>`);
