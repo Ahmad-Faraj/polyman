@@ -239,7 +239,10 @@ button:disabled, .button:disabled { opacity: 0.45; cursor: not-allowed; transfor
 .run-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 
 /* below the desk */
-.how { max-width: 1440px; margin: 0 auto; padding: 64px 32px 24px; display: grid; grid-template-columns: minmax(0, 0.8fr) minmax(0, 2fr); gap: 24px 48px; }
+/* on the desk grid: the heading over the start column, the list on the board's text edge */
+.how { max-width: 1440px; margin: 0 auto; padding: 64px 0 24px; display: grid; grid-template-columns: minmax(340px, 460px) minmax(0, 1fr); row-gap: 24px; }
+.how > h2 { padding-inline: 32px; }
+.how-list { padding-inline: 44px; }
 .how h2 { margin: 0; font-size: 1.6rem; letter-spacing: -0.02em; font-variation-settings: var(--narrow); }
 .how-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 24px 32px; margin: 0; }
 .how-list dt { font-weight: 700; font-size: 1.05rem; }
@@ -280,6 +283,7 @@ button:disabled, .button:disabled { opacity: 0.45; cursor: not-allowed; transfor
   .board { padding: 32px 24px 40px; }
   .sample-list { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
   .how { grid-template-columns: 1fr; padding-inline: 16px; }
+  .how > h2, .how-list { padding-inline: 0; }
   .docs-layout { grid-template-columns: minmax(0, 1fr); gap: 24px; padding-inline: 16px; }
   .toc { position: static; flex-direction: row; flex-wrap: wrap; }
   .toc p { width: 100%; }
