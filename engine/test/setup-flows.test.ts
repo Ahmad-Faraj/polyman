@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadConfig } from '../src/config.ts';
-import { FLOWS, type Gql, type Rest, type SetupOptions, definitionFor, finishAccounts, gitlabUrl, isEntry, mayWriteAccounts, pipelineFilter, pushBlocked, setupFlows, triggerMatches, withAccounts } from '../src/cli/setup-flows.ts';
+import { FLOWS, type Gql, type Rest, type SetupOptions, definitionFor, finishAccounts, gitlabUrl, isEntry, mayWriteAccounts, pipelineFilter, pushBlocked, setupFlows, triggerMatches, unprotected, withAccounts } from '../src/cli/setup-flows.ts';
 
 const spec = (name: string) => FLOWS.find(([n]) => n === name)![2];
 
@@ -72,6 +72,19 @@ describe('withAccounts', () => {
   it('says so when the file has no line to fill', () => {
     expect(() => withAccounts('agents: {}\n', { reviewer: 'ai-r' })).toThrow('no agents.reviewer_account line');
   });
+
+  it('fills the key line, not a comment that names it or a longer key ending in it', () => {
+    const tricky = `agents:\n  # reviewer_account: filled in by setup-flows\n  old_fixer_account: keep\n  reviewer_account: ""\n  fixer_account: ""\n`;
+    expect(withAccounts(tricky, { reviewer: 'ai-r', fixer: 'ai-f' })).toBe(
+      `agents:\n  # reviewer_account: filled in by setup-flows\n  old_fixer_account: keep\n  reviewer_account: ai-r\n  fixer_account: ai-f\n`,
+    );
+  });
+
+  it('takes real account names, with digits and underscores', () => {
+    const filled = withAccounts(yml, { reviewer: 'ai-mr-reviewer-gitlab-ai-hackathon_e50080', fixer: 'ai-pipeline-fixer-gitlab-ai-hackathon_b1d814' });
+    expect(filled).toContain('  reviewer_account: ai-mr-reviewer-gitlab-ai-hackathon_e50080\n');
+    expect(filled).toContain('  fixer_account: ai-pipeline-fixer-gitlab-ai-hackathon_b1d814\n');
+  });
 });
 
 describe('a dry run on a project with no flows yet', () => {
@@ -118,6 +131,12 @@ interface FakeOptions {
   consumers?: { id: string; item: { id: string; name: string; project: { fullPath: string } | null } }[];
   pushLevels?: { access_level: number; user_id?: number }[] | null;
   mustSucceed?: { project?: boolean; group?: boolean };
+  /** the project's default branch */
+  rootRef?: string;
+  /** enabling a flow makes no trigger, as when the mention trigger was deleted by hand */
+  noTriggerOnEnable?: boolean;
+  /** what GitLab answers to a trigger create or update */
+  triggerErrors?: string[];
 }
 
 /** Just enough of GitLab for setupFlows, with pages of one so paging is exercised. */
@@ -126,6 +145,8 @@ function fakeGitLab(o: FakeOptions = {}) {
   const consumers: { id: string; item: { id: string; name: string; project: { fullPath: string } | null } }[] = [...(o.consumers ?? [])];
   const triggers: { id: string; eventTypes: number[]; filter: unknown; user: { username: string }; aiCatalogItemConsumer: { id: string } }[] = [];
   const mutations: string[] = [];
+  /** each mutation's input, in order */
+  const inputs: { mutation: string; input: Record<string, any> }[] = [];
   /** the definition each flow was created with, by name */
   const definitions = new Map<string, string>();
   let failures = o.enableFailures ?? 0;
@@ -134,12 +155,13 @@ function fakeGitLab(o: FakeOptions = {}) {
     return { nodes: nodes.slice(at, at + 1), pageInfo: { hasNextPage: at + 1 < nodes.length, endCursor: String(at + 1) } };
   };
   const gql = (async (query: string, v: Record<string, any> = {}) => {
-    if (query.includes('repository { rootRef }')) return { project: { id: 'gid://gitlab/Project/1', repository: { rootRef: 'main' } } };
+    if (query.includes('repository { rootRef }')) return { project: { id: 'gid://gitlab/Project/1', repository: { rootRef: o.rootRef ?? 'main' } } };
     // newest first, as GitLab lists them
     if (query.includes('aiCatalogConfiguredItems')) return { aiCatalogConfiguredItems: page([...consumers].reverse(), v.after) };
     if (query.includes('aiFlowTriggers')) return { project: { aiFlowTriggers: page(triggers, v.after) } };
     if (query.includes('aiCatalogItems(')) return { aiCatalogItems: page(items, v.after) };
     mutations.push(query.match(/\{ (\w+)\(/)![1]);
+    inputs.push({ mutation: mutations.at(-1)!, input: v.i });
     if (query.includes('aiCatalogFlowCreate')) {
       const item = { id: `gid://gitlab/Ai::Catalog::Item/${items.length + 100}`, name: v.i.name, project: { fullPath: 'Group/Polyman' } };
       definitions.set(v.i.name, v.i.definition);
@@ -152,23 +174,30 @@ function fakeGitLab(o: FakeOptions = {}) {
       const consumer = { id: `gid://gitlab/Ai::Catalog::ItemConsumer/${consumers.length + 1}`, item: { id: item.id, name: item.name, project: item.project } };
       consumers.push(consumer);
       // GitLab makes the service account and a mention trigger when a flow is enabled
-      triggers.push({ id: `t${triggers.length}`, eventTypes: [0], filter: {}, user: { username: `ai-${item.name}-group` }, aiCatalogItemConsumer: { id: consumer.id } });
+      if (!o.noTriggerOnEnable) triggers.push({ id: `t${triggers.length}`, eventTypes: [0], filter: {}, user: { username: `ai-${item.name}-group` }, aiCatalogItemConsumer: { id: consumer.id } });
       return { aiCatalogItemConsumerCreate: { errors: [], itemConsumer: { id: consumer.id } } };
     }
-    if (query.includes('aiFlowTriggerCreate')) return { aiFlowTriggerCreate: { errors: [] } };
+    if (query.includes('aiFlowTriggerCreate')) {
+      if (o.triggerErrors) return { aiFlowTriggerCreate: { errors: o.triggerErrors } };
+      const name = consumers.find((c) => c.id === v.i.aiCatalogItemConsumerId)!.item.name;
+      triggers.push({ id: `t${triggers.length}`, eventTypes: v.i.eventTypes, filter: v.i.filter, user: { username: `ai-${name}-group` }, aiCatalogItemConsumer: { id: v.i.aiCatalogItemConsumerId } });
+      return { aiFlowTriggerCreate: { errors: [] } };
+    }
     if (query.includes('aiFlowTriggerUpdate')) {
+      if (o.triggerErrors) return { aiFlowTriggerUpdate: { errors: o.triggerErrors } };
       Object.assign(triggers.find((t) => t.id === v.i.id)!, { eventTypes: v.i.eventTypes, filter: v.i.filter });
       return { aiFlowTriggerUpdate: { errors: [] } };
     }
     throw new Error(`fake GitLab doesn't know ${query}`);
   }) as Gql;
   const rest = (async (path: string) => {
-    if (path.includes('/protected_branches/')) return o.pushLevels === null ? null : { push_access_levels: o.pushLevels ?? [{ access_level: 40 }] };
+    // only the default branch is protected
+    if (path.includes('/protected_branches/')) return o.pushLevels === null || !path.endsWith(`/${o.rootRef ?? 'main'}`) ? null : { push_access_levels: o.pushLevels ?? [{ access_level: 40 }] };
     if (path.startsWith('/projects/')) return { only_allow_merge_if_pipeline_succeeds: o.mustSucceed?.project ?? true };
     if (path.startsWith('/groups/')) return { only_allow_merge_if_pipeline_succeeds: o.mustSucceed?.group ?? false };
     return null;
   }) as Rest;
-  return { gql, rest, items, consumers, triggers, mutations, definitions };
+  return { gql, rest, items, consumers, triggers, mutations, inputs, definitions };
 }
 
 describe('setupFlows against a fake GitLab', () => {
@@ -239,6 +268,75 @@ describe('setupFlows against a fake GitLab', () => {
     await expect(run(fakeGitLab({ pushLevels: null }), { dryRun: true })).rejects.toThrow('pass --unprotected');
     await expect(run(fakeGitLab({ pushLevels: null }), { dryRun: true, unprotected: true })).resolves.toBeDefined();
   });
+
+  it('creates each flow private and released, and enables it in this project for mentions', async () => {
+    const gitlab = fakeGitLab();
+    await run(gitlab);
+    expect(gitlab.inputs.filter((c) => c.mutation === 'aiCatalogFlowCreate').map((c) => c.input)).toEqual(
+      FLOWS.map(([name, description]) => ({ name, description, projectId: 'gid://gitlab/Project/1', definition: gitlab.definitions.get(name), public: false, release: true })),
+    );
+    expect(gitlab.inputs.filter((c) => c.mutation === 'aiCatalogItemConsumerCreate').map((c) => c.input)).toEqual(
+      FLOWS.map((_, i) => ({ itemId: `gid://gitlab/Ai::Catalog::Item/${100 + i}`, target: { projectId: 'gid://gitlab/Project/1' }, triggerTypes: ['mention'] })),
+    );
+  });
+
+  it('creates the filtered trigger itself when enabling a flow made none', async () => {
+    const gitlab = fakeGitLab({ noTriggerOnEnable: true });
+    const { accounts, lines } = await run(gitlab);
+    expect(gitlab.inputs.filter((c) => c.mutation === 'aiFlowTriggerCreate').map((c) => c.input)).toEqual(
+      FLOWS.map(([name, description, spec], i) => ({
+        projectPath: 'group/polyman',
+        description: `${name}: ${description}`,
+        eventTypes: spec.events,
+        aiCatalogItemConsumerId: `gid://gitlab/Ai::Catalog::ItemConsumer/${i + 1}`,
+        filter: pipelineFilter(spec, 'main'),
+      })),
+    );
+    expect(lines).toContain('mr-reviewer: trigger created');
+    expect(accounts).toEqual(Object.fromEntries(FLOWS.map(([name]) => [name, `ai-${name}-group`])));
+  });
+
+  it('stops when GitLab refuses to create or to update a trigger', async () => {
+    const creating = fakeGitLab({ noTriggerOnEnable: true, triggerErrors: ['Filter is invalid'] });
+    await expect(run(creating)).rejects.toThrow('mr-reviewer: trigger: Filter is invalid');
+    expect(creating.mutations.at(-1)).toBe('aiFlowTriggerCreate');
+    // enabling makes a mention-only trigger, which the reviewer's then has to be updated from
+    const updating = fakeGitLab({ triggerErrors: ['Filter is invalid'] });
+    await expect(run(updating)).rejects.toThrow('mr-reviewer: trigger: Filter is invalid');
+    expect(updating.mutations.at(-1)).toBe('aiFlowTriggerUpdate');
+  });
+
+  it('a dry run says how it would set a stale trigger and that it would create a missing one, and changes nothing', async () => {
+    const gitlab = fakeGitLab();
+    await run(gitlab);
+    const triggerOf = (name: string) => gitlab.triggers.findIndex((t) => t.aiCatalogItemConsumer.id === gitlab.consumers.find((c) => c.item.name === name)!.id);
+    Object.assign(gitlab.triggers[triggerOf('mr-reviewer')], { eventTypes: [0], filter: {} });
+    gitlab.triggers.splice(triggerOf('pipeline-fixer'), 1);
+    gitlab.mutations.length = 0;
+    const { lines } = await run(gitlab, { dryRun: true });
+    expect(gitlab.mutations).toEqual([]);
+    expect(lines).toEqual([
+      `mr-reviewer: would set its trigger to events 3,0 with ${JSON.stringify(pipelineFilter(spec('mr-reviewer'), 'main'))}`,
+      'pipeline-fixer: would create its trigger',
+      'issue-builder: trigger already right',
+      'incident-responder: trigger already right',
+    ]);
+  });
+
+  it("uses the project's default branch when it isn't main, for the branch check and the incident responder's filter", async () => {
+    const gitlab = fakeGitLab({ rootRef: 'master' });
+    const { defaultBranch } = await run(gitlab);
+    expect(defaultBranch).toBe('master');
+    const incident = gitlab.consumers.find((c) => c.item.name === 'incident-responder')!;
+    expect(gitlab.triggers.find((t) => t.aiCatalogItemConsumer.id === incident.id)!.filter).toEqual({
+      pipeline_hooks: {
+        rules: [
+          { field: 'object_attributes.status', value: ['failed'], operator: 'in' },
+          { field: 'object_attributes.ref', value: ['master'], operator: 'in' },
+        ],
+      },
+    });
+  });
 });
 
 describe('pushBlocked', () => {
@@ -256,6 +354,30 @@ describe('pushBlocked', () => {
 
   it('does not trust an empty list', () => {
     expect(pushBlocked([])).toBe(false);
+  });
+});
+
+describe('unprotected', () => {
+  /** A REST API that answers only the paths given, and remembers every path asked for. */
+  const recording = (answers: Record<string, unknown> = {}) => {
+    const paths: string[] = [];
+    const rest = (async (path: string) => {
+      paths.push(path);
+      return answers[path] ?? null;
+    }) as Rest;
+    return { rest, paths };
+  };
+
+  it('reads the rule for the default branch and walks every group above the project, nearest first', async () => {
+    const { rest, paths } = recording({ '/projects/a%2Fb%2Fc%2Fproj/protected_branches/release%2F1': { push_access_levels: [{ access_level: 40 }] } });
+    expect(await unprotected(rest, 'a/b/c/proj', 'release/1')).toEqual(['"Pipelines must succeed" is off']);
+    expect(paths).toEqual(['/projects/a%2Fb%2Fc%2Fproj/protected_branches/release%2F1', '/projects/a%2Fb%2Fc%2Fproj', '/groups/a%2Fb%2Fc', '/groups/a%2Fb', '/groups/a']);
+  });
+
+  it('stops at the first group that requires pipelines to succeed', async () => {
+    const { rest, paths } = recording({ '/groups/a%2Fb': { only_allow_merge_if_pipeline_succeeds: true } });
+    expect(await unprotected(rest, 'a/b/c/proj', 'main')).toEqual(["nothing shows that only Maintainers can push to main (it isn't protected that way, or the rule couldn't be read)"]);
+    expect(paths.filter((p) => p.startsWith('/groups/'))).toEqual(['/groups/a%2Fb%2Fc', '/groups/a%2Fb']);
   });
 });
 
@@ -321,6 +443,14 @@ describe('writing the accounts at the end of a run', () => {
   it('leaves a file that already has the names alone', () => {
     const done = end({}).write!;
     expect(end({ text: done })).toEqual({ messages: ['.autonomy.yml already has these accounts'], errors: [] });
+  });
+
+  it("a dry run in another project's checkout doesn't say it writes .autonomy.yml", () => {
+    expect(end({ dryRun: true, own: 'someone/else', write: false }).messages).toEqual(['dry run: nothing changed']);
+  });
+
+  it('says so when this checkout is not a GitLab project at all', () => {
+    expect(end({ own: undefined, write: false }).messages).toEqual([".autonomy.yml not written: this checkout is not a GitLab project, not group/polyman. Put these names in that project's .autonomy.yml."]);
   });
 });
 
