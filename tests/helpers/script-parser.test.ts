@@ -810,3 +810,45 @@ describe('parseGeneratorScript - test count limits', () => {
     ).toHaveLength(10000);
   });
 });
+
+describe('line lookup on big scripts', () => {
+  const bigLine = 'gen ${1+1} ${2+2} ${3+3} ${4+4} ${5+5} > $';
+  const bigScript = (): string => {
+    const lines: string[] = [];
+    let size = 0;
+    while (size < 250 * 1024) {
+      lines.push(bigLine);
+      size += bigLine.length + 1;
+    }
+    return lines.join('\n');
+  };
+
+  it('parses a 250 KB script of ${...} lines in under a second', () => {
+    const script = bigScript();
+    expect(script.length).toBeGreaterThanOrEqual(250 * 1024);
+    const start = performance.now();
+    const parsed = parser.parseGeneratorScript(script);
+    const elapsed = performance.now() - start;
+    expect(parsed.length).toBeGreaterThan(5000);
+    expect(parsed.length).toBeLessThanOrEqual(10000);
+    expect(elapsed).toBeLessThan(1000);
+  });
+
+  it('reports the exact line of a bad expression late in a big script', () => {
+    const script = bigScript() + '\ngen ${i/2} > $';
+    const lastLine = script.split('\n').length;
+    expect(lastLine).toBeGreaterThan(5000);
+    expect(() => parser.parseGeneratorScript(script)).toThrow(
+      `on line ${lastLine}`
+    );
+    expect(() => parser.parseGeneratorScript(script)).toThrow(/\$\{i\/2\}/);
+  });
+
+  it('reports the exact line of an unterminated ${ late in a big script', () => {
+    const script = bigScript() + '\ngen ${1+1 > $';
+    const lastLine = script.split('\n').length;
+    expect(() => parser.parseGeneratorScript(script)).toThrow(
+      `Unterminated "\${" on line ${lastLine}`
+    );
+  });
+});
