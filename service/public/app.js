@@ -11,6 +11,7 @@ const els = {
   pick: $('#pick'),
   samples: $('#sample-list'),
   run: $('#run'),
+  head: $('#run > header'),
   title: $('#run-title'),
   verdict: $('#run-verdict'),
   sub: $('#run-sub'),
@@ -179,8 +180,6 @@ fetch('/api/samples')
       els.samples.append(b);
     }
     markSample(pending);
-    // on a phone the tabs scroll sideways: the row fades at its edge while more tabs are off to the right
-    const edge = () => els.samples.classList.toggle('more-right', els.samples.scrollLeft + els.samples.clientWidth < els.samples.scrollWidth - 2);
     els.samples.addEventListener('scroll', edge, { passive: true });
     addEventListener('resize', edge);
     edge();
@@ -196,13 +195,19 @@ fetch('/api/samples')
 
 const runSample = (name) => start(`/api/samples/${encodeURIComponent(name)}/verify`, null, name);
 
+/** Empty the card's body for what comes next, the guidelines too (after a result they sit below its actions). */
+function clearProblems(...nodes) {
+  els.run.querySelector(':scope > .more')?.remove();
+  els.problems.replaceChildren(...nodes);
+}
+
 /** Before any run: the demo sample's real solution names, waiting to be judged. */
 function showPreview(name) {
   const node = els.tpl.content.firstElementChild.cloneNode(true);
   $('.problem-name', node).classList.add('sr-only');
   $('.problem-name', node).textContent = name;
   waitingRows(node, name);
-  els.problems.replaceChildren(node);
+  clearProblems(node);
 }
 
 /** Before a sample runs: its solutions in the card, its story in the head, and the card's own button. */
@@ -233,7 +238,25 @@ function heroParts(at) {
     const from = i ? PARTS[i - 1] : 0;
     const state = at === -1 ? '' : at === 'stopped' ? (item.dataset.state === 'active' ? 'stopped' : item.dataset.state) : at >= PARTS[i] ? 'done' : at >= from ? 'active' : 'pending';
     item.dataset.state = state ?? '';
-    use.setAttribute('href', state === 'done' ? '#i-check' : state === 'active' ? '#i-spin' : item.dataset.icon);
+    use.setAttribute('href', state === 'done' ? '#i-check' : state === 'active' ? '#i-spin' : state === 'stopped' ? '#i-stop' : item.dataset.icon);
+  });
+}
+
+/** polyman's report names its steps; each belongs to one of the three parts (reading the config comes first). */
+const STEP_PART = {
+  'read-config': 0, 'compile-generators': 0, 'generate-tests': 0, 'compile-validator': 0, 'test-validator': 0, 'validate-tests': 0,
+  'compile-checker': 1, 'test-checker': 1,
+  'compile-solutions': 2, 'run-solutions': 2, 'verify-solutions': 2,
+};
+/** The run is over: each part ends passed (a check), failed (an x), or not reached; a contest's parts fail if any problem's did. */
+function heroResult(reports) {
+  document.querySelectorAll('.hero-parts .item').forEach((item, i) => {
+    const steps = reports.flatMap((r) => r.steps).filter((s) => STEP_PART[s.name] === i);
+    const use = $('figure use', item);
+    item.dataset.icon ??= use.getAttribute('href');
+    const state = !steps.length ? 'pending' : steps.every((s) => s.ok) ? 'done' : 'failed';
+    item.dataset.state = state;
+    use.setAttribute('href', state === 'done' ? '#i-check' : state === 'failed' ? '#i-x' : item.dataset.icon);
   });
 }
 
@@ -245,6 +268,23 @@ function markSample(name) {
   }
   // (an upload is none of them: then the first tab takes Tab)
   if (tabs.length && !tabs.some((b) => b.tabIndex === 0)) tabs[0].tabIndex = 0;
+  showTab(tabs.find((b) => b.dataset.sample === name));
+}
+
+/** On a phone the tabs scroll sideways: the row fades at its edge while more tabs are off to the right. */
+function edge() {
+  els.samples.classList.toggle('more-right', els.samples.scrollLeft + els.samples.clientWidth < els.samples.scrollWidth - 2);
+}
+
+/** Scroll the tab row (not the page) so a tab and its icon are clear of the edge fade. */
+function showTab(tab) {
+  if (!tab) return;
+  const list = els.samples.getBoundingClientRect();
+  const r = tab.getBoundingClientRect();
+  // (the fade is 40px wide)
+  if (r.right > list.right - 40) els.samples.scrollLeft += r.right - list.right + 40;
+  else if (r.left < list.left) els.samples.scrollLeft -= list.left - r.left;
+  edge();
 }
 
 /** A solution's label under its name; the word "labelled" only where no column heading says so (a phone). */
@@ -286,7 +326,11 @@ els.samples.addEventListener('keydown', (e) => {
   const to = { ArrowRight: at + 1, ArrowLeft: at - 1, Home: 0, End: tabs.length - 1 }[e.key];
   if (to === undefined || at < 0) return;
   e.preventDefault();
-  tabs[(to + tabs.length) % tabs.length].focus();
+  const next = tabs[(to + tabs.length) % tabs.length];
+  // (the focused tab is the one Tab leaves from, as in the APG tabs pattern)
+  for (const b of tabs) b.tabIndex = b === next ? 0 : -1;
+  next.focus();
+  showTab(next);
 });
 els.instead.addEventListener('click', () => runSample(pending));
 // the hero's button leads to the upload box first: it says what to zip before the file picker opens
@@ -411,6 +455,10 @@ function progress(t0) {
 
 async function start(url, body, name, tries = 1) {
   if (running) return;
+  // from a sample waiting to run, the card keeps its height while the run fills it in
+  // (after a result, only the running card's own: a long report's height would leave a gap)
+  const idle = !els.start.hidden;
+  const held = idle ? els.run.offsetHeight : 0;
   els.run.classList.remove('has-found');
   heroParts(0);
   // the sample cards mark the one in the result card; an upload is none of them
@@ -428,15 +476,22 @@ async function start(url, body, name, tries = 1) {
   // a sample's rows stay in view until the service says what it is checking
   els.run.style.minHeight = '';
   if (!body && expected.has(name)) showPreview(name);
-  else els.problems.replaceChildren();
+  else clearProblems();
   els.run.classList.remove('is-bad', 'is-good', 'has-found');
   lastVerdict = '';
   els.run.classList.add('is-running');
   setHead(`Checking ${label}`, 'Checking the problem…', 'Usually about 20 seconds.');
   setStatus('Running', 'secondary', true);
   showActions('running');
-  // hold the running card's own height, so the page doesn't jump while the run fills it in
-  els.run.style.minHeight = `${els.run.offsetHeight}px`;
+  // hold the card's height, so the page doesn't jump while the run fills it in
+  // (on a phone the card, scrolled up under its tabs, reaches the screen's foot, so the result grows into it, not into the page below)
+  const h = `${Math.max(held, els.run.offsetHeight)}px`;
+  els.run.style.minHeight = matchMedia('(max-width: 960px)').matches ? `max(${h}, calc(100svh - 130px))` : h;
+  // (the head is held at its longest progress line, the first step's, so it doesn't grow mid-run)
+  els.head.style.minHeight = '';
+  els.sub.textContent = `Step 1 of ${STEPS.length} · 10 s so far · usually about 20 s. This first step takes the longest.`;
+  holdHead();
+  els.sub.textContent = 'Usually about 20 seconds.';
   say(`Checking ${label}. This usually takes about 20 seconds.`);
   showCard();
   // the button that started the run is now disabled or hidden; keep focus where the answer will be
@@ -444,7 +499,10 @@ async function start(url, body, name, tries = 1) {
   runStart = performance.now();
   clearInterval(timer);
   timer = setInterval(() => {
-    if (!finished) els.sub.textContent = progress(runStart);
+    if (!finished) {
+      els.sub.textContent = progress(runStart);
+      holdHead();
+    }
   }, 1000);
   controller = new AbortController();
 
@@ -488,7 +546,7 @@ async function start(url, body, name, tries = 1) {
 /** The service checks one upload at a time: wait for the slot, then start again by itself. */
 function queue(wait, tries) {
   settle();
-  els.problems.replaceChildren();
+  clearProblems();
   if (tries >= MAX_TRIES) {
     setHead(`Not started: ${label}`, 'The service is still busy.', 'Other checks have kept it busy for a few minutes. Run it again in a minute.');
     setStatus('Busy', 'secondary');
@@ -550,7 +608,7 @@ function card(name) {
 function handle(ev) {
   events.push(ev);
   if (ev.type === 'start') {
-    els.problems.replaceChildren();
+    clearProblems();
     for (const name of ev.problems) {
       const node = els.tpl.content.firstElementChild.cloneNode(true);
       $('.problem-name', node).textContent = name;
@@ -591,10 +649,10 @@ function handle(ev) {
       heroParts(at);
       step = at + 1;
       els.sub.textContent = progress(runStart);
+      holdHead();
       say(`Step ${step} of ${STEPS.length}: ${STEP_WORDS[ev.title] ?? ev.title}.`);
     }
   } else if (ev.type === 'problem') {
-    if (cards.size === 1 && ev.report) heroParts(STEPS.length);
     renderProblem(card(ev.problem), ev);
   } else if (ev.type === 'done') {
     settle();
@@ -618,6 +676,9 @@ function handle(ev) {
     const reports = events.filter((e) => e.type === 'problem');
     const unfinished = !reports.length || reports.every((e) => !e.report);
     showActions('done');
+    // the hero's parts end as the report says each went; a run with no report leaves the part under way stopped
+    if (unfinished) heroParts('stopped');
+    else heroResult(reports.filter((e) => e.report).map((e) => e.report));
     if (!unfinished) suggestNext(ev.ok);
     else if (lastRun?.body) els.choose.hidden = false;
     // a sample's point, answered first: the demo asked "can the check find it?", sandbox-check "does the sandbox hold?"
@@ -639,11 +700,15 @@ function handle(ev) {
     els.run.classList.add(ev.ok ? 'is-good' : 'is-bad');
     // the sample's tab keeps its last answer, as an icon (shadcn tabs with icons)
     const tab = !lastRun?.body && !unfinished && [...els.samples.querySelectorAll('.sample')].find((b) => b.dataset.sample === label);
+    const status = ev.ok ? 'All good' : unfinished ? 'Did not finish' : 'Needs work';
     if (tab) {
-      $('svg.tab-result', tab)?.remove();
+      for (const old of tab.querySelectorAll('.tab-result')) old.remove();
       tab.insertAdjacentHTML('beforeend', icon(ev.ok ? 'i-check' : 'i-x').replace('<svg', `<svg class="tab-result ${ev.ok ? 'ok' : 'bad'}"`));
+      tab.insertAdjacentHTML('beforeend', `<span class="tab-result sr-only">, ${status.toLowerCase()}</span>`);
+      tab.dataset.tooltip = `${SAMPLE_HINT[label] ?? tab.dataset.tooltip.split(' · ')[0]} · ${status.toLowerCase()}`;
+      showTab(tab);
     }
-    setStatus(ev.ok ? 'All good' : unfinished ? 'Did not finish' : 'Needs work', ev.ok ? 'success' : 'destructive');
+    setStatus(status, ev.ok ? 'success' : 'destructive');
     // (the sample's answer is read once, as focus lands on it, so the announcement leaves it out)
     say(`Checked ${label} in ${ev.seconds.toFixed(1)} seconds. ${lastVerdict || els.verdict.textContent}`);
     els.verdict.focus({ preventScroll: true });
@@ -694,6 +759,8 @@ function renderProblem(card, ev) {
   if (cards.size === 1) {
     lastVerdict = title;
     setHead(null, title, body);
+    // (the verdict takes the head's place in the same frame as the rows: the head sizes itself again)
+    els.head.style.minHeight = '';
     if (/see the limits in the docs:$/.test(body)) {
       const a = document.createElement('a');
       a.href = '/docs#limits';
@@ -770,6 +837,8 @@ function renderProblem(card, ev) {
     $('.problem-error', card).textContent = error;
     if (!solutions.length) log.open = true;
   }
+  // one problem: its guidelines come after the card's actions, so the actions stay on the first screen
+  if (cards.size === 1) els.run.append($('.more', card));
 }
 
 /** The legend lists only the kinds of mark this report shows. */
@@ -914,19 +983,28 @@ function suggestNext(ok) {
   $('span', els.next).textContent = ok ? 'Now try one with a mistake' : 'Now try one that passes';
 }
 
+/** While a run is on, the card's head only ever grows (its progress line changes length), so the rows under it stay put. */
+function holdHead() {
+  els.head.style.minHeight = `${Math.max(els.head.offsetHeight, parseFloat(els.head.style.minHeight) || 0)}px`;
+}
+
 /** The run is over, with or without an answer: let the card size itself again. */
 function settle() {
   finished = true;
   clearInterval(timer);
   els.run.classList.remove('is-running');
   els.run.style.minHeight = '';
+  els.head.style.minHeight = '';
+  // a passing message from the run (a file dropped mid-run) goes with it, so it doesn't cover the result
+  clearTimeout(noticeTimer);
+  $('#toaster .toast')?.setAttribute('aria-hidden', 'true');
 }
 
 function stopped() {
   settle();
   // a sample keeps its solutions in view, as before it ran
   if (!lastRun?.body && expected.has(label)) showPreview(label);
-  else els.problems.replaceChildren();
+  else clearProblems();
   setHead(`Stopped ${label}`, 'You stopped the check.', 'Nothing was kept. Run it again whenever you like.');
   heroParts(-1);
   setStatus('Stopped', 'secondary');
@@ -994,8 +1072,9 @@ function showError(message, issues, kind = 'refused', detail = '') {
     ul.append(li);
   }
   if (!issues?.length) ul.remove();
-  els.problems.replaceChildren(box);
+  clearProblems(box);
   showActions(offline ? 'done' : 'refused');
+  if (offline) els.again.removeAttribute('data-variant');
   els.download.hidden = true;
   setBusy(false);
   showCard();

@@ -80,7 +80,7 @@ section[aria-labelledby] h2 { scroll-margin-top: 96px; }
 
 /* hero: the claim on the left, the product itself on the right */
 /* (the card's column is as wide as a result's twelve squares need, with the hero's top edge level with the tabs) */
-.hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr); gap: 40px; align-items: start; padding-block: 56px 64px; }
+.hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr); gap: 40px; align-items: start; padding-block: 24px 64px; }
 /* the claim stays in view beside a long result, instead of leaving an empty column */
 .hero-copy { position: sticky; top: 88px; }
 .hero h1 { font-size: clamp(2.2rem, 1.4rem + 2.2vw, 2.5rem); }
@@ -96,7 +96,7 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 .hero-note { margin: 24px 0 0; max-width: 46ch; font-size: 0.875rem; line-height: 1.55; color: var(--muted-foreground); text-wrap: pretty; }
 
 /* the samples: shadcn Tabs, the list full width over the card that is their panel */
-.run-col { gap: 12px; scroll-margin-top: 80px; }
+.run-col { scroll-margin-top: 80px; }
 .run-col .sample .tab-result { width: 14px; height: 14px; }
 .run-col .sample .tab-result.ok { color: var(--pass); }
 .run-col .sample .tab-result.bad { color: var(--fail); }
@@ -111,20 +111,26 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 .result { scroll-margin-top: 88px; }
 /* the card's edge is a ring, so the verdict tints the ring (not when a sample's answer leads: its badge and row say it) */
 .result.is-bad:not(.has-found) { --tw-ring-color: #fca5a5; }
-.result.is-good:not(.has-found) { --tw-ring-color: #67e8f9; }
+.result.is-good { --tw-ring-color: #67e8f9; }
 #run-status svg { animation: spin 900ms linear infinite; }
 .result > header { row-gap: 6px; }
 .result > header > .card-action { grid-row: 1; }
-.result > header > :is(#run-sub, .run-meta) { grid-column: 1 / -1; margin: 0; }
+/* the CardDescription: what the verdict means, then the run's own line in muted text */
+.result > header > .run-desc { grid-column: 1 / -1; margin: 0; }
 .result > header > h2 { font-size: 1.375rem; line-height: 1.3; font-weight: 650; letter-spacing: -0.02em; text-wrap: balance; outline: none; }
 .result.is-bad > header > h2 { color: var(--fail-ink); }
 .result.is-good > header > h2, .result.has-found > header > h2 { color: var(--pass-ink); }
 /* a sample's answer leads with shadcn's icon-and-title */
 .result > header > h2 > svg { display: inline-block; width: 1.05em; height: 1.05em; margin-right: 0.35em; vertical-align: -0.17em; color: var(--pass); }
-.result > header > #run-sub { color: var(--foreground); line-height: 1.55; text-wrap: pretty; }
-.run-meta { font-size: 0.8125rem; color: var(--muted-foreground); }
+.result > header > .run-desc { color: var(--foreground); line-height: 1.55; text-wrap: pretty; }
+.run-meta { font-size: 0.8125rem; color: var(--muted-foreground); white-space: nowrap; }
 /* the verdict arrives with one short fade, the rows top to bottom (tailwindcss-animate: animate-in fade-in slide-in-from-bottom-1) */
-.result:is(.is-good, .is-bad) > header > :is(h2, #run-sub) { animation: fade-in 200ms ease-out; }
+.result:is(.is-good, .is-bad) > header > :is(h2, .run-desc) { animation: fade-in 200ms ease-out; }
+/* a little tighter than Basecoat's 24px between the card's parts, so a result and its actions share a laptop screen */
+.result { gap: 20px; padding-block: 20px; }
+.run-col { gap: 8px; }
+/* the guidelines after the actions: the card's last row, so no rule under it */
+.result > .more > details:not(:has(~ details:not([hidden]))) { border-bottom: 0; }
 .sols tbody tr:not(.waiting) { animation: enter 200ms ease-out backwards; animation-delay: calc(var(--r, 0) * 40ms); }
 @keyframes fade-in { from { opacity: 0; } }
 @keyframes enter { from { opacity: 0; transform: translateY(0.25rem); } }
@@ -138,6 +144,8 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 /* indeterminate while the first, longest step runs */
 /* (the Skeleton's shimmer, in the pass colour: the bar is working, how far is not known yet) */
 .progress.indeterminate > span { width: 100%; background: linear-gradient(90deg, var(--muted) 0%, var(--pass) 50%, var(--muted) 100%) 0 0 / 200% 100%; animation: shimmer 1.4s linear infinite; }
+/* (with motion reduced the shimmer can't move, so the bar is the plain track until it knows how far) */
+@media (prefers-reduced-motion: reduce) { .progress.indeterminate > span { background: none; } }
 /* CardFooter: the actions in shadcn's order, and no empty footer while a run is on */
 .result > footer { flex-wrap: wrap; gap: 8px; }
 .result > footer #download { margin-left: auto; margin-right: calc(var(--spacing) * -3); }
@@ -165,7 +173,7 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 .sols th, .sols td { padding-inline: 8px; }
 .sols :is(th, td):first-child { padding-inline-start: 0; }
 .sols :is(th, td):last-child { padding-inline-end: 0; text-align: end; }
-.sols td { vertical-align: top; padding-block: 12px; white-space: normal; }
+.sols td { vertical-align: top; padding-block: 10px; white-space: normal; }
 .sols td.sol { width: 1%; white-space: nowrap; }
 .sols th { white-space: nowrap; line-height: 1.3; }
 .sols td.res { width: 1%; white-space: nowrap; }
@@ -211,6 +219,8 @@ button.dot:focus-visible { outline: 2px solid var(--primary); outline-offset: 2p
 .dots [data-tooltip]:focus-visible:before { display: inline-flex; visibility: visible; opacity: 1; scale: 1; --tw-translate-y: 0; translate: var(--tw-translate-x) var(--tw-translate-y); }
 /* (on a narrow screen a long test detail wraps instead of running off the card) */
 @media (max-width: 760px) { .dots [data-tooltip]:before { width: max-content; max-width: calc(50vw - 24px); white-space: normal; } }
+/* (on a wide screen the longest test detail fits on one line, uncut) */
+@media (min-width: 761px) { .dots [data-tooltip]:before { max-width: none; } }
 .dot.bad { background: var(--fail); }
 .dot.limit { background: var(--slow); }
 .dot svg { width: 10px; height: 10px; }
@@ -270,10 +280,12 @@ button.dot:focus-visible { outline: 2px solid var(--primary); outline-offset: 2p
 .hero-parts .item > figure { color: var(--primary); }
 .hero-parts .item strong { font-weight: 500; transition: color 200ms; }
 /* the three parts follow the run: waiting muted, under way with a Spinner, done with a check */
-.hero-parts .item[data-state='pending'] strong, .hero-parts .item[data-state='stopped'] strong { color: var(--muted-foreground); }
-.hero-parts .item[data-state='pending'] > figure, .hero-parts .item[data-state='stopped'] > figure { color: var(--muted-foreground); }
+/* (a part the run never reached is muted; one it broke off in keeps its words, with a stop mark) */
+.hero-parts .item[data-state='pending'] strong { color: var(--muted-foreground); }
+.hero-parts .item:is([data-state='pending'], [data-state='stopped']) > figure { color: var(--muted-foreground); }
 .hero-parts .item[data-state='active'] > figure svg { animation: spin 900ms linear infinite; }
 .hero-parts .item[data-state='done'] > figure { color: var(--pass); }
+.hero-parts .item[data-state='failed'] > figure { color: var(--fail); }
 @media (max-width: 960px) { .hero-parts { display: none; } }
 .flow h3 { margin: 0; font-size: 1.05rem; font-weight: 600; letter-spacing: -0.01em; }
 .flow p { margin: 8px 0 0; color: var(--muted-foreground); line-height: 1.6; text-wrap: pretty; }
@@ -347,6 +359,9 @@ button.dot:focus-visible { outline: 2px solid var(--primary); outline-offset: 2p
   .run-col > [role=tablist] { justify-content: flex-start; overflow-x: auto; scrollbar-width: none; }
   .run-col > [role=tablist].more-right { mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent); }
   .run-col .sample { flex: none; }
+  /* (a finger's worth of tab: 44px tall) */
+  .run-col > [role=tablist] { height: auto; }
+  .run-col .sample { height: 44px; }
   /* each solution stacks: name and result on top, then its tests across the full width */
   .sols thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
   .sols tbody { display: block; }
@@ -372,6 +387,8 @@ button.dot:focus-visible { outline: 2px solid var(--primary); outline-offset: 2p
 /* the result card has the run button beside the claim on a wide screen; the hero's copy of it is for phones,
    and the upload is a quiet link there, so the card's button is the one filled action on screen */
 @media (min-width: 961px) {
+  /* the claim and the card fill the first screen, so a result that grows doesn't push the page under it */
+  .hero { min-height: calc(100vh - 65px); }
   #demo { display: none; }
   #own { background: none; border-color: transparent; box-shadow: none; padding-inline: 0; height: auto; color: var(--primary); }
   #own:hover { text-decoration: underline; text-underline-offset: 3px; }
