@@ -9,7 +9,7 @@ const file = readFileSync(
   resolve(__dirname, '../../corpus/corpus.gitlab-ci.yml'),
   'utf8'
 );
-const lines = file.split('\n');
+const lines = file.split(/\r?\n/);
 
 interface Rule {
   if?: string;
