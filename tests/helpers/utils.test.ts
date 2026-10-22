@@ -13,6 +13,7 @@ import {
 } from '../../src/helpers/prebuilt-testlib';
 import { quoteShellArgument } from '../../src/helpers/shell';
 import * as utils from '../../src/helpers/utils';
+import type ConfigFile from '../../src/types';
 import type {
   LocalChecker,
   LocalGenerator,
@@ -997,6 +998,71 @@ describe('utils.ts', () => {
         throw new Error('Fail');
       });
       expect(() => utils.readConfigFile()).toThrow('Fail');
+    });
+  });
+
+  describe('ensureConfigSourcesExist', () => {
+    const baseConfig = (): ConfigFile =>
+      ({
+        validator: { name: 'validator', source: 'validator/val.cpp' },
+        checker: { name: 'chk', source: 'checker/chk.cpp' },
+        generators: [{ name: 'gen', source: 'generators/gen.cpp' }],
+        solutions: [{ name: 'main', source: 'solutions/main.cpp', tag: 'MA' }],
+      }) as ConfigFile;
+
+    const existing = (...files: string[]) => {
+      vi.mocked(fs.existsSync).mockImplementation(p =>
+        files.some(f => path.resolve(process.cwd(), f) === String(p))
+      );
+    };
+
+    it('passes when every named file exists', () => {
+      existing(
+        'validator/val.cpp',
+        'checker/chk.cpp',
+        'generators/gen.cpp',
+        'solutions/main.cpp'
+      );
+      expect(() => utils.ensureConfigSourcesExist(baseConfig())).not.toThrow();
+    });
+
+    it('reports a missing validator', () => {
+      existing('checker/chk.cpp', 'generators/gen.cpp', 'solutions/main.cpp');
+      expect(() => utils.ensureConfigSourcesExist(baseConfig())).toThrow(
+        'validator file not found: validator/val.cpp'
+      );
+    });
+
+    it('lists a missing validator, generator and solution together', () => {
+      existing('checker/chk.cpp');
+      let message = '';
+      try {
+        utils.ensureConfigSourcesExist(baseConfig());
+      } catch (error) {
+        message = (error as Error).message;
+      }
+      expect(message).toContain('validator file not found: validator/val.cpp');
+      expect(message).toContain(
+        'generator "gen" file not found: generators/gen.cpp'
+      );
+      expect(message).toContain(
+        'solution "main" file not found: solutions/main.cpp'
+      );
+      expect(message).not.toContain('checker file not found');
+    });
+
+    it('skips a standard checker', () => {
+      const config = baseConfig();
+      config.checker = { name: 'wcmp', source: 'wcmp.cpp', isStandard: true };
+      existing('validator/val.cpp', 'generators/gen.cpp', 'solutions/main.cpp');
+      expect(() => utils.ensureConfigSourcesExist(config)).not.toThrow();
+    });
+
+    it('reports a missing custom checker', () => {
+      existing('validator/val.cpp', 'generators/gen.cpp', 'solutions/main.cpp');
+      expect(() => utils.ensureConfigSourcesExist(baseConfig())).toThrow(
+        'checker file not found: checker/chk.cpp'
+      );
     });
   });
 

@@ -1200,6 +1200,39 @@ describe('pulling.ts', () => {
       expect(written()).toEqual([]);
     });
 
+    it('says no validator is set, not unsafe, when Polygon returns an empty name', async () => {
+      mockSdk.getValidator.mockResolvedValue('');
+
+      const result = await pulling.downloadValidator(
+        asSdk(mockSdk),
+        265691,
+        'dir'
+      );
+
+      expect(result.data).toEqual({ name: 'validator', source: 'val.cpp' });
+      expect(result.count).toBe(0);
+      expect(result.missing).toBe(true);
+      expect(mockSdk.viewFile).not.toHaveBeenCalled();
+      const warnings = vi.mocked(fmt).warning.mock.calls.map(c => c[0]);
+      expect(
+        warnings.some(w =>
+          w.includes('No validator set on Polygon for problem 265691')
+        )
+      ).toBe(true);
+      const errors = vi.mocked(fmt).error.mock.calls.map(c => c[0]);
+      expect(errors.some(e => e.includes('unsafe'))).toBe(false);
+    });
+
+    it('does not flag a refused unsafe name as a missing validator', async () => {
+      mockSdk.getValidator.mockResolvedValue('../x');
+
+      const result = await pulling.downloadValidator(asSdk(mockSdk), 1, 'dir');
+
+      expect(result.missing).toBeUndefined();
+      const errors = vi.mocked(fmt).error.mock.calls.map(c => c[0]);
+      expect(errors.some(e => e.includes('Refusing unsafe name'))).toBe(true);
+    });
+
     it('falls back to the default validator and says why when the name is unsafe', async () => {
       mockSdk.getValidator.mockResolvedValue('..\\evil.cpp');
 
