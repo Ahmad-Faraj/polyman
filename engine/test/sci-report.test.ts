@@ -514,6 +514,26 @@ describe('compareWithMain', () => {
     expect(text).toContain("main's usual jobs not run here: 1, 11.5 runner-min");
   });
 
+  it("does not list main's own measuring job as a usual job not run here", async () => {
+    const mine = { pipelineId: 50, jobs: [{ name: 'test', seconds: 60 }], leftOut: [{ name: 'autonomy:sci:pipeline', status: 'this job' }], footprint: footprint([], DEFAULT_SCI) };
+    const m = await compareWithMain(
+      gl([{ id: 1 }, { id: 2 }], {
+        1: [run('test', 60), run('autonomy:sci:pipeline', 30)],
+        2: [run('test', 60), run('autonomy:sci:pipeline', 30)],
+      }),
+      'main',
+      mine,
+    );
+    expect(m.mainOnly).toEqual({ jobs: 0, minutes: 0 });
+    expect(comparisonSummary(m)).toContain("main's usual jobs not run here: 0, 0.0 runner-min");
+  });
+
+  it('prints a tiny negative difference as +0.0 min, never -0.0', () => {
+    const text = comparisonSummary({ branch: 'main', pipelines: 3, top: [{ name: 'test', minutes: 3, mainMinutes: 3.02 }], mainOnly: { jobs: 0, minutes: 0 } });
+    expect(text).toContain('test: 3.0 min, main 3.0 min (+0.0 min, -1%)');
+    expect(text).not.toContain('-0.0');
+  });
+
   it('throws on a pipeline list that is not a list', async () => {
     await expect(compareWithMain(gl({}, {}), 'main', here)).rejects.toThrow(/did not return a list/);
   });

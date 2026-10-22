@@ -498,9 +498,11 @@ export async function compareWithMain(gl: Pick<GitLab, 'get'>, branch: string, p
   const list = await gl.get<{ id: number }[]>(path);
   if (!Array.isArray(list)) throw new Error(`GET ${path} did not return a list: ${JSON.stringify(list).slice(0, 100)}`);
   const ids = list.map((x) => x.id).filter((id) => id !== p.pipelineId);
+  // the measuring job is never counted here, so leave it out of main's side too
+  const self = new Set(p.leftOut.filter((j) => j.status === 'this job').map((j) => j.name));
   const runs = new Map<string, number[]>();
   for (const id of ids) {
-    const jobs = (await finishedJobs(gl, [id])).map((j) => ({ name: j.name, seconds: j.duration }));
+    const jobs = (await finishedJobs(gl, [id])).filter((j) => !self.has(j.name)).map((j) => ({ name: j.name, seconds: j.duration }));
     for (const [name, minutes] of minutesByName(jobs)) runs.set(name, [...(runs.get(name) ?? []), minutes]);
   }
   const here = minutesByName(p.jobs);
@@ -513,7 +515,12 @@ export async function compareWithMain(gl: Pick<GitLab, 'get'>, branch: string, p
 }
 
 export function comparisonSummary(m: MainComparison): string {
-  const diff = (here: number, main: number) => `${here >= main ? '+' : ''}${(here - main).toFixed(1)} min, ${here >= main ? '+' : ''}${main ? Math.round(((here - main) / main) * 100) : 0}%`;
+  const diff = (here: number, main: number) => {
+    // `|| 0` turns a rounded -0 into 0, so a tiny negative prints +0.0, not -0.0
+    const min = Number((here - main).toFixed(1)) || 0;
+    const pct = (main && Math.round(((here - main) / main) * 100)) || 0;
+    return `${min >= 0 ? '+' : ''}${min.toFixed(1)} min, ${pct >= 0 ? '+' : ''}${pct}%`;
+  };
   return [
     `Top ${m.top.length} jobs here by runner-min, against the median of the same job on ${m.branch}'s last ${m.pipelines} successful push pipelines:`,
     ...m.top.map((j) => `  ${j.name}: ${j.minutes.toFixed(1)} min, ${j.mainMinutes === null ? `not on ${m.branch}` : `${m.branch} ${j.mainMinutes.toFixed(1)} min (${diff(j.minutes, j.mainMinutes)})`}`),
