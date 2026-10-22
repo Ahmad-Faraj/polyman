@@ -1064,6 +1064,24 @@ describe('utils.ts', () => {
         'checker file not found: checker/chk.cpp'
       );
     });
+
+    it('requires every listed generator to exist, even if no testset uses it', () => {
+      const config = baseConfig();
+      config.generators = [
+        { name: 'gen', source: 'generators/gen.cpp' },
+        { name: 'unused', source: 'generators/unused.cpp' },
+      ];
+      // No testset references "unused"; its file is still required.
+      existing(
+        'validator/val.cpp',
+        'checker/chk.cpp',
+        'generators/gen.cpp',
+        'solutions/main.cpp'
+      );
+      expect(() => utils.ensureConfigSourcesExist(config)).toThrow(
+        'generator "unused" file not found: generators/unused.cpp'
+      );
+    });
   });
 
   describe('readFirstLine', () => {
