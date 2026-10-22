@@ -305,8 +305,12 @@ describe("git push's output and command", () => {
     expect(pushesInCommand('git --exec-path push origin a')).toEqual(['a']);
     // -P and -m are git subtree's options; plain git push has neither, so nothing after them is skipped
     expect(pushesInCommand('git push -P origin a')).toEqual(['a']);
+    // git push's own options with a value as a separate word
+    for (const option of ['-o ci.skip', '--push-option ci.skip', '--repo r', '--receive-pack x', '--exec x']) {
+      expect(pushesInCommand(`git push ${option} origin a`), option).toEqual(['a']);
+    }
     // git subtree push's own options with a value: the branch is still the last word
-    for (const option of ['--onto abc', '-b br', '--annotate foo']) {
+    for (const option of ['--onto abc', '-b br', '--branch br', '--annotate foo', '-m msg', '--message msg']) {
       expect(pushesInCommand(`git subtree push --prefix x ${option} origin main`), option).toEqual(['main']);
     }
     for (const command of ['git subtree push', 'git subtree push --prefix', 'git subtree push origin']) {
