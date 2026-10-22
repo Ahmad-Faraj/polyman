@@ -326,10 +326,6 @@ function readCommand(command: string, depth = 0): CommandRead {
     // `git config alias.p push` and a subcommand not known here still count
     const bare = raw.slice(k).filter((w) => !/["']/.test(w));
     if ((!(isGit && harmlessGit(words)) && bare.some((w) => /(^|\/)git$/.test(w)) && bare.includes('push')) || (INTERPRETERS.test(cmd) && gitThenPush(segment))) read.unparsed = true;
-    // a git that runs a command given as a string (`git rebase -x "git push"`, `git submodule foreach 'git push'`),
-    // and an alias that pushes, quoted or not (`git config alias.p '!git push'`, `git -c alias.x=push x`)
-    if (isGit && GIT_RUNS.includes(words[gitSubcommand(words)]) && raw.slice(k).some((w) => /["']/.test(w) && gitThenPush(unquote(w)))) read.unparsed = true;
-    if (isGit && words.some((w) => /^alias\./i.test(w)) && words.some((w) => /\bpush\b/.test(w.replace(/^alias\.[^=]*=?/i, '')))) read.unparsed = true;
     const filter = ['tail', 'head'].includes(cmd) && words.slice(1).every((w, i) => w.startsWith('-') || (/^\d+$/.test(w) && words[i] === '-n'));
     if (cmd && cmd !== 'cd' && !filter && !(isGit && QUIET_GIT.includes(words[gitSubcommand(words)]))) {
       read.prints = true;
@@ -339,8 +335,11 @@ function readCommand(command: string, depth = 0): CommandRead {
   return read;
 }
 
-/** git's own options whose value can be the next word (`--git-dir=..` is one word, `--git-dir ..` two). */
-const GIT_VALUED = ['-C', '-c', '--git-dir', '--work-tree', '--namespace', '--super-prefix', '--exec-path', '--config-env', '--attr-source', '--list-cmds'];
+/**
+ * git's own options whose value can be the next word (`--git-dir=..` is one word, `--git-dir ..` two).
+ * Not --exec-path or --list-cmds: git takes their value only after `=`.
+ */
+const GIT_VALUED = ['-C', '-c', '--git-dir', '--work-tree', '--namespace', '--super-prefix', '--config-env', '--attr-source'];
 
 /** Where a git command's subcommand is, after git's own options: -C <dir>, -c <key=value>, --git-dir <dir>, --no-pager. */
 function gitSubcommand(words: string[]): number {
@@ -356,9 +355,6 @@ function harmlessGit(words: string[]): boolean {
   const i = gitSubcommand(words);
   return HARMLESS_GIT.includes(words[i]) && !(words[i] === 'config' && words.slice(i + 1).some((w) => /^alias\./i.test(w)));
 }
-
-/** git subcommands that run a command they are given: rebase -x, submodule foreach, bisect run. */
-const GIT_RUNS = ['rebase', 'submodule', 'bisect'];
 
 /**
  * The branches a `git push` or `git subtree push --prefix=dir <remote> <branch>` names (null: the

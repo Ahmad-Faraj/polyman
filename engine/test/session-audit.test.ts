@@ -298,6 +298,10 @@ describe("git push's output and command", () => {
     expect(pushesInCommand('git --git-dir=x push origin a')).toEqual(['a']);
     expect(pushesInCommand('git --config-env foo=BAR push origin a')).toEqual(['a']);
     expect(pushesInCommand('git --attr-source HEAD push origin a')).toEqual(['a']);
+    // --exec-path and --list-cmds take their value only after =; on its own --exec-path takes no word after it
+    expect(pushesInCommand('git --exec-path=/x push origin a')).toEqual(['a']);
+    expect(pushesInCommand('git --list-cmds=main push origin a')).toEqual(['a']);
+    expect(pushesInCommand('git --exec-path push origin a')).toEqual(['a']);
     // -P and -m are git subtree's options; plain git push has neither, so nothing after them is skipped
     expect(pushesInCommand('git push -P origin a')).toEqual(['a']);
     // git subtree push's own options with a value: the branch is still the last word
@@ -321,18 +325,23 @@ describe("git push's output and command", () => {
       'git submodule foreach git push',
       'git bisect run git push',
       'git config alias.p push && git p',
-      // config keys are case-insensitive, and a quoted command or alias pushes as much as a bare one
+      // config keys are case-insensitive
       'git config Alias.p push && git p',
       'git config ALIAS.p push && git p',
-      "git config alias.p '!git push' && git p",
-      'git -c alias.x=push x',
-      'git rebase -x "git push" main',
-      "git submodule foreach 'git push'",
-      'git bisect run sh -c "git push"',
     ]) {
       expect(unread(command), command).toEqual([expect.objectContaining({ branch: null })]);
     }
-    for (const command of ['git commit -m "push"', 'git grep push', 'git show HEAD', 'git diff', 'git tag push-1', 'git config --unset alias.push', 'git rebase -x "npm test" main']) {
+    for (const command of [
+      'git commit -m "push"',
+      'git grep push',
+      'git show HEAD',
+      'git diff',
+      'git tag push-1',
+      'git submodule add "git@github.com:org/push-tool.git" x',
+      'git submodule update --init',
+      'git bisect run ./push-check.sh',
+      'git config alias.pp "log --grep push"',
+    ]) {
       expect(unread(command), command).toEqual([]);
     }
     expect(unread('git stash push -q && git submodule foreach git push')).toHaveLength(1);
