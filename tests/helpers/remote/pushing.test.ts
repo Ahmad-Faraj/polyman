@@ -423,6 +423,23 @@ describe('pushing.ts', () => {
         expect(mocks.saveSolution.mock.calls[0][1]).toBe('ProblemA.JAVA');
       });
 
+      it.each(['sol-a.java', '1a.java', 'class.java'])(
+        'leaves %s byte-identical when the base name is not an identifier',
+        async source => {
+          const { sdk, mocks } = buildSdk();
+          const code = 'public class Main {\n  Main() {}\n}\n';
+          mockedReadFileSync.mockReturnValue(code);
+          mockedExistsSync.mockReturnValue(true);
+          const cfg = asConfig({
+            solutions: [{ name: 'a', source, tag: 'MA' }],
+          });
+
+          await pushing.uploadSolutions(sdk, 1, 'dir', cfg);
+
+          expect(mocks.saveSolution.mock.calls[0][2]).toBe(code);
+        }
+      );
+
       it('leaves C++ solutions unchanged', async () => {
         const { sdk, mocks } = buildSdk();
         const code = 'class ProblemA {};\n';

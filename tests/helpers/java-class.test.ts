@@ -143,6 +143,17 @@ describe('renamePublicClass', () => {
     expect(renamePublicClass(code, 'Main', '')).toBe(code);
   });
 
+  it('returns the code unchanged when the old name is not an identifier', () => {
+    const code = 'public class 1a {}';
+    expect(renamePublicClass(code, '1a', 'S')).toBe(code);
+    expect(renamePublicClass('public class sol-a {}', 'sol-a', 'S')).toBe(
+      'public class sol-a {}'
+    );
+    expect(renamePublicClass('public class class {}', 'class', 'S')).toBe(
+      'public class class {}'
+    );
+  });
+
   it('returns the code unchanged when both names are equal', () => {
     const code = 'public class Main {}';
     expect(renamePublicClass(code, 'Main', 'Main')).toBe(code);

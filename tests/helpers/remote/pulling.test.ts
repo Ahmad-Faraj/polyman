@@ -228,6 +228,19 @@ describe('pulling.ts', () => {
         expect(written).not.toContain('public class Main');
       });
 
+      it.each(['sol-a.java', '1a.java', 'class.java'])(
+        'leaves %s byte-identical when the base name is not an identifier',
+        async name => {
+          const code = 'public class Main {\n  Main() {}\n}\n';
+          mockSdk.getSolutions.mockResolvedValue([entry(name, 'java21')]);
+          mockSdk.viewSolution.mockResolvedValue(code);
+
+          await pulling.downloadSolutions(asSdk(mockSdk), 1, 'dir');
+
+          expect(vi.mocked(fs.writeFileSync).mock.calls[0][1]).toBe(code);
+        }
+      );
+
       it('leaves C++ solutions unchanged', async () => {
         const cpp = 'class Main {};\n';
         mockSdk.getSolutions.mockResolvedValue([
