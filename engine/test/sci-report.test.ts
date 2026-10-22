@@ -122,16 +122,14 @@ describe('what CI shows', () => {
   const s = summarize(sessions, DEFAULT_SCI, 560);
   const ci = { scope: "!7's 2 finished pipelines before this one", pipelines: 2, footprint: footprint([{ name: 'test', duration: 1200 }]), perPipelineGrams: 0.5, perPipelineMinutes: 10 };
 
-  it('writes a metrics report: one "name value" per line, one set per tier, and the CI footprint', () => {
-    const text = metricsText(s, ci);
+  it('writes a metrics report: one "name value" per line, one set per tier, and no CI footprint', () => {
+    const text = metricsText(s);
     for (const line of text.trim().split('\n')) expect(line).toMatch(/^[a-z][a-z0-9_]* -?\d+(\.\d+)?$/);
     expect(text).toContain('sci_review_high_reviews 2\n');
     expect(text).toContain('sci_review_low_model_calls_median 6\n');
     expect(text).toContain(`sci_grid_gco2e_per_kwh ${DEFAULT_SCI.gridGramsPerKwh}\n`);
-    // one name on MRs and on main, per pipeline, so the widget can compare them
-    expect(text).toContain('sci_ci_runner_gco2e_per_pipeline_median 0.5\n');
-    expect(text).toContain('sci_ci_runner_minutes_per_pipeline_median 10\n');
-    expect(metricsText(s)).not.toMatch(/sci_ci_/);
+    // an MR's median of earlier pipelines is not comparable with main's, so neither side writes one
+    expect(text).not.toMatch(/^sci_ci_/m);
   });
 
   it('summarizes in the job log, saying where the Impact Framework disagrees', () => {
