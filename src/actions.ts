@@ -1463,10 +1463,17 @@ export const remotePullProblemAction = async (
     );
 
     // step 7: Download test files
+    let defaultTestsDownloaded = false;
     if (pullTests) {
       const testsets = options!.tests;
       if (!testsets) {
-        await stepDownloadTests(stepNum++, sdk, problemId, 'tests', savePath);
+        defaultTestsDownloaded = await stepDownloadTests(
+          stepNum++,
+          sdk,
+          problemId,
+          'tests',
+          savePath
+        );
       } else {
         const testsetsArr = testsets.split(',');
         for (const testset of testsetsArr) {
@@ -1484,9 +1491,11 @@ export const remotePullProblemAction = async (
       `  ${fmt.infoIcon()} Review Config.json and update solution tags as needed`
     );
     if (pullTests && !options?.tests) {
-      fmt.info(
-        `  ${fmt.infoIcon()} Testsets downloaded: ${fmt.highlight('tests')}`
-      );
+      if (defaultTestsDownloaded) {
+        fmt.info(
+          `  ${fmt.infoIcon()} Testsets downloaded: ${fmt.highlight('tests')}`
+        );
+      }
       fmt.info(
         `  ${fmt.infoIcon()} Other testsets were not pulled (Polygon's API cannot list them). Name them with ${fmt.highlight('-t a,b')}`
       );
