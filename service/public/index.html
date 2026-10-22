@@ -85,7 +85,7 @@
           <p id="announce" class="sr-only" aria-live="polite"></p>
           <div id="problems" class="problems"></div>
           <!-- the run as it happens: each event the service sends, timed from the click -->
-          <pre id="run-log" class="run-log" hidden tabindex="0" aria-live="off" aria-label="What the service is doing, as it happens"></pre>
+          <pre id="run-log" class="run-log" role="log" hidden tabindex="0" aria-live="off" aria-label="What the service is doing, as it happens"></pre>
         </section>
         <footer id="run-actions" hidden>
           <button type="button" id="start" class="btn"><svg aria-hidden="true"><use href="#i-play"/></svg>Run the check</button>
@@ -103,15 +103,16 @@
     <div class="gitlab-copy">
       <h2 id="gitlab-title" tabindex="-1">Built and shipped on GitLab</h2>
       <p>AI agents write changes to this service on GitLab, and they start only after a person says go ahead. CI rebuilds the record of every go-ahead from GitLab's own data, so you can check it yourself.</p>
+      <p class="before-after">polyman 3.0.0 shipped 8 bugs its 967 unit tests missed. On GitLab, the judges found all 8 and the fixes shipped in 3.0.1. <a href="https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/wikis/Before-After">Before and after</a></p>
     </div>
     <div class="item-group records">
-      <a class="item" href="https://showcase-ce2cdc.gitlab.io/ledger/"><figure><svg aria-hidden="true"><use href="#i-ledger"/></svg></figure><section><h3>Go-ahead ledger</h3><p>Every push an agent made, judged against who said go ahead. Hash-chained, so a record can't be changed later.</p><small class="item-stat" data-stat="ledger" hidden></small></section><aside><svg aria-hidden="true"><use href="#i-out"/></svg></aside></a>
+      <a class="item" href="https://showcase-ce2cdc.gitlab.io/ledger/"><figure><svg aria-hidden="true"><use href="#i-ledger"/></svg></figure><section><h3>Go-ahead ledger</h3><p>Every push an agent made, judged against who said go ahead. Hash-chained, so a record can't be changed later.</p><small class="item-stat loading" data-stat="ledger"></small></section><aside><svg aria-hidden="true"><use href="#i-out"/></svg></aside></a>
       <hr>
-      <a class="item" href="https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/pipelines"><figure><svg aria-hidden="true"><use href="#i-pipe"/></svg></figure><section><h3>Pipelines</h3><p>The builds, tests and deploys behind this page.</p><small class="item-stat" data-stat="pipelines" hidden></small></section><aside><svg aria-hidden="true"><use href="#i-out"/></svg></aside></a>
+      <a class="item" href="https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/pipelines"><figure><svg aria-hidden="true"><use href="#i-pipe"/></svg></figure><section><h3>Pipelines</h3><p>The builds, tests and deploys behind this page.</p><small class="item-stat loading" data-stat="pipelines"></small></section><aside><svg aria-hidden="true"><use href="#i-out"/></svg></aside></a>
       <hr>
-      <a class="item" href="https://showcase-ce2cdc.gitlab.io/sci/"><figure><svg aria-hidden="true"><use href="#i-leaf"/></svg></figure><section><h3>Agent carbon</h3><p>The carbon the review agents emit per merge request, measured as Software Carbon Intensity.</p><small class="item-stat" data-stat="sci" hidden></small></section><aside><svg aria-hidden="true"><use href="#i-out"/></svg></aside></a>
+      <a class="item" href="https://showcase-ce2cdc.gitlab.io/sci/"><figure><svg aria-hidden="true"><use href="#i-leaf"/></svg></figure><section><h3>Agent carbon</h3><p>The carbon the review agents emit per merge request, measured as Software Carbon Intensity.</p><small class="item-stat loading" data-stat="sci"></small></section><aside><svg aria-hidden="true"><use href="#i-out"/></svg></aside></a>
       <hr>
-      <a class="item" href="https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase"><figure><svg aria-hidden="true"><use href="#i-git"/></svg></figure><section><h3>Source</h3><p>The service, the agents' setup and this page.</p></section><aside><svg aria-hidden="true"><use href="#i-out"/></svg></aside></a>
+      <a class="item" href="https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/wikis/Judge-dashboard"><figure><svg aria-hidden="true"><use href="#i-scale"/></svg></figure><section><h3>Judges</h3><p>The corpus, the Polygon round trip and mutation testing judge polyman itself, on every merge request and every night.</p><small class="item-stat loading" data-stat="judges"></small></section><aside><svg aria-hidden="true"><use href="#i-out"/></svg></aside></a>
     </div>
   </section>
 
@@ -174,7 +175,7 @@
     <section class="accordion more" hidden>
       <details class="how" hidden>
         <summary><span class="how-title">How it was checked</span><svg aria-hidden="true"><use href="#i-chevron"/></svg></summary>
-        <section><ol class="how-steps"></ol><pre class="how-log" tabindex="0" aria-label="The run as it happened"></pre></section>
+        <section><ol class="how-steps"></ol><details class="how-run"><summary>The run as it happened</summary><pre class="how-log" role="region" tabindex="0" aria-label="The run as it happened"></pre></details></section>
       </details>
       <details class="guides">
         <summary><span class="guides-title">Contest guidelines</span><svg aria-hidden="true"><use href="#i-chevron"/></svg></summary>

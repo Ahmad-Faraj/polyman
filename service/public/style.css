@@ -337,21 +337,33 @@ button.dot:focus-visible { outline: 2px solid var(--primary); outline-offset: 2p
 .docs .table th { background: var(--muted); font-size: 0.8rem; color: var(--muted-foreground); }
 
 /* the run as it happens: a log in Basecoat's code style, a muted band flush in the card (shadcn ScrollArea: fixed height, newest at the foot) */
-.run-log, .how-log { margin: 0; padding: 10px 12px; background: var(--muted); border-radius: calc(var(--radius) - 2px); font-family: var(--font-mono); font-size: 0.75rem; line-height: 1.6; color: var(--foreground); white-space: normal; overflow-wrap: anywhere; }
-.run-log { height: calc(6 * 1.6em + 20px); overflow-y: auto; scrollbar-width: thin; }
+.run-log, .how-log { margin: 0; padding: 0; font-family: var(--font-mono); font-size: 0.75rem; line-height: 1.6; color: var(--foreground); white-space: normal; overflow-wrap: anywhere; }
+/* (flush in the card under a hairline: whole lines only, the oldest fading out at the top) */
+.run-log { margin-top: 16px; padding-top: 10px; border-top: 1px solid var(--border); height: calc(6 * 1.6em + 10px); overflow-y: auto; scrollbar-width: none; mask-image: linear-gradient(to bottom, transparent 10px, #000 calc(10px + 1.6em)); }
+.run-log::-webkit-scrollbar { display: none; }
 .run-log[hidden] { display: none; }
+.run-log:focus-visible, .how-log:focus-visible { outline-offset: -2px; }
+.log-tick { color: var(--muted-foreground); font-weight: 400; font-variant-numeric: tabular-nums; }
 .log-line { display: grid; grid-template-columns: 6ch minmax(0, 1fr); column-gap: 1.5ch; }
 .log-t { color: var(--muted-foreground); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
 .run-log .log-line:last-child { font-weight: 600; }
-.how-log { margin-top: 12px; }
-@media (max-width: 760px) { .run-log { height: calc(3 * 1.6em + 20px); } }
+.how-run { margin-top: 10px; }
+.how-run > summary { cursor: pointer; font-size: 0.8125rem; color: var(--muted-foreground); padding-block: 4px; width: fit-content; }
+.how-run > summary:focus-visible { outline-offset: -2px; }
+.how-run[open] > summary { margin-bottom: 6px; }
+.how-note { color: var(--muted-foreground); }
+@media (max-width: 760px) { .run-log { height: calc(3 * 1.6em + 10px); } }
 /* what the run did, counted from its report: the numbers in the foreground, the words muted */
 .run-facts { color: var(--muted-foreground); font-size: 0.8125rem; }
 .run-facts .fact { white-space: nowrap; }
+.run-facts .fact + .fact::before { content: '·'; margin-inline: 0.3em; color: var(--muted-foreground); }
+.result > header > .run-desc > .run-facts { font-size: 0.75rem; }
+/* (on a phone the facts wrap: gaps part them, so no dot starts or ends a line) */
+@media (max-width: 760px) { .run-facts { column-gap: 14px; } .run-facts .fact + .fact::before { content: none; } }
 .run-facts b { color: var(--foreground); font-weight: 600; font-variant-numeric: tabular-nums; }
-.result > header > .run-desc > .run-facts { display: block; margin-top: 4px; }
+.result > header > .run-desc > .run-facts { display: flex; flex-wrap: wrap; margin-top: 4px; }
 .result > header > .run-desc > .run-facts[hidden] { display: none; }
-.verdict .run-facts { display: block; margin: 6px 0 0; }
+.verdict .run-facts { display: flex; flex-wrap: wrap; margin: 6px 0 0; }
 /* "How it was checked": the ten steps, each passed or failed and how long it took */
 .how-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
 .how-steps li { display: grid; grid-template-columns: 18px 1fr auto; gap: 10px; align-items: center; padding: 3px 0; font-size: 0.875rem; }
@@ -360,8 +372,12 @@ button.dot:focus-visible { outline: 2px solid var(--primary); outline-offset: 2p
 .how-steps li.stopped svg { color: var(--muted-foreground); }
 .how-time { color: var(--muted-foreground); font-size: 0.8125rem; font-variant-numeric: tabular-nums; }
 /* the GitLab records' own figures, read from what they publish */
-.records .item .item-stat { display: block; margin-top: 4px; font-size: 0.8125rem; color: var(--foreground); font-variant-numeric: tabular-nums; text-wrap: pretty; }
+.records .item .item-stat { display: block; margin-top: 4px; min-height: calc(2 * 1.45em); font-size: 0.8125rem; line-height: 1.45; color: var(--foreground); font-variant-numeric: tabular-nums; text-wrap: pretty; }
+.records .item .item-stat.loading::before { content: ''; display: block; width: 60%; height: 0.8em; margin-top: 0.35em; border-radius: 4px; background: var(--muted); animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
 .records .item .item-stat[hidden] { display: none; }
+.gitlab-copy .before-after { color: var(--foreground); }
+/* (the pipeline's line is short: one line held on a wide screen) */
+@media (min-width: 961px) { .records .item .item-stat[data-stat=pipelines] { min-height: 1.45em; } }
 
 @media (max-width: 960px) {
   .hero { grid-template-columns: minmax(0, 1fr); gap: 32px; padding-block: 48px 40px; }
@@ -445,4 +461,14 @@ button.dot:focus-visible { outline: 2px solid var(--primary); outline-offset: 2p
   .sols .dots { gap: 4px; }
   .sols .dots .dot:nth-child(5n):not(:last-child) { margin-right: 4px; }
   .sols button.dot::after { inset: -1px; }
+}
+
+/* the tab just pressed keeps its tooltip quiet until the pointer leaves it */
+.run-col .sample.quiet[data-tooltip]::before { display: none; }
+@media (prefers-reduced-motion: reduce) { .records .item .item-stat.loading::before { animation: none; } }
+
+/* a short laptop screen (about 730 px of page): the rows sit closer, so the card's actions stay on the first screen */
+@media (min-width: 961px) and (max-height: 760px) {
+  .sols td { padding-block: 6px; }
+  .result { gap: 16px; }
 }

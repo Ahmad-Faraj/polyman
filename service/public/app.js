@@ -159,6 +159,8 @@ const reached = new Map();
 let runLog = [];
 /** When each of a problem's steps began, on the same clock. */
 const stepAt = new Map();
+/** When the (single) problem's result arrived, on the same clock. */
+let resultAt = 0;
 let lastVerdict = '';
 /** Each sample's solution names, so a run shows who is being judged before results arrive. */
 const expected = new Map();
@@ -179,36 +181,86 @@ fetch('/api/version')
 
 /** The GitLab records with a line of real figures each, read from the project's own published data; the plain text stays if a source can't be read. */
 const getJSON = (url) => fetch(url).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))));
-const day = (iso) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+/** How many items a GitLab list has, from its X-Total header. */
+const getTotal = (url) =>
+  fetch(url).then((r) => {
+    const n = Number(r.headers.get('x-total'));
+    return r.ok && Number.isInteger(n) && n >= 0 ? n : Promise.reject(new Error(`HTTP ${r.status}`));
+  });
+// (dates as the sources write them, in UTC, so every viewer sees the same day)
+const isDate = (iso) => typeof iso === 'string' && !Number.isNaN(Date.parse(iso));
+const day = (iso) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+const count = (n) => Number.isInteger(n) && n >= 0;
+const grams = (g) => (g < 10 ? g.toFixed(1) : String(Math.round(g)));
+/** A record's line of figures; a source that can't be read, or reads oddly, leaves the plain text alone. */
 function stat(name, text) {
   const el = $(`[data-stat="${name}"]`);
   el.textContent = text;
-  el.hidden = false;
+  el.classList.remove('loading');
 }
+function noStat(name, err) {
+  console.warn(`${name} figures unavailable`, err);
+  $(`[data-stat="${name}"]`).hidden = true;
+}
+const bad = (what) => Promise.reject(new Error(`unexpected ${what}`));
 getJSON(`${PAGES}/ledger/ledger.json`)
   .then((l) => {
-    const n = l.records.length;
-    const through = l.records.filter((r) => r.accepted).length;
-    const newest = l.records.map((r) => r.merged_at).sort().at(-1);
-    // (the ledger's own words: pushes let through, each on its own go-ahead)
-    stat('ledger', `${through === n ? `All ${n}` : `${through} of ${n}`} agent pushes let through, each on its own go-ahead · newest ${day(newest)} · chain head ${l.head.slice(0, 7)}`);
+    const recs = Array.isArray(l?.records) ? l.records : [];
+    if (!recs.length || !recs.every((r) => isDate(r?.merged_at) && typeof r?.go_ahead?.by === 'string' && typeof r?.agent === 'string')) return bad('ledger');
+    const approved = recs.filter((r) => r.accepted === true && r.approver_not_requester === true).length;
+    const agents = new Set(recs.map((r) => r.agent)).size;
+    const approvers = new Set(recs.map((r) => r.go_ahead.by)).size;
+    const newest = recs.map((r) => r.merged_at).sort().at(-1);
+    // (counts only: who approved stays on the ledger's own page)
+    stat('ledger', `${approved === recs.length ? recs.length : `${approved} of ${recs.length}`} agent pushes, each approved by a teammate who didn't ask for it · ${plural(agents, 'agent')}, ${plural(approvers, 'approver')} · newest ${day(newest)}`);
+    if (typeof l.head === 'string') $('[data-stat="ledger"]').title = `Chain head ${l.head.slice(0, 12)}`;
   })
-  .catch((err) => console.warn('ledger unavailable', err));
-getJSON(`${API}/pipelines?ref=main&per_page=20`)
+  .catch((err) => noStat('ledger', err));
+// the deploys: pipelines a push to main started (the nightly judges run on a schedule and are left out)
+getJSON(`${API}/pipelines?ref=main&source=push&per_page=20`)
   .then((list) => {
-    const words = { success: 'passed', failed: 'failed', canceled: 'canceled', running: 'running', pending: 'pending', created: 'pending', skipped: 'skipped', manual: 'waiting for a person' };
+    if (!Array.isArray(list) || !list.length || !list.every((p) => count(p?.iid) && typeof p?.status === 'string')) return bad('pipelines');
+    const done = list.find((p) => ['success', 'failed'].includes(p.status) && isDate(p.updated_at));
     const latest = list[0];
-    const done = list.find((p) => ['success', 'failed', 'canceled'].includes(p.status));
-    if (!latest) return;
-    stat('pipelines', [`Pipeline #${latest.iid} on main: ${words[latest.status] ?? latest.status}`, done && done !== latest ? `last finished #${done.iid}: ${words[done.status]}, ${day(done.updated_at)}` : ''].filter(Boolean).join(' · '));
+    const parts = [];
+    if (latest.status === 'manual') parts.push(`Pipeline #${latest.iid} on main: waiting for a person`);
+    else if (['running', 'pending', 'created'].includes(latest.status)) parts.push(`Pipeline #${latest.iid} on main: running`);
+    if (done) parts.push(`last deploy pipeline #${done.iid} ${done.status === 'success' ? 'passed' : 'failed'}, ${day(done.updated_at)}`);
+    if (!parts.length) return bad('pipelines');
+    parts[0] = cap(parts[0]);
+    stat('pipelines', parts.join(' · '));
   })
-  .catch((err) => console.warn('pipelines unavailable', err));
+  .catch((err) => noStat('pipelines', err));
 getJSON(`${PAGES}/sci/sci-report.json`)
   .then((s) => {
-    const reviews = (s.tiers ?? []).reduce((n, t) => n + t.reviews, 0);
-    stat('sci', [`${s.sessions} agent sessions measured`, reviews ? `${reviews} merge request reviews` : '', `${day(s.from)} to ${day(s.to)}`].filter(Boolean).join(' · '));
+    const tiers = Array.isArray(s?.tiers) ? s.tiers : [];
+    const tier = (name) => tiers.find((t) => t?.tier === name && Number.isFinite(t?.grams?.low) && Number.isFinite(t?.grams?.high) && count(t?.reviews));
+    const high = tier('high');
+    const low = tier('low');
+    if (!high || !low || !isDate(s.from) || !isDate(s.to)) return bad('carbon report');
+    const reviews = tiers.reduce((n, t) => n + (count(t?.reviews) ? t.reviews : 0), 0);
+    // (the report's medians per review, each a low-high range)
+    stat('sci', `High-risk review ${grams(high.grams.low)}–${grams(high.grams.high)} g CO₂e, low-risk ${grams(low.grams.low)}–${grams(low.grams.high)} g (medians) · ${plural(reviews, 'review')}, ${day(s.from)} to ${day(s.to)}`);
   })
-  .catch((err) => console.warn('carbon report unavailable', err));
+  .catch((err) => noStat('sci', err));
+// the judges: bugs their issues are labelled as found by, and the incidents the nightly runs and drills filed
+Promise.all([
+  getTotal(`${API}/issues?labels=found-by::corpus,bug&state=all&per_page=1`),
+  getTotal(`${API}/issues?labels=found-by::polygon,bug&state=all&per_page=1`),
+  getTotal(`${API}/issues?labels=found-by::mutation&state=all&per_page=1`),
+  getJSON(`${API}/issues?issue_type=incident&state=all&per_page=100`),
+])
+  .then(([corpus, polygon, mutation, incidents]) => {
+    if (!Array.isArray(incidents) || !incidents.every((i) => typeof i?.state === 'string' && typeof i?.title === 'string')) return bad('issues');
+    if (!corpus && !polygon) return bad('issues');
+    const closed = incidents.filter((i) => i.state === 'closed').length;
+    const drills = incidents.filter((i) => /^drill\b/i.test(i.title)).length;
+    const parts = [`${plural(corpus + polygon, 'bug')} found: ${corpus} by the corpus, ${polygon} by the Polygon round trip`];
+    if (mutation) parts.push(`${plural(mutation, 'issue')} from mutation testing`);
+    if (incidents.length) parts.push(`${plural(incidents.length, 'incident')}${drills ? ` (${drills} ${drills === 1 ? 'drill' : 'drills'})` : ''}, ${closed === incidents.length ? 'all closed' : `${closed} closed`}`);
+    stat('judges', parts.join(' · '));
+  })
+  .catch((err) => noStat('judges', err));
 
 fetch('/api/samples')
   .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
@@ -233,7 +285,12 @@ fetch('/api/samples')
       b.dataset.tooltip = hint;
       b.dataset.side = 'bottom';
       b.setAttribute('aria-description', hint);
-      b.addEventListener('click', () => runSample(s.name));
+      b.addEventListener('click', () => {
+        // (the tooltip of the tab just pressed would sit over the card for the whole run)
+        b.classList.add('quiet');
+        b.addEventListener('pointerleave', () => b.classList.remove('quiet'), { once: true });
+        runSample(s.name);
+      });
       els.samples.append(b);
     }
     markSample(pending);
@@ -544,6 +601,7 @@ async function start(url, body, name, tries = 1) {
   runStart = performance.now();
   runLog = [];
   stepAt.clear();
+  resultAt = 0;
   els.log.replaceChildren();
   els.log.hidden = false;
   logLine(null, body ? `Sent ${name} to the service` : `Asked the service to check the ${name} sample`);
@@ -593,6 +651,7 @@ async function start(url, body, name, tries = 1) {
     if (!finished) {
       els.sub.textContent = progress(runStart);
       holdHead();
+      tickLog();
     }
   }, 1000);
   controller = new AbortController();
@@ -744,9 +803,12 @@ function handle(ev) {
     }
   } else if (ev.type === 'problem') {
     const t = performance.now() - runStart;
+    resultAt = t;
     logLine(ev.problem, `Result: ${renderProblem(card(ev.problem), ev, t)}`);
   } else if (ev.type === 'done') {
-    logLine(null, `Done · ${seconds(ev.seconds)} on the service`);
+    // (every time on the page is on one clock, the page's, from the click)
+    const took = (cards.size === 1 && resultAt) || performance.now() - runStart;
+    logLine(null, 'Done');
     // the log folds into each problem's "How it was checked"
     for (const [name, c] of cards) {
       // (one problem's details sit after the card's actions)
@@ -755,7 +817,7 @@ function handle(ev) {
     }
     settle();
     // scripts wait on this line: it reads "Checked <name> in <s> s" when the run is over
-    els.title.textContent = `Checked ${label} in ${seconds(ev.seconds)}`;
+    els.title.textContent = `Checked ${label} in ${seconds(took / 1000)}`;
     if (cards.size > 1) {
       const ready = events.filter((e) => e.type === 'problem' && e.ok).length;
       els.verdict.textContent = ev.ok
@@ -811,7 +873,7 @@ function handle(ev) {
     }
     setStatus(status, ev.ok ? 'success' : win ? 'outline' : 'destructive');
     // (the sample's answer is read once, as focus lands on it, so the announcement leaves it out)
-    say(`Checked ${label} in ${ev.seconds.toFixed(1)} seconds. ${lastVerdict || els.verdict.textContent}`);
+    say(`Checked ${label} in ${(took / 1000).toFixed(1)} seconds. ${lastVerdict || els.verdict.textContent}`);
     els.verdict.focus({ preventScroll: true });
     if (unfinished && reports.some((e) => /time|timed out/i.test(e.error ?? ''))) {
       els.title.textContent = `Checked ${label}: stopped at the time limit`;
@@ -830,6 +892,22 @@ function logLine(problem, text) {
   if (!els.log.hidden) writeLog(els.log, runLog);
 }
 
+/** While a step runs long, its line counts the seconds, so a slow step doesn't look stalled. */
+function tickLog() {
+  const last = els.log.lastElementChild;
+  const line = runLog.at(-1);
+  if (els.log.hidden || !last || !line) return;
+  const s = Math.floor((performance.now() - runStart - line.t) / 1000);
+  let tick = $('.log-tick', last);
+  if (s < 2) return tick?.remove();
+  if (!tick) {
+    tick = document.createElement('span');
+    tick.className = 'log-tick';
+    $('.log-x', last).append(tick);
+  }
+  tick.textContent = ` · ${s} s`;
+}
+
 /** The log as lines of "4.2 s  Building the test generators", newest at the foot and in view. */
 function writeLog(pre, lines, only = null) {
   const many = cards.size > 1;
@@ -840,7 +918,10 @@ function writeLog(pre, lines, only = null) {
       const t = document.createElement('span');
       t.className = 'log-t';
       t.textContent = `${(l.t / 1000).toFixed(1)} s`;
-      line.append(t, `${many && l.problem && !only ? `${l.problem}: ` : ''}${l.text}`);
+      const x = document.createElement('span');
+      x.className = 'log-x';
+      x.textContent = `${many && l.problem && !only ? `${l.problem}: ` : ''}${l.text}`;
+      line.append(t, x);
       return line;
     }),
   );
@@ -856,17 +937,22 @@ function runFacts(report, checks) {
   const tests = Math.max(0, ...sols.flatMap((s) => s.tests.map((t) => t.index)));
   return [
     tests && ok('validate-tests') && [tests, `${tests === 1 ? 'test' : 'tests'} generated and validated`],
-    ok('test-checker') && [null, 'answer checker tested'],
+    ok('test-checker') && [null, 'checker tested'],
     sols.length && [sols.length, `${sols.length === 1 ? 'solution' : 'solutions'}${ok('compile-solutions') ? ' compiled' : ''}`],
-    runs && [runs, `timed ${runs === 1 ? 'run' : 'runs'} in the sandbox`],
-    checks.length && [checks.length, `contest ${checks.length === 1 ? 'guideline' : 'guidelines'} checked`],
+    runs && [runs, `sandbox ${runs === 1 ? 'run' : 'runs'}`],
+    checks.length && [checks.length, `${checks.length === 1 ? 'guideline' : 'guidelines'} checked`],
   ].filter(Boolean);
 }
 
 /** The facts as a line: each a number and its words (the numbers are counts, nothing from outside). */
 function writeFacts(el, facts) {
+  // (a screen reader hears the facts as their own sentence, after the line before them)
+  const stop = document.createElement('span');
+  stop.className = 'sr-only';
+  stop.textContent = '. ';
   el.replaceChildren(
-    ...facts.flatMap(([n, words], i) => {
+    stop,
+    ...facts.map(([n, words], i) => {
       const f = document.createElement('span');
       f.className = 'fact';
       if (n !== null) {
@@ -874,9 +960,9 @@ function writeFacts(el, facts) {
         b.textContent = n;
         f.append(b, ' ');
       }
-      f.append(words);
-      // (the dot between facts is where the line may break)
-      return i ? [' · ', f] : [f];
+      // (the facts wrap between each other; the dot that parts them is drawn, and heard as a comma)
+      f.append(words, i < facts.length - 1 ? Object.assign(document.createElement('span'), { className: 'sr-only', textContent: ', ' }) : '');
+      return f;
     }),
   );
   el.hidden = !facts.length;
@@ -893,6 +979,8 @@ function howChecked(card, ev, at) {
     if (i < 0) return null;
     return (seen[i + 1]?.t ?? at) - seen[i].t;
   };
+  const diversity = (ev.readiness ?? []).find((c) => c.id === 'solution_diversity');
+  const langs = /^([A-Za-z+#]+(?:(?:, | and )[A-Za-z+#]+)*) covered/.exec(diversity?.detail ?? '')?.[1] ?? '';
   const steps = ev.report
     ? ev.report.steps.filter((s) => STEP_TITLE[s.name]).map((s) => ({ title: STEP_TITLE[s.name], state: s.ok ? 'ok' : 'failed' }))
     : seen.map((s, i) => ({ title: s.title, state: i < seen.length - 1 ? 'ok' : 'stopped' }));
@@ -904,12 +992,14 @@ function howChecked(card, ev, at) {
       li.className = s.state;
       li.innerHTML = `${icon(s.state === 'ok' ? 'i-check' : s.state === 'failed' ? 'i-x' : 'i-stop')}<span class="how-step"></span><span class="how-time"></span>`;
       $('.how-step', li).textContent = STEP_WORDS[s.title] ?? s.title;
+      // (the languages the solutions were in, as the report's own guideline found them)
+      if (s.title === 'Compiling Solutions' && langs) $('.how-step', li).append(Object.assign(document.createElement('span'), { className: 'how-note', textContent: ` · ${langs}` }));
       const dur = took(s.title);
-      $('.how-time', li).textContent = dur === null ? '' : seconds(dur / 1000);
+      $('.how-time', li).textContent = dur === null ? '' : dur < 100 ? `${Math.max(1, Math.round(dur))} ms` : seconds(dur / 1000);
       return li;
     }),
   );
-  $('.how-title', how).textContent = `How it was checked · ${plural(steps.length, 'step')} in ${seconds(ev.seconds ?? at / 1000)}`;
+  $('.how-title', how).textContent = `How it was checked · ${plural(steps.length, 'step')}, ${seconds(at / 1000)} from the click`;
   how.hidden = false;
 }
 
