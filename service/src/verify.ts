@@ -2,8 +2,9 @@
  * Runs `polyman verify --json` on one problem folder.
  *
  * - The child gets only PATH, with HOME and TMPDIR set to the problem folder,
- *   LANG, and a 60 s compile limit for polyman; none of the service's other
- *   variables.
+ *   LANG, a 60 s compile limit for polyman, and for a problem on polyman's
+ *   default C++ flags the precompiled-header folder (`pchDir`, as
+ *   CPLUS_INCLUDE_PATH); none of the service's other variables.
  * - In the image it runs as a user of its own (`runAs`), with a cap on how
  *   many processes that user may have, so the code it runs can't signal,
  *   inspect or read the service, and can't fork without end. When the run
@@ -57,6 +58,8 @@ export interface RunOptions {
   onStep?: (step: number, title: string) => void;
   /** run as this user and group (needs the service to run as root) */
   runAs?: { uid: number; gid: number };
+  /** precompiled headers for the C++ compiles; only for a problem compiled with the flags they were built with */
+  pchDir?: string;
   signal?: AbortSignal;
   /** called when cleaning up after the run found something to clean, for the log */
   onCleanupProblem?: (message: string) => void;
@@ -112,6 +115,8 @@ export function runVerify(dir: string, opts: RunOptions): Promise<RunResult> {
         LANG: 'C.UTF-8',
         // compiling in the sandbox, on a fresh or busy instance, can take longer than polyman's 10 s default
         POLYMAN_COMPILE_TIMEOUT_MS: String(COMPILE_TIMEOUT_MS),
+        // g++ uses bits/stdc++.h.gch from here when it matches the compile, and the real header otherwise
+        ...(opts.pchDir ? { CPLUS_INCLUDE_PATH: opts.pchDir } : {}),
       },
       detached: true,
       stdio: ['ignore', 'pipe', 'pipe'],

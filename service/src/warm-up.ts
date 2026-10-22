@@ -12,7 +12,7 @@
 import { chmodSync, copyFileSync, cpSync, lchownSync, mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { keepPrebuiltTestlib } from './build-once.ts';
+import { keepPrebuiltTestlib, usesDefaultCpp } from './build-once.ts';
 import type { Settings } from './settings.ts';
 import { runVerify } from './verify.ts';
 
@@ -35,7 +35,8 @@ export async function warmUp(
       };
       give(dir);
     }
-    const result = await runVerify(dir, { cli: settings.polymanCli, timeoutMs: settings.problemTimeoutMs ?? 120_000, runAs: settings.runAs });
+    const pchDir = settings.pchDir && usesDefaultCpp(dir) ? settings.pchDir : undefined;
+    const result = await runVerify(dir, { cli: settings.polymanCli, timeoutMs: settings.problemTimeoutMs ?? 120_000, runAs: settings.runAs, pchDir });
     const ok = !!result.report?.ok;
     const keptTestlib = ok && !result.unclean && keepTestlibIn ? keepPrebuiltTestlib(dir, keepTestlibIn) : 0;
     return { seconds: result.seconds, ok, error: result.error ?? result.unclean, keptTestlib };

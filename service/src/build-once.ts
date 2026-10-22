@@ -1,6 +1,7 @@
 /**
- * Something every verification compiled from scratch, although it comes out
- * the same for every upload, now built once per instance.
+ * Two things every verification compiled from scratch, although they come out
+ * the same for every upload. Together they were about half of a verify's CPU
+ * time; now each is built once, per instance or per image.
  *
  * - testlib.o: polyman keeps the testlib object it builds in the problem's
  *   `.polyman/cache/testlib/<key>/`, and an upload never brings one (unzip
@@ -10,8 +11,13 @@
  *   the upload is handed to the runner (seedPrebuiltTestlib). The key covers
  *   the testlib bytes, the compiler and the flags: a problem with its own
  *   testlib.h or flags doesn't match it, and polyman builds its own as before.
+ * - `<bits/stdc++.h>`: the image carries it precompiled with polyman's
+ *   default flags (`-O2 -std=c++23`, see the Dockerfile). A run gets that
+ *   folder on CPLUS_INCLUDE_PATH only when its problem keeps the defaults
+ *   (usesDefaultCpp). g++ uses a `.gch` only when it matches the compile, and
+ *   otherwise reads the header as usual.
  */
-import { copyFileSync, cpSync, lstatSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { copyFileSync, cpSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 
 const TESTLIB_CACHE = join('.polyman', 'cache', 'testlib');
@@ -57,5 +63,19 @@ export function seedPrebuiltTestlib(stash: string | undefined, problemDir: strin
   } catch (err) {
     rmSync(join(problemDir, '.polyman'), { recursive: true, force: true });
     throw err;
+  }
+}
+
+/**
+ * Whether polyman compiles this problem's C++ with its default flags, the
+ * ones the precompiled header was built with: its Config.json sets neither
+ * `cppStandard` nor a `compiler` block. An unreadable Config.json counts as no.
+ */
+export function usesDefaultCpp(problemDir: string): boolean {
+  try {
+    const config: unknown = JSON.parse(readFileSync(join(problemDir, 'Config.json'), 'utf8'));
+    return !!config && typeof config === 'object' && !Array.isArray(config) && !('cppStandard' in config) && !('compiler' in config);
+  } catch {
+    return false;
   }
 }

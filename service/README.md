@@ -72,7 +72,11 @@ It runs code anyone can upload, so:
   (`POLYMAN_COMPILE_TIMEOUT_MS`; polyman's default of 10 s is too tight in
   the sandbox), and 120 s per problem. Before it listens, the service verifies
   one sample to warm the compilers, so the first visitor isn't the one who
-  pays for a cold start. When a run
+  pays for a cold start. Two compiles that come out the same for every upload
+  happen once instead of per request (`src/build-once.ts`): the warm-up's
+  testlib object is kept and copied into each problem, and the image carries
+  `<bits/stdc++.h>` precompiled with polyman's default flags, passed only to
+  problems that keep those flags. When a run
   ends, however it ends, every `runner` process is killed (from inside the
   user, so a fork loop can't outrun it) and what it left in `/tmp`,
   `/var/tmp` and `/dev/shm` is removed. One verification at a time per

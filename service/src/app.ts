@@ -25,7 +25,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import multipart from '@fastify/multipart';
 import Fastify, { type FastifyReply } from 'fastify';
-import { seedPrebuiltTestlib } from './build-once.ts';
+import { seedPrebuiltTestlib, usesDefaultCpp } from './build-once.ts';
 import { configProblems, findProblems, problemLabel, type Problem } from './problems.ts';
 import { readFacts, readiness, type Check, type Facts } from './readiness.ts';
 import { DEFAULT_LIMITS, unzip } from './unzip.ts';
@@ -46,6 +46,8 @@ export interface AppOptions {
   runAs?: { uid: number; gid: number };
   /** testlib objects kept from the warm-up, copied into each problem (build-once.ts) */
   prebuiltTestlib?: string;
+  /** a folder with bits/stdc++.h.gch, for problems that keep polyman's default C++ flags (build-once.ts) */
+  pchDir?: string;
 }
 
 const STATIC: Record<string, string> = {
@@ -152,7 +154,10 @@ export function buildApp(opts: AppOptions) {
     if (reply.raw.destroyed) visitorLeft.abort();
 
     const facts = new Map<Problem, Facts | null>();
+    // decided now, while the files are still ours: from the first run on they are the uploaded code's
+    const defaultCpp = new Set<Problem>();
     for (const p of problems) {
+      if (opts.pchDir && usesDefaultCpp(p.dir)) defaultCpp.add(p);
       if (!existsSync(join(p.dir, 'testlib.h'))) copyFileSync(opts.testlib, join(p.dir, 'testlib.h'));
       try {
         seedPrebuiltTestlib(opts.prebuiltTestlib, p.dir);
@@ -187,6 +192,7 @@ export function buildApp(opts: AppOptions) {
           timeoutMs: problemTimeoutMs,
           onStep: (step, title) => sendStep({ type: 'step', problem: name, step, title }),
           runAs: opts.runAs,
+          pchDir: defaultCpp.has(p) ? opts.pchDir : undefined,
           signal: visitorLeft.signal,
           onCleanupProblem: (message) => app.log.error({ problem: name }, message),
         });
