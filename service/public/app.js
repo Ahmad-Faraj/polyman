@@ -19,7 +19,6 @@ const els = {
   problems: $('#problems'),
   actions: $('#run-actions'),
   start: $('#start'),
-  note: $('#run-note'),
   stop: $('#stop'),
   instead: $('#instead'),
   again: $('#again'),
@@ -169,7 +168,7 @@ fetch('/api/samples')
       b.type = 'button';
       b.className = 'sample';
       b.setAttribute('role', 'tab');
-      b.setAttribute('aria-controls', 'problems');
+      b.setAttribute('aria-controls', 'run');
       b.dataset.sample = s.name;
       b.textContent = s.name;
       const hint = SAMPLE_HINT[s.name] ?? s.description;
@@ -234,6 +233,12 @@ function markSample(name) {
   if (tabs.length && !tabs.some((b) => b.tabIndex === 0)) tabs[0].tabIndex = 0;
 }
 
+/** A solution's label under its name; the word "labelled" only where no column heading says so (a phone). */
+function labelText(el, tag) {
+  el.innerHTML = '<span class="label-word">labelled </span><span></span>';
+  el.lastChild.textContent = `${tagWords(tag)} (${tag})`;
+}
+
 /** A row per solution the sample is known to have, with an empty strip where its tests will go. */
 function waitingRows(node, name) {
   const tbody = $('tbody', node);
@@ -244,10 +249,10 @@ function waitingRows(node, name) {
   for (const sol of [...(expected.get(name) ?? [])].sort((a, b) => Number(b === lead) - Number(a === lead))) {
     const tr = document.createElement('tr');
     tr.className = 'waiting';
-    tr.innerHTML = `<td class="sol"><b class="sol-name"></b><span class="sol-label"></span></td><td class="tests"><span class="skeleton" aria-hidden="true"></span></td><td class="res"></td>`;
+    tr.innerHTML = `<td class="sol"><b class="sol-name"></b><span class="sol-label"></span></td><td class="tests"><span class="skeleton" aria-hidden="true"></span></td><td class="res"><span class="skeleton" aria-hidden="true"></span></td>`;
     $('.sol-name', tr).textContent = sol;
     const tag = SAMPLES[name]?.[3]?.[sol];
-    if (tag) $('.sol-label', tr).textContent = `labelled ${tagWords(tag)} (${tag})`;
+    if (tag) labelText($('.sol-label', tr), tag);
     else $('.sol-label', tr).remove();
     tbody.append(tr);
   }
@@ -391,8 +396,6 @@ function progress(t0) {
 
 async function start(url, body, name, tries = 1) {
   if (running) return;
-  els.note.hidden = true;
-  els.note.classList.remove('found');
   els.run.classList.remove('has-found');
   // the sample cards mark the one in the result card; an upload is none of them
   if (!body) pending = name;
@@ -601,18 +604,17 @@ function handle(ev) {
     const win = !sol ? '' : !sol.matchesTag ? `Found it: ${about} is the planted mistake.` : sol.tests.some((t) => t.verdict !== 'OK') ? `The sandbox held: ${about} never got root, so it failed as labelled.` : '';
     // a timed-out check gets its own way back: running it again is the main action
     if (unfinished) els.again.removeAttribute('data-variant');
+    // the sample's answer is the card's title; the problem's own verdict is in the badge and the announcement
     if (win) {
-      els.note.innerHTML = `${icon('i-ok')}<span></span>`;
-      $('span', els.note).textContent = win;
-      els.note.classList.add('found');
+      els.verdict.innerHTML = `${icon('i-ok')}<span></span>`;
+      $('span', els.verdict).textContent = win;
       els.run.classList.add('has-found');
-      els.note.hidden = false;
     }
     els.run.classList.add(ev.ok ? 'is-good' : 'is-bad');
     setStatus(ev.ok ? 'All good' : unfinished ? 'Did not finish' : 'Needs work', ev.ok ? 'success' : 'destructive');
     // (the sample's answer is read once, as focus lands on it, so the announcement leaves it out)
     say(`Checked ${label} in ${ev.seconds.toFixed(1)} seconds. ${lastVerdict || els.verdict.textContent}`);
-    (win ? els.note : els.verdict).focus({ preventScroll: true });
+    els.verdict.focus({ preventScroll: true });
     if (unfinished && reports.some((e) => /time|timed out/i.test(e.error ?? ''))) els.title.textContent = `Checked ${label}: stopped at the time limit`;
   } else if (ev.type === 'error') {
     failMidway(ev.message);
@@ -692,7 +694,7 @@ function renderProblem(card, ev) {
   }
   $('.table-container', card).hidden = !$('.sols tbody', card).children.length;
   // when the problem fails on its guidelines, not its solutions, the guidelines come first
-  if (critical.length && !broken.length) card.insertBefore($('.more', card), $('.legend', card));
+  if (critical.length && !broken.length) card.insertBefore($('.more', card), $('.table-container', card));
   $('.legend', card).hidden = !solutions.length;
   legendFor(card, solutions);
   $('.more', card).hidden = false;
@@ -757,7 +759,7 @@ function legendFor(card, solutions) {
     ['bad-hollow', 'dot bad hollow', 'i-x', 'wrong, on purpose'],
     ['limit-hollow', 'dot limit hollow', 'i-clock', 'too slow, on purpose'],
   ].filter(([kind]) => seen.has(kind));
-  $('.legend', card).innerHTML = `<span class="legend-note">One square per test (${matchMedia('(hover: hover)').matches ? 'hover over' : 'tap'} one to read it):</span>${items.map(([, cls, glyph, words]) => `<span><span class="${cls}" aria-hidden="true">${glyph ? icon(glyph) : ''}</span>${words}</span>`).join('')}`;
+  $('.legend', card).innerHTML = `<span class="legend-note">${matchMedia('(hover: hover)').matches ? 'Each square is a test:' : 'Each square is a test, tap to read it:'}</span>${items.map(([, cls, glyph, words]) => `<span><span class="${cls}" aria-hidden="true">${glyph ? icon(glyph) : ''}</span>${words}</span>`).join('')}`;
 }
 
 /** What a solution got, in words: "wrong answer on 6 of 12 tests". */
@@ -775,16 +777,27 @@ function outcome(s) {
   return `${kinds.map((k) => `${verdictWords(k)} on ${wrong.filter((t) => t.verdict === k).length}`).join(', ')} of ${plural(s.tests.length, 'test')}`;
 }
 
+/** Which tests a solution failed, by kind: "wrong answer on tests 4, 5 and 9". */
+function failedOn(s) {
+  const wrong = s.tests.filter((t) => t.verdict !== 'OK');
+  const list = (ts) => (ts.length === 1 ? `test ${ts[0].index}` : `tests ${ts.slice(0, -1).map((t) => t.index).join(', ')} and ${ts.at(-1).index}`);
+  return [...new Set(wrong.map((t) => t.verdict))].map((k) => `${verdictWords(k)} on ${list(wrong.filter((t) => t.verdict === k))}`).join('; ');
+}
+
 /** One table row: the name and its label, a dot per test, and whether it behaved as labelled. */
 function solutionRow(s) {
   const tr = document.createElement('tr');
   const expectedToFail = s.matchesTag && s.tests.some((t) => t.verdict !== 'OK');
-  if (!s.matchesTag) tr.className = 'broken';
+  // (shadcn's selected-row tint marks the one that broke its label)
+  if (!s.matchesTag) {
+    tr.className = 'broken';
+    tr.dataset.state = 'selected';
+  }
   if (expectedToFail) tr.className = 'expected-fail';
-  tr.innerHTML = `<td class="sol"><b class="sol-name"></b><span class="sol-label"></span></td><td class="tests"><div class="dots"></div><small class="dots-note"></small><ul class="fails"></ul></td><td class="res"></td>`;
+  tr.innerHTML = `<td class="sol"><b class="sol-name"></b><span class="sol-label"></span></td><td class="tests"><div class="dots"></div><small class="dots-note"></small></td><td class="res"></td>`;
   $('.sol-name', tr).textContent = s.name;
   // the setter's own tag letters stay visible beside the plain words
-  $('.sol-label', tr).textContent = `labelled ${tagWords(s.tag)} (${s.tag})`;
+  labelText($('.sol-label', tr), s.tag);
   const dots = $('.dots', tr);
   dots.setAttribute('aria-label', `${s.name}: one square per test. Use the arrow keys to read each one.`);
   s.tests.forEach((t, i) => {
@@ -808,23 +821,11 @@ function solutionRow(s) {
   const slowest = s.tests.length > 1 && s.tests.every((t) => t.verdict === 'OK') ? `, slowest ${ms(Math.max(...s.tests.map((t) => t.timeMs)))}` : '';
   // a solution meant to fail that fails is fine: say so, so its red dots don't read as a problem
   const asLabelled = expectedToFail ? ' That is what its label expects.' : '';
-  $('.dots-note', tr).textContent = stoppedEarly ? `${cap(verdictWords(s.tests[0].verdict))} on the first test, so it was stopped there.${asLabelled}` : `${cap(outcome(s))}${slowest}.${asLabelled}`;
+  // (a solution that broke its label names its failing tests; what the checker saw on each is in its square)
+  $('.dots-note', tr).textContent = !s.matchesTag ? `${cap(failedOn(s))}.` : stoppedEarly ? `${cap(verdictWords(s.tests[0].verdict))} on the first test, so it was stopped there.${asLabelled}` : `${cap(outcome(s))}${slowest}.${asLabelled}`;
   wireSquares(dots);
-  // the proof for a solution that broke its label: each failing test and what the checker saw
-  const fails = $('.fails', tr);
-  const failing = s.matchesTag ? [] : s.tests.filter((t) => t.verdict !== 'OK');
-  for (const t of failing.slice(0, 6)) {
-    const li = document.createElement('li');
-    const said = verdictWords(t.verdict);
-    const detail = (t.message ?? '').replace(new RegExp(`^${said}\\s*`, 'i'), '').trim();
-    li.innerHTML = `<b></b><span></span>`;
-    $('b', li).textContent = `Test ${t.index}`;
-    $('span', li).textContent = detail || said;
-    fails.append(li);
-  }
-  if (failing.length > 6) fails.insertAdjacentHTML('beforeend', `<li class="more-fails">and ${failing.length - 6} more: their squares say which</li>`);
-  if (!failing.length) fails.remove();
-  $('.res', tr).innerHTML = s.matchesTag ? `<span class="res-ok">${icon('i-check')}${expectedToFail ? 'Fails as labelled' : 'As labelled'}</span>` : `<span class="res-bad">${icon('i-x')}Not as labelled</span>`;
+  // whether it kept its label, as a shadcn badge
+  $('.res', tr).innerHTML = s.matchesTag ? `<span class="badge" data-variant="outline">${icon('i-check')}${expectedToFail ? 'Fails as labelled' : 'As labelled'}</span>` : `<span class="badge" data-variant="destructive">${icon('i-x')}Not as labelled</span>`;
   return tr;
 }
 

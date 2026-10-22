@@ -72,31 +72,30 @@
       </div>
     </div>
 
-    <section id="run" class="card result" aria-labelledby="run-verdict" tabindex="-1">
-      <div class="tabs switcher">
-        <span id="switcher-label" class="switcher-label"><svg aria-hidden="true"><use href="#i-play"/></svg>Pick a sample: it runs live</span>
-        <div id="sample-list" role="tablist" aria-labelledby="switcher-label" aria-orientation="horizontal" data-variant="line"></div>
-      </div>
-      <header>
-        <p id="run-title" class="run-meta">Live check · sample problem “wrong-tag”</p>
-        <h2 id="run-verdict" tabindex="-1">This sample has one planted mistake. Can the check find it?</h2>
-        <p id="run-sub">Each solution below is labelled with how it should behave. Run the check to see which one breaks its label, on which tests, and what to do about it. It takes about 20&nbsp;seconds.</p>
-        <p id="run-note" class="run-note" tabindex="-1" hidden></p>
-        <div class="card-action" data-slot="card-action"><button type="button" id="stop" class="btn" data-variant="outline" data-size="sm" hidden><svg aria-hidden="true"><use href="#i-stop"/></svg>Stop</button><span id="run-status" class="badge" data-variant="secondary">Not run yet</span></div>
-      </header>
-      <section>
-        <p id="announce" class="sr-only" aria-live="polite"></p>
-        <div id="problems" class="problems"></div>
+    <!-- the samples as shadcn Tabs; the result card is their panel -->
+    <div class="tabs run-col">
+      <div id="sample-list" role="tablist" aria-label="Samples, each checked live" aria-orientation="horizontal"></div>
+      <section id="run" class="card result" role="tabpanel" aria-labelledby="run-verdict" tabindex="-1">
+        <header>
+          <h2 id="run-verdict" tabindex="-1">This sample has one planted mistake. Can the check find it?</h2>
+          <p id="run-sub">Each solution below is labelled with how it should behave. Run the check to see which one breaks its label, on which tests, and what to do about it. It takes about 20&nbsp;seconds.</p>
+          <p id="run-title" class="run-meta">Live check · sample problem “wrong-tag”</p>
+          <div class="card-action" data-slot="card-action"><button type="button" id="stop" class="btn" data-variant="outline" data-size="sm" hidden><svg aria-hidden="true"><use href="#i-stop"/></svg>Stop</button><span id="run-status" class="badge" data-variant="secondary">Not run yet</span></div>
+        </header>
+        <section>
+          <p id="announce" class="sr-only" aria-live="polite"></p>
+          <div id="problems" class="problems"></div>
+        </section>
+        <footer id="run-actions" hidden>
+          <button type="button" id="start" class="btn"><svg aria-hidden="true"><use href="#i-play"/></svg>Run the check</button>
+          <button type="button" id="next" class="btn" hidden><span></span><svg aria-hidden="true"><use href="#i-arrow"/></svg></button>
+          <button type="button" id="again" class="btn" data-variant="outline">Run it again</button>
+          <button type="button" id="choose" class="btn" data-variant="outline" hidden><svg aria-hidden="true"><use href="#i-upload"/></svg>Choose another file</button>
+          <button type="button" id="instead" class="btn" data-variant="ghost" hidden><svg aria-hidden="true"><use href="#i-play"/></svg><span>Run a sample instead</span></button>
+          <button type="button" id="download" class="btn" data-variant="ghost"><svg aria-hidden="true"><use href="#i-down"/></svg>Download JSON</button>
+        </footer>
       </section>
-      <footer id="run-actions" hidden>
-        <button type="button" id="start" class="btn" data-size="lg"><svg aria-hidden="true"><use href="#i-play"/></svg>Run the check</button>
-        <button type="button" id="next" class="btn" hidden><span></span><svg aria-hidden="true"><use href="#i-arrow"/></svg></button>
-        <button type="button" id="again" class="btn" data-variant="outline">Run it again</button>
-        <button type="button" id="choose" class="btn" data-variant="outline" hidden><svg aria-hidden="true"><use href="#i-upload"/></svg>Choose another file</button>
-        <button type="button" id="instead" class="btn" data-variant="ghost" hidden><svg aria-hidden="true"><use href="#i-play"/></svg><span>Run a sample instead</span></button>
-        <button type="button" id="download" class="btn" data-variant="ghost"><svg aria-hidden="true"><use href="#i-down"/></svg>Download JSON</button>
-      </footer>
-    </section>
+    </div>
   </section>
 
   <section class="container section gitlab" aria-labelledby="gitlab-title">
@@ -164,10 +163,10 @@
     <div class="outcome" hidden>
       <div class="alert verdict" role="status"></div>
     </div>
-    <p class="legend" hidden><span class="legend-note">One square per test:</span><span><span class="dot ok" aria-hidden="true"></span>passed</span><span><span class="dot bad" aria-hidden="true"><svg><use href="#i-x"/></svg></span>wrong answer or crash</span><span><span class="dot limit" aria-hidden="true"><svg><use href="#i-clock"/></svg></span>too slow</span><span><span class="dot bad hollow" aria-hidden="true"><svg><use href="#i-x"/></svg></span>failed on purpose</span></p>
     <div class="table-container">
       <table class="table sols">
-        <thead><tr><th scope="col">Solution</th><th scope="col">Result on each test</th><th scope="col">Result</th></tr></thead>
+        <caption class="legend" hidden></caption>
+        <thead><tr><th scope="col">Solution and label</th><th scope="col">Tests</th><th scope="col" class="res">Result</th></tr></thead>
         <tbody></tbody>
       </table>
     </div>

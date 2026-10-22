@@ -77,12 +77,13 @@ section[aria-labelledby] h2 { scroll-margin-top: 96px; }
 .header-nav { display: flex; align-items: center; gap: 4px; }
 /* the page you're on is marked, not offered as a button */
 .header-nav [aria-current] { background: none; font-weight: 600; box-shadow: inset 0 -2px 0 var(--primary); border-radius: 0; }
-.switcher-error { grid-column: 1 / -1; margin: 0; padding: 10px 0 12px; font-size: 0.875rem; color: var(--muted-foreground); }
 
 /* hero: the claim on the left, the product itself on the right */
-.hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.12fr); gap: 48px; align-items: start; padding-block: 72px 64px; }
+/* (the card's column is as wide as a result's twelve squares need, with the hero's top edge level with the tabs) */
+.hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 48px; align-items: start; padding-block: 56px 64px; }
 /* the claim stays in view beside a long result, instead of leaving an empty column */
-.hero-copy { padding-top: 24px; position: sticky; top: 88px; }
+.hero-copy { position: sticky; top: 88px; }
+.hero h1 { font-size: clamp(2.2rem, 1.4rem + 2.2vw, 2.75rem); }
 .hero .badge { gap: 8px; padding-inline: 12px; height: 28px; font-size: 0.8rem; }
 .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--brand); }
 h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-height: 1.05; font-weight: 700; letter-spacing: -0.04em; text-wrap: balance; }
@@ -94,28 +95,33 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 #demo:disabled svg { animation: spin 900ms linear infinite; }
 .hero-note { margin: 24px 0 0; max-width: 46ch; font-size: 0.875rem; line-height: 1.55; color: var(--muted-foreground); text-wrap: pretty; }
 
-/* the result card: its headline is the verdict */
-.result { scroll-margin-top: 88px; transition: border-color 200ms; }
+/* the samples: shadcn Tabs, the list full width over the card that is their panel */
+.run-col { gap: 12px; }
+.run-col > [role=tablist] { width: 100%; }
+.run-col .sample { font-family: var(--font-mono); font-size: 0.8125rem; }
+/* (the one being checked stays readable while the others are locked) */
+.run-col .sample[aria-selected='true']:disabled { opacity: 1; }
+.sample:focus-visible { outline-offset: 2px; }
+.switcher-error { margin: 0; padding: 0 8px; font-size: 0.875rem; color: var(--muted-foreground); }
+
+/* the result: a shadcn Card, titled with the verdict, the status badge as its action */
+.result { scroll-margin-top: 88px; }
 /* the card's edge is a ring, so the verdict tints the ring */
 .result.is-bad { --tw-ring-color: #fca5a5; }
 .result.is-good { --tw-ring-color: #67e8f9; }
 .result > header { row-gap: 6px; }
-/* the status badge sits beside the small meta line, so the verdict and its sentence get the full width */
-.result > header > .card-action { grid-row: 1; align-self: center; }
-.result > header > h2, .result > header > #run-sub { grid-column: 1 / -1; }
-.run-note { grid-column: 1 / -1; margin: 2px 0 0; font-size: 0.875rem; line-height: 1.55; color: var(--muted-foreground); text-wrap: pretty; }
-/* the demo's answer to its own question: the tool succeeded, whatever the problem's verdict */
-/* (it sits right under the meta line, before the problem's own verdict) */
-.result > header > .run-note { grid-row: 2; color: var(--muted-foreground); }
-/* the demo's answer is the loudest thing on the page */
-.result > header > .run-note.found { display: flex; align-items: flex-start; gap: 12px; margin: 0; font-size: 2rem; line-height: 1.3; font-weight: 700; letter-spacing: -0.035em; color: var(--pass-ink); text-wrap: balance; outline: none; }
-.result:is(.is-good, .is-bad) .run-meta { color: var(--foreground); }
-/* when a sample's answer leads, it and the sentence under it say it all; the problem's verdict stays for screen readers */
-.result.has-found > header > h2 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.result > header > .card-action { grid-row: 1; }
+.result > header > :is(#run-sub, .run-meta) { grid-column: 1 / -1; margin: 0; }
+.result > header > h2 { font-size: 1.375rem; line-height: 1.3; font-weight: 650; letter-spacing: -0.02em; text-wrap: balance; outline: none; }
+.result.is-bad > header > h2 { color: var(--fail-ink); }
+.result.is-good > header > h2, .result.has-found > header > h2 { color: var(--pass-ink); }
+/* a sample's answer leads with shadcn's icon-and-title */
+.result > header > h2 > svg { display: inline-block; width: 1.05em; height: 1.05em; margin-right: 0.35em; vertical-align: -0.17em; color: var(--pass); }
+.result > header > #run-sub { color: var(--foreground); line-height: 1.55; text-wrap: pretty; }
+.run-meta { font-size: 0.8125rem; color: var(--muted-foreground); }
 /* the verdict arrives with one short fade */
-.result:is(.is-good, .is-bad) > header > :is(h2, #run-sub, .run-note), .sols tbody tr:not(.waiting) { animation: fade-in 200ms ease-out; }
+.result:is(.is-good, .is-bad) > header > :is(h2, #run-sub), .sols tbody tr:not(.waiting) { animation: fade-in 200ms ease-out; }
 @keyframes fade-in { from { opacity: 0; } }
-.run-note.found svg { width: 32px; height: 32px; margin-top: 4px; flex: none; color: var(--pass); }
 .checks.folded li.ok { display: none; }
 .checks .met-toggle { display: block; grid-column: 1 / -1; padding: 2px 0 0 28px; }
 .checks .met-toggle .btn { padding-inline: 0; height: auto; min-height: 44px; }
@@ -123,20 +129,18 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 /* the run's progress (Basecoat progress), stopped grey if the run broke off */
 .progress > span { background-color: var(--pass); }
 .progress.stopped > span { background-color: var(--muted-foreground); }
-.run-meta { margin: 0; font-size: 0.8rem; font-weight: 500; color: var(--muted-foreground); }
-.result > header > h2 { font-size: 1.5rem; line-height: 1.25; font-weight: 650; letter-spacing: -0.025em; text-wrap: balance; outline: none; }
-.result.is-bad > header > h2 { color: var(--fail-ink); }
-.result.is-good > header > h2 { color: var(--pass-ink); }
-.result > header > p:not(.run-meta) { color: var(--foreground); line-height: 1.55; text-wrap: pretty; }
-.result > footer { display: flex; flex-wrap: wrap; gap: 8px; }
+/* CardFooter: the actions in shadcn's order, and no empty footer while a run is on */
+.result > footer { flex-wrap: wrap; gap: 8px; }
 .result > footer #download { margin-left: auto; }
+.result > footer:not(:has(> :not([hidden]))) { display: none; }
 .problems { display: flex; flex-direction: column; gap: 28px; }
 .problem { display: grid; gap: 16px; }
 .problem-name { margin: 0; font-size: 1.05rem; font-weight: 600; }
 
-/* the live checklist while polyman works: all ten steps, done, now and still to come */
-.steps-live { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(5, auto); grid-auto-flow: column; gap: 6px 24px; }
+/* while polyman works: the progress bar and the step under way (the card's description counts the steps) */
+.steps-live { list-style: none; margin: -8px 0 0; padding: 0; }
 .steps-live:empty { display: none; }
+.steps-live li:not(.now, .stopped) { display: none; }
 .steps-live li { display: flex; align-items: center; gap: 10px; font-size: 0.875rem; color: var(--muted-foreground); transition: color 200ms; }
 .steps-live li svg { width: 16px; height: 16px; flex: none; color: #8a8a94; }
 .steps-live li.done svg { color: var(--pass); }
@@ -144,36 +148,30 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 .steps-live li.now svg { color: var(--pass); animation: spin 900ms linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* solutions table */
-.table-container { overflow-x: auto; }
-/* the solutions run edge to edge inside the card: rows and dividers, no frame of their own */
-/* (rows stack, so nothing scrolls sideways, and the squares' tooltips aren't clipped) */
-.result .table-container { overflow: visible; width: calc(100% + 48px); max-width: none; margin-inline: -24px; border-block: 1px solid var(--border); }
-.result .sols td { padding-inline: 24px; }
-.sols { border: 0; border-collapse: separate; border-spacing: 0; }
-.sols tbody tr:last-child td { border-bottom: 0; }
-.sols th { background: var(--muted); font-size: 0.8rem; color: var(--muted-foreground); }
-/* each solution stacks: name, label and result on top, then every test across the full width */
-.sols thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
-.sols, .sols tbody { display: block; }
-.sols tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; border-bottom: 1px solid var(--border); }
-.sols tbody tr:last-child { border-bottom: 0; }
-.sols td { display: block; border: 0 !important; padding: 14px 16px 0; white-space: normal; }
-.sols td.sol { grid-column: 1; grid-row: 1; }
-.sols td.res { grid-column: 2; grid-row: 1; align-self: start; white-space: nowrap; }
-.sols td.tests { grid-column: 1 / -1; grid-row: 2; padding-top: 10px; padding-bottom: 14px; }
-/* before results a row is one line: the name, then an empty strip where its tests will go */
-/* (stacked, as a finished row is: the squares land where the strip was) */
-.sols tr.waiting { grid-template-columns: minmax(0, 1fr); }
-.sols tr.waiting td { padding-block: 12px; }
-.sols tr.waiting td.tests { grid-column: 1; grid-row: 2; padding-top: 0; }
-.sols tr.waiting td.res { display: none; }
-.sols tbody tr:hover { background-color: transparent; }
-.sols tbody tr.broken, .sols tbody tr.broken:hover { background: #fef2f2; }
-/* the solution a sample is about */
-.sols tbody tr.focus, .sols tbody tr.focus:hover { background: var(--brand-soft); }
-/* (a row that fails on purpose keeps a neutral tint: its red squares are the expected result) */
-.sols tbody tr.focus.expected-fail, .sols tbody tr.focus.expected-fail:hover { background: #fafafa; }
+/* the solutions: a shadcn Table, flush in the card (no frame of its own), its key as the caption */
+/* (nothing scrolls sideways at this width, so the squares' tooltips aren't clipped) */
+.result .table-container { overflow: visible; }
+.sols { table-layout: auto; }
+.sols tr { border-bottom: 1px solid var(--border); }
+.sols th, .sols td { padding-inline: 8px; }
+.sols :is(th, td):first-child { padding-inline-start: 0; }
+.sols :is(th, td):last-child { padding-inline-end: 0; text-align: end; }
+.sols td { vertical-align: top; padding-block: 12px; white-space: normal; }
+.sols td.sol { width: 7.75rem; }
+.sols th { white-space: normal; line-height: 1.3; }
+.sols td.res { width: 1%; white-space: nowrap; }
+.sols tbody tr:last-child { border-bottom: 1px solid var(--border); }
+/* (no hover tint on rows that aren't links: only the broken one is marked) */
+@media (hover: hover) { .sols tbody tr:not([data-state=selected]):hover { background-color: transparent; } }
+.sols tbody tr[data-state=selected] td:first-child { box-shadow: inset 2px 0 0 var(--fail); padding-inline-start: 10px; }
+.sols tr[data-state=selected] .dots-note { color: var(--fail-ink); }
+.result .badge svg { width: 12px; height: 12px; }
+.sols .badge[data-variant='outline'] svg { color: var(--pass); }
+/* before results: a shadcn Skeleton where each solution's tests and result will go */
+.sols tr.waiting td.tests, .sols tr.waiting td.res { vertical-align: middle; }
+/* (a check that ended without judging them leaves those rows plain, not still loading) */
+.result:is(.is-good, .is-bad) .sols tr.waiting .skeleton { visibility: hidden; }
+.sols tr.waiting td.res .skeleton { width: 88px; height: 20px; border-radius: 999px; margin-inline-start: auto; }
 /* a solution that fails as its label says: its marks drawn in outline, so a passing result doesn't shout red */
 .sols tr.expected-fail .dot.bad, .sols tr.expected-fail .dot.limit, .legend .dot.hollow { background: #fff; box-shadow: inset 0 0 0 1.5px currentColor; }
 .sols tr.expected-fail .dot.bad, .legend .dot.hollow.bad { color: var(--fail); }
@@ -185,14 +183,11 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 .res-ok svg, .res-bad svg { width: 14px; height: 14px; }
 .res-ok svg { color: var(--pass); }
 /* while a run is on: an empty strip where each solution's tests will go, shimmering once they run */
-.skeleton { display: block; height: 13px; max-width: 220px; border-radius: 4px; background: var(--border); }
-.result:not(.is-running) .sols tr.waiting { grid-template-columns: minmax(0, 1fr); }
-.result:not(.is-running) .sols tr.waiting td.tests { display: none; }
+.skeleton { display: block; height: 18px; max-width: 280px; border-radius: 5px; background: var(--muted); }
 .result.is-running .skeleton { background: linear-gradient(90deg, var(--muted) 0%, #dff7fb 50%, var(--muted) 100%) 0 0 / 200% 100%; animation: shimmer 1.4s linear infinite; }
 @keyframes shimmer { to { background-position: -200% 0; } }
 .sol-name { display: block; font-family: var(--font-mono); font-size: 0.85rem; font-weight: 600; }
 .sol-label { display: block; margin-top: 2px; font-size: 0.8rem; color: var(--muted-foreground); }
-.pending { font-size: 0.85rem; color: var(--muted-foreground); }
 .dots { display: flex; flex-wrap: wrap; gap: 3px; }
 /* a result's squares are 24px apart centre to centre, so each is a fair target for a mouse */
 .sols .dots { gap: 6px; }
@@ -200,27 +195,24 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 .sols .dot svg { width: 12px; height: 12px; }
 .dot { display: inline-grid; place-items: center; width: 13px; height: 13px; border-radius: 4px; background: var(--pass); color: #fff; vertical-align: -2px; }
 /* a square in a result is a control: its Basecoat tooltip says which test it is */
-button.dot { padding: 0; border: 0; font: inherit; cursor: default; }
+button.dot { padding: 0; border: 0; font: inherit; cursor: help; }
 button.dot::after { content: ''; position: absolute; inset: -3px -2px; }
 button.dot:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 /* (Basecoat hides a tooltip on keyboard focus; a square's shows, so the keyboard reads what the mouse does) */
 .dots [data-tooltip]:focus-visible:before { display: inline-flex; visibility: visible; opacity: 1; scale: 1; --tw-translate-y: 0; translate: var(--tw-translate-x) var(--tw-translate-y); }
 /* (on a narrow screen a long test detail wraps instead of running off the card) */
 @media (max-width: 760px) { .dots [data-tooltip]:before { width: max-content; max-width: calc(50vw - 24px); white-space: normal; } }
-.result { transition: box-shadow 300ms ease-out; }
 .dot.bad { background: var(--fail); }
 .dot.limit { background: var(--slow); }
 .dot svg { width: 10px; height: 10px; }
-.dots-note { display: block; margin-top: 6px; color: var(--muted-foreground); font-size: 0.8rem; white-space: normal; }
-.sols tr.broken .dots-note { color: var(--fail-ink); }
-/* what the checker saw on each failing test, under the row that broke its label */
-.fails { list-style: none; margin: 10px 0 0; padding: 10px 0 0; border-top: 1px dashed #fecaca; display: grid; gap: 4px; font-size: 0.8125rem; line-height: 1.45; }
-.fails li { display: flex; gap: 10px; }
-.fails b { flex: none; min-width: 4.5em; font-family: var(--font-mono); font-weight: 600; font-size: 0.95em; }
-.fails .more-fails { color: var(--muted-foreground); }
-.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 0; font-size: 0.8rem; color: var(--muted-foreground); }
-.legend > span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
-.legend .legend-note { color: var(--foreground); font-weight: 500; }
+.dots-note { display: block; margin-top: 6px; color: var(--muted-foreground); font-size: 0.8rem; line-height: 1.45; white-space: normal; }
+/* the key, as the table's caption: one line */
+.sols caption.legend { text-align: start; font-size: 0.8125rem; }
+.legend > span { display: inline-flex; align-items: center; gap: 6px; margin-inline-end: 14px; white-space: nowrap; }
+.legend .legend-note { color: var(--foreground); }
+/* (each entry centred on the line, so a square sits level with its words) */
+.legend > span { vertical-align: middle; }
+@media (min-width: 761px) { .label-word { display: none; } }
 /* every fifth test a little apart, so a long strip can be counted */
 .dots .dot:nth-child(5n):not(:last-child) { margin-right: 4px; }
 .accordion summary { gap: 8px; }
@@ -248,16 +240,7 @@ button.dot:focus-visible { outline: 2px solid var(--primary); outline-offset: 2p
 .section-head { margin-bottom: 24px; }
 .section-head h2 { margin: 0; font-size: 1.75rem; font-weight: 700; letter-spacing: -0.03em; }
 .section-head p { margin: 6px 0 0; color: var(--muted-foreground); text-wrap: pretty; }
-/* the samples, as Basecoat tabs (line) along the top of the result card; pressing one checks it live */
-.switcher { margin-top: -4px; padding: 0 24px 6px; border-bottom: 1px solid var(--border); }
-.switcher > [role=tablist] { max-width: 100%; }
-.switcher .sample { font-family: var(--font-mono); font-size: 0.8125rem; }
-/* (the one being checked stays readable while the others are locked) */
-.switcher .sample[aria-selected='true']:disabled { opacity: 1; }
-.switcher-label { display: inline-flex; align-items: center; gap: 6px; font-size: 0.75rem; font-weight: 600; color: var(--muted-foreground); letter-spacing: 0.02em; }
-.switcher-label svg { width: 10px; height: 10px; color: var(--primary); }
 .card-action { display: flex; align-items: center; gap: 8px; }
-.sample:focus-visible { outline-offset: -2px; }
 
 /* the upload: a Basecoat empty state, dashed */
 .dropzone { border-width: 1px; border-color: var(--border); transition: border-color 150ms, background-color 150ms; }
@@ -339,29 +322,34 @@ button.dot:focus-visible { outline: 2px solid var(--primary); outline-offset: 2p
   .header-nav .btn { height: 44px; min-width: 44px; }
   .footer-links a { display: inline-block; padding-block: 10px; }
   .result .btn, .dropzone .btn { height: 44px; }
-  /* the running card fits a phone screen: the progress bar and the step under way */
-  .steps-live li:not(.now) { display: none; }
   /* the hero's run button is the phone's primary; the card's steps back to outline */
   #start { background: var(--background); color: var(--foreground); box-shadow: inset 0 0 0 1px var(--border); }
   .toc a:not(.btn) { min-width: 44px; text-align: center; }
   .logo { padding-block: 8px; }
   .footer-links a { padding-block: 12px; }
   .toc a:not(.btn) { padding-block: 12px; }
-  .steps-live { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-auto-flow: row; }
   .flow { grid-template-columns: minmax(0, 1fr); gap: 24px; }
-  /* on a phone the tabs stay one row, scrolling sideways */
-  .switcher { padding-inline: 16px; }
-  /* (the row fades at its right edge while there is more to scroll to) */
-  .switcher > [role=tablist] { justify-content: flex-start; overflow-x: auto; scrollbar-width: none; }
-  .switcher > [role=tablist].more-right { mask-image: linear-gradient(to right, #000 calc(100% - 48px), transparent); }
-  .switcher .sample { flex: none; }
-  .result.has-found > header > .run-note.found { font-size: 1.25rem; }
-  .run-note.found svg { width: 24px; height: 24px; margin-top: 2px; }
+  /* on a phone the tabs stay one row, scrolling sideways, and fade at the edge while there is more */
+  .run-col > [role=tablist] { justify-content: flex-start; overflow-x: auto; scrollbar-width: none; }
+  .run-col > [role=tablist].more-right { mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent); }
+  .run-col .sample { flex: none; }
+  /* each solution stacks: name and result on top, then its tests across the full width */
+  .sols thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .sols tbody { display: block; }
+  .sols tbody tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; }
+  .sols td { display: block; }
+  .sols td.sol { grid-column: 1; grid-row: 1; width: auto; padding-bottom: 8px; }
+  .sols td.res { grid-column: 2; grid-row: 1; width: auto; padding-bottom: 8px; }
+  .sols td.tests { grid-column: 1 / -1; grid-row: 2; padding: 0 0 12px; }
+  .sols tbody tr[data-state=selected] td.tests { padding-inline-start: 10px; }
+  .sols tbody tr[data-state=selected] td:first-child { box-shadow: none; padding-inline-start: 10px; }
+  .sols tbody tr[data-state=selected] { box-shadow: inset 2px 0 0 var(--fail); }
+  .sols caption.legend { line-height: 1.9; }
   .gitlab { padding-top: 40px; }
   .docs-layout { grid-template-columns: minmax(0, 1fr); gap: 24px; padding-top: 32px; }
   .toc { position: static; flex-direction: row; flex-wrap: wrap; }
   .toc p { width: 100%; }
-  .result > header > h2 { font-size: 1.25rem; }
+  .result > header > h2 { font-size: 1.2rem; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 1ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; scroll-behavior: auto !important; }
