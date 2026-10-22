@@ -364,7 +364,7 @@ ${tierRows || '<tr><td colspan="8" class="muted">No reviews.</td></tr>'}
 <p class="muted">Medians per review, low-high. The risk score decides the tier, so a low-risk change gets one light review instead of three specialists.</p>
 <h2>Is the arithmetic right?</h2>
 ${checkBlock}
-<h2>All agent sessions, by flow</h2>
+<h2>All agent sessions, by flow${s.to ? `, counted up to ${esc(s.to.replace('T', ' ').replace(/\.\d+Z$|Z$/, ' UTC'))}` : ''}</h2>
 <div class="scroll"><table style="min-width: 560px">
 <thead><tr><th>Flow</th><th>Sessions</th><th>Model calls</th><th>Tokens</th><th>Cache reads</th></tr></thead>
 <tbody>

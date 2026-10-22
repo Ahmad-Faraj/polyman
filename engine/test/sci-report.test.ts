@@ -148,6 +148,8 @@ describe('what CI shows', () => {
     expect(html).toMatch(/<td>high<\/td><td>2<\/td><td>30<\/td>/);
     expect(html).toContain('was not run in this pipeline');
     expect(html).toContain('2026-10-19 12:00:00 UTC');
+    // the newest session in the fixture, as the ledger page words it
+    expect(html).toContain('<h2>All agent sessions, by flow, counted up to 2026-10-17 13:00:00 UTC</h2>');
     expect(html).toContain('https://gitlab.example/p/-/commit/abcdef1234567890');
   });
 });
