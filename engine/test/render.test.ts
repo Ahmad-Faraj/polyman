@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CONFIG } from '../src/config.ts';
-import { flowValues, markersIn, renderFlow } from '../src/render.ts';
+import { flowChanges, flowValues, markersIn, renderFlow } from '../src/render.ts';
 
 const config = {
   ...DEFAULT_CONFIG,
@@ -104,5 +104,42 @@ describe('production jobs', () => {
         rollbackJob: 'service:rollback:production',
       });
     });
+  });
+});
+
+describe('flow changes', () => {
+  const values = flowValues(config, {});
+  const sources = new Map([
+    ['issue-builder', 'mention @@people@@ and run @@checks@@'],
+    ['incident-responder', 'only @@maintainers@@'],
+  ]);
+
+  it('names the flows a changed go_ahead.people reaches, and only those', () => {
+    const after = flowValues({ ...config, goAhead: { ...config.goAhead, people: ['alice', 'bob'] } }, {});
+    expect(flowChanges({ sources, values }, { sources, values: after })).toEqual([
+      { flow: 'issue-builder', settings: ['go_ahead.people'], fileChanged: false },
+    ]);
+  });
+
+  it('finds nothing when the filled-in values and files are the same', () => {
+    expect(flowChanges({ sources, values }, { sources, values: { ...values } })).toEqual([]);
+  });
+
+  it('counts a changed or new flow file, and not a removed one', () => {
+    const after = new Map([
+      ['issue-builder', 'mention @@people@@ now and run @@checks@@'],
+      ['mr-reviewer', 'new'],
+    ]);
+    expect(flowChanges({ sources, values }, { sources: after, values })).toEqual([
+      { flow: 'issue-builder', settings: [], fileChanged: true },
+      { flow: 'mr-reviewer', settings: [], fileChanged: true },
+    ]);
+  });
+
+  it('counts every setting as changed when the old values are unknown', () => {
+    expect(flowChanges({ sources, values: {} }, { sources, values }).map((c) => c.settings)).toEqual([
+      ['go_ahead.maintainers'],
+      ['go_ahead.people', 'agents.checks'],
+    ]);
   });
 });

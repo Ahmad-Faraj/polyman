@@ -3,10 +3,10 @@
 #   include:
 #     - local: engine/ci/autonomy.gitlab-ci.yml
 #
-# These are the merge request jobs: risk score, guard, flow lint and the
-# engine's own tests, plus the go-ahead ledger, which also runs on the default
-# branch, and the session audit, which runs on the schedule. The release jobs
-# are in autonomy-release.gitlab-ci.yml.
+# These are the merge request jobs: risk score, guard, flow lint, the
+# republish warning and the engine's own tests, plus the go-ahead ledger, which
+# also runs on the default branch, and the session audit, which runs on the
+# schedule. The release jobs are in autonomy-release.gitlab-ci.yml.
 #
 # The project needs to define:
 #   - stages: test, assess
@@ -194,6 +194,28 @@ autonomy:flows:
       changes: [.gitlab/duo/flows/**/*]
   script:
     - node engine/src/cli/lint-flows.ts
+
+# The flows GitLab runs are the ones sync-flows last published, with
+# .autonomy.yml's values filled in then. A change to those values (who may give
+# a go-ahead, say) or to a flow file reaches the agents only when someone
+# republishes, so this says which flows need it and how: a warning (exit 3) in
+# the MR, and again on the default branch once it is merged. It only reads git;
+# publishing needs a person's token, which CI doesn't have.
+autonomy:republish:
+  extends: .autonomy:node
+  stage: assess
+  needs: []
+  variables:
+    GIT_DEPTH: 0
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes: [.autonomy.yml, .gitlab/duo/flows/**/*]
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"
+      changes: [.autonomy.yml, .gitlab/duo/flows/**/*]
+  allow_failure:
+    exit_codes: [3]
+  script:
+    - node engine/src/cli/republish-check.ts
 
 # The engine's own type check and tests, when it changes.
 autonomy:engine:

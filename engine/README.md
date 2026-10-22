@@ -70,6 +70,11 @@ guards every merge request.
 - `autonomy:flows` checks the flow files in `.gitlab/duo/flows` the way GitLab
   does when they're saved (schema, prompt safety rules, inputs).
 - `autonomy:engine` runs this folder's type check and tests when it changes.
+- `autonomy:republish` warns when an MR changes a value the flows are filled
+  in with (`go_ahead.people`, the maintainers, the checks...) or a flow file:
+  GitLab keeps running the published flows until someone runs
+  `node engine/src/cli/sync-flows.ts` from the default branch. It warns again
+  on the default branch after the merge, and `doctor.ts` fails until then.
 
 The jobs use `CI_JOB_TOKEN` only (the session audit reads with `AUDIT_TOKEN`)
 and never write to merge requests.
