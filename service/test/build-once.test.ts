@@ -126,6 +126,14 @@ describe('the warm-up keeps its testlib object for the uploads', () => {
     expect(readdirSync(join(base, 'stash'))).toEqual([]);
   });
 
+  it('still resolves when the stash cannot be written', async () => {
+    const settings = settingsFor({ buildTestlib: true });
+    writeFileSync(join(base, 'stash-is-a-file'), 'not a directory');
+    const warm = await warmUp(settings, 'even-sum', join(base, 'stash-is-a-file', 'stash'));
+    expect(warm).toMatchObject({ ok: true, keptTestlib: 0 });
+    expect(warm.error).toMatch(/could not keep the testlib object/);
+  });
+
   it('runs an upload as before when nothing was kept', async () => {
     const settings = settingsFor({});
     const app = buildApp({ ...settings, prebuiltTestlib: join(base, 'stash-never-made') });
