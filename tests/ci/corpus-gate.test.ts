@@ -36,15 +36,18 @@ describe('corpus lanes on merge requests', () => {
   });
 
   const toolchain = code(job('corpus:toolchain'));
+  // The job's own `rules:` list (two-space key, four-space entries).
+  const toolchainRules = (toolchain.match(/^ {2}rules:\n((?: {4}.*\n?)+)/m) ??
+    [])[1]?.replace(/\n$/, '');
 
   it('has no job-level allow_failure on the toolchain lanes', () => {
     expect(toolchain).not.toMatch(/^ {2}allow_failure:/m);
   });
 
   it('lets only no-python-alias fail, on the same pipelines as .corpus', () => {
-    const allowed = toolchain
-      .split(/\n(?= {4}- )/)
-      .filter(r => /allow_failure: true/.test(r));
+    expect(toolchainRules, 'toolchain has rules').toBeTruthy();
+    const rules = toolchainRules.split(/\n(?= {4}- )/);
+    const allowed = rules.filter(r => /allow_failure: true/.test(r));
     expect(allowed).toHaveLength(2);
     for (const rule of allowed) {
       expect(rule).toContain('$LANE == "no-python-alias"');
@@ -52,7 +55,16 @@ describe('corpus lanes on merge requests', () => {
     expect(toolchain).not.toMatch(/node-20\.19"/);
     expect(allowed[0]).toContain('$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH');
     expect(changesOf(allowed[1])).toEqual(changesOf(job('.corpus')));
-    expect(toolchain).toMatch(/^ {4}- !reference \[\.corpus, rules\]$/m);
+    expect(rules).toHaveLength(3);
+    // Order matters: the first matching rule wins, so the allow_failure rules
+    // must come before the .corpus rules, which would make the lane blocking.
+    expect(rules[0]).toContain('$LANE == "no-python-alias"');
+    expect(rules[0]).toContain('$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH');
+    expect(rules[0]).toContain('allow_failure: true');
+    expect(rules[1]).toContain('$LANE == "no-python-alias"');
+    expect(rules[1]).toMatch(/changes:/);
+    expect(rules[1]).toContain('allow_failure: true');
+    expect(rules[2]).toBe('    - !reference [.corpus, rules]');
   });
 
   it('keeps both lanes in the matrix', () => {
