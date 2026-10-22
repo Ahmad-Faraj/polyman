@@ -264,6 +264,18 @@ describe("git push's output and command", () => {
     for (const command of ['git stash push -q', 'git stash push -m wip', 'git remote set-url --push origin x', 'git config push.default current', 'git log --grep push']) {
       expect(pushesOf([call({ args: { command }, response: 'Exit code: 0\n' })], session), command).toEqual([]);
     }
+    // in a later command, and behind a prefix, a runner, git's own options or a shell
+    for (const command of [
+      'cd r && git stash push -q',
+      'echo hi; git log --grep push',
+      'FOO=1 git stash push',
+      'env git stash push -q',
+      'git -C r -c a=b stash push',
+      '/usr/bin/git stash push',
+      'sh -c "git stash push"',
+    ]) {
+      expect(pushesOf([call({ args: { command }, response: 'Exit code: 0\n' })], session), command).toEqual([]);
+    }
   });
 
   it('still counts a real push next to a stash, a subtree push, and no quoted push', () => {
@@ -284,16 +296,43 @@ describe("git push's output and command", () => {
     expect(pushesInCommand('git --work-tree X push')).toEqual([null]);
     expect(pushesInCommand('git --namespace ns push origin a')).toEqual(['a']);
     expect(pushesInCommand('git --git-dir=x push origin a')).toEqual(['a']);
+    expect(pushesInCommand('git --config-env foo=BAR push origin a')).toEqual(['a']);
+    expect(pushesInCommand('git --attr-source HEAD push origin a')).toEqual(['a']);
     // -P and -m are git subtree's options; plain git push has neither, so nothing after them is skipped
     expect(pushesInCommand('git push -P origin a')).toEqual(['a']);
+    // git subtree push's own options with a value: the branch is still the last word
+    for (const option of ['--onto abc', '-b br', '--annotate foo']) {
+      expect(pushesInCommand(`git subtree push --prefix x ${option} origin main`), option).toEqual(['main']);
+    }
+    for (const command of ['git subtree push', 'git subtree push --prefix', 'git subtree push origin']) {
+      expect(pushesInCommand(command), command).toEqual([null]);
+    }
+    // git status after git's own options prints nothing a push's output could be taken for, as after -C:
+    // the ref line is the first push's, not a second push's
+    const out = 'Exit code: 0\nTo https://gitlab.com/group/showcase.git\n   1111111..2222222  fix-1 -> fix-1';
+    for (const command of ['git push; git --git-dir x status', 'git push; git --work-tree x status']) {
+      expect(pushesOf([call({ args: { command }, response: out })], session), command).toEqual([expect.objectContaining({ branch: 'fix-1', head: '2222222' })]);
+    }
   });
 
   it('still counts a push run through a git subcommand as unread, and none for a subcommand that never pushes', () => {
     const unread = (command: string) => pushesOf([call({ args: { command }, response: 'Exit code: 0\n' })], session);
-    for (const command of ['git submodule foreach git push', 'git bisect run git push', 'git config alias.p push && git p']) {
+    for (const command of [
+      'git submodule foreach git push',
+      'git bisect run git push',
+      'git config alias.p push && git p',
+      // config keys are case-insensitive, and a quoted command or alias pushes as much as a bare one
+      'git config Alias.p push && git p',
+      'git config ALIAS.p push && git p',
+      "git config alias.p '!git push' && git p",
+      'git -c alias.x=push x',
+      'git rebase -x "git push" main',
+      "git submodule foreach 'git push'",
+      'git bisect run sh -c "git push"',
+    ]) {
       expect(unread(command), command).toEqual([expect.objectContaining({ branch: null })]);
     }
-    for (const command of ['git commit -m "push"', 'git grep push', 'git show HEAD', 'git diff', 'git tag push-1']) {
+    for (const command of ['git commit -m "push"', 'git grep push', 'git show HEAD', 'git diff', 'git tag push-1', 'git config --unset alias.push', 'git rebase -x "npm test" main']) {
       expect(unread(command), command).toEqual([]);
     }
     expect(unread('git stash push -q && git submodule foreach git push')).toHaveLength(1);
