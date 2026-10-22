@@ -1,24 +1,31 @@
 import { describe, expect, it } from 'vitest';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { cpSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 const CLI = resolve('src/cli/republish-check.ts');
 const ROOT = resolve('..');
 
-/** A git repo with this project's policy and flows in a base commit, and one change on top. */
-function repo(change: (dir: string) => void) {
+/** This project's policy and flows. */
+const project = (dir: string) => {
+  cpSync(join(ROOT, '.autonomy.yml'), join(dir, '.autonomy.yml'));
+  cpSync(join(ROOT, '.gitlab/duo/flows'), join(dir, '.gitlab/duo/flows'), { recursive: true });
+};
+
+/** A git repo with a base commit (by default this project's policy and flows), and one change on top. */
+function repo(change: (dir: string) => void, seed: (dir: string) => void = project) {
   const dir = mkdtempSync(join(tmpdir(), 'republish-'));
   const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' }).trim();
   git('init', '-q');
-  cpSync(join(ROOT, '.autonomy.yml'), join(dir, '.autonomy.yml'));
-  cpSync(join(ROOT, '.gitlab/duo/flows'), join(dir, '.gitlab/duo/flows'), { recursive: true });
+  writeFileSync(join(dir, 'README'), 'base\n');
+  seed(dir);
   git('add', '.');
   git('-c', 'user.name=a', '-c', 'user.email=a@x', 'commit', '-qm', 'base');
   const base = git('rev-parse', 'HEAD');
   change(dir);
-  git('-c', 'user.name=a', '-c', 'user.email=a@x', 'commit', '-qam', 'change', '--allow-empty');
+  git('add', '-A');
+  git('-c', 'user.name=a', '-c', 'user.email=a@x', 'commit', '-qm', 'change', '--allow-empty');
   return { dir, base };
 }
 
@@ -70,6 +77,39 @@ describe('republish-check', () => {
     const out = run(r.dir, {}, r.base);
     expect(out.status).toBe(3);
     expect(out.stderr).toContain('  issue-builder: .gitlab/duo/flows/issue-builder.yaml changed\n');
+  });
+
+  it("counts every setting as changed when the base's .autonomy.yml doesn't load", () => {
+    const r = repo(project, (dir) => {
+      project(dir);
+      writeFileSync(join(dir, '.autonomy.yml'), 'go_ahead: [unclosed\n');
+    });
+    const out = run(r.dir, {}, r.base);
+    expect(out.status).toBe(3);
+    expect(out.stderr).toMatch(/the base's \.autonomy\.yml doesn't load \(.*\); counting every setting as changed/s);
+    // the files are the same, so it's the values: every setting each flow uses
+    expect(out.stderr).not.toContain('.yaml changed');
+    for (const flow of ['incident-responder', 'issue-builder', 'mr-reviewer', 'pipeline-fixer']) {
+      expect(out.stderr).toMatch(new RegExp(`\n  ${flow}: .*go_ahead\\.maintainers changed`));
+    }
+    expect(out.stderr).toMatch(/\n {2}mr-reviewer: .*go_ahead\.people changed.*agents\.checks changed/);
+  });
+
+  it('needs no republish when a flow file is removed', () => {
+    const r = repo((dir) => rmSync(join(dir, '.gitlab/duo/flows/incident-responder.yaml')));
+    const out = run(r.dir, {}, r.base);
+    expect(out.status).toBe(0);
+    expect(out.stdout).toContain('nothing to republish');
+  });
+
+  it('counts every flow as new when the base has no policy and no flows', () => {
+    const r = repo(project, () => {});
+    const out = run(r.dir, {}, r.base);
+    expect(out.status).toBe(3);
+    expect(out.stderr).not.toContain("doesn't load");
+    for (const flow of ['incident-responder', 'issue-builder', 'mr-reviewer', 'pipeline-fixer']) {
+      expect(out.stderr).toMatch(new RegExp(`\n  ${flow}: .*\\.gitlab/duo/flows/${flow}\\.yaml changed\n`));
+    }
   });
 
   it('falls back to the previous commit when GitLab sends no commit before the push', () => {
