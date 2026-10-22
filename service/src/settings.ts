@@ -4,6 +4,7 @@
  * upload: uploaded code must never run as root or as the service's own user.
  */
 import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import type { AppOptions } from './app.ts';
 
 type Env = Record<string, string | undefined>;
@@ -37,6 +38,8 @@ export function settingsFrom(env: Env, defaults: { polymanCli: string; samplesDi
   const testlib = env.TESTLIB_H || '/opt/testlib/testlib.h';
   if (!existsSync(polymanCli)) throw new Error(`polyman not found at ${polymanCli} (POLYMAN_CLI)`);
   if (!existsSync(testlib)) throw new Error(`testlib.h not found at ${testlib} (TESTLIB_H)`);
+  const pchDir = env.PCH_DIR || undefined;
+  if (pchDir && !existsSync(join(pchDir, 'bits', 'stdc++.h.gch'))) throw new Error(`bits/stdc++.h.gch not found under ${pchDir} (PCH_DIR)`);
 
   const port = positive('PORT', 8080);
   if (port > 65535) throw new Error(`PORT must be a port number, got "${env.PORT}"`);
@@ -50,5 +53,6 @@ export function settingsFrom(env: Env, defaults: { polymanCli: string; samplesDi
     problemTimeoutMs: positive('PROBLEM_TIMEOUT_MS', 120_000),
     commit: env.APP_COMMIT,
     runAs,
+    pchDir,
   };
 }
