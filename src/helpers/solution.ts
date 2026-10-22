@@ -1269,6 +1269,7 @@ function shouldSkipCheckerComparison(firstLine: string): boolean {
  * @throws {Error} If MLE observed but solution not marked with ML tag
  * @throws {Error} If RTE observed but solution not marked with RE/RJ tag
  * @throws {Error} If WA or PE observed but solution not marked with WA/PE/RJ tag
+ * @throws {Error} If PE solution didn't get a presentation error on any test
  * @throws {Error} If no errors but solution marked as RJ
  * @throws {Error} If TL solution didn't timeout on any test
  * @throws {Error} If ML solution didn't exceed memory on any test
@@ -1342,6 +1343,11 @@ function validateExpectedVerdicts(
   ) {
     throw new Error(
       `Solution ${fmt.highlight(targetSolution.name)} marked as ${fmt.highlight(targetSolution.tag)} but did not get ${fmt.bold('Wrong Answer')} on any test`
+    );
+  }
+  if (targetSolution.tag === 'PE' && !verdictTracker.didPE) {
+    throw new Error(
+      `Solution ${fmt.highlight(targetSolution.name)} marked as ${fmt.highlight(targetSolution.tag)} but did not get ${fmt.bold('Presentation Error')} on any test`
     );
   }
   if (
