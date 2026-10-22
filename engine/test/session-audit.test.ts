@@ -298,6 +298,7 @@ describe("git push's output and command", () => {
     expect(pushesInCommand('git --git-dir=x push origin a')).toEqual(['a']);
     expect(pushesInCommand('git --config-env foo=BAR push origin a')).toEqual(['a']);
     expect(pushesInCommand('git --attr-source HEAD push origin a')).toEqual(['a']);
+    expect(pushesInCommand('git --super-prefix x push origin a')).toEqual(['a']);
     // --exec-path and --list-cmds take their value only after =; on its own --exec-path takes no word after it
     expect(pushesInCommand('git --exec-path=/x push origin a')).toEqual(['a']);
     expect(pushesInCommand('git --list-cmds=main push origin a')).toEqual(['a']);
@@ -341,6 +342,14 @@ describe("git push's output and command", () => {
       'git submodule update --init',
       'git bisect run ./push-check.sh',
       'git config alias.pp "log --grep push"',
+      // push as a bare word to a subcommand that never pushes
+      'git commit -m push',
+      'git tag push',
+      'git show push',
+      'git diff push',
+      'git remote add push x',
+      'git config user.name push',
+      'git config --unset alias.push',
     ]) {
       expect(unread(command), command).toEqual([]);
     }
