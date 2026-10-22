@@ -1,12 +1,15 @@
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   applyMutant,
+  cacheArgs,
   combineShards,
   isInsideRoot,
   judge,
+  judgeBaseline,
   judgedEntry,
   judgeMutant,
   junitXml,
@@ -19,6 +22,7 @@ import {
   run,
   sameDifferences,
   selectMutants,
+  shardJudges,
   shardOf,
   summaryMarkdown,
   withMutant,
@@ -100,6 +104,27 @@ describe('withMutant: the source always comes back', () => {
       })
     ).rejects.toThrow('tsc crashed');
     expect(fs.readFileSync(file, 'utf8')).toBe(original);
+  });
+
+  it('a stopped job (restoreAll) puts the source back while the run is still going', async () => {
+    let planted;
+    const inside = new Promise(resolve => (planted = resolve));
+    let finish;
+    const stillRunning = new Promise(resolve => (finish = resolve));
+    const done = withMutant(file, m, () => {
+      planted();
+      return stillRunning;
+    });
+    await inside;
+    try {
+      expect(fs.readFileSync(file, 'utf8')).not.toBe(original);
+      restoreAll();
+      expect(fs.readFileSync(file, 'utf8')).toBe(original);
+    } finally {
+      // let withMutant finish, so no restorer of this deleted file is left
+      finish();
+      await done;
+    }
   });
 
   it('never writes when the location is invalid', async () => {
@@ -751,6 +776,15 @@ process.exit(3);
     });
   });
 
+  it('a run past its time limit is a timeout, not a failure of the problem', async () => {
+    const script = path.join(dir, 'slow.mjs');
+    fs.writeFileSync(script, 'setTimeout(() => {}, 60_000);\n');
+    const started = Date.now();
+    const r = await judge('p', path.join(dir, 'work'), 300, script);
+    expect(r).toEqual({ timedOut: true });
+    expect(Date.now() - started).toBeLessThan(4_000);
+  });
+
   it("never reads the previous attempt's summary", async () => {
     const script = stub();
     const work = path.join(dir, 'work');
@@ -761,5 +795,270 @@ process.exit(3);
     expect(second.entry.failures[0]).toMatch(
       /^run\.mjs exited 3 without a summary/
     );
+  });
+
+  // a stand-in run.mjs that records the arguments it was given
+  const argvOf = async cache => {
+    const script = path.join(dir, 'argv.mjs');
+    const log = path.join(dir, 'argv.json');
+    fs.writeFileSync(
+      script,
+      `import fs from 'node:fs';
+fs.writeFileSync(${JSON.stringify(log)}, JSON.stringify(process.argv.slice(2)));
+`
+    );
+    const work = path.join(dir, 'work');
+    await (cache
+      ? judge('p', work, 20_000, script, cache)
+      : judge('p', work, 20_000, script));
+    return JSON.parse(fs.readFileSync(log, 'utf8'));
+  };
+
+  it("hands the cache flags to run.mjs's command line", async () => {
+    const junit = path.join(dir, 'work', 'p', 'junit.xml');
+    expect(await argvOf(['--cache', '/c', '--save-cache'])).toEqual([
+      '--only',
+      'p',
+      '--junit',
+      junit,
+      '--cache',
+      '/c',
+      '--save-cache',
+    ]);
+    expect(await argvOf()).toEqual(['--only', 'p', '--junit', junit]);
+  });
+});
+
+describe('judgeBaseline: the unmutated build, judged twice', () => {
+  const clean = problem => ({ entry: { name: problem, failures: [] } });
+
+  it('judges every problem twice, each run in its own folder', async () => {
+    const calls = [];
+    const work = path.join('tmp', 'work');
+    const baseline = await judgeBaseline(
+      ['a', 'b'],
+      work,
+      500,
+      async (problem, folder, ms) => {
+        calls.push([problem, folder, ms]);
+        return clean(problem);
+      }
+    );
+    expect(calls).toEqual([
+      ['a', path.join(work, 'baseline-0'), 500],
+      ['a', path.join(work, 'baseline-1'), 500],
+      ['b', path.join(work, 'baseline-0'), 500],
+      ['b', path.join(work, 'baseline-1'), 500],
+    ]);
+    expect(baseline.problems).toEqual([
+      { name: 'a', failures: [], flaky: false },
+      { name: 'b', failures: [], flaky: false },
+    ]);
+  });
+
+  it('a difference only one run shows is flaky, so no mutant is blamed for it', async () => {
+    const baseline = await judgeBaseline(
+      ['a'],
+      'work',
+      500,
+      async (problem, folder) => ({
+        entry: {
+          name: problem,
+          failures: folder.endsWith('baseline-1') ? ['tests#3: got OK'] : [],
+        },
+      })
+    );
+    expect(baseline.problems).toEqual([
+      { name: 'a', failures: ['tests#3: got OK'], flaky: true },
+    ]);
+  });
+
+  // [problem, attempt] of the one call that times out; every case must stop
+  // the job, name that problem, and judge nothing after it
+  it.each([
+    ['a', 0, 1],
+    ['a', 1, 2],
+    ['b', 0, 3],
+    ['b', 1, 4],
+  ])(
+    'stops the job when the unmutated build times out (%s, attempt %i)',
+    async (slow, attempt, callsBefore) => {
+      let calls = 0;
+      await expect(
+        judgeBaseline(['a', 'b'], 'work', 500, async (problem, folder) => {
+          calls++;
+          return problem === slow && folder.endsWith(`baseline-${attempt}`)
+            ? { timedOut: true }
+            : clean(problem);
+        })
+      ).rejects.toThrow(`the unmutated build timed out on ${slow}`);
+      expect(calls).toBe(callsBefore);
+    }
+  );
+});
+
+describe('the compile cache: only the cold baseline run writes it', () => {
+  const clean = problem => ({ entry: { name: problem, failures: [] } });
+  const recordCacheFlags = async cache => {
+    const flags = [];
+    await judgeBaseline(
+      ['a', 'b'],
+      'work',
+      500,
+      async (problem, folder, ms, script, cache) => {
+        flags.push([problem, path.basename(folder), cache]);
+        return clean(problem);
+      },
+      cache
+    );
+    return flags;
+  };
+
+  it('passes --save-cache on attempt 0 only, --cache on both', async () => {
+    expect(await recordCacheFlags('/c')).toEqual([
+      ['a', 'baseline-0', ['--cache', '/c', '--save-cache']],
+      ['a', 'baseline-1', ['--cache', '/c']],
+      ['b', 'baseline-0', ['--cache', '/c', '--save-cache']],
+      ['b', 'baseline-1', ['--cache', '/c']],
+    ]);
+  });
+
+  it('passes no cache flags without a cache folder', async () => {
+    expect(await recordCacheFlags(undefined)).toEqual([
+      ['a', 'baseline-0', []],
+      ['a', 'baseline-1', []],
+      ['b', 'baseline-0', []],
+      ['b', 'baseline-1', []],
+    ]);
+  });
+
+  it('gives a mutant --cache and never --save-cache', () => {
+    expect(cacheArgs('/c')).toEqual(['--cache', '/c']);
+    expect(cacheArgs(null)).toEqual([]);
+  });
+});
+
+describe("shardJudges: a shard's judges share one cache, mutants only read it", () => {
+  const work = path.join('tmp', 'work');
+  const cache = path.join(work, 'compile-cache');
+  const recorder = () => {
+    const calls = [];
+    const judgeOne = async (problem, folder, ms, script, flags) => {
+      calls.push([problem, folder, ms, script, flags]);
+      return { entry: { name: problem, failures: [] } };
+    };
+    return { calls, judgeOne };
+  };
+
+  it('the baseline fills the cache on its cold run and reads it on the second', async () => {
+    const { calls, judgeOne } = recorder();
+    await shardJudges(work, judgeOne).baseline(['a'], 500);
+    expect(calls).toEqual([
+      [
+        'a',
+        path.join(work, 'baseline-0'),
+        500,
+        undefined,
+        ['--cache', cache, '--save-cache'],
+      ],
+      ['a', path.join(work, 'baseline-1'), 500, undefined, ['--cache', cache]],
+    ]);
+  });
+
+  it('a mutant reads the same cache and never saves to it', async () => {
+    const { calls, judgeOne } = recorder();
+    const judgeMutantRun = shardJudges(work, judgeOne).mutant({ id: '42' });
+    await judgeMutantRun('a', 500);
+    await judgeMutantRun('b', 700);
+    expect(calls).toEqual([
+      ['a', path.join(work, '42'), 500, undefined, ['--cache', cache]],
+      ['b', path.join(work, '42'), 700, undefined, ['--cache', cache]],
+    ]);
+  });
+});
+
+describe('run.mjs --cache: every run starts from its own copy', () => {
+  const RUN = path.join(import.meta.dirname, 'run.mjs');
+  const PROBLEM = 'sum-parity';
+  let dir, log, cache, fake;
+
+  // a stand-in for polyman: logs which cache files it found, then adds one
+  const FAKE = `
+import fs from 'node:fs';
+const dir = '.polyman/cache';
+const seen = fs.existsSync(dir) ? fs.readdirSync(dir).sort() : null;
+fs.appendFileSync(process.env.FAKE_LOG, JSON.stringify(seen) + '\\n');
+fs.mkdirSync(dir, { recursive: true });
+fs.writeFileSync(dir + '/' + process.env.FAKE_WRITES, 'x');
+process.stdout.write('not a report');
+`;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'survivors-cache-'));
+    log = path.join(dir, 'seen.log');
+    cache = path.join(dir, 'cache');
+    fake = path.join(dir, 'fake-polyman.mjs');
+    fs.writeFileSync(fake, FAKE);
+  });
+  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  const runOnce = (writes, extra) => {
+    const result = spawnSync(
+      process.execPath,
+      [
+        RUN,
+        '--polyman',
+        fake,
+        '--only',
+        PROBLEM,
+        '--junit',
+        path.join(dir, writes, 'junit.xml'),
+        ...extra,
+      ],
+      {
+        encoding: 'utf8',
+        env: { ...process.env, FAKE_LOG: log, FAKE_WRITES: writes },
+      }
+    );
+    // the fake prints no report, so run.mjs reports a difference (exit 1)
+    expect(result.status, result.stderr).toBe(1);
+  };
+  const seen = () =>
+    fs
+      .readFileSync(log, 'utf8')
+      .trim()
+      .split('\n')
+      .map(line => JSON.parse(line));
+  const saved = () => fs.readdirSync(path.join(cache, PROBLEM)).sort();
+
+  it('--save-cache keeps the cold run cache; mutants read a copy and never write back', () => {
+    runOnce('baseline-0', cacheArgs(cache, { save: true }));
+    runOnce('baseline-1', cacheArgs(cache));
+    runOnce('mutant-1', cacheArgs(cache));
+    runOnce('mutant-2', cacheArgs(cache));
+    expect(seen()).toEqual([
+      null,
+      ['baseline-0'],
+      ['baseline-0'],
+      ['baseline-0'],
+    ]);
+    expect(saved()).toEqual(['baseline-0']);
+  }, 30_000);
+
+  it('without --cache every run is cold and nothing is kept', () => {
+    runOnce('first', []);
+    runOnce('second', []);
+    expect(seen()).toEqual([null, null]);
+    expect(fs.existsSync(cache)).toBe(false);
+  });
+
+  it('refuses --save-cache without --cache', () => {
+    const result = spawnSync(
+      process.execPath,
+      [RUN, '--only', PROBLEM, '--save-cache'],
+      { encoding: 'utf8' }
+    );
+    expect(result.status).toBe(2);
+    expect(result.stderr).toMatch('--save-cache needs --cache <dir>');
   });
 });

@@ -19,6 +19,16 @@ FROM node:22-bookworm
 RUN apt-get update \
  && apt-get install -y --no-install-recommends openjdk-17-jdk-headless python-is-python3 tini \
  && rm -rf /var/lib/apt/lists/*
+# <bits/stdc++.h> precompiled once with polyman's default C++ flags, so a
+# solution doesn't parse it again on every compile. The service passes this
+# folder (PCH_DIR) only to problems that keep the defaults, and g++ uses the
+# .gch only when it matches the compile, reading the header otherwise. The
+# flags must stay polyman's defaults (a service test checks them).
+RUN header="$(find /usr/include -path '*/c++/*/bits/stdc++.h' | sort | tail -n 1)" \
+ && test -n "$header" \
+ && mkdir -p /opt/pch/bits \
+ && g++ -O2 -std=c++23 -x c++-header "$header" -o /opt/pch/bits/stdc++.h.gch \
+ && chmod -R a+rX /opt/pch
 # testlib.h pinned to a commit, so a change upstream can't change our verdicts
 ADD --checksum=sha256:bb323e3c89285214966076e0d23d5a295c5f6126da7ff198c1276ddb95ecb1a0 https://raw.githubusercontent.com/MikeMirzayanov/testlib/2d20123984e9479b8a56ebe0d6a51e23ad7c35b3/testlib.h /opt/testlib/testlib.h
 RUN chmod 755 /opt/testlib && chmod 644 /opt/testlib/testlib.h
@@ -46,6 +56,7 @@ ENV NODE_ENV=production \
     PORT=8080 \
     POLYMAN_CLI=/app/dist/cli.js \
     TESTLIB_H=/opt/testlib/testlib.h \
+    PCH_DIR=/opt/pch \
     RUNNER_UID=10001 \
     RUNNER_GID=10001 \
     APP_COMMIT=$APP_COMMIT

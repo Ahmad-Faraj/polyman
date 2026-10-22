@@ -52,6 +52,14 @@ const COMMENT_RE = /<#--([\s\S]*?)-->/g;
  * memory.
  */
 export const MAX_LIST_ITEMS = 10000;
+
+/**
+ * Maximum number of tests one multi-output target (`{1-100}`) may list, and
+ * the maximum number of tests a whole script may produce. Guards against
+ * `{1-100000000}` exhausting memory. Separate from {@link MAX_LIST_ITEMS} so
+ * the two limits can change independently.
+ */
+export const MAX_SCRIPT_TESTS = 10000;
 const GROUP_DIRECTIVE_RE = /^@group\s+(\S+)\s*$/;
 
 /**
@@ -170,6 +178,13 @@ function parseTarget(target: string, lineNumber: number): ScriptOutput {
       throw new Error(`Empty multi-output target on line ${lineNumber}`);
     }
     const indices: number[] = [];
+    // Count before allocating, so a huge range never gets materialized.
+    let counted = 0;
+    const tooMany = (): Error =>
+      new Error(
+        `Multi-output target on line ${lineNumber} expands to more than ` +
+          `${MAX_SCRIPT_TESTS} tests (limit ${MAX_SCRIPT_TESTS})`
+      );
     for (const piece of inner.split(',')) {
       const p = piece.trim();
       const rangeMatch = /^(\d+)\s*-\s*(\d+)$/.exec(p);
@@ -181,6 +196,8 @@ function parseTarget(target: string, lineNumber: number): ScriptOutput {
             `Invalid range "${p}" in multi-output target on line ${lineNumber}`
           );
         }
+        counted += b - a + 1;
+        if (counted > MAX_SCRIPT_TESTS) throw tooMany();
         for (let i = a; i <= b; i++) indices.push(i);
       } else if (/^\d+$/.test(p)) {
         const v = parseInt(p, 10);
@@ -189,6 +206,8 @@ function parseTarget(target: string, lineNumber: number): ScriptOutput {
             `Test index must be >= 1 (got ${v}) on line ${lineNumber}`
           );
         }
+        counted++;
+        if (counted > MAX_SCRIPT_TESTS) throw tooMany();
         indices.push(v);
       } else {
         throw new Error(
@@ -238,10 +257,27 @@ class FmExprError extends Error {}
 const FM_TOKEN_RE =
   /(<#--[\s\S]*?-->)|<(\/?)([#@])([A-Za-z_][\w.]*)([^>]*)>|\$\{([^}]*)\}|(#\{)|(\[\/?[#@][\w.]*)/g;
 
-function lineAt(text: string, offset: number): number {
-  let line = 1;
-  for (let i = 0; i < offset; i++) if (text[i] === '\n') line++;
-  return line;
+/**
+ * Builds a lookup from a character offset to its 1-based line number. The
+ * newline offsets are collected once, so each lookup is a binary search
+ * instead of a rescan from the start of the script.
+ */
+function makeLineLookup(text: string): (offset: number) => number {
+  const newlines: number[] = [];
+  for (let i = text.indexOf('\n'); i >= 0; i = text.indexOf('\n', i + 1)) {
+    newlines.push(i);
+  }
+  return (offset: number): number => {
+    // Count the newlines at an index below `offset`.
+    let lo = 0;
+    let hi = newlines.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (newlines[mid] < offset) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo + 1;
+  };
 }
 
 /**
@@ -249,6 +285,7 @@ function lineAt(text: string, offset: number): number {
  * Throws for any other FreeMarker construct, naming it.
  */
 function parseFreeMarker(script: string): FmPiece[] {
+  const lineAt = makeLineLookup(script);
   const root: FmPiece[] = [];
   const open: FmListNode[] = [];
   const target = (): FmPiece[] =>
@@ -263,9 +300,7 @@ function parseFreeMarker(script: string): FmPiece[] {
   const addText = (text: string, from: number): void => {
     const at = text.indexOf('${');
     if (at >= 0) {
-      throw new Error(
-        `Unterminated "\${" on line ${lineAt(script, from + at)}`
-      );
+      throw new Error(`Unterminated "\${" on line ${lineAt(from + at)}`);
     }
     pending += text;
   };
@@ -275,7 +310,7 @@ function parseFreeMarker(script: string): FmPiece[] {
     const offset = m.index;
     addText(script.slice(last, offset), last);
     last = offset + m[0].length;
-    const line = lineAt(script, offset);
+    const line = lineAt(offset);
 
     if (m[1] !== undefined) {
       // Comments that survived preprocess (`@group ...`) stay as text, but
@@ -285,7 +320,7 @@ function parseFreeMarker(script: string): FmPiece[] {
         const expr = /^\$\{[^}]*\}?/.exec(m[1].slice(interp))![0];
         throw new Error(
           `Unsupported expression ${expr} in @group on line ` +
-            `${lineAt(script, offset + interp)}`
+            `${lineAt(offset + interp)}`
         );
       }
       pending += m[1];
@@ -609,12 +644,14 @@ function stripComments(line: string): string {
  * @param script - raw script text
  * @returns parsed lines in source order
  * @throws if a line is malformed, an extension appears in a generator name,
- *         or an output target is invalid
+ *         an output target is invalid, or the script expands to more than
+ *         {@link MAX_SCRIPT_TESTS} tests
  */
 export function parseGeneratorScript(script: string): ParsedScriptLine[] {
   const out: ParsedScriptLine[] = [];
   const lines = preprocess(script);
   let activeGroup: string | undefined;
+  let totalTests = 0;
 
   for (let i = 0; i < lines.length; i++) {
     const raw = lines[i];
@@ -650,6 +687,10 @@ export function parseGeneratorScript(script: string): ParsedScriptLine[] {
 
     const tokens = tokenize(left);
     const generator = tokens[0];
+    if (generator === undefined) {
+      // tokenize() drops empty quoted tokens, so `"" > 1` has none.
+      throw new Error(`Empty generator command on line ${lineNumber}`);
+    }
     if (path.extname(generator) !== '') {
       throw new Error(
         `Generator name must not include an extension on line ${lineNumber}: "${generator}"`
@@ -657,10 +698,19 @@ export function parseGeneratorScript(script: string): ParsedScriptLine[] {
     }
     const args = tokens.slice(1);
 
+    const output = parseTarget(target, lineNumber);
+    totalTests += output.kind === 'multi' ? output.indices.length : 1;
+    if (totalTests > MAX_SCRIPT_TESTS) {
+      throw new Error(
+        `Script expands to more than ${MAX_SCRIPT_TESTS} tests ` +
+          `(limit ${MAX_SCRIPT_TESTS}), exceeded on line ${lineNumber}`
+      );
+    }
+
     out.push({
       generator,
       args,
-      output: parseTarget(target, lineNumber),
+      output,
       ...(activeGroup !== undefined ? { group: activeGroup } : {}),
       raw: raw.trim(),
       lineNumber,

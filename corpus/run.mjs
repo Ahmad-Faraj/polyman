@@ -15,6 +15,13 @@
  * Usage:
  *   node corpus/run.mjs [--polyman dist/cli.js] [--record] [--only a,b]
  *                       [--junit corpus/out/junit.xml] [--keep]
+ *                       [--cache <dir> [--save-cache]]
+ *
+ * Every problem is verified cold unless --cache is given: then polyman's
+ * compile cache for problem <name> starts as a copy of <dir>/<name>, and with
+ * --save-cache the cache the verify left is copied back there. survivors.mjs
+ * uses it so the g++ binaries of the unmutated build are reused by every
+ * mutant (a mutant changes polyman, not the problems' sources).
  */
 
 import { spawnSync } from 'node:child_process';
@@ -51,11 +58,16 @@ function parseArgs(argv) {
     only: null,
     junit: path.join(CORPUS, 'out', 'junit.xml'),
     keep: false,
+    cache: null,
+    saveCache: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--record') args.record = true;
     else if (arg === '--keep') args.keep = true;
+    else if (arg === '--save-cache') args.saveCache = true;
+    else if (arg === '--cache')
+      args.cache = path.resolve(valueOf(argv, ++i, arg));
     else if (arg === '--polyman')
       args.polyman = path.resolve(valueOf(argv, ++i, arg));
     else if (arg === '--junit')
@@ -64,6 +76,8 @@ function parseArgs(argv) {
       args.only = new Set(valueOf(argv, ++i, arg).split(','));
     else throw new Error(`Unknown argument: ${arg}`);
   }
+  if (args.saveCache && !args.cache)
+    throw new Error('--save-cache needs --cache <dir>');
   return args;
 }
 
@@ -92,6 +106,11 @@ function verifyProblem(name, args) {
   );
   fs.cpSync(path.join(PROBLEMS, name), work, { recursive: true });
   fs.copyFileSync(TESTLIB, path.join(work, 'testlib.h'));
+  // polyman keeps its compile cache in <problem>/.polyman/cache
+  const cacheIn = args.cache && path.join(args.cache, name);
+  const cacheHere = path.join(work, '.polyman', 'cache');
+  if (cacheIn && fs.existsSync(cacheIn))
+    fs.cpSync(cacheIn, cacheHere, { recursive: true });
 
   const started = Date.now();
   const result = spawnSync(
@@ -105,6 +124,10 @@ function verifyProblem(name, args) {
     }
   );
   const seconds = (Date.now() - started) / 1000;
+  if (args.saveCache && fs.existsSync(cacheHere)) {
+    fs.rmSync(cacheIn, { recursive: true, force: true });
+    fs.cpSync(cacheHere, cacheIn, { recursive: true });
+  }
   if (!args.keep) fs.rmSync(work, { recursive: true, force: true });
 
   let report = null;

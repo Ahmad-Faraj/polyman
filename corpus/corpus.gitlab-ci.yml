@@ -39,10 +39,7 @@ corpus:
     reports:
       junit: corpus/out/junit.xml
       requirements_v2: corpus/out/requirements.json
-  # Red on polyman 3.0.0, on every problem, for two known bugs only: `verify
-  # --json` reports tests the checker never judged as OK (#21) and presentation
-  # errors as WA (#28). Becomes blocking in the MR that fixes them.
-  allow_failure: true
+  # Blocking: green on its last 40 merge request runs, 0 reds (22 Oct).
 
 # Environments polyman's users have. Each lane pins one fact about them.
 corpus:toolchain:
@@ -67,10 +64,19 @@ corpus:toolchain:
     - npm run build
     - node dist/cli.js --version
     - node corpus/run.mjs --junit corpus/out/junit-${LANE}.xml
+  # node-20.19 is blocking (40 of 40 merge request runs green, 22 Oct).
+  # no-python-alias is reported, not yet blocking: its 3 reds in those 40 runs
+  # were the #88 compile limit, from before the 60 s limit.
+  rules:
+    - if: $LANE == "no-python-alias" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      allow_failure: true
+    - if: $LANE == "no-python-alias"
+      changes: [src/**/*, corpus/**/*, template/**/*, assets/**/*, package.json, package-lock.json]
+      allow_failure: true
+    - !reference [.corpus, rules]
   artifacts:
     reports:
       junit: corpus/out/junit-${LANE}.xml
-  allow_failure: true
 
 # The two operating systems polyman's users have besides Linux, on GitLab's
 # own macOS and Windows runners. On the default branch they run by themselves;
@@ -196,13 +202,19 @@ corpus:mutation:
 # one at a time, polyman is rebuilt and the corpus judges all problems; a kill
 # is any verdict or step that differs from the unmutated build in the same job.
 # On the default branch, and on demand in merge requests that change the script
-# or the verdict code (play corpus:survivors:mutants). A measurement: it never
-# fails the pipeline because the judges miss a mutant.
+# or the verdict code (play corpus:survivors:mutants). A merge to the default
+# branch runs it only when something it reads changed: polyman's source and
+# runtime files, the tests Stryker runs, the corpus, the dependencies, the
+# TypeScript and Vitest config, or the CI it runs in. Nightly, web and API
+# pipelines always run it. A measurement: it never fails the pipeline because
+# the judges miss a mutant.
 .corpus-survivors:
   extends: .node
   stage: test
   rules:
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"
+      changes: &survivors-inputs [src/**/*, tests/**/*, corpus/**/*, template/**/*, assets/**/*, package.json, package-lock.json, tsconfig*.json, vitest.config.ts, .gitlab-ci.yml, engine/ci/**/*, service/ci/**/*, infra/infra.gitlab-ci.yml, .gitlab/ci/**/*]
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "push"
     - changes: [corpus/survivors.mjs, corpus/lib.mjs, corpus/run.mjs, corpus/stryker.config.json, src/helpers/solution.ts]
   allow_failure: true
 
@@ -213,7 +225,9 @@ corpus:survivors:mutants:
   variables:
     TZ: Asia/Kolkata
   rules:
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"
+      changes: *survivors-inputs
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "push"
     - changes: [corpus/survivors.mjs, corpus/lib.mjs, corpus/run.mjs, corpus/stryker.config.json, src/helpers/solution.ts]
       when: manual
       allow_failure: true

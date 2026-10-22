@@ -51,6 +51,8 @@ include:
   - local: engine/ci/autonomy-sci.gitlab-ci.yml
   # the verify web service (#19): its tests, image, sample check and Cloud Run deploy
   - local: service/ci/service.gitlab-ci.yml
+  # nightly: every past incident's bug re-planted, and the checks must refuse it
+  - local: service/ci/rehearsals/rehearsals.gitlab-ci.yml
   # the verify service's Google Cloud setup in OpenTofu: policy judge, nightly drift plan (infra/README.md)
   - local: infra/infra.gitlab-ci.yml
   # golden + mutant corpus: real compilers judging real solutions (corpus/README.md)

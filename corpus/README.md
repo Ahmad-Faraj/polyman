@@ -133,8 +133,10 @@ node corpus/survivors.mjs report --shards 8     # sums corpus/out/survivors/shar
 In CI, `corpus:survivors:mutants` runs Stryker, eight `corpus:survivors` shards judge the mutants
 and `corpus:survivors:report` writes `summary.md` (exposed in the merge request as "Judges vs
 surviving mutants") and the metrics `corpus_kills_unit_survivors` and
-`corpus_kills_untested_mutants`, each with a `_total`. It runs on the default branch, and on
-demand (play `corpus:survivors:mutants`) in merge requests that change the script or
+`corpus_kills_untested_mutants`, each with a `_total`. It runs on every scheduled, web and API
+pipeline of the default branch, on pushes to it that change something it reads (polyman's source,
+tests, `template/`, `assets/`, the corpus, the dependencies, `tsconfig*.json`, `vitest.config.ts`,
+`.gitlab-ci.yml`), and on demand (play `corpus:survivors:mutants`) in merge requests that change the script or
 `src/helpers/solution.ts`. The summary lists every mutant both the unit tests and the judges miss.
 
 ## Upstream drift

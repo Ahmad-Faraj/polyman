@@ -88,7 +88,15 @@ async function main() {
   // branch in would put the start at that later merge.
   const chainRef = defaultBranchRef(git);
   const [commit, at] = git('log', '--first-parent', '--diff-filter=A', '--format=%H %cI', chainRef, '--', GUARD).split('\n').pop()!.split(' ');
-  if (!commit || !at) throw new Error(`no commit on ${chainRef} adds ${GUARD}, so there is no guard to rebuild a ledger from`);
+  if (!commit || !at) {
+    if (installsGuard(git, chainRef)) {
+      // the MR that adds the guard to a new project: the chain starts at its
+      // merge, so there is nothing to rebuild yet, and nothing is published
+      console.log(`first install: this MR adds the guard (${GUARD}) and ${chainRef} has none yet; the ledger starts at its merge, so there is nothing to rebuild or publish now`);
+      return;
+    }
+    throw new Error(`no commit on ${chainRef} adds ${GUARD}, so there is no guard to rebuild a ledger from`);
+  }
   const since = { commit, at: second(at) };
   const fromGuard = (iso: string) => Date.parse(iso) >= Date.parse(since.at);
   const listed = await allPages<{ iid: number; source_branch: string }>(gl, `/:project/merge_requests?state=all&updated_after=${encodeURIComponent(since.at)}&order_by=created_at&sort=asc`);
@@ -383,6 +391,27 @@ function defaultBranchRef(git: (...args: string[]) => string): string {
   } catch {
     console.warn(`warning: origin/${branch} isn't fetched, so the chain start is read on HEAD (on another branch it may start too late)`);
     return 'HEAD';
+  }
+}
+
+/**
+ * True only in a merge request pipeline whose MR adds the guard to a default
+ * branch that doesn't have it: the first install in a new project. Read on
+ * git, not on what the MR says: the guard must be absent on the default branch
+ * and added between it and this pipeline's commit.
+ */
+function installsGuard(git: (...args: string[]) => string, chainRef: string): boolean {
+  if (env.CI_PIPELINE_SOURCE !== 'merge_request_event' || chainRef === 'HEAD') return false;
+  try {
+    git('cat-file', '-e', `${chainRef}:${GUARD}`);
+    return false; // the default branch has the guard, only not added on its first-parent line: not a first install
+  } catch {
+    // absent on the default branch
+  }
+  try {
+    return git('diff', '--name-only', '--diff-filter=A', `${chainRef}...HEAD`, '--', GUARD) === GUARD;
+  } catch {
+    return false;
   }
 }
 

@@ -114,7 +114,7 @@ describe('sci-report --ci', () => {
   };
   const mr = (url: string) => ({ CI_API_V4_URL: url, CI_PROJECT_ID: '1', CI_MERGE_REQUEST_IID: '3', CI_PIPELINE_ID: '30' });
 
-  it('measures the MR\'s finished pipelines and writes one per-pipeline metric', async () => {
+  it('measures the MR\'s finished pipelines into the JSON, and writes no CI metric', async () => {
     const api = await serve((url) =>
       url.includes('/merge_requests/3/pipelines')
         ? [200, [{ id: 30, status: 'running' }, { id: 20, status: 'success' }, { id: 10, status: 'failed' }]]
@@ -125,9 +125,10 @@ describe('sci-report --ci', () => {
     try {
       const r = await runCi(mr(api.url), join(dir, 'ci-ok'));
       expect(r.status, r.stderr).toBe(0);
-      expect(r.metrics).toContain('sci_ci_runner_minutes_per_pipeline_median 1.5\n');
-      expect(r.metrics).toMatch(/^sci_ci_runner_gco2e_per_pipeline_median \d/m);
-      expect(r.json?.ci).toMatchObject({ pipelines: 2, scope: "!3's 2 finished pipelines before this one" });
+      expect(r.metrics).toMatch(/^sci_review_/m);
+      expect(r.metrics).not.toMatch(/^sci_ci_/m);
+      expect(r.json?.ci).toMatchObject({ pipelines: 2, scope: "!3's 2 finished pipelines before this one", perPipelineMinutes: 1.5 });
+      expect((r.json?.ci as { perPipelineGrams: number }).perPipelineGrams).toBeGreaterThan(0);
     } finally {
       api.close();
     }

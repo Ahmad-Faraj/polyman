@@ -68,6 +68,20 @@ describe('parseGeneratorScript - errors', () => {
     expect(() => parser.parseGeneratorScript('gen.cpp 1 > 1')).toThrow();
   });
 
+  it('rejects a generator name that is an empty quoted token', () => {
+    for (const script of ['"" > 1', "'' > 1", '" > $']) {
+      expect(() => parser.parseGeneratorScript(script)).toThrow(
+        'Empty generator command on line 1'
+      );
+    }
+  });
+
+  it('reports the line number of an empty generator name', () => {
+    expect(() =>
+      parser.parseGeneratorScript('gen 1 > 1\n\n"" > 2\ngen 3 > 3')
+    ).toThrow('Empty generator command on line 3');
+  });
+
   it('rejects missing > target', () => {
     expect(() => parser.parseGeneratorScript('gen 1 2 3')).toThrow(
       /Missing '> target'/
@@ -740,6 +754,115 @@ describe('toPolygonScript', () => {
   it('leaves unknown generator tokens alone', () => {
     expect(parser.toPolygonScript('other 1 > $', generators)).toBe(
       'other 1 > $'
+    );
+  });
+});
+
+describe('parseGeneratorScript - test count limits', () => {
+  it('exports the limit as 10000', () => {
+    expect(parser.MAX_SCRIPT_TESTS).toBe(10000);
+  });
+
+  it('rejects a huge range at once, naming the line', () => {
+    const start = performance.now();
+    expect(() => parser.parseGeneratorScript('gen 1 > {1-100000000}')).toThrow(
+      /line 1 expands to more than 10000 tests/
+    );
+    expect(performance.now() - start).toBeLessThan(1000);
+  });
+
+  it('names the right line for a huge range further down', () => {
+    expect(() =>
+      parser.parseGeneratorScript('gen 1 > 1\n\ngen 2 > {1-100000000}')
+    ).toThrow(/line 3/);
+  });
+
+  it('accepts a range of exactly the limit and rejects one above it', () => {
+    const out = parser.parseGeneratorScript('gen 1 > {1-10000}');
+    expect(out).toHaveLength(1);
+    const output = out[0].output;
+    expect(output.kind).toBe('multi');
+    if (output.kind === 'multi') expect(output.indices).toHaveLength(10000);
+
+    expect(() => parser.parseGeneratorScript('gen 1 > {1-10001}')).toThrow(
+      /more than 10000 tests \(limit 10000\)/
+    );
+  });
+
+  it('counts ranges and single indices together within one target', () => {
+    expect(() =>
+      parser.parseGeneratorScript('gen 1 > {1-6000,7001-13000}')
+    ).toThrow(/line 1 expands to more than 10000 tests/);
+    expect(() =>
+      parser.parseGeneratorScript('gen 1 > {1-10000,10001}')
+    ).toThrow(/line 1 expands to more than 10000 tests/);
+  });
+
+  it('rejects many targets whose total is above the limit', () => {
+    const script = [
+      'gen 1 > {1-5000}',
+      'gen 2 > {5001-10000}',
+      'gen 3 > {10001-10002}',
+    ].join('\n');
+    expect(() => parser.parseGeneratorScript(script)).toThrow(
+      /Script expands to more than 10000 tests.*line 3/
+    );
+  });
+
+  it('accepts a script of exactly the limit', () => {
+    const script = ['gen 1 > {1-5000}', 'gen 2 > {5001-10000}'].join('\n');
+    expect(parser.parseGeneratorScript(script)).toHaveLength(2);
+  });
+
+  it('counts single-target lines and names the line that exceeds', () => {
+    const lines = Array.from({ length: 10001 }, () => 'gen 1 > $');
+    expect(() => parser.parseGeneratorScript(lines.join('\n'))).toThrow(
+      /Script expands to more than 10000 tests.*line 10001/
+    );
+    expect(
+      parser.parseGeneratorScript(lines.slice(0, 10000).join('\n'))
+    ).toHaveLength(10000);
+  });
+});
+
+describe('line lookup on big scripts', () => {
+  const bigLine = 'gen ${1+1} ${2+2} ${3+3} ${4+4} ${5+5} > $';
+  const bigScript = (): string => {
+    const lines: string[] = [];
+    let size = 0;
+    while (size < 250 * 1024) {
+      lines.push(bigLine);
+      size += bigLine.length + 1;
+    }
+    return lines.join('\n');
+  };
+
+  it('parses a 250 KB script of ${...} lines in under a second', () => {
+    const script = bigScript();
+    expect(script.length).toBeGreaterThanOrEqual(250 * 1024);
+    const start = performance.now();
+    const parsed = parser.parseGeneratorScript(script);
+    const elapsed = performance.now() - start;
+    expect(parsed.length).toBeGreaterThan(5000);
+    expect(parsed.length).toBeLessThanOrEqual(10000);
+    expect(elapsed).toBeLessThan(1000);
+  });
+
+  it('reports the exact line of a bad expression late in a big script', () => {
+    const script = bigScript() + '\ngen ${i/2} > $';
+    const lastLine = script.split('\n').length;
+    expect(lastLine).toBeGreaterThan(5000);
+    expect(() => parser.parseGeneratorScript(script)).toThrow(
+      `on line ${lastLine}`
+    );
+    expect(() => parser.parseGeneratorScript(script)).toThrow(/\$\{i\/2\}/);
+  });
+
+  it('reports the exact line of an unterminated ${ late in a big script', () => {
+    const script = bigScript() + '\ngen ${1+1 > $';
+    const lastLine = script.split('\n').length;
+    expect(() => parser.parseGeneratorScript(script)).toThrow(
+      `Unterminated "\${" on line ${lastLine}`
     );
   });
 });

@@ -183,7 +183,7 @@ release:gitlab:
       set --
       while IFS= read -r l; do [ -n "$l" ] && set -- "$@" --assets-link "$l"; done < release-links.jsonl
       release-cli create --name "polyman-cli $RELEASE_VERSION" --tag-name "v$RELEASE_VERSION" --ref "$CI_COMMIT_SHA" \
-        --description "Published to npm from pipeline $CI_PIPELINE_URL with provenance, judged against the previous latest before promotion. The links below are the evidence it was judged on." \
+        --description "Published to npm from pipeline $CI_PIPELINE_URL with provenance, judged by the corpus against the previous latest before promotion. The links below are the evidence kept for it; the Polygon round trip, when it ran, is attached as evidence, not a gate." \
         --assets-link "{\"name\":\"npm: polyman-cli@$RELEASE_VERSION\",\"url\":\"https://www.npmjs.com/package/polyman-cli/v/$RELEASE_VERSION\"}" \
         --assets-link "{\"name\":\"Release check: next vs latest\",\"url\":\"$CI_PIPELINE_URL\"}" \
         "$@"

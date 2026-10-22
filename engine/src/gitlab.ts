@@ -75,23 +75,29 @@ export class GitLab {
 }
 
 export interface PipelineJob {
+  id: number;
   name: string;
   status: string;
   duration: number | null;
 }
 
+/** Every job of one pipeline, retried ones included, every page of them. */
+export async function pipelineJobs(gl: Pick<GitLab, 'get'>, pipelineId: number) {
+  const jobs: PipelineJob[] = [];
+  for (let n = 1; ; n++) {
+    const path = `/:project/pipelines/${pipelineId}/jobs?per_page=100&include_retried=true&page=${n}`;
+    const page = await gl.get<PipelineJob[]>(path);
+    if (!Array.isArray(page)) throw new Error(`GET ${path} did not return a list: ${JSON.stringify(page).slice(0, 100)}`);
+    jobs.push(...page);
+    if (page.length < 100) break;
+  }
+  return jobs;
+}
+
 /** Finished jobs (with a runner duration) across the given pipelines, every page of them. */
 export async function finishedJobs(gl: Pick<GitLab, 'get'>, pipelineIds: number[]) {
   const jobs: { name: string; duration: number }[] = [];
-  for (const id of pipelineIds) {
-    for (let n = 1; ; n++) {
-      const path = `/:project/pipelines/${id}/jobs?per_page=100&include_retried=true&page=${n}`;
-      const page = await gl.get<PipelineJob[]>(path);
-      if (!Array.isArray(page)) throw new Error(`GET ${path} did not return a list: ${JSON.stringify(page).slice(0, 100)}`);
-      for (const j of page) if (j.duration) jobs.push({ name: j.name, duration: j.duration });
-      if (page.length < 100) break;
-    }
-  }
+  for (const id of pipelineIds) for (const j of await pipelineJobs(gl, id)) if (j.duration) jobs.push({ name: j.name, duration: j.duration });
   return jobs;
 }
 

@@ -631,8 +631,8 @@ describe('utils.ts', () => {
       });
 
       describe('with flags that are not known to be cache-safe', () => {
-        const source = path.resolve(cwd, 'solutions/main.cpp');
-        const output = path.resolve(cwd, 'solutions/main');
+        const source = path.join(cwd, 'solutions', 'main.cpp');
+        const output = path.join(cwd, 'solutions', 'main');
         const fullCommand = (flags: string[]) =>
           [
             q('g++'),
