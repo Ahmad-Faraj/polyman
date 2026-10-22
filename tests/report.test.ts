@@ -191,6 +191,27 @@ describe('report.ts', () => {
   });
 
   describe('verify report', () => {
+    it('carries warnings, empty by default, without failing the step', () => {
+      collector.startVerify();
+      collector.beginStep('test-validator');
+      collector.addWarning('\u001b[33mno INVALID self-tests\u001b[0m');
+      collector.addWarning('no INVALID self-tests');
+      collector.finish(true);
+      const doc = written() as VerifyReport;
+      expect(doc.ok).toBe(true);
+      expect(doc.warnings).toEqual(['no INVALID self-tests']);
+      expect(doc.steps).toEqual([
+        { name: 'test-validator', ok: true, errors: [] },
+      ]);
+
+      collector.reset();
+      writeSpy.mockClear();
+      collector.startVerify();
+      collector.beginStep('test-validator');
+      collector.finish(true);
+      expect((written() as VerifyReport).warnings).toEqual([]);
+    });
+
     it('renders steps and solutions on success', () => {
       collector.startVerify();
       collector.beginStep('compile-generators');

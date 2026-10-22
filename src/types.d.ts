@@ -872,11 +872,13 @@ interface RunReport extends ReportBase {
 /**
  * Report emitted by `polyman verify --json`.
  * @interface VerifyReport
+ * @property {string[]} warnings - Non-fatal findings, empty when there are none
  */
 interface VerifyReport extends ReportBase {
   command: 'verify';
   failedStep: string | null;
   steps: StepResult[];
+  warnings: string[];
   solutions: SolutionResult[];
 }
 

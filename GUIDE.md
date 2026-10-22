@@ -947,6 +947,8 @@ Create `validator_tests.json`:
 ]
 ```
 
+**Why INVALID self-tests matter:** every test generated for the problem is checked with `VALID`-style input, so a validator that accepts everything (for example one that reads to EOF and returns) passes all of them. Only an INVALID self-test, an input the validator must reject, proves it rejects anything. `polyman verify` prints a warning, and lists it under `warnings` in the `--json` report, when the validator has no self-test with the `INVALID` verdict. It is a warning, not a failure: verification still passes.
+
 ### ✅ Do's:
 
 1. **Validate all constraints** mentioned in the problem statement
@@ -1635,11 +1637,12 @@ polyman verify --json > verify.json     # JSON report on stdout, human log on st
       ]
     }
   ],
+  "warnings": [],
   "solutions": []
 }
 ```
 
-Step names, in pipeline order: `read-config`, `compile-generators`, `generate-tests`, `compile-validator`, `test-validator`, `validate-tests`, `compile-checker`, `test-checker`, `compile-solutions`, `run-solutions`, `verify-solutions`. `failedStep` names the first failing step (null on success) and later steps are absent because verify stops there. `steps[].errors` holds the error lines printed during a failed step and is empty for steps that passed.
+Step names, in pipeline order: `read-config`, `compile-generators`, `generate-tests`, `compile-validator`, `test-validator`, `validate-tests`, `compile-checker`, `test-checker`, `compile-solutions`, `run-solutions`, `verify-solutions`. `failedStep` names the first failing step (null on success) and later steps are absent because verify stops there. `steps[].errors` holds the error lines printed during a failed step and is empty for steps that passed. `warnings` lists non-fatal findings as plain strings and is empty when there are none; a warning never changes `ok` or the exit code. Currently the only warning is "the validator has no INVALID self-tests, so nothing checks that it rejects bad input".
 
 On success `solutions[]` has one entry per solution that ran:
 
