@@ -279,6 +279,26 @@ describe("git push's output and command", () => {
     }
   });
 
+  it("reads a push after git's own options with their value as a separate word", () => {
+    expect(pushesInCommand('git --git-dir .. push origin a')).toEqual(['a']);
+    expect(pushesInCommand('git --work-tree X push')).toEqual([null]);
+    expect(pushesInCommand('git --namespace ns push origin a')).toEqual(['a']);
+    expect(pushesInCommand('git --git-dir=x push origin a')).toEqual(['a']);
+    // -P and -m are git subtree's options; plain git push has neither, so nothing after them is skipped
+    expect(pushesInCommand('git push -P origin a')).toEqual(['a']);
+  });
+
+  it('still counts a push run through a git subcommand as unread, and none for a subcommand that never pushes', () => {
+    const unread = (command: string) => pushesOf([call({ args: { command }, response: 'Exit code: 0\n' })], session);
+    for (const command of ['git submodule foreach git push', 'git bisect run git push', 'git config alias.p push && git p']) {
+      expect(unread(command), command).toEqual([expect.objectContaining({ branch: null })]);
+    }
+    for (const command of ['git commit -m "push"', 'git grep push', 'git show HEAD', 'git diff', 'git tag push-1']) {
+      expect(unread(command), command).toEqual([]);
+    }
+    expect(unread('git stash push -q && git submodule foreach git push')).toHaveLength(1);
+  });
+
   it('reads git then push in what an interpreter runs only in that order, as whole words', () => {
     const unread = (command: string) => pushesOf([call({ args: { command }, response: 'Exit code: 0\n' })], session).length;
     expect(unread(`node -e "require('child_process').execSync('git fetch && git push')"`)).toBe(1);

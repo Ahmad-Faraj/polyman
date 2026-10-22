@@ -321,10 +321,11 @@ function readCommand(command: string, depth = 0): CommandRead {
       for (const b of pushed) read.branches.push(b);
       continue;
     }
-    // git and push as words of their own, not in a commit message or a pattern to grep for. Not when
-    // git is the command: gitPush has read it, and `git stash push` or `git log --grep push` is no push
+    // git and push as words of their own, not in a commit message or a pattern to grep for. Not in a git
+    // subcommand that never pushes (`git stash push`, `git log --grep push`); `git submodule foreach git push`,
+    // `git config alias.p push` and a subcommand not known here still count
     const bare = raw.slice(k).filter((w) => !/["']/.test(w));
-    if ((!isGit && bare.some((w) => /(^|\/)git$/.test(w)) && bare.includes('push')) || (INTERPRETERS.test(cmd) && gitThenPush(segment))) read.unparsed = true;
+    if ((!(isGit && harmlessGit(words)) && bare.some((w) => /(^|\/)git$/.test(w)) && bare.includes('push')) || (INTERPRETERS.test(cmd) && gitThenPush(segment))) read.unparsed = true;
     const filter = ['tail', 'head'].includes(cmd) && words.slice(1).every((w, i) => w.startsWith('-') || (/^\d+$/.test(w) && words[i] === '-n'));
     if (cmd && cmd !== 'cd' && !filter && !(isGit && QUIET_GIT.includes(words[gitSubcommand(words)]))) {
       read.prints = true;
@@ -334,11 +335,22 @@ function readCommand(command: string, depth = 0): CommandRead {
   return read;
 }
 
-/** Where a git command's subcommand is, after git's own options: -C <dir>, -c <key=value>, --no-pager. */
+/** git's own options whose value can be the next word (`--git-dir=..` is one word, `--git-dir ..` two). */
+const GIT_VALUED = ['-C', '-c', '--git-dir', '--work-tree', '--namespace', '--super-prefix', '--exec-path'];
+
+/** Where a git command's subcommand is, after git's own options: -C <dir>, -c <key=value>, --git-dir <dir>, --no-pager. */
 function gitSubcommand(words: string[]): number {
   let i = 1;
-  while (i < words.length && words[i].startsWith('-')) i += words[i] === '-C' || words[i] === '-c' ? 2 : 1;
+  while (i < words.length && words[i].startsWith('-')) i += GIT_VALUED.includes(words[i]) ? 2 : 1;
   return i;
+}
+
+/** git subcommands that never push, whatever their arguments say; config only when it sets no alias. */
+const HARMLESS_GIT = ['stash', 'log', 'remote', 'commit', 'grep', 'show', 'diff', 'tag', 'config'];
+
+function harmlessGit(words: string[]): boolean {
+  const i = gitSubcommand(words);
+  return HARMLESS_GIT.includes(words[i]) && !(words[i] === 'config' && words.slice(i + 1).some((w) => w.startsWith('alias.')));
 }
 
 /**
@@ -347,11 +359,14 @@ function gitSubcommand(words: string[]): number {
  */
 function gitPush(words: string[]): (string | null)[] | null {
   let i = gitSubcommand(words);
-  if (words[i] === 'subtree' && words[i + 1] === 'push') i++;
+  const subtree = words[i] === 'subtree' && words[i + 1] === 'push';
+  if (subtree) i++;
   else if (words[i] !== 'push') return null;
+  // the options whose value is the next word; -P and -m are subtree's, plain git push has neither
+  const valued = ['-o', '--push-option', '--repo', '--receive-pack', '--exec', ...(subtree ? ['-P', '--prefix', '-m', '--message'] : [])];
   const positional: string[] = [];
   for (let j = i + 1; j < words.length; j++) {
-    if (['-o', '--push-option', '--repo', '--receive-pack', '--exec', '-P', '--prefix', '-m', '--message'].includes(words[j])) j++;
+    if (valued.includes(words[j])) j++;
     else if (!words[j].startsWith('-') && !/^[0-9&]?>/.test(words[j])) positional.push(words[j]);
     else if (/^[0-9&]?>>?$/.test(words[j])) j++; // a redirection's target
   }
