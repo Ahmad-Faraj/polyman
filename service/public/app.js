@@ -223,6 +223,20 @@ function showIdle(name) {
 }
 
 /** The tab for the sample in the result card is the selected one, and the one Tab lands on. */
+/** The hero's three parts (shadcn Items) follow the run's ten steps: 5 make the tests, 2 prove the checker, 3 judge.
+ * at: the step under way (0-9), STEPS.length when all are done, -1 for no run, 'stopped' when a run broke off. */
+const PARTS = [5, 7, 10];
+function heroParts(at) {
+  document.querySelectorAll('.hero-parts .item').forEach((item, i) => {
+    const use = $('figure use', item);
+    item.dataset.icon ??= use.getAttribute('href');
+    const from = i ? PARTS[i - 1] : 0;
+    const state = at === -1 ? '' : at === 'stopped' ? (item.dataset.state === 'active' ? 'stopped' : item.dataset.state) : at >= PARTS[i] ? 'done' : at >= from ? 'active' : 'pending';
+    item.dataset.state = state ?? '';
+    use.setAttribute('href', state === 'done' ? '#i-check' : state === 'active' ? '#i-spin' : item.dataset.icon);
+  });
+}
+
 function markSample(name) {
   const tabs = [...els.samples.querySelectorAll('.sample')];
   for (const b of tabs) {
@@ -361,10 +375,11 @@ function notice(text) {
   noticeTimer = setTimeout(() => $('.toast', toaster)?.setAttribute('aria-hidden', 'true'), 5000);
 }
 
-/** Bring the card's head into view unless it already is. */
+/** Bring the samples and the card's head into view unless they already are, so the chosen sample shows. */
 function showCard() {
-  const top = els.run.getBoundingClientRect().top;
-  if (top < 64 || top > window.innerHeight * 0.5) els.run.scrollIntoView({ behavior: reducedMotion.matches ? 'auto' : 'smooth', block: 'start' });
+  const col = els.samples.parentElement;
+  const top = col.getBoundingClientRect().top;
+  if (top < 64 || top > window.innerHeight * 0.5) col.scrollIntoView({ behavior: reducedMotion.matches ? 'auto' : 'smooth', block: 'start' });
 }
 
 function setHead(meta, verdict, sub) {
@@ -397,6 +412,7 @@ function progress(t0) {
 async function start(url, body, name, tries = 1) {
   if (running) return;
   els.run.classList.remove('has-found');
+  heroParts(0);
   // the sample cards mark the one in the result card; an upload is none of them
   if (!body) pending = name;
   markSample(body ? null : name);
@@ -409,17 +425,18 @@ async function start(url, body, name, tries = 1) {
   label = name;
   // the address names the sample, so a reload or a shared link sets it up again
   history.replaceState(null, '', body ? location.pathname : `?sample=${encodeURIComponent(name)}`);
-  // hold the card's height so the page doesn't jump while the run fills it back in
-  els.run.style.minHeight = `${els.run.offsetHeight}px`;
   // a sample's rows stay in view until the service says what it is checking
+  els.run.style.minHeight = '';
   if (!body && expected.has(name)) showPreview(name);
   else els.problems.replaceChildren();
   els.run.classList.remove('is-bad', 'is-good', 'has-found');
   lastVerdict = '';
   els.run.classList.add('is-running');
   setHead(`Checking ${label}`, 'Checking the problem…', 'Usually about 20 seconds.');
-  setStatus('Running', 'secondary');
+  setStatus('Running', 'secondary', true);
   showActions('running');
+  // hold the running card's own height, so the page doesn't jump while the run fills it in
+  els.run.style.minHeight = `${els.run.offsetHeight}px`;
   say(`Checking ${label}. This usually takes about 20 seconds.`);
   showCard();
   // the button that started the run is now disabled or hidden; keep focus where the answer will be
@@ -548,7 +565,8 @@ function handle(ev) {
         list.append(li);
       }
       // how far along, as a Basecoat progress bar above the steps (on a phone, the bar and the step under way)
-      list.insertAdjacentHTML('beforebegin', `<div class="progress" role="progressbar" aria-label="Steps done" aria-valuemin="0" aria-valuemax="${STEPS.length}" aria-valuenow="0"><span style="width: 0%"></span></div>`);
+      // (indeterminate until the first step is done: that one takes the longest)
+      list.insertAdjacentHTML('beforebegin', `<div class="progress indeterminate" role="progressbar" aria-label="Steps done" aria-valuemin="0" aria-valuemax="${STEPS.length}"><span></span></div>`);
       waitingRows(node, name);
       els.problems.append(node);
       node.id = `problem-${ev.problems.indexOf(name)}`;
@@ -564,15 +582,19 @@ function handle(ev) {
       $('svg', li).outerHTML = icon(state === 'done' ? 'i-check' : state === 'now' ? 'i-spin' : 'i-dot');
     });
     const bar = $('.progress', c);
-    bar.setAttribute('aria-valuenow', at);
-    $('span', bar).style.width = `${(at / STEPS.length) * 100}%`;
+    bar.classList.toggle('indeterminate', at < 1);
+    if (at < 1) bar.removeAttribute('aria-valuenow');
+    else bar.setAttribute('aria-valuenow', at);
+    $('span', bar).style.width = at < 1 ? '' : `${(at / STEPS.length) * 100}%`;
     $('.sols', c).classList.toggle('is-running', ev.title === 'Running Solutions');
     if (cards.size === 1) {
+      heroParts(at);
       step = at + 1;
       els.sub.textContent = progress(runStart);
       say(`Step ${step} of ${STEPS.length}: ${STEP_WORDS[ev.title] ?? ev.title}.`);
     }
   } else if (ev.type === 'problem') {
+    if (cards.size === 1 && ev.report) heroParts(STEPS.length);
     renderProblem(card(ev.problem), ev);
   } else if (ev.type === 'done') {
     settle();
@@ -609,8 +631,18 @@ function handle(ev) {
       els.verdict.innerHTML = `${icon('i-ok')}<span></span>`;
       $('span', els.verdict).textContent = win;
       els.run.classList.add('has-found');
+    } else if (ev.ok && cards.size === 1) {
+      const said = els.verdict.textContent;
+      els.verdict.innerHTML = `${icon('i-ok')}<span></span>`;
+      $('span', els.verdict).textContent = said;
     }
     els.run.classList.add(ev.ok ? 'is-good' : 'is-bad');
+    // the sample's tab keeps its last answer, as an icon (shadcn tabs with icons)
+    const tab = !lastRun?.body && !unfinished && [...els.samples.querySelectorAll('.sample')].find((b) => b.dataset.sample === label);
+    if (tab) {
+      $('svg.tab-result', tab)?.remove();
+      tab.insertAdjacentHTML('beforeend', icon(ev.ok ? 'i-check' : 'i-x').replace('<svg', `<svg class="tab-result ${ev.ok ? 'ok' : 'bad'}"`));
+    }
     setStatus(ev.ok ? 'All good' : unfinished ? 'Did not finish' : 'Needs work', ev.ok ? 'success' : 'destructive');
     // (the sample's answer is read once, as focus lands on it, so the announcement leaves it out)
     say(`Checked ${label} in ${ev.seconds.toFixed(1)} seconds. ${lastVerdict || els.verdict.textContent}`);
@@ -689,19 +721,17 @@ function renderProblem(card, ev) {
     $('.sols tbody', card).replaceChildren(...rows.map((s) => {
       const tr = solutionRow(s);
       if (s.name === focus && s.matchesTag) tr.classList.add('focus');
+      tr.style.setProperty('--r', rows.indexOf(s));
       return tr;
     }));
   }
   $('.table-container', card).hidden = !$('.sols tbody', card).children.length;
-  // when the problem fails on its guidelines, not its solutions, the guidelines come first
-  if (critical.length && !broken.length) card.insertBefore($('.more', card), $('.table-container', card));
   $('.legend', card).hidden = !solutions.length;
   legendFor(card, solutions);
   $('.more', card).hidden = false;
 
   $('.guides-title', card).textContent = checks.length ? `Contest guidelines · ${checks.length - gaps.length} of ${checks.length} met` : 'Contest guidelines';
   if (!checks.length) $('.guides', card).hidden = true;
-  if (gaps.length) $('.guides', card).open = true;
   const list = $('.checks', card);
   for (const c of [...checks].sort((a, b) => Number(a.ok) - Number(b.ok))) {
     const li = document.createElement('li');
@@ -820,9 +850,8 @@ function solutionRow(s) {
   // (only for a solution that passed: on a failing one the time says nothing)
   const slowest = s.tests.length > 1 && s.tests.every((t) => t.verdict === 'OK') ? `, slowest ${ms(Math.max(...s.tests.map((t) => t.timeMs)))}` : '';
   // a solution meant to fail that fails is fine: say so, so its red dots don't read as a problem
-  const asLabelled = expectedToFail ? ' That is what its label expects.' : '';
   // (a solution that broke its label names its failing tests; what the checker saw on each is in its square)
-  $('.dots-note', tr).textContent = !s.matchesTag ? `${cap(failedOn(s))}.` : stoppedEarly ? `${cap(verdictWords(s.tests[0].verdict))} on the first test, so it was stopped there.${asLabelled}` : `${cap(outcome(s))}${slowest}.${asLabelled}`;
+  $('.dots-note', tr).textContent = !s.matchesTag ? `${cap(failedOn(s))}.` : stoppedEarly ? `${cap(verdictWords(s.tests[0].verdict))} on the first test, so it was stopped there.` : `${cap(outcome(s))}${slowest}.`;
   wireSquares(dots);
   // whether it kept its label, as a shadcn badge
   $('.res', tr).innerHTML = s.matchesTag ? `<span class="badge" data-variant="outline">${icon('i-check')}${expectedToFail ? 'Fails as labelled' : 'As labelled'}</span>` : `<span class="badge" data-variant="destructive">${icon('i-x')}Not as labelled</span>`;
@@ -869,8 +898,10 @@ function nextStep(s) {
   return 'Relabel it, or change it so it fails the way its label says.';
 }
 
-function setStatus(text, variant) {
-  els.status.textContent = text;
+/** The status Badge; while a run is on it carries a Spinner (shadcn Badge with Spinner). */
+function setStatus(text, variant, spin = false) {
+  els.status.innerHTML = spin ? icon('i-spin') : '';
+  els.status.append(text);
   els.status.dataset.variant = variant;
 }
 
@@ -897,6 +928,7 @@ function stopped() {
   if (!lastRun?.body && expected.has(label)) showPreview(label);
   else els.problems.replaceChildren();
   setHead(`Stopped ${label}`, 'You stopped the check.', 'Nothing was kept. Run it again whenever you like.');
+  heroParts(-1);
   setStatus('Stopped', 'secondary');
   showActions('done');
   els.download.hidden = true;
@@ -915,6 +947,7 @@ function failMidway(message) {
     $('span', li).append(' (stopped here)');
   }
   for (const bar of els.problems.querySelectorAll('.progress')) bar.classList.add('stopped');
+  heroParts('stopped');
   els.run.classList.add('is-bad');
   setStatus('Did not finish', 'destructive');
   showActions('done');
@@ -936,6 +969,7 @@ function plainReason(message = '') {
 
 function showError(message, issues, kind = 'refused', detail = '') {
   settle();
+  heroParts(-1);
   const offline = kind === 'offline';
   // the browser's own checks: a short fact and what to do, and the service never saw the file
   const local = kind === 'local';
