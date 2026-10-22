@@ -313,6 +313,10 @@ describe("git push's output and command", () => {
     for (const option of ['--onto abc', '-b br', '--branch br', '--annotate foo', '-m msg', '--message msg']) {
       expect(pushesInCommand(`git subtree push --prefix x ${option} origin main`), option).toEqual(['main']);
     }
+    // only git subtree push pushes; git subtree add, pull and split don't
+    for (const command of ['git subtree add --prefix x origin main', 'git subtree pull --prefix x origin main', 'git subtree split --prefix x -b br']) {
+      expect(pushesInCommand(command), command).toEqual([]);
+    }
     for (const command of ['git subtree push', 'git subtree push --prefix', 'git subtree push origin']) {
       expect(pushesInCommand(command), command).toEqual([null]);
     }
@@ -358,6 +362,8 @@ describe("git push's output and command", () => {
       expect(unread(command), command).toEqual([]);
     }
     expect(unread('git stash push -q && git submodule foreach git push')).toHaveLength(1);
+    // only a command that is git itself can be harmless: here nice runs git push, and log is nice's argument
+    expect(unread('nice -n log git push')).toHaveLength(1);
   });
 
   it('reads git then push in what an interpreter runs only in that order, as whole words', () => {
