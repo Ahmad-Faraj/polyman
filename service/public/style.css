@@ -97,7 +97,10 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 
 /* the samples: shadcn Tabs, the list full width over the card that is their panel */
 .run-col { scroll-margin-top: 80px; }
-.run-col .sample .tab-result { width: 14px; height: 14px; }
+.run-col .sample svg.tab-result { width: 14px; height: 14px; }
+/* (a disabled tab mid-run keeps no tooltip over the card) */
+.run-col .sample:disabled[data-tooltip]:before { display: none; }
+.run-meta.own-line { display: block; margin-top: 2px; }
 .run-col .sample .tab-result.ok { color: var(--pass); }
 .run-col .sample .tab-result.bad { color: var(--fail); }
 .run-col > [role=tablist] { width: 100%; }
@@ -115,6 +118,8 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 #run-status svg { animation: spin 900ms linear infinite; }
 .result > header { row-gap: 6px; }
 .result > header > .card-action { grid-row: 1; }
+/* (on a phone Stop is 44px: the action keeps that height when it hides, so the head doesn't drop as the verdict lands) */
+@media (max-width: 760px) { .result > header > .card-action { min-height: 44px; } }
 /* the CardDescription: what the verdict means, then the run's own line in muted text */
 .result > header > .run-desc { grid-column: 1 / -1; margin: 0; }
 .result > header > h2 { font-size: 1.375rem; line-height: 1.3; font-weight: 650; letter-spacing: -0.02em; text-wrap: balance; outline: none; }
@@ -387,8 +392,8 @@ button.dot:focus-visible { outline: 2px solid var(--primary); outline-offset: 2p
 /* the result card has the run button beside the claim on a wide screen; the hero's copy of it is for phones,
    and the upload is a quiet link there, so the card's button is the one filled action on screen */
 @media (min-width: 961px) {
-  /* the claim and the card fill the first screen, so a result that grows doesn't push the page under it */
-  .hero { min-height: calc(100vh - 65px); }
+  /* the hero row is as tall as the tallest sample's finished card, so a result that lands doesn't push the page under it */
+  .hero { min-height: 52rem; }
   #demo { display: none; }
   #own { background: none; border-color: transparent; box-shadow: none; padding-inline: 0; height: auto; color: var(--primary); }
   #own:hover { text-decoration: underline; text-underline-offset: 3px; }

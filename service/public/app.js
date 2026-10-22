@@ -135,6 +135,8 @@ let timer = 0;
 let retry = 0;
 let step = 0;
 let runStart = 0;
+/** The step each problem has reached, so a contest's hero parts follow the slowest. */
+const reached = new Map();
 let lastVerdict = '';
 /** Each sample's solution names, so a run shows who is being judged before results arrive. */
 const expected = new Map();
@@ -194,6 +196,21 @@ fetch('/api/samples')
   });
 
 const runSample = (name) => start(`/api/samples/${encodeURIComponent(name)}/verify`, null, name);
+
+/** All ten steps up front, the first under way, so the wait shows how far along it is;
+ * above them, how far along as a Basecoat progress bar (indeterminate until the first step is done: that one takes the longest). */
+function runningSteps(node) {
+  const list = $('.steps-live', node);
+  if (!list || list.children.length) return;
+  for (const title of STEPS) {
+    const li = document.createElement('li');
+    li.innerHTML = `${icon(title === STEPS[0] ? 'i-spin' : 'i-dot')}<span></span>`;
+    if (title === STEPS[0]) li.className = 'now';
+    $('span', li).textContent = STEP_WORDS[title];
+    list.append(li);
+  }
+  list.insertAdjacentHTML('beforebegin', `<div class="progress indeterminate" role="progressbar" aria-label="Steps done" aria-valuemin="0" aria-valuemax="${STEPS.length}"><span></span></div>`);
+}
 
 /** Empty the card's body for what comes next, the guidelines too (after a result they sit below its actions). */
 function clearProblems(...nodes) {
@@ -419,6 +436,12 @@ function notice(text) {
   noticeTimer = setTimeout(() => $('.toast', toaster)?.setAttribute('aria-hidden', 'true'), 5000);
 }
 
+/** Where the card's top sits once its tabs are scrolled up under the page's header. */
+function cardTop() {
+  const col = els.samples.parentElement;
+  return parseFloat(getComputedStyle(col).scrollMarginTop) + els.run.getBoundingClientRect().top - col.getBoundingClientRect().top;
+}
+
 /** Bring the samples and the card's head into view unless they already are, so the chosen sample shows. */
 function showCard() {
   const col = els.samples.parentElement;
@@ -457,8 +480,10 @@ async function start(url, body, name, tries = 1) {
   if (running) return;
   // from a sample waiting to run, the card keeps its height while the run fills it in
   // (after a result, only the running card's own: a long report's height would leave a gap)
-  const idle = !els.start.hidden;
-  const held = idle ? els.run.offsetHeight : 0;
+  // (after a result, no taller than the screen under the tabs: a long report's height would leave a gap)
+  const below = cardTop();
+  const held = Math.min(els.run.offsetHeight, innerHeight - below);
+  els.title.classList.remove('own-line');
   els.run.classList.remove('has-found');
   heroParts(0);
   // the sample cards mark the one in the result card; an upload is none of them
@@ -468,6 +493,7 @@ async function start(url, body, name, tries = 1) {
   lastRun = { url, body, name };
   events = [];
   cards.clear();
+  reached.clear();
   finished = false;
   step = 0;
   label = name;
@@ -475,8 +501,11 @@ async function start(url, body, name, tries = 1) {
   history.replaceState(null, '', body ? location.pathname : `?sample=${encodeURIComponent(name)}`);
   // a sample's rows stay in view until the service says what it is checking
   els.run.style.minHeight = '';
-  if (!body && expected.has(name)) showPreview(name);
-  else clearProblems();
+  if (!body && expected.has(name)) {
+    showPreview(name);
+    // the progress bar and the step under way have their place from the click
+    runningSteps($('.problem', els.problems));
+  } else clearProblems();
   els.run.classList.remove('is-bad', 'is-good', 'has-found');
   lastVerdict = '';
   els.run.classList.add('is-running');
@@ -486,7 +515,7 @@ async function start(url, body, name, tries = 1) {
   // hold the card's height, so the page doesn't jump while the run fills it in
   // (on a phone the card, scrolled up under its tabs, reaches the screen's foot, so the result grows into it, not into the page below)
   const h = `${Math.max(held, els.run.offsetHeight)}px`;
-  els.run.style.minHeight = matchMedia('(max-width: 960px)').matches ? `max(${h}, calc(100svh - 130px))` : h;
+  els.run.style.minHeight = matchMedia('(max-width: 960px)').matches ? `max(${h}, calc(100svh - ${below}px))` : h;
   // (the head is held at its longest progress line, the first step's, so it doesn't grow mid-run)
   els.head.style.minHeight = '';
   els.sub.textContent = `Step 1 of ${STEPS.length} · 10 s so far · usually about 20 s. This first step takes the longest.`;
@@ -547,6 +576,8 @@ async function start(url, body, name, tries = 1) {
 function queue(wait, tries) {
   settle();
   clearProblems();
+  // nothing is under way while it waits its turn
+  heroParts(-1);
   if (tries >= MAX_TRIES) {
     setHead(`Not started: ${label}`, 'The service is still busy.', 'Other checks have kept it busy for a few minutes. Run it again in a minute.');
     setStatus('Busy', 'secondary');
@@ -614,17 +645,7 @@ function handle(ev) {
       $('.problem-name', node).textContent = name;
       // one problem: the card's head already names it; the heading stays for screen readers
       if (ev.problems.length === 1) $('.problem-name', node).classList.add('sr-only');
-      // all ten steps up front, so the wait shows how far along it is
-      const list = $('.steps-live', node);
-      for (const title of STEPS) {
-        const li = document.createElement('li');
-        li.innerHTML = `${icon('i-dot')}<span></span>`;
-        $('span', li).textContent = STEP_WORDS[title];
-        list.append(li);
-      }
-      // how far along, as a Basecoat progress bar above the steps (on a phone, the bar and the step under way)
-      // (indeterminate until the first step is done: that one takes the longest)
-      list.insertAdjacentHTML('beforebegin', `<div class="progress indeterminate" role="progressbar" aria-label="Steps done" aria-valuemin="0" aria-valuemax="${STEPS.length}"><span></span></div>`);
+      runningSteps(node);
       waitingRows(node, name);
       els.problems.append(node);
       node.id = `problem-${ev.problems.indexOf(name)}`;
@@ -645,6 +666,9 @@ function handle(ev) {
     else bar.setAttribute('aria-valuenow', at);
     $('span', bar).style.width = at < 1 ? '' : `${(at / STEPS.length) * 100}%`;
     $('.sols', c).classList.toggle('is-running', ev.title === 'Running Solutions');
+    reached.set(ev.problem, at);
+    // (a contest's parts go as far as the problem furthest behind)
+    if (cards.size > 1) heroParts(Math.min(...[...cards.keys()].map((n) => reached.get(n) ?? 0)));
     if (cards.size === 1) {
       heroParts(at);
       step = at + 1;
@@ -660,9 +684,12 @@ function handle(ev) {
     els.title.textContent = `Checked ${label} in ${seconds(ev.seconds)}`;
     if (cards.size > 1) {
       const ready = events.filter((e) => e.type === 'problem' && e.ok).length;
-      els.verdict.textContent = ev.ok ? `All ${plural(cards.size, 'problem')} are ready to use.` : `${ready} of ${plural(cards.size, 'problem')} ready to use.`;
-      // one line per problem, each a link to its report
+      els.verdict.textContent = ev.ok
+        ? `All ${plural(cards.size, 'problem')} are ready to use.`
+        : `${ready ? NUMBER_WORDS[ready] ?? ready : 'None'} of the ${plural(cards.size, 'problem')} ${ready === 1 ? 'is' : 'are'} ready to use.`;
+      // one line per problem, each a link to its report (the meta takes its own line after them)
       els.sub.replaceChildren();
+      els.title.classList.add('own-line');
       [...cards.keys()].forEach((name, i) => {
         const ok = events.find((e) => e.type === 'problem' && e.problem === name)?.ok;
         const a = document.createElement('a');
@@ -704,15 +731,19 @@ function handle(ev) {
     if (tab) {
       for (const old of tab.querySelectorAll('.tab-result')) old.remove();
       tab.insertAdjacentHTML('beforeend', icon(ev.ok ? 'i-check' : 'i-x').replace('<svg', `<svg class="tab-result ${ev.ok ? 'ok' : 'bad'}"`));
-      tab.insertAdjacentHTML('beforeend', `<span class="tab-result sr-only">, ${status.toLowerCase()}</span>`);
+      tab.setAttribute('aria-label', `${label}, ${status.toLowerCase()}`);
       tab.dataset.tooltip = `${SAMPLE_HINT[label] ?? tab.dataset.tooltip.split(' · ')[0]} · ${status.toLowerCase()}`;
       showTab(tab);
     }
-    setStatus(status, ev.ok ? 'success' : 'destructive');
+    setStatus(status, ev.ok ? 'success' : win ? 'outline' : 'destructive');
     // (the sample's answer is read once, as focus lands on it, so the announcement leaves it out)
     say(`Checked ${label} in ${ev.seconds.toFixed(1)} seconds. ${lastVerdict || els.verdict.textContent}`);
     els.verdict.focus({ preventScroll: true });
-    if (unfinished && reports.some((e) => /time|timed out/i.test(e.error ?? ''))) els.title.textContent = `Checked ${label}: stopped at the time limit`;
+    if (unfinished && reports.some((e) => /time|timed out/i.test(e.error ?? ''))) {
+      els.title.textContent = `Checked ${label}: stopped at the time limit`;
+      // (the sentence ends on a link: the meta takes its own line)
+      els.title.classList.add('own-line');
+    }
   } else if (ev.type === 'error') {
     failMidway(ev.message);
   }
@@ -765,7 +796,7 @@ function renderProblem(card, ev) {
       const a = document.createElement('a');
       a.href = '/docs#limits';
       a.textContent = 'Limits and privacy';
-      els.sub.append(' ', a);
+      els.sub.append(' ', a, '.');
     }
   }
   else {
