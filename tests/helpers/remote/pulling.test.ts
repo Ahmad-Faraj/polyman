@@ -5,6 +5,7 @@ import fs from 'fs';
 import { fmt } from '../../../src/formatter';
 import type { PolygonSDK } from '../../../src/polygon';
 import type { StatementConfig } from '../../../src/types';
+import { normalizeLineEndingsFromRemoteToSystem } from '../../../src/helpers/remote/utils';
 
 vi.mock('fs');
 vi.mock('../../../src/formatter', () => ({
@@ -240,6 +241,35 @@ describe('pulling.ts', () => {
           expect(vi.mocked(fs.writeFileSync).mock.calls[0][1]).toBe(code);
         }
       );
+
+      it('renames Main in CRLF remote content, then normalizes line endings', async () => {
+        const actual = await vi.importActual<
+          typeof import('../../../src/helpers/remote/utils')
+        >('../../../src/helpers/remote/utils');
+        vi.mocked(
+          normalizeLineEndingsFromRemoteToSystem
+        ).mockImplementationOnce(actual.normalizeLineEndingsFromRemoteToSystem);
+        const crlf =
+          'public class Main {\r\n  Main() {}\r\n  String s = "Main";\r\n}\r\n';
+        mockSdk.getSolutions.mockResolvedValue([
+          entry('Solution.java', 'java21'),
+        ]);
+        mockSdk.viewSolution.mockResolvedValue(crlf);
+
+        await pulling.downloadSolutions(asSdk(mockSdk), 1, 'dir');
+
+        // The rename sees the CRLF text and normalization receives its result.
+        expect(normalizeLineEndingsFromRemoteToSystem).toHaveBeenCalledWith(
+          'public class Solution {\r\n  Solution() {}\r\n  String s = "Main";\r\n}\r\n'
+        );
+        const written = vi.mocked(fs.writeFileSync).mock.calls[0][1] as string;
+        const lf =
+          'public class Solution {\n  Solution() {}\n  String s = "Main";\n}\n';
+        // On win32 the remote text is kept as is; elsewhere CRLF becomes LF.
+        expect(written).toBe(
+          process.platform === 'win32' ? lf.replace(/\n/g, '\r\n') : lf
+        );
+      });
 
       it('leaves C++ solutions unchanged', async () => {
         const cpp = 'class Main {};\n';

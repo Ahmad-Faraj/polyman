@@ -5,6 +5,7 @@ import type { PathLike, PathOrFileDescriptor } from 'fs';
 import type { PolygonSDK } from '../../../src/polygon';
 import type ConfigFile from '../../../src/types';
 import { fmt } from '../../../src/formatter';
+import { normalizeLineEndingsFromSystemToRemote } from '../../../src/helpers/remote/utils';
 
 vi.mock('fs');
 vi.mock('../../../src/formatter', () => ({
@@ -439,6 +440,34 @@ describe('pushing.ts', () => {
           expect(mocks.saveSolution.mock.calls[0][2]).toBe(code);
         }
       );
+
+      it('renames to Main in CRLF input, then normalizes line endings', async () => {
+        const actual = await vi.importActual<
+          typeof import('../../../src/helpers/remote/utils')
+        >('../../../src/helpers/remote/utils');
+        vi.mocked(
+          normalizeLineEndingsFromSystemToRemote
+        ).mockImplementationOnce(actual.normalizeLineEndingsFromSystemToRemote);
+        const { sdk, mocks } = buildSdk();
+        const crlf =
+          'public class ProblemA {\r\n  ProblemA() {}\r\n  String s = "ProblemA";\r\n}\r\n';
+        mockedReadFileSync.mockReturnValue(crlf);
+        mockedExistsSync.mockReturnValue(true);
+        const cfg = asConfig({
+          solutions: [{ name: 'a', source: 'ProblemA.java', tag: 'MA' }],
+        });
+
+        await pushing.uploadSolutions(sdk, 1, 'dir', cfg);
+
+        // The rename sees the CRLF text and normalization receives its result.
+        const renamed =
+          'public class Main {\r\n  Main() {}\r\n  String s = "ProblemA";\r\n}\r\n';
+        expect(normalizeLineEndingsFromSystemToRemote).toHaveBeenCalledWith(
+          renamed
+        );
+        // Remote text is CRLF with no stray bare LF or doubled CR.
+        expect(mocks.saveSolution.mock.calls[0][2]).toBe(renamed);
+      });
 
       it('leaves C++ solutions unchanged', async () => {
         const { sdk, mocks } = buildSdk();
