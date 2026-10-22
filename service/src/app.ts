@@ -25,6 +25,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import multipart from '@fastify/multipart';
 import Fastify, { type FastifyReply } from 'fastify';
+import { seedPrebuiltTestlib } from './build-once.ts';
 import { configProblems, findProblems, problemLabel, type Problem } from './problems.ts';
 import { readFacts, readiness, type Check, type Facts } from './readiness.ts';
 import { DEFAULT_LIMITS, unzip } from './unzip.ts';
@@ -43,6 +44,8 @@ export interface AppOptions {
   commit?: string;
   /** run uploaded code as this user (the service must be root to do so) */
   runAs?: { uid: number; gid: number };
+  /** testlib objects kept from the warm-up, copied into each problem (build-once.ts) */
+  prebuiltTestlib?: string;
 }
 
 const STATIC: Record<string, string> = {
@@ -151,6 +154,12 @@ export function buildApp(opts: AppOptions) {
     const facts = new Map<Problem, Facts | null>();
     for (const p of problems) {
       if (!existsSync(join(p.dir, 'testlib.h'))) copyFileSync(opts.testlib, join(p.dir, 'testlib.h'));
+      try {
+        seedPrebuiltTestlib(opts.prebuiltTestlib, p.dir);
+      } catch (err) {
+        // only a saving: without it polyman builds the object itself, as before
+        app.log.warn({ err, problem: problemLabel(p, root) }, 'could not copy the prebuilt testlib in');
+      }
       try {
         facts.set(p, readFacts(p.dir));
       } catch (err) {

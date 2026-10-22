@@ -4,14 +4,23 @@
  * compile limit, which fails the visitor's problem for no fault of theirs.
  * So before the service listens, it verifies one sample, run exactly as a
  * visitor's upload would be. Cloud Run sends no traffic until it listens.
+ *
+ * The testlib object it builds is the one every upload would build again, so
+ * when the run passes it is kept in `keepTestlibIn` (see build-once.ts). The
+ * sample is the service's own, so the object is built from trusted code.
  */
 import { chmodSync, copyFileSync, cpSync, lchownSync, mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { keepPrebuiltTestlib } from './build-once.ts';
 import type { Settings } from './settings.ts';
 import { runVerify } from './verify.ts';
 
-export async function warmUp(settings: Settings, sample = 'even-sum'): Promise<{ seconds: number; ok: boolean; error?: string }> {
+export async function warmUp(
+  settings: Settings,
+  sample = 'even-sum',
+  keepTestlibIn?: string,
+): Promise<{ seconds: number; ok: boolean; error?: string; keptTestlib: number }> {
   const outer = mkdtempSync(join(tmpdir(), 'warm-up-'));
   try {
     chmodSync(outer, 0o711);
@@ -27,7 +36,9 @@ export async function warmUp(settings: Settings, sample = 'even-sum'): Promise<{
       give(dir);
     }
     const result = await runVerify(dir, { cli: settings.polymanCli, timeoutMs: settings.problemTimeoutMs ?? 120_000, runAs: settings.runAs });
-    return { seconds: result.seconds, ok: !!result.report?.ok, error: result.error ?? result.unclean };
+    const ok = !!result.report?.ok;
+    const keptTestlib = ok && !result.unclean && keepTestlibIn ? keepPrebuiltTestlib(dir, keepTestlibIn) : 0;
+    return { seconds: result.seconds, ok, error: result.error ?? result.unclean, keptTestlib };
   } finally {
     rmSync(outer, { recursive: true, force: true });
   }
