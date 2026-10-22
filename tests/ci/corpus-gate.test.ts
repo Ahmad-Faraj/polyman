@@ -26,8 +26,35 @@ const code = (block: string) =>
     .filter(l => !l.trim().startsWith('#'))
     .join('\n');
 
-const changesOf = (block: string) =>
-  [...code(block).matchAll(/changes: (\[.*\])/g)].map(m => m[1]);
+/** Every `changes:` list in a block, inline `[a, b]` or block style `- a`. */
+function changesOf(block: string): string[][] {
+  const src = code(block).split('\n');
+  const lists: string[][] = [];
+  src.forEach((line, i) => {
+    const m = /^(\s*(?:- )?)changes:\s*(.*)$/.exec(line);
+    if (!m) return;
+    const inline = /^\[(.*)\]$/.exec(m[2].trim());
+    if (inline) {
+      lists.push(
+        inline[1]
+          .split(',')
+          .map(x => x.trim())
+          .filter(Boolean)
+      );
+      return;
+    }
+    // Block list: the dashes sit at the key's column or deeper.
+    const keyCol = m[1].length;
+    const items: string[] = [];
+    for (const next of src.slice(i + 1)) {
+      const item = /^(\s*)- (.*)$/.exec(next);
+      if (!item || item[1].length < keyCol) break;
+      items.push(item[2].trim());
+    }
+    lists.push(items);
+  });
+  return lists;
+}
 
 describe('corpus lanes on merge requests', () => {
   it('corpus is blocking', () => {
@@ -54,7 +81,13 @@ describe('corpus lanes on merge requests', () => {
     }
     expect(toolchain).not.toMatch(/node-20\.19"/);
     expect(allowed[0]).toContain('$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH');
-    expect(changesOf(allowed[1])).toEqual(changesOf(job('.corpus')));
+    const lane = changesOf(allowed[1]);
+    const base = changesOf(job('.corpus'));
+    expect(lane).toHaveLength(1);
+    expect(base).toHaveLength(1);
+    expect(lane[0], 'toolchain changes list is not empty').not.toHaveLength(0);
+    expect(base[0], '.corpus changes list is not empty').not.toHaveLength(0);
+    expect(lane).toEqual(base);
     expect(rules).toHaveLength(3);
     // Order matters: the first matching rule wins, so the allow_failure rules
     // must come before the .corpus rules, which would make the lane blocking.
