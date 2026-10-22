@@ -362,6 +362,57 @@ describe('pushing.ts', () => {
       const result = await pushing.uploadSolutions(sdk, 1, 'dir', cfg);
       expect(result).toBe(1);
     });
+
+    describe('Java class naming', () => {
+      const javaCode =
+        'public class ProblemA {\n  String s = "ProblemA";\n  public static void main(String[] a) { new ProblemA(); }\n}\n';
+
+      it('renames the public class to Main in the uploaded copy', async () => {
+        const { sdk, mocks } = buildSdk();
+        mockedReadFileSync.mockReturnValue(javaCode);
+        mockedExistsSync.mockReturnValue(true);
+        const cfg = asConfig({
+          solutions: [{ name: 'a', source: 'ProblemA.java', tag: 'MA' }],
+        });
+
+        await pushing.uploadSolutions(sdk, 1, 'dir', cfg);
+
+        const uploaded = mocks.saveSolution.mock.calls[0][2] as string;
+        expect(uploaded).toContain('public class Main {');
+        expect(uploaded).toContain('new Main();');
+        expect(uploaded).toContain('"ProblemA"');
+        expect(mocks.saveSolution.mock.calls[0][1]).toBe('ProblemA.java');
+        expect(fs.writeFileSync).not.toHaveBeenCalled();
+      });
+
+      it('leaves Main.java unchanged', async () => {
+        const { sdk, mocks } = buildSdk();
+        const code = 'public class Main {}\n';
+        mockedReadFileSync.mockReturnValue(code);
+        mockedExistsSync.mockReturnValue(true);
+        const cfg = asConfig({
+          solutions: [{ name: 'a', source: 'Main.java', tag: 'MA' }],
+        });
+
+        await pushing.uploadSolutions(sdk, 1, 'dir', cfg);
+
+        expect(mocks.saveSolution.mock.calls[0][2]).toBe(code);
+      });
+
+      it('leaves C++ solutions unchanged', async () => {
+        const { sdk, mocks } = buildSdk();
+        const code = 'class ProblemA {};\n';
+        mockedReadFileSync.mockReturnValue(code);
+        mockedExistsSync.mockReturnValue(true);
+        const cfg = asConfig({
+          solutions: [{ name: 'a', source: 'ProblemA.cpp', tag: 'MA' }],
+        });
+
+        await pushing.uploadSolutions(sdk, 1, 'dir', cfg);
+
+        expect(mocks.saveSolution.mock.calls[0][2]).toBe(code);
+      });
+    });
   });
 
   describe('uploadSolutions error reporting', () => {

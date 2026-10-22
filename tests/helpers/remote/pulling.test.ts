@@ -179,6 +179,53 @@ describe('pulling.ts', () => {
       expect(result.count).toBe(0);
       expect(result.data[0].source).toBe('acc.cpp');
     });
+
+    describe('Java class naming', () => {
+      const entry = (name: string, sourceType: string) => ({
+        name,
+        modificationTimeSeconds: 0,
+        length: 0,
+        sourceType,
+        tag: 'OK' as const,
+      });
+      const javaCode =
+        'public class Main {\n  String s = "Main";\n  public static void main(String[] a) { new Main(); }\n}\n';
+
+      it('renames Main to the file name for a Java solution', async () => {
+        mockSdk.getSolutions.mockResolvedValue([
+          entry('Solution.java', 'java21'),
+        ]);
+        mockSdk.viewSolution.mockResolvedValue(javaCode);
+
+        await pulling.downloadSolutions(asSdk(mockSdk), 1, 'dir');
+
+        const written = vi.mocked(fs.writeFileSync).mock.calls[0][1] as string;
+        expect(written).toContain('public class Solution {');
+        expect(written).toContain('new Solution();');
+        expect(written).toContain('"Main"');
+      });
+
+      it('leaves Main.java unchanged', async () => {
+        mockSdk.getSolutions.mockResolvedValue([entry('Main.java', 'java21')]);
+        mockSdk.viewSolution.mockResolvedValue(javaCode);
+
+        await pulling.downloadSolutions(asSdk(mockSdk), 1, 'dir');
+
+        expect(vi.mocked(fs.writeFileSync).mock.calls[0][1]).toBe(javaCode);
+      });
+
+      it('leaves C++ solutions unchanged', async () => {
+        const cpp = 'class Main {};\n';
+        mockSdk.getSolutions.mockResolvedValue([
+          entry('Main2.cpp', 'cpp.g++17'),
+        ]);
+        mockSdk.viewSolution.mockResolvedValue(cpp);
+
+        await pulling.downloadSolutions(asSdk(mockSdk), 1, 'dir');
+
+        expect(vi.mocked(fs.writeFileSync).mock.calls[0][1]).toBe(cpp);
+      });
+    });
   });
 
   describe('downloadChecker', () => {
