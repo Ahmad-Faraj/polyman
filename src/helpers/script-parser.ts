@@ -257,10 +257,27 @@ class FmExprError extends Error {}
 const FM_TOKEN_RE =
   /(<#--[\s\S]*?-->)|<(\/?)([#@])([A-Za-z_][\w.]*)([^>]*)>|\$\{([^}]*)\}|(#\{)|(\[\/?[#@][\w.]*)/g;
 
-function lineAt(text: string, offset: number): number {
-  let line = 1;
-  for (let i = 0; i < offset; i++) if (text[i] === '\n') line++;
-  return line;
+/**
+ * Builds a lookup from a character offset to its 1-based line number. The
+ * newline offsets are collected once, so each lookup is a binary search
+ * instead of a rescan from the start of the script.
+ */
+function makeLineLookup(text: string): (offset: number) => number {
+  const newlines: number[] = [];
+  for (let i = text.indexOf('\n'); i >= 0; i = text.indexOf('\n', i + 1)) {
+    newlines.push(i);
+  }
+  return (offset: number): number => {
+    // Count the newlines at an index below `offset`.
+    let lo = 0;
+    let hi = newlines.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (newlines[mid] < offset) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo + 1;
+  };
 }
 
 /**
@@ -268,6 +285,7 @@ function lineAt(text: string, offset: number): number {
  * Throws for any other FreeMarker construct, naming it.
  */
 function parseFreeMarker(script: string): FmPiece[] {
+  const lineAt = makeLineLookup(script);
   const root: FmPiece[] = [];
   const open: FmListNode[] = [];
   const target = (): FmPiece[] =>
@@ -282,9 +300,7 @@ function parseFreeMarker(script: string): FmPiece[] {
   const addText = (text: string, from: number): void => {
     const at = text.indexOf('${');
     if (at >= 0) {
-      throw new Error(
-        `Unterminated "\${" on line ${lineAt(script, from + at)}`
-      );
+      throw new Error(`Unterminated "\${" on line ${lineAt(from + at)}`);
     }
     pending += text;
   };
@@ -294,7 +310,7 @@ function parseFreeMarker(script: string): FmPiece[] {
     const offset = m.index;
     addText(script.slice(last, offset), last);
     last = offset + m[0].length;
-    const line = lineAt(script, offset);
+    const line = lineAt(offset);
 
     if (m[1] !== undefined) {
       // Comments that survived preprocess (`@group ...`) stay as text, but
@@ -304,7 +320,7 @@ function parseFreeMarker(script: string): FmPiece[] {
         const expr = /^\$\{[^}]*\}?/.exec(m[1].slice(interp))![0];
         throw new Error(
           `Unsupported expression ${expr} in @group on line ` +
-            `${lineAt(script, offset + interp)}`
+            `${lineAt(offset + interp)}`
         );
       }
       pending += m[1];
