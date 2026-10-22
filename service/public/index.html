@@ -78,12 +78,14 @@
       <section id="run" class="card result" role="tabpanel" aria-labelledby="run-verdict" tabindex="-1">
         <header>
           <h2 id="run-verdict" tabindex="-1">This sample has one planted mistake. Can the check find it?</h2>
-          <p class="run-desc"><span id="run-sub">Each solution below is labelled with how it should behave. Run the check to see which one breaks its label, on which tests, and what to do about it. It takes about 20&nbsp;seconds.</span> <span id="run-title" class="run-meta">Live check · sample problem “wrong-tag”</span></p>
+          <p class="run-desc"><span id="run-sub">Each solution below is labelled with how it should behave. Run the check to see which one breaks its label, on which tests, and what to do about it. It takes about 20&nbsp;seconds.</span> <span id="run-title" class="run-meta">Live check · sample problem “wrong-tag”</span> <span id="run-facts" class="run-facts" hidden></span></p>
           <div class="card-action" data-slot="card-action"><button type="button" id="stop" class="btn" data-variant="outline" data-size="sm" hidden><svg aria-hidden="true"><use href="#i-stop"/></svg>Stop</button><span id="run-status" class="badge" data-variant="secondary">Not run yet</span></div>
         </header>
         <section>
           <p id="announce" class="sr-only" aria-live="polite"></p>
           <div id="problems" class="problems"></div>
+          <!-- the run as it happens: each event the service sends, timed from the click -->
+          <pre id="run-log" class="run-log" hidden tabindex="0" aria-live="off" aria-label="What the service is doing, as it happens"></pre>
         </section>
         <footer id="run-actions" hidden>
           <button type="button" id="start" class="btn"><svg aria-hidden="true"><use href="#i-play"/></svg>Run the check</button>
@@ -103,11 +105,11 @@
       <p>AI agents write changes to this service on GitLab, and they start only after a person says go ahead. CI rebuilds the record of every go-ahead from GitLab's own data, so you can check it yourself.</p>
     </div>
     <div class="item-group records">
-      <a class="item" href="https://showcase-ce2cdc.gitlab.io/ledger/"><figure><svg aria-hidden="true"><use href="#i-ledger"/></svg></figure><section><h3>Go-ahead ledger</h3><p>Every push an agent made, judged against who said go ahead. Hash-chained, so a record can't be changed later.</p></section><aside><svg aria-hidden="true"><use href="#i-out"/></svg></aside></a>
+      <a class="item" href="https://showcase-ce2cdc.gitlab.io/ledger/"><figure><svg aria-hidden="true"><use href="#i-ledger"/></svg></figure><section><h3>Go-ahead ledger</h3><p>Every push an agent made, judged against who said go ahead. Hash-chained, so a record can't be changed later.</p><small class="item-stat" data-stat="ledger" hidden></small></section><aside><svg aria-hidden="true"><use href="#i-out"/></svg></aside></a>
       <hr>
-      <a class="item" href="https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/pipelines"><figure><svg aria-hidden="true"><use href="#i-pipe"/></svg></figure><section><h3>Pipelines</h3><p>The builds, tests and deploys behind this page.</p></section><aside><svg aria-hidden="true"><use href="#i-out"/></svg></aside></a>
+      <a class="item" href="https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/pipelines"><figure><svg aria-hidden="true"><use href="#i-pipe"/></svg></figure><section><h3>Pipelines</h3><p>The builds, tests and deploys behind this page.</p><small class="item-stat" data-stat="pipelines" hidden></small></section><aside><svg aria-hidden="true"><use href="#i-out"/></svg></aside></a>
       <hr>
-      <a class="item" href="https://showcase-ce2cdc.gitlab.io/sci/"><figure><svg aria-hidden="true"><use href="#i-leaf"/></svg></figure><section><h3>Agent carbon</h3><p>The carbon the review agents emit per merge request, measured as Software Carbon Intensity.</p></section><aside><svg aria-hidden="true"><use href="#i-out"/></svg></aside></a>
+      <a class="item" href="https://showcase-ce2cdc.gitlab.io/sci/"><figure><svg aria-hidden="true"><use href="#i-leaf"/></svg></figure><section><h3>Agent carbon</h3><p>The carbon the review agents emit per merge request, measured as Software Carbon Intensity.</p><small class="item-stat" data-stat="sci" hidden></small></section><aside><svg aria-hidden="true"><use href="#i-out"/></svg></aside></a>
       <hr>
       <a class="item" href="https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase"><figure><svg aria-hidden="true"><use href="#i-git"/></svg></figure><section><h3>Source</h3><p>The service, the agents' setup and this page.</p></section><aside><svg aria-hidden="true"><use href="#i-out"/></svg></aside></a>
     </div>
@@ -170,6 +172,10 @@
       </table>
     </div>
     <section class="accordion more" hidden>
+      <details class="how" hidden>
+        <summary><span class="how-title">How it was checked</span><svg aria-hidden="true"><use href="#i-chevron"/></svg></summary>
+        <section><ol class="how-steps"></ol><pre class="how-log" tabindex="0" aria-label="The run as it happened"></pre></section>
+      </details>
       <details class="guides">
         <summary><span class="guides-title">Contest guidelines</span><svg aria-hidden="true"><use href="#i-chevron"/></svg></summary>
         <section><ul class="checks"></ul></section>

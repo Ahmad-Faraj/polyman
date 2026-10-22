@@ -26,6 +26,8 @@ const els = {
   next: $('#next'),
   choose: $('#choose'),
   download: $('#download'),
+  log: $('#run-log'),
+  facts: $('#run-facts'),
   tpl: $('#problem-tpl'),
 };
 
@@ -66,6 +68,22 @@ const STEP_WORDS = {
   'Verifying Solutions Against Main Correct': 'Comparing results with labels',
 };
 const STEPS = Object.keys(STEP_WORDS);
+/** The same ten steps by the names polyman's report gives them. */
+const STEP_TITLE = {
+  'compile-generators': 'Compiling Generators',
+  'generate-tests': 'Generating Tests',
+  'compile-validator': 'Compiling Validator',
+  'test-validator': 'Testing Validator',
+  'validate-tests': 'Validating Generated Tests',
+  'compile-checker': 'Compiling Checker',
+  'test-checker': 'Testing Checker',
+  'compile-solutions': 'Compiling Solutions',
+  'run-solutions': 'Running Solutions',
+  'verify-solutions': 'Verifying Solutions Against Main Correct',
+};
+/** Where the project publishes its own records (GitLab Pages), and its public API. */
+const PAGES = 'https://showcase-ce2cdc.gitlab.io';
+const API = `https://gitlab.com/api/v4/projects/${encodeURIComponent('gitlab-ai-hackathon/transcend-october-2026/30770856/showcase')}`;
 /** The contest guidelines, said plainly. */
 const GUIDE_WORDS = {
   statement_completeness: 'The statement has a story, input and output',
@@ -137,6 +155,10 @@ let step = 0;
 let runStart = 0;
 /** The step each problem has reached, so a contest's hero parts follow the slowest. */
 const reached = new Map();
+/** The run as it happened: each event as it arrived, timed from the click. */
+let runLog = [];
+/** When each of a problem's steps began, on the same clock. */
+const stepAt = new Map();
 let lastVerdict = '';
 /** Each sample's solution names, so a run shows who is being judged before results arrive. */
 const expected = new Map();
@@ -154,6 +176,39 @@ fetch('/api/version')
     if (/^[0-9a-f]{7,40}$/i.test(String(v.commit))) commit.href = `${GITLAB}/-/commit/${v.commit}`;
   })
   .catch((err) => console.warn('version unavailable', err));
+
+/** The GitLab records with a line of real figures each, read from the project's own published data; the plain text stays if a source can't be read. */
+const getJSON = (url) => fetch(url).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))));
+const day = (iso) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+function stat(name, text) {
+  const el = $(`[data-stat="${name}"]`);
+  el.textContent = text;
+  el.hidden = false;
+}
+getJSON(`${PAGES}/ledger/ledger.json`)
+  .then((l) => {
+    const n = l.records.length;
+    const through = l.records.filter((r) => r.accepted).length;
+    const newest = l.records.map((r) => r.merged_at).sort().at(-1);
+    // (the ledger's own words: pushes let through, each on its own go-ahead)
+    stat('ledger', `${through === n ? `All ${n}` : `${through} of ${n}`} agent pushes let through, each on its own go-ahead · newest ${day(newest)} · chain head ${l.head.slice(0, 7)}`);
+  })
+  .catch((err) => console.warn('ledger unavailable', err));
+getJSON(`${API}/pipelines?ref=main&per_page=20`)
+  .then((list) => {
+    const words = { success: 'passed', failed: 'failed', canceled: 'canceled', running: 'running', pending: 'pending', created: 'pending', skipped: 'skipped', manual: 'waiting for a person' };
+    const latest = list[0];
+    const done = list.find((p) => ['success', 'failed', 'canceled'].includes(p.status));
+    if (!latest) return;
+    stat('pipelines', [`Pipeline #${latest.iid} on main: ${words[latest.status] ?? latest.status}`, done && done !== latest ? `last finished #${done.iid}: ${words[done.status]}, ${day(done.updated_at)}` : ''].filter(Boolean).join(' · '));
+  })
+  .catch((err) => console.warn('pipelines unavailable', err));
+getJSON(`${PAGES}/sci/sci-report.json`)
+  .then((s) => {
+    const reviews = (s.tiers ?? []).reduce((n, t) => n + t.reviews, 0);
+    stat('sci', [`${s.sessions} agent sessions measured`, reviews ? `${reviews} merge request reviews` : '', `${day(s.from)} to ${day(s.to)}`].filter(Boolean).join(' · '));
+  })
+  .catch((err) => console.warn('carbon report unavailable', err));
 
 fetch('/api/samples')
   .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
@@ -484,6 +539,14 @@ async function start(url, body, name, tries = 1) {
   const below = cardTop();
   const held = Math.min(els.run.offsetHeight, innerHeight - below);
   els.title.classList.remove('own-line');
+  els.facts.hidden = true;
+  // the run's own clock starts at the click; the log has its place from here
+  runStart = performance.now();
+  runLog = [];
+  stepAt.clear();
+  els.log.replaceChildren();
+  els.log.hidden = false;
+  logLine(null, body ? `Sent ${name} to the service` : `Asked the service to check the ${name} sample`);
   els.run.classList.remove('has-found');
   heroParts(0);
   // the sample cards mark the one in the result card; an upload is none of them
@@ -525,7 +588,6 @@ async function start(url, body, name, tries = 1) {
   showCard();
   // the button that started the run is now disabled or hidden; keep focus where the answer will be
   els.verdict.focus({ preventScroll: true });
-  runStart = performance.now();
   clearInterval(timer);
   timer = setInterval(() => {
     if (!finished) {
@@ -639,6 +701,7 @@ function card(name) {
 function handle(ev) {
   events.push(ev);
   if (ev.type === 'start') {
+    logLine(null, `Started · polyman ${ev.polyman}${ev.problems.length > 1 ? ` · ${plural(ev.problems.length, 'problem')}` : ''}`);
     clearProblems();
     for (const name of ev.problems) {
       const node = els.tpl.content.firstElementChild.cloneNode(true);
@@ -667,6 +730,9 @@ function handle(ev) {
     $('span', bar).style.width = at < 1 ? '' : `${(at / STEPS.length) * 100}%`;
     $('.sols', c).classList.toggle('is-running', ev.title === 'Running Solutions');
     reached.set(ev.problem, at);
+    if (!stepAt.has(ev.problem)) stepAt.set(ev.problem, []);
+    stepAt.get(ev.problem).push({ title: ev.title, t: performance.now() - runStart });
+    logLine(ev.problem, STEP_WORDS[ev.title] ?? ev.title);
     // (a contest's parts go as far as the problem furthest behind)
     if (cards.size > 1) heroParts(Math.min(...[...cards.keys()].map((n) => reached.get(n) ?? 0)));
     if (cards.size === 1) {
@@ -677,8 +743,16 @@ function handle(ev) {
       say(`Step ${step} of ${STEPS.length}: ${STEP_WORDS[ev.title] ?? ev.title}.`);
     }
   } else if (ev.type === 'problem') {
-    renderProblem(card(ev.problem), ev);
+    const t = performance.now() - runStart;
+    logLine(ev.problem, `Result: ${renderProblem(card(ev.problem), ev, t)}`);
   } else if (ev.type === 'done') {
+    logLine(null, `Done · ${seconds(ev.seconds)} on the service`);
+    // the log folds into each problem's "How it was checked"
+    for (const [name, c] of cards) {
+      // (one problem's details sit after the card's actions)
+      const pre = cards.size === 1 ? $(':scope > .more .how-log', els.run) : $('.how-log', c);
+      if (pre) writeLog(pre, runLog.filter((l) => !l.problem || l.problem === name), cards.size > 1 ? name : null);
+    }
     settle();
     // scripts wait on this line: it reads "Checked <name> in <s> s" when the run is over
     els.title.textContent = `Checked ${label} in ${seconds(ev.seconds)}`;
@@ -745,11 +819,101 @@ function handle(ev) {
       els.title.classList.add('own-line');
     }
   } else if (ev.type === 'error') {
+    logLine(null, `Error: ${ev.message}`);
     failMidway(ev.message);
   }
 }
 
-function renderProblem(card, ev) {
+/** One line of the run's log, timed from the click; shown live while the run is on. */
+function logLine(problem, text) {
+  runLog.push({ t: performance.now() - runStart, problem, text });
+  if (!els.log.hidden) writeLog(els.log, runLog);
+}
+
+/** The log as lines of "4.2 s  Building the test generators", newest at the foot and in view. */
+function writeLog(pre, lines, only = null) {
+  const many = cards.size > 1;
+  pre.replaceChildren(
+    ...lines.map((l) => {
+      const line = document.createElement('span');
+      line.className = 'log-line';
+      const t = document.createElement('span');
+      t.className = 'log-t';
+      t.textContent = `${(l.t / 1000).toFixed(1)} s`;
+      line.append(t, `${many && l.problem && !only ? `${l.problem}: ` : ''}${l.text}`);
+      return line;
+    }),
+  );
+  if (pre === els.log) pre.scrollTop = pre.scrollHeight;
+}
+
+/** What the run did, counted from its report: only what the report shows. */
+function runFacts(report, checks) {
+  const ok = (name) => report.steps.some((s) => s.name === name && s.ok);
+  const sols = report.solutions;
+  const runs = sols.reduce((n, s) => n + s.tests.length, 0);
+  // (the tests are numbered: the highest number any solution ran is how many there are)
+  const tests = Math.max(0, ...sols.flatMap((s) => s.tests.map((t) => t.index)));
+  return [
+    tests && ok('validate-tests') && [tests, `${tests === 1 ? 'test' : 'tests'} generated and validated`],
+    ok('test-checker') && [null, 'answer checker tested'],
+    sols.length && [sols.length, `${sols.length === 1 ? 'solution' : 'solutions'}${ok('compile-solutions') ? ' compiled' : ''}`],
+    runs && [runs, `timed ${runs === 1 ? 'run' : 'runs'} in the sandbox`],
+    checks.length && [checks.length, `contest ${checks.length === 1 ? 'guideline' : 'guidelines'} checked`],
+  ].filter(Boolean);
+}
+
+/** The facts as a line: each a number and its words (the numbers are counts, nothing from outside). */
+function writeFacts(el, facts) {
+  el.replaceChildren(
+    ...facts.flatMap(([n, words], i) => {
+      const f = document.createElement('span');
+      f.className = 'fact';
+      if (n !== null) {
+        const b = document.createElement('b');
+        b.textContent = n;
+        f.append(b, ' ');
+      }
+      f.append(words);
+      // (the dot between facts is where the line may break)
+      return i ? [' · ', f] : [f];
+    }),
+  );
+  el.hidden = !facts.length;
+}
+
+/** "How it was checked": each step the report lists, passed or failed, with the time it took as this page saw it. */
+function howChecked(card, ev, at) {
+  const how = $('.how', card);
+  if (!how) return;
+  const seen = stepAt.get(ev.problem) ?? [];
+  // a step's time is from when the service said it began to when the next one began (the last: to the result)
+  const took = (title) => {
+    const i = seen.findIndex((s) => s.title === title);
+    if (i < 0) return null;
+    return (seen[i + 1]?.t ?? at) - seen[i].t;
+  };
+  const steps = ev.report
+    ? ev.report.steps.filter((s) => STEP_TITLE[s.name]).map((s) => ({ title: STEP_TITLE[s.name], state: s.ok ? 'ok' : 'failed' }))
+    : seen.map((s, i) => ({ title: s.title, state: i < seen.length - 1 ? 'ok' : 'stopped' }));
+  if (!steps.length) return;
+  const list = $('.how-steps', how);
+  list.replaceChildren(
+    ...steps.map((s) => {
+      const li = document.createElement('li');
+      li.className = s.state;
+      li.innerHTML = `${icon(s.state === 'ok' ? 'i-check' : s.state === 'failed' ? 'i-x' : 'i-stop')}<span class="how-step"></span><span class="how-time"></span>`;
+      $('.how-step', li).textContent = STEP_WORDS[s.title] ?? s.title;
+      const dur = took(s.title);
+      $('.how-time', li).textContent = dur === null ? '' : seconds(dur / 1000);
+      return li;
+    }),
+  );
+  $('.how-title', how).textContent = `How it was checked · ${plural(steps.length, 'step')} in ${seconds(ev.seconds ?? at / 1000)}`;
+  how.hidden = false;
+}
+
+function renderProblem(card, ev, at) {
   const report = ev.report;
   const solutions = report?.solutions ?? [];
   const checks = ev.readiness ?? [];
@@ -787,9 +951,12 @@ function renderProblem(card, ev) {
       ? `Every solution behaves exactly as labelled, and every required contest guideline is met.${also}`
       : `Every solution behaves exactly as labelled${checks.length ? `, and all ${checks.length} contest guidelines are met` : ''}.`;
   }
+  const facts = report ? runFacts(report, checks) : [];
   if (cards.size === 1) {
     lastVerdict = title;
     setHead(null, title, body);
+    // what the run did, counted from its report, beside the run's own line
+    writeFacts(els.facts, facts);
     // (the verdict takes the head's place in the same frame as the rows: the head sizes itself again)
     els.head.style.minHeight = '';
     if (/see the limits in the docs:$/.test(body)) {
@@ -805,8 +972,15 @@ function renderProblem(card, ev) {
     alert.innerHTML = `${icon(ev.ok ? 'i-ok' : 'i-alert')}<h2></h2><section></section>`;
     $('h2', alert).textContent = title;
     $('section', alert).textContent = body;
+    if (facts.length) {
+      const p = document.createElement('p');
+      p.className = 'run-facts';
+      writeFacts(p, facts);
+      $('section', alert).append(p);
+    }
     $('.outcome', card).hidden = false;
   }
+  howChecked(card, ev, at);
 
   $('.sols', card).classList.remove('is-running');
   // the ones that broke their label first, then the one the sample is about, the clean passes, and those that fail as labelled
@@ -870,6 +1044,7 @@ function renderProblem(card, ev) {
   }
   // one problem: its guidelines come after the card's actions, so the actions stay on the first screen
   if (cards.size === 1) els.run.append($('.more', card));
+  return title;
 }
 
 /** The legend lists only the kinds of mark this report shows. */
@@ -1026,6 +1201,7 @@ function settle() {
   els.run.classList.remove('is-running');
   els.run.style.minHeight = '';
   els.head.style.minHeight = '';
+  els.log.hidden = true;
   // a passing message from the run (a file dropped mid-run) goes with it, so it doesn't cover the result
   clearTimeout(noticeTimer);
   $('#toaster .toast')?.setAttribute('aria-hidden', 'true');

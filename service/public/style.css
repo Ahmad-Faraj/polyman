@@ -336,6 +336,33 @@ button.dot:focus-visible { outline: 2px solid var(--primary); outline-offset: 2p
 .docs .table th, .docs .table td { padding: 10px 14px; white-space: normal; }
 .docs .table th { background: var(--muted); font-size: 0.8rem; color: var(--muted-foreground); }
 
+/* the run as it happens: a log in Basecoat's code style, a muted band flush in the card (shadcn ScrollArea: fixed height, newest at the foot) */
+.run-log, .how-log { margin: 0; padding: 10px 12px; background: var(--muted); border-radius: calc(var(--radius) - 2px); font-family: var(--font-mono); font-size: 0.75rem; line-height: 1.6; color: var(--foreground); white-space: normal; overflow-wrap: anywhere; }
+.run-log { height: calc(6 * 1.6em + 20px); overflow-y: auto; scrollbar-width: thin; }
+.run-log[hidden] { display: none; }
+.log-line { display: grid; grid-template-columns: 6ch minmax(0, 1fr); column-gap: 1.5ch; }
+.log-t { color: var(--muted-foreground); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.run-log .log-line:last-child { font-weight: 600; }
+.how-log { margin-top: 12px; }
+@media (max-width: 760px) { .run-log { height: calc(3 * 1.6em + 20px); } }
+/* what the run did, counted from its report: the numbers in the foreground, the words muted */
+.run-facts { color: var(--muted-foreground); font-size: 0.8125rem; }
+.run-facts .fact { white-space: nowrap; }
+.run-facts b { color: var(--foreground); font-weight: 600; font-variant-numeric: tabular-nums; }
+.result > header > .run-desc > .run-facts { display: block; margin-top: 4px; }
+.result > header > .run-desc > .run-facts[hidden] { display: none; }
+.verdict .run-facts { display: block; margin: 6px 0 0; }
+/* "How it was checked": the ten steps, each passed or failed and how long it took */
+.how-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.how-steps li { display: grid; grid-template-columns: 18px 1fr auto; gap: 10px; align-items: center; padding: 3px 0; font-size: 0.875rem; }
+.how-steps li svg { width: 16px; height: 16px; color: var(--pass); }
+.how-steps li.failed svg { color: var(--fail); }
+.how-steps li.stopped svg { color: var(--muted-foreground); }
+.how-time { color: var(--muted-foreground); font-size: 0.8125rem; font-variant-numeric: tabular-nums; }
+/* the GitLab records' own figures, read from what they publish */
+.records .item .item-stat { display: block; margin-top: 4px; font-size: 0.8125rem; color: var(--foreground); font-variant-numeric: tabular-nums; text-wrap: pretty; }
+.records .item .item-stat[hidden] { display: none; }
+
 @media (max-width: 960px) {
   .hero { grid-template-columns: minmax(0, 1fr); gap: 32px; padding-block: 48px 40px; }
   .hero-copy { padding-top: 0; position: static; }
