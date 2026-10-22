@@ -39,10 +39,7 @@ corpus:
     reports:
       junit: corpus/out/junit.xml
       requirements_v2: corpus/out/requirements.json
-  # Red on polyman 3.0.0, on every problem, for two known bugs only: `verify
-  # --json` reports tests the checker never judged as OK (#21) and presentation
-  # errors as WA (#28). Becomes blocking in the MR that fixes them.
-  allow_failure: true
+  # Blocking: green on its last 40 merge request runs, 0 reds (22 Oct).
 
 # Environments polyman's users have. Each lane pins one fact about them.
 corpus:toolchain:
@@ -67,10 +64,19 @@ corpus:toolchain:
     - npm run build
     - node dist/cli.js --version
     - node corpus/run.mjs --junit corpus/out/junit-${LANE}.xml
+  # node-20.19 is blocking (40 of 40 merge request runs green, 22 Oct).
+  # no-python-alias is reported, not yet blocking: its 3 reds in those 40 runs
+  # were the #88 compile limit, from before the 60 s limit.
+  rules:
+    - if: $LANE == "no-python-alias" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      allow_failure: true
+    - if: $LANE == "no-python-alias"
+      changes: [src/**/*, corpus/**/*, template/**/*, assets/**/*, package.json, package-lock.json]
+      allow_failure: true
+    - !reference [.corpus, rules]
   artifacts:
     reports:
       junit: corpus/out/junit-${LANE}.xml
-  allow_failure: true
 
 # The two operating systems polyman's users have besides Linux, on GitLab's
 # own macOS and Windows runners. On the default branch they run by themselves;
