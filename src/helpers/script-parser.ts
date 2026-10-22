@@ -29,6 +29,10 @@
  * `#{...}` numeric interpolation and the square-bracket tag syntax (`[#list]`,
  * `[@x]`) are rejected with an error that names them.
  *
+ * One command per line: a second unquoted `>` on a line is rejected, as
+ * Polygon does. Iterations of a `<#list>` are joined without a separator, like
+ * FreeMarker, so a one-line list body puts all its commands on one line.
+ *
  * Generator names with file extensions (`gen.exe`, `gen.cpp`) are rejected.
  */
 
@@ -166,6 +170,26 @@ function tokenize(line: string): string[] {
     buf += ch;
   }
   if (buf.length > 0) out.push(buf);
+  return out;
+}
+
+/**
+ * Offsets of every `>` outside quotes, using the same quoting rules as
+ * {@link tokenize}.
+ */
+function unquotedArrows(line: string): number[] {
+  const out: number[] = [];
+  let quote: '"' | "'" | null = null;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (quote) {
+      if (ch === quote) quote = null;
+    } else if (ch === '"' || ch === "'") {
+      quote = ch;
+    } else if (ch === '>') {
+      out.push(i);
+    }
+  }
   return out;
 }
 
@@ -587,7 +611,9 @@ function expandFreeMarker(script: string): string {
         locals.pop();
       }
     }
-    return parts.join('\n');
+    // No separator, like FreeMarker: a one-line body stays on one line. The
+    // newlines of a multi-line body come from the body text itself.
+    return parts.join('');
   };
 
   return render(parseFreeMarker(script));
@@ -670,7 +696,15 @@ export function parseGeneratorScript(script: string): ParsedScriptLine[] {
     const code = stripComments(raw);
     if (code.length === 0) continue;
 
-    const arrowIdx = code.lastIndexOf('>');
+    const arrows = unquotedArrows(code);
+    if (arrows.length > 1) {
+      // Polygon takes one command per line and rejects the rest with this.
+      throw new Error(
+        `Line should end with '> testIndex'. (line ${lineNumber}: ` +
+          `${raw.trim()})`
+      );
+    }
+    const arrowIdx = arrows.length === 1 ? arrows[0] : code.lastIndexOf('>');
     if (arrowIdx < 0) {
       throw new Error(
         `Missing '> target' on line ${lineNumber}: ${raw.trim()}`

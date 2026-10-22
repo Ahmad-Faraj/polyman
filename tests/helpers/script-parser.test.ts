@@ -459,6 +459,127 @@ describe('parseGeneratorScript - expression edge cases', () => {
   });
 });
 
+describe('parseGeneratorScript - FreeMarker edge cases (review of !83)', () => {
+  const argsOf = (script: string) =>
+    parser.parseGeneratorScript(script).map(l => l.args.join(' '));
+
+  it('rejects a list of 10001 items but accepts 10000', () => {
+    expect(() =>
+      parser.parseGeneratorScript(
+        '<#list 1..10001 as i>\ngen ${i} > $\n</#list>'
+      )
+    ).toThrow(/<#list 1\.\.10001 as i> on line 1 expands to more than 10000/);
+    expect(
+      parser.parseGeneratorScript(
+        '<#list 1..10000 as i>\ngen ${i} > $\n</#list>'
+      )
+    ).toHaveLength(10000);
+  });
+
+  it('counts an outer and inner list together against the limit', () => {
+    // 100 outer + 100 * 100 inner iterations = 10100 > 10000.
+    expect(() =>
+      parser.parseGeneratorScript(
+        '<#list 1..100 as i>\n<#list 1..100 as j>\ngen ${i} ${j} > $\n</#list>\n</#list>'
+      )
+    ).toThrow(/expands to more than 10000 items in total/);
+    // 99 outer + 99 * 100 inner iterations = 9999 <= 10000.
+    expect(
+      parser.parseGeneratorScript(
+        '<#list 1..99 as i>\n<#list 1..100 as j>\ngen ${i} ${j} > $\n</#list>\n</#list>'
+      )
+    ).toHaveLength(9900);
+  });
+
+  it('follows the sign of the dividend for a negative modulo', () => {
+    expect(argsOf('gen ${-7%3} ${7%-3} ${-7%-3} > $')).toEqual(['-1 1 -1']);
+  });
+
+  it('keeps an <#assign> inside a list global', () => {
+    expect(
+      argsOf(
+        '<#list 1..2 as i>\n<#assign last = i*10>\n</#list>\ngen ${last} > $'
+      )
+    ).toEqual(['20']);
+  });
+
+  it('lets <#assign> reassign a variable', () => {
+    expect(
+      argsOf('<#assign n = 1>\ngen ${n} > $\n<#assign n = n+1>\ngen ${n} > $')
+    ).toEqual(['1', '2']);
+  });
+
+  it('lets a loop variable shadow a global, then restores the global', () => {
+    expect(
+      argsOf(
+        '<#assign i = 100>\n<#list 1..2 as i>\ngen ${i} > $\n</#list>\ngen ${i} > $'
+      )
+    ).toEqual(['1', '2', '100']);
+  });
+
+  it('rejects a trailing comma or an empty item in a sequence', () => {
+    for (const items of ['1,2,', '1,,2']) {
+      expect(() =>
+        parser.parseGeneratorScript(
+          `<#list [${items}] as n>\ngen \${n} > $\n</#list>`
+        )
+      ).toThrow(/Unsupported expression <#list \[.*\] as n> on line 1/);
+    }
+  });
+
+  it('rejects > inside an expression', () => {
+    expect(() =>
+      parser.parseGeneratorScript('<#list 1..2 as i>\ngen ${i>1} > $\n</#list>')
+    ).toThrow(/Unsupported expression \${i>1} on line 2/);
+  });
+
+  it('treats a } after an expression as plain text', () => {
+    expect(argsOf('gen ${(1)} } > $')).toEqual(['1 }']);
+  });
+
+  it('rejects braces inside an expression', () => {
+    expect(() => parser.parseGeneratorScript('gen ${ {1} } > $')).toThrow(
+      'Unsupported expression ${{1} on line 1'
+    );
+  });
+});
+
+describe('parseGeneratorScript - one command per line (Polygon)', () => {
+  const body = 'gen-equal ${i} 5 > $';
+
+  it('rejects a list body on one line, like Polygon', () => {
+    expect(() =>
+      parser.parseGeneratorScript(`<#list 1..3 as i>${body}</#list>`)
+    ).toThrow("Line should end with '> testIndex'.");
+  });
+
+  it('expands the same body on its own lines to 3 tests', () => {
+    const out = parser.parseGeneratorScript(
+      `<#list 1..3 as i>\n${body}\n</#list>`
+    );
+    expect(out).toHaveLength(3);
+    expect(out.map(l => l.args.join(' '))).toEqual(['1 5', '2 5', '3 5']);
+  });
+
+  it('rejects two commands on one line without a list', () => {
+    expect(() =>
+      parser.parseGeneratorScript('gen-equal 1 5 > $gen-equal 2 5 > $')
+    ).toThrow("Line should end with '> testIndex'.");
+  });
+
+  it('names the line of the offending command', () => {
+    expect(() =>
+      parser.parseGeneratorScript('gen 1 > $\ngen 2 > $gen 3 > $')
+    ).toThrow(/\(line 2: /);
+  });
+
+  it('ignores a > inside a quoted argument', () => {
+    const out = parser.parseGeneratorScript('gen "a>b" > $');
+    expect(out).toHaveLength(1);
+    expect(out[0].args).toEqual(['a>b']);
+  });
+});
+
 describe('validateGeneratorReferences', () => {
   it('passes when all generators exist', () => {
     const lines = parser.parseGeneratorScript('gen 1 > 1\nother 2 > 2');
