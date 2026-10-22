@@ -1,10 +1,12 @@
 # polyman
 
-**GitLab Transcend · Path B · Assisted.** polyman (`polyman-cli` on npm) is an MIT command-line tool for people who set programming-contest problems on Codeforces and Polygon: a tool setters use to check a problem before it goes out, so every solution gets the verdict it should.
+**GitLab Transcend · Path B · Assisted.** polyman (`polyman-cli` on npm, MIT) is the command-line tool problem setters on Codeforces and Polygon run before a problem goes out: it compiles every solution, runs it on every test, and checks that each one gets the verdict it should. polyman judges solutions.
 
-**A judge for every judge.** Deterministic judges, not a model, decide what ships: a new version must judge a corpus of real problems with real compilers as well as the previous release before npm `latest` moves, and mutation testing grades the tests. Duo agents propose each step. A person who didn't ask for the work gives the go-ahead, and the CI guard `autonomy:goahead` fails any agent push without one.
+**So what judges polyman?** Programs, not a model: real compilers on a corpus of real problems, and mutation testing that grades polyman's own tests. A new version reaches npm `latest` only if it judges that corpus at least as well as the last release. On Oct 18 the published 3.0.0 got the expected verdicts on 0 of 5 problems and 3.0.1 on 5 of 5 ([job](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17267989872)); only then did a person move `latest`.
 
-**Judges, one path:** [Assisted in 60 seconds](JUDGES.md#assisted-in-60-seconds), one real loop from an agent's proposal to a person's merge, plus a push the guard refused. No login needed.
+**A person approves every step.** Duo agents turn what the judges find into proposed fixes. A teammate who didn't ask for the work gives the go-ahead, and the CI guard `autonomy:goahead` fails any agent push without one.
+
+**Evaluating this entry?** [Assisted in 60 seconds](JUDGES.md#assisted-in-60-seconds): one real loop from an agent's proposal to a person's merge, plus a push the guard refused. No login needed.
 
 <!-- Video (under 3 minutes): put its link here, once it is published. -->
 
@@ -233,7 +235,7 @@ Why some loops have two MRs: when an agent pushes without a go-ahead, the guard 
 
 ### Who it's for, and why trust matters
 
-polyman was announced to problem setters on [Codeforces in November 2025](https://codeforces.com/blog/entry/148803) (+332, 52 comments). The first thing the community asked was whether they could trust it: "Has anybody used this tool and can recommend it?", and another reply pointed out a tool that's brand new has no history and no user base yet. This project is our answer to that question: polyman is now checked by judges that are neither an LLM nor its authors, on every change and every night.
+polyman was announced to problem setters on [Codeforces in November 2025](https://codeforces.com/blog/entry/148803) (+332, 52 comments). The first thing the community asked was whether they could trust it: "Has anybody used this tool and can recommend it?", and another reply pointed out a tool that's brand new has no history and no user base yet. This project is our answer to that question: polyman is now checked by judges that are programs, not an LLM, on every change to its code and every night.
 
 What we can say today, all public: 2,167 npm downloads from the first publish on Nov 7, 2025 to Oct 20, 2026 (api.npmjs.org, read Oct 21; downloads, not users: CI runs and mirrors count too), 14 versions, 42 stars and 6 forks on GitHub (Oct 20) with five outside reporters or contributors, and two independent open-source projects that build on polyman's problem format.
 
@@ -256,7 +258,7 @@ Team: Hamza Hassanain (polyman's author), Mazen Ghanayem, Ahmed Faraj.
 
 ---
 
-**Quick Links** | [**Start here**](#start-here-from-an-issue-to-production) • [**GitLab Transcend: for judges**](JUDGES.md) • [Why?](#why-polyman) • [Installation](#installation) • [Quick Start](#quick-start) • [Commands](#commands) • [Tags](#solution-tags) • [Checkers](#standard-checkers) • [Structure](#project-structure) • [Config](#configuration) • [Docs](#documentation) • [Workflow](#workflow-summary) • [Issues](#common-issues) • [Support](#support) • [Contributing](#contributing) • [License](#license)
+**Quick Links** | [**Start here**](#start-here-from-an-issue-to-production) • [**GitLab Transcend: for reviewers**](JUDGES.md) • [Why?](#why-polyman) • [Installation](#installation) • [Quick Start](#quick-start) • [Commands](#commands) • [Tags](#solution-tags) • [Checkers](#standard-checkers) • [Structure](#project-structure) • [Config](#configuration) • [Docs](#documentation) • [Workflow](#workflow-summary) • [Issues](#common-issues) • [Support](#support) • [Contributing](#contributing) • [License](#license)
 
 </div>
 
