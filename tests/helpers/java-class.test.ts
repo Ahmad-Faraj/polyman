@@ -154,6 +154,43 @@ describe('renamePublicClass', () => {
     );
   });
 
+  it('walks back over several modifiers to find public', () => {
+    expect(
+      renamePublicClass(
+        'public abstract sealed class Main permits A {}',
+        'Main',
+        'S'
+      )
+    ).toBe('public abstract sealed class S permits A {}');
+  });
+
+  it('walks back over annotations to find public', () => {
+    expect(
+      renamePublicClass('@Deprecated public class Main {}', 'Main', 'S')
+    ).toBe('@Deprecated public class S {}');
+  });
+
+  it('does not rename a non-public class when another type is public', () => {
+    const code = 'class Main {} public class Other {}';
+    expect(renamePublicClass(code, 'Main', 'S')).toBe(code);
+  });
+
+  it('treats an unterminated block comment as running to the end', () => {
+    const code = '/* public class Main {}';
+    expect(renamePublicClass(code, 'Main', 'S')).toBe(code);
+    expect(
+      renamePublicClass('public class Main {}\n/* Main', 'Main', 'S')
+    ).toBe('public class S {}\n/* Main');
+  });
+
+  it('handles a backslash escape inside a text block', () => {
+    const block = '"""\n  a\\"""\n  b Main\n"""';
+    const code = `public class Main { String s = ${block}; Main m; }`;
+    expect(renamePublicClass(code, 'Main', 'S')).toBe(
+      `public class S { String s = ${block}; S m; }`
+    );
+  });
+
   it('returns the code unchanged when both names are equal', () => {
     const code = 'public class Main {}';
     expect(renamePublicClass(code, 'Main', 'Main')).toBe(code);
