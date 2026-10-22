@@ -1,31 +1,18 @@
-<div align="center">
+# polyman
 
-<img src="logo.png" alt="Polyman Logo" width="200"/>
+**GitLab Transcend · Path B · Assisted.** polyman (`polyman-cli` on npm) is an MIT command-line tool for people who set programming-contest problems on Codeforces and Polygon: a tool setters use to check a problem before it goes out, so every solution gets the verdict it should.
 
-# Polyman
+**A judge for every judge.** Deterministic judges, not a model, decide what ships: a new version must judge a corpus of real problems with real compilers as well as the previous release before npm `latest` moves, and mutation testing grades the tests. Duo agents propose each step. A person who didn't ask for the work gives the go-ahead, and the CI guard `autonomy:goahead` fails any agent push without one.
 
-**CLI tool for Codeforces problem setters** to automate the complete workflow for creating, testing, and verifying competitive programming problems.
+**Judges, one path:** [Assisted in 60 seconds](JUDGES.md#assisted-in-60-seconds), one real loop from an agent's proposal to a person's merge, plus a push the guard refused. No login needed.
 
-[![npm version](https://img.shields.io/npm/v/polyman-cli.svg?style=flat-square)](https://www.npmjs.com/package/polyman-cli)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://opensource.org/licenses/MIT)
-[![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![Node.js](https://img.shields.io/badge/Node.js-43853D?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org/)
-[![Documentation](https://img.shields.io/badge/docs-TypeDoc-blue?style=flat-square)](https://hamzahassanain.github.io/polyman/)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)](http://makeapullrequest.com)
-
----
-
-**Quick Links** | [**Start here**](#start-here-from-an-issue-to-production) • [**GitLab Transcend: for judges**](JUDGES.md) • [Why?](#why-polyman) • [Installation](#installation) • [Quick Start](#quick-start) • [Commands](#commands) • [Tags](#solution-tags) • [Checkers](#standard-checkers) • [Structure](#project-structure) • [Config](#configuration) • [Docs](#documentation) • [Workflow](#workflow-summary) • [Issues](#common-issues) • [Support](#support) • [Contributing](#contributing) • [License](#license)
-
-</div>
+<!-- Video (under 3 minutes): put its link here, once it is published. -->
 
 ## GitLab Transcend: Life After Code (Path B · Assisted)
 
 Polyman ([`polyman-cli` on npm](https://www.npmjs.com/package/polyman-cli)) is a CLI that helps Codeforces problem setters build, test and verify problems. On GitLab, Duo agents turn bugs found by the judges (real compilers, not a model) into fixes, review every MR at a depth set by its risk, and open an incident when production fails its check. An agent builds or pushes only after a go-ahead from a person who did not ask for the work, and the CI job `autonomy:goahead` fails any agent push without one, judged from GitLab's own records of who wrote which note and who pushed what, and when. Live service: [polyman-verify on Cloud Run](https://polyman-verify-ncvkutguda-ue.a.run.app).
 
 In the roles problem setters already know: issue-builder is the author, the judges are the testers, mr-reviewer is the coordinator, and the person who gives the go-ahead is the chief judge.
-
-<!-- Video (under 3 minutes): put its link here, first in this list, once it is published. -->
 
 **New here?** [Start here](#start-here-from-an-issue-to-production): one change from an issue to production, and who acts at each step.
 
@@ -133,7 +120,7 @@ An agent proposes and waits. A person who didn't ask for the work replies `@<age
 ### What to do when...
 
 - **You want an agent to fix something:** file an issue that says when it is done, then assign it to the issue builder (`ai-issue-builder-gitlab-ai-hackathon_e1c791`).
-- **An agent proposes something:** someone who didn't ask replies with the exact line the proposal shows, `@<agent> go-ahead`, on a line of its own. High risk, governance paths and rollbacks need a maintainer.
+- **An agent proposes something:** someone who didn't ask replies with the exact line the proposal shows, `@<agent> go-ahead`, on a line of its own. High risk and rollbacks need a maintainer; only a person may change governance paths, never an agent.
 - **An agent pushed to an MR:** its "Next:" line mentions whoever gave the go-ahead. When the pipeline passes, that person mentions `@ai-mr-reviewer-gitlab-ai-hackathon_e50080` on the MR; if it fails, `@ai-pipeline-fixer-gitlab-ai-hackathon_b1d814`. Only an MR's first review starts by itself.
 - **The review says "ready to approve" on the current head:** the maintainer its "Merge" line names (not the requester, not a go-ahead giver) approves and merges. Never approve a "not ready" head.
 - **You merged a change to `service/`, `src/`, `assets/`, `template/` or the package files:** open the merge's pipeline. When `service:check:candidate` passes, its last line (`NEXT STEP:`) names you ("@you (who merged !N)") and links `service:promote:production`. Click it; the production check and the rollback run by themselves.
@@ -147,7 +134,7 @@ An agent proposes and waits. A person who didn't ask for the work replies `@<age
 
 ### What people did, per loop
 
-| Loop | Agents | People |
+| Loop (Oct 17-18; the later ones are listed under Honest limits) | Agents | People |
 |---|---|---|
 | [#22][i22] → [!26][mr26], Oct 17, merged | issue-builder proposed and opened the MR; mr-reviewer: ready, no fixes; GitLab Code Review: nothing to comment | Ahmed filed #22 and assigned it. Mazen gave the go-ahead. The guard failed on two gaps of its own, fixed by Mazen ([!28][mr28]) and Ahmed ([!29][mr29]). Ahmed checked the no-`python` corpus lane by hand ([before](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17258572979): Python ran 1 of 4 tests; [after](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17259651984): all 4, only the #21/#28 failures left), approved and merged. |
 | [#12][i12] → [!50][mr50], Oct 18, merged | issue-builder proposed and opened the MR; mr-reviewer: ready, no fixes | Hamza filed #12. Ahmed assigned it, gave the go-ahead, ran the tests on Windows, which CI can't do (8 failures on `main`, 0 on the branch), approved and merged. |
@@ -161,6 +148,7 @@ An agent proposes and waits. A person who didn't ask for the work replies `@<age
 | [#28][i28] → [!85][mr85] → [!92][mr92], Oct 18, merged | issue-builder built it (corpus 5/5); review specialists pushed two commits without a go-ahead | Ahmed filed #28. Mazen gave the go-ahead. Ahmed moved the reviewed build commit to !92 and merged; the specialists' fix (a PE tag that never gets PE) became [#60](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues/60). |
 | [#25][i25] → [!75][mr75] → [!95][mr95], Oct 18, merged | issue-builder built it; mr-reviewer fixed 3 P2s in one round; its test reviewer later pushed without a go-ahead | Ahmed filed #25. Hamza gave the go-ahead to build, Mazen to the fix round. After #26 merged first, Ahmed fixed how the two met, moved the reviewed commits to !95, wrote the fixes the last two reviews asked for, and merged. |
 | [#58](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues/58) → [!101](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/101), Oct 18, merged | issue-builder built it: checker self-tests that expect `WRONG_ANSWER` or `PRESENTATION_ERROR` now fail when the checker says otherwise; no review note on the MR | Ahmed filed #58 (found while writing checker tests, not by a judge). [Hamza gave the go-ahead](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/issues/58#note_4037989527) and merged. |
+| All of the above → [Release v3.0.1](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/releases/v3.0.1), Oct 18 | [`release:next-check`](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17267989872) installed 3.0.0 and 3.0.1 from npm and judged both (0 of 5 and 5 of 5 problems); `release:evidence` and `release:gitlab` then ran by themselves; the next nightly judged 3.0.1 green and incident-responder's #45 closed | Hamza clicked `release:npm-next` (19:26 UTC). Mazen clicked `release:promote` (19:59). |
 
 Why some loops have two MRs: when an agent pushes without a go-ahead, the guard refuses that MR's branch for good. A person moves the approved commits, unchanged, to a new MR, and the go-aheads stay on the first one. It happened five times on Oct 18, each time a review specialist told to report only; [!88][mr88] took pushing out of review instructions, and the next review ([!95][mr95]) didn't push.
 
@@ -250,6 +238,27 @@ polyman was announced to problem setters on [Codeforces in November 2025](https:
 What we can say today, all public: 2,167 npm downloads from the first publish on Nov 7, 2025 to Oct 20, 2026 (api.npmjs.org, read Oct 21; downloads, not users: CI runs and mirrors count too), 14 versions, 42 stars and 6 forks on GitHub (Oct 20) with five outside reporters or contributors, and two independent open-source projects that build on polyman's problem format.
 
 Team: Hamza Hassanain (polyman's author), Mazen Ghanayem, Ahmed Faraj.
+
+<div align="center">
+
+<img src="logo.png" alt="Polyman Logo" width="200"/>
+
+## The polyman CLI
+
+**CLI tool for Codeforces problem setters** to automate the complete workflow for creating, testing, and verifying competitive programming problems.
+
+[![npm version](https://img.shields.io/npm/v/polyman-cli.svg?style=flat-square)](https://www.npmjs.com/package/polyman-cli)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://opensource.org/licenses/MIT)
+[![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-43853D?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org/)
+[![Documentation](https://img.shields.io/badge/docs-TypeDoc-blue?style=flat-square)](https://hamzahassanain.github.io/polyman/)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)](http://makeapullrequest.com)
+
+---
+
+**Quick Links** | [**Start here**](#start-here-from-an-issue-to-production) • [**GitLab Transcend: for judges**](JUDGES.md) • [Why?](#why-polyman) • [Installation](#installation) • [Quick Start](#quick-start) • [Commands](#commands) • [Tags](#solution-tags) • [Checkers](#standard-checkers) • [Structure](#project-structure) • [Config](#configuration) • [Docs](#documentation) • [Workflow](#workflow-summary) • [Issues](#common-issues) • [Support](#support) • [Contributing](#contributing) • [License](#license)
+
+</div>
 
 ## Why Polyman?
 
