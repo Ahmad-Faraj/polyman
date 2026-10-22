@@ -38,8 +38,17 @@ export async function warmUp(
     const pchDir = settings.pchDir && usesDefaultCpp(dir) ? settings.pchDir : undefined;
     const result = await runVerify(dir, { cli: settings.polymanCli, timeoutMs: settings.problemTimeoutMs ?? 120_000, runAs: settings.runAs, pchDir });
     const ok = !!result.report?.ok;
-    const keptTestlib = ok && !result.unclean && keepTestlibIn ? keepPrebuiltTestlib(dir, keepTestlibIn) : 0;
-    return { seconds: result.seconds, ok, error: result.error ?? result.unclean, keptTestlib };
+    let keptTestlib = 0;
+    let keepError: string | undefined;
+    if (ok && !result.unclean && keepTestlibIn) {
+      // The kept copy is an optimisation: failing to write it must never reject the warm-up.
+      try {
+        keptTestlib = keepPrebuiltTestlib(dir, keepTestlibIn);
+      } catch (e) {
+        keepError = `could not keep the testlib object: ${e instanceof Error ? e.message : String(e)}`;
+      }
+    }
+    return { seconds: result.seconds, ok, error: result.error ?? result.unclean ?? keepError, keptTestlib };
   } finally {
     rmSync(outer, { recursive: true, force: true });
   }
