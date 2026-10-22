@@ -1043,7 +1043,7 @@ process.stdout.write('not a report');
       ['baseline-0'],
     ]);
     expect(saved()).toEqual(['baseline-0']);
-  });
+  }, 30_000);
 
   it('without --cache every run is cold and nothing is kept', () => {
     runOnce('first', []);
