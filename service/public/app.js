@@ -135,11 +135,7 @@ let timer = 0;
 let retry = 0;
 let step = 0;
 let runStart = 0;
-/** The verdict waits for the rows to land; this holds it until then. */
-let headTimer = 0;
 let lastVerdict = '';
-/** What the finished run shows once its verdict has landed (status, colour, the sample's answer). */
-let afterLanding = null;
 /** Each sample's solution names, so a run shows who is being judged before results arrive. */
 const expected = new Map();
 const demoLabel = els.demo.innerHTML;
@@ -167,21 +163,28 @@ fetch('/api/samples')
       if (linked && expected.has(linked)) showIdle(linked);
       else if (expected.has(DEMO)) showIdle(DEMO);
     }
-    // one switch per sample along the top of the card, the demo first; pressing one checks it live
+    // one tab per sample along the top of the card, the demo first; pressing one checks it live
     for (const s of [...samples].sort((a, b) => Number(b.name === DEMO) - Number(a.name === DEMO))) {
-      const [title] = SAMPLES[s.name] ?? [s.name];
       const b = document.createElement('button');
       b.type = 'button';
       b.className = 'sample';
+      b.setAttribute('role', 'tab');
+      b.setAttribute('aria-controls', 'problems');
       b.dataset.sample = s.name;
-      b.title = title;
-      b.innerHTML = `<b></b><span></span>`;
-      $('b', b).textContent = s.name;
-      $('span', b).textContent = SAMPLE_HINT[s.name] ?? s.description;
+      b.textContent = s.name;
+      const hint = SAMPLE_HINT[s.name] ?? s.description;
+      b.dataset.tooltip = hint;
+      b.dataset.side = 'bottom';
+      b.setAttribute('aria-description', hint);
       b.addEventListener('click', () => runSample(s.name));
       els.samples.append(b);
     }
     markSample(pending);
+    // on a phone the tabs scroll sideways: the row fades at its edge while more tabs are off to the right
+    const edge = () => els.samples.classList.toggle('more-right', els.samples.scrollLeft + els.samples.clientWidth < els.samples.scrollWidth - 2);
+    els.samples.addEventListener('scroll', edge, { passive: true });
+    addEventListener('resize', edge);
+    edge();
   })
   .catch((err) => {
     console.error(err);
@@ -220,11 +223,15 @@ function showIdle(name) {
   els.start.hidden = false;
 }
 
-/** The sample card for the sample in the result card says so. */
+/** The tab for the sample in the result card is the selected one, and the one Tab lands on. */
 function markSample(name) {
-  for (const b of els.samples.querySelectorAll('.sample')) {
-    b.setAttribute('aria-pressed', String(b.dataset.sample === name));
+  const tabs = [...els.samples.querySelectorAll('.sample')];
+  for (const b of tabs) {
+    b.setAttribute('aria-selected', String(b.dataset.sample === name));
+    b.tabIndex = b.dataset.sample === name ? 0 : -1;
   }
+  // (an upload is none of them: then the first tab takes Tab)
+  if (tabs.length && !tabs.some((b) => b.tabIndex === 0)) tabs[0].tabIndex = 0;
 }
 
 /** A row per solution the sample is known to have, with an empty strip where its tests will go. */
@@ -328,15 +335,9 @@ function upload(file) {
   start('/api/verify', body, file.name);
 }
 
-/** The hero's ten marks follow the run's ten steps: done, under way, or still to come (-1 clears them). */
-function heroSteps(at) {
-  document.querySelectorAll('.hero-flow i').forEach((m, i) => (m.className = at < 0 ? '' : i < at ? 'done' : i === at ? 'now' : ''));
-}
-
 function setBusy(on) {
   running = on;
   for (const b of document.querySelectorAll('.sample, #pick, #demo, #own')) b.disabled = on;
-  for (const b of document.querySelectorAll('.sample')) b.title = on ? 'Stop the check to switch' : '';
   els.demo.innerHTML = on ? `${icon('i-spin')}Checking…` : demoLabel;
 }
 
@@ -345,14 +346,14 @@ function say(text) {
 }
 
 let noticeTimer = 0;
-/** A passing message, shown under the verdict for a few seconds as well as announced. */
+/** A passing message, as a Basecoat toast for a few seconds, and announced. */
 function notice(text) {
   say(text);
-  els.note.classList.remove('found');
-  els.note.textContent = text;
-  els.note.hidden = false;
+  const toaster = $('#toaster');
+  toaster.innerHTML = `<div class="toast" aria-hidden="false"><div class="toast-content">${icon('i-alert')}<section><h2></h2></section></div></div>`;
+  $('h2', toaster).textContent = text;
   clearTimeout(noticeTimer);
-  noticeTimer = setTimeout(() => (els.note.hidden = true), 5000);
+  noticeTimer = setTimeout(() => $('.toast', toaster)?.setAttribute('aria-hidden', 'true'), 5000);
 }
 
 /** Bring the card's head into view unless it already is. */
@@ -393,7 +394,6 @@ async function start(url, body, name, tries = 1) {
   els.note.hidden = true;
   els.note.classList.remove('found');
   els.run.classList.remove('has-found');
-  clearTimeout(noticeTimer);
   // the sample cards mark the one in the result card; an upload is none of them
   if (!body) pending = name;
   markSample(body ? null : name);
@@ -411,11 +411,8 @@ async function start(url, body, name, tries = 1) {
   // a sample's rows stay in view until the service says what it is checking
   if (!body && expected.has(name)) showPreview(name);
   else els.problems.replaceChildren();
-  els.run.classList.remove('is-bad', 'is-good', 'revealing', 'has-found', 'landed');
-  clearTimeout(headTimer);
-  afterLanding = null;
+  els.run.classList.remove('is-bad', 'is-good', 'has-found');
   lastVerdict = '';
-  heroSteps(-1);
   els.run.classList.add('is-running');
   setHead(`Checking ${label}`, 'Checking the problem…', 'Usually about 20 seconds.');
   setStatus('Running', 'secondary');
@@ -547,8 +544,8 @@ function handle(ev) {
         $('span', li).textContent = STEP_WORDS[title];
         list.append(li);
       }
-      // on a phone the ten steps fold into one line and a bar of ten
-      list.insertAdjacentHTML('afterend', `<div class="step-bar" aria-hidden="true">${'<span></span>'.repeat(STEPS.length)}</div>`);
+      // how far along, as a Basecoat progress bar above the steps (on a phone, the bar and the step under way)
+      list.insertAdjacentHTML('beforebegin', `<div class="progress" role="progressbar" aria-label="Steps done" aria-valuemin="0" aria-valuemax="${STEPS.length}" aria-valuenow="0"><span style="width: 0%"></span></div>`);
       waitingRows(node, name);
       els.problems.append(node);
       node.id = `problem-${ev.problems.indexOf(name)}`;
@@ -563,16 +560,16 @@ function handle(ev) {
       li.className = state;
       $('svg', li).outerHTML = icon(state === 'done' ? 'i-check' : state === 'now' ? 'i-spin' : 'i-dot');
     });
-    [...$('.step-bar', c).children].forEach((seg, i) => (seg.className = i < at ? 'done' : i === at ? 'now' : ''));
+    const bar = $('.progress', c);
+    bar.setAttribute('aria-valuenow', at);
+    $('span', bar).style.width = `${(at / STEPS.length) * 100}%`;
     $('.sols', c).classList.toggle('is-running', ev.title === 'Running Solutions');
     if (cards.size === 1) {
-      heroSteps(at);
       step = at + 1;
       els.sub.textContent = progress(runStart);
       say(`Step ${step} of ${STEPS.length}: ${STEP_WORDS[ev.title] ?? ev.title}.`);
     }
   } else if (ev.type === 'problem') {
-    if (cards.size === 1 && ev.report) heroSteps(STEPS.length);
     renderProblem(card(ev.problem), ev);
   } else if (ev.type === 'done') {
     settle();
@@ -605,25 +602,17 @@ function handle(ev) {
     // a timed-out check gets its own way back: running it again is the main action
     if (unfinished) els.again.removeAttribute('data-variant');
     if (win) {
-      // a stamp in the mark's own hexagon draws itself in, then the answer
-      els.note.innerHTML = `<svg class="stamp" viewBox="0 0 32 32" aria-hidden="true"><path class="hex" d="M16 2.6 27.6 9.3v13.4L16 29.4 4.4 22.7V9.3Z"/><path class="tick" d="m10.5 16.6 3.9 3.9 7.3-8.2"/></svg><span></span>`;
+      els.note.innerHTML = `${icon('i-ok')}<span></span>`;
       $('span', els.note).textContent = win;
       els.note.classList.add('found');
       els.run.classList.add('has-found');
       els.note.hidden = false;
     }
-    // status, colour and the sample's answer all wait for the verdict, so nothing gives it away early
-    const reveal = () => {
-      els.run.classList.add(ev.ok ? 'is-good' : 'is-bad');
-      setStatus(ev.ok ? 'All good' : unfinished ? 'Did not finish' : 'Needs work', ev.ok ? 'success' : 'destructive');
-      // (the sample's answer is read once, as focus lands on it, so the announcement leaves it out)
-      say(`Checked ${label} in ${ev.seconds.toFixed(1)} seconds. ${lastVerdict || els.verdict.textContent}`);
-      (win ? els.note : els.verdict).focus({ preventScroll: true });
-    };
-    if (els.run.classList.contains('revealing') && !els.run.classList.contains('landed')) {
-      setStatus('Reading', 'secondary');
-      afterLanding = reveal;
-    } else reveal();
+    els.run.classList.add(ev.ok ? 'is-good' : 'is-bad');
+    setStatus(ev.ok ? 'All good' : unfinished ? 'Did not finish' : 'Needs work', ev.ok ? 'success' : 'destructive');
+    // (the sample's answer is read once, as focus lands on it, so the announcement leaves it out)
+    say(`Checked ${label} in ${ev.seconds.toFixed(1)} seconds. ${lastVerdict || els.verdict.textContent}`);
+    (win ? els.note : els.verdict).focus({ preventScroll: true });
     if (unfinished && reports.some((e) => /time|timed out/i.test(e.error ?? ''))) els.title.textContent = `Checked ${label}: stopped at the time limit`;
   } else if (ev.type === 'error') {
     failMidway(ev.message);
@@ -641,7 +630,7 @@ function renderProblem(card, ev) {
   const recommended = gaps.filter((c) => c.severity !== 'critical');
   const also = recommended.length ? ` Also recommended: ${fix(recommended)}.` : '';
   $('.steps-live', card).hidden = true;
-  $('.step-bar', card)?.remove();
+  $('.progress', card)?.remove();
 
   // the answer first: what is wrong and what to do
   let title;
@@ -670,7 +659,6 @@ function renderProblem(card, ev) {
   }
   if (cards.size === 1) {
     lastVerdict = title;
-    // the verdict takes its place at once, unseen until the rows land, so nothing under it moves
     setHead(null, title, body);
     if (/see the limits in the docs:$/.test(body)) {
       const a = document.createElement('a');
@@ -678,16 +666,6 @@ function renderProblem(card, ev) {
       a.textContent = 'Limits and privacy';
       els.sub.append(' ', a);
     }
-    const land = () => {
-      els.run.classList.add('landed');
-      afterLanding?.();
-      afterLanding = null;
-    };
-    // the evidence lands first, row by row; the verdict follows as the last beat (at once if motion is reduced)
-    clearTimeout(headTimer);
-    const landing = solutions.length && !reducedMotion.matches ? Math.min(solutions.length * 160 + 420, 1500) : 0;
-    if (landing) headTimer = setTimeout(land, landing);
-    else land();
   }
   else {
     const alert = $('.verdict', card);
@@ -704,21 +682,14 @@ function renderProblem(card, ev) {
   // (a result that passes doesn't open on red: solutions that fail on purpose come last)
   const rank = (s) => (!s.matchesTag ? 0 : s.name === focus ? 0.5 : s.tests.some((t) => t.verdict !== 'OK') ? 2 : 1);
   const rows = [...solutions].sort((a, b) => rank(a) - rank(b));
-  // the reveal: each solution's squares land in turn, and a broken label (listed first) lands last
-  const order = [...rows.filter((s) => s.matchesTag), ...rows.filter((s) => !s.matchesTag)];
   // (no report: the solutions it was about to judge stay listed, not judged)
   if (rows.length) {
     $('.sols tbody', card).replaceChildren(...rows.map((s) => {
       const tr = solutionRow(s);
       if (s.name === focus && s.matchesTag) tr.classList.add('focus');
-      tr.classList.add('reveal');
-      tr.style.setProperty('--r', rows.indexOf(s));
       return tr;
     }));
   }
-  // the sample's answer in the card's head waits until the last row has landed
-  els.run.style.setProperty('--landed', `${Math.min(order.length * 160 + 420, 1500)}ms`);
-  if (cards.size === 1 && rows.length) els.run.classList.add('revealing');
   $('.table-container', card).hidden = !$('.sols tbody', card).children.length;
   // when the problem fails on its guidelines, not its solutions, the guidelines come first
   if (critical.length && !broken.length) card.insertBefore($('.more', card), $('.legend', card));
@@ -786,7 +757,7 @@ function legendFor(card, solutions) {
     ['bad-hollow', 'dot bad hollow', 'i-x', 'wrong, on purpose'],
     ['limit-hollow', 'dot limit hollow', 'i-clock', 'too slow, on purpose'],
   ].filter(([kind]) => seen.has(kind));
-  $('.legend', card).innerHTML = `<span class="legend-note">One square per test (${matchMedia('(hover: hover)').matches ? 'hover or click' : 'tap'} one to read it):</span>${items.map(([, cls, glyph, words]) => `<span><span class="${cls}" aria-hidden="true">${glyph ? icon(glyph) : ''}</span>${words}</span>`).join('')}`;
+  $('.legend', card).innerHTML = `<span class="legend-note">One square per test (${matchMedia('(hover: hover)').matches ? 'hover over' : 'tap'} one to read it):</span>${items.map(([, cls, glyph, words]) => `<span><span class="${cls}" aria-hidden="true">${glyph ? icon(glyph) : ''}</span>${words}</span>`).join('')}`;
 }
 
 /** What a solution got, in words: "wrong answer on 6 of 12 tests". */
@@ -810,7 +781,7 @@ function solutionRow(s) {
   const expectedToFail = s.matchesTag && s.tests.some((t) => t.verdict !== 'OK');
   if (!s.matchesTag) tr.className = 'broken';
   if (expectedToFail) tr.className = 'expected-fail';
-  tr.innerHTML = `<td class="sol"><b class="sol-name"></b><span class="sol-label"></span></td><td class="tests"><div class="dots" role="group"></div><small class="dots-note"></small><ul class="fails"></ul></td><td class="res"></td>`;
+  tr.innerHTML = `<td class="sol"><b class="sol-name"></b><span class="sol-label"></span></td><td class="tests"><div class="dots"></div><small class="dots-note"></small><ul class="fails"></ul></td><td class="res"></td>`;
   $('.sol-name', tr).textContent = s.name;
   // the setter's own tag letters stay visible beside the plain words
   $('.sol-label', tr).textContent = `labelled ${tagWords(s.tag)} (${s.tag})`;
@@ -822,9 +793,12 @@ function solutionRow(s) {
     d.type = 'button';
     d.className = `dot ${kind}`;
     d.tabIndex = i ? -1 : 0;
-    d.dataset.detail = testDetail(t);
-    d.setAttribute('aria-label', d.dataset.detail);
-    d.style.setProperty('--i', i);
+    d.dataset.tooltip = testDetail(t);
+    // (the tooltip opens away from the card's nearer edge)
+    d.dataset.align = i < s.tests.length / 2 ? 'start' : 'end';
+    // (below the square, over the row's own summary, so the solution's name and label stay in view)
+    d.dataset.side = 'bottom';
+    d.setAttribute('aria-label', d.dataset.tooltip);
     if (kind !== 'ok') d.innerHTML = icon(kind === 'limit' ? 'i-clock' : 'i-x');
     dots.append(d);
   });
@@ -834,9 +808,8 @@ function solutionRow(s) {
   const slowest = s.tests.length > 1 && s.tests.every((t) => t.verdict === 'OK') ? `, slowest ${ms(Math.max(...s.tests.map((t) => t.timeMs)))}` : '';
   // a solution meant to fail that fails is fine: say so, so its red dots don't read as a problem
   const asLabelled = expectedToFail ? ' That is what its label expects.' : '';
-  const note = $('.dots-note', tr);
-  note.textContent = note.dataset.summary = stoppedEarly ? `${cap(verdictWords(s.tests[0].verdict))} on the first test, so it was stopped there.${asLabelled}` : `${cap(outcome(s))}${slowest}.${asLabelled}`;
-  wireSquares(dots, note);
+  $('.dots-note', tr).textContent = stoppedEarly ? `${cap(verdictWords(s.tests[0].verdict))} on the first test, so it was stopped there.${asLabelled}` : `${cap(outcome(s))}${slowest}.${asLabelled}`;
+  wireSquares(dots);
   // the proof for a solution that broke its label: each failing test and what the checker saw
   const fails = $('.fails', tr);
   const failing = s.matchesTag ? [] : s.tests.filter((t) => t.verdict !== 'OK');
@@ -866,42 +839,16 @@ function testDetail(t) {
 }
 
 /**
- * A strip of squares reads like a list: hover, tap or arrow to a square and its test is spelled out
- * underneath. One square at a time takes Tab (roving focus), so a long strip is one stop.
+ * A strip of squares is a toolbar: each square's tooltip spells out its test, and one square at a
+ * time takes Tab (roving focus), so a long strip is one stop and the arrow keys move along it.
  */
-function wireSquares(strip, line) {
+function wireSquares(strip) {
   const squares = [...strip.children];
-  // focus and hover preview a square; a click or tap pins it, one pinned square per report
-  // the row's summary line spells out the chosen square, and comes back when none is
-  const show = (d) => {
-    const at = d ?? $('.dot.picked', strip);
-    line.textContent = at ? at.dataset.detail : line.dataset.summary;
-    line.classList.toggle('reading', !!at);
-  };
-  const pin = (d) => {
-    for (const other of strip.closest('.problem').querySelectorAll('.dot.picked')) {
-      other.classList.remove('picked');
-      const otherLine = $('.dots-note', other.closest('td'));
-      otherLine.textContent = otherLine.dataset.summary;
-      otherLine.classList.remove('reading');
-    }
-    d.classList.add('picked');
-    show(d);
-  };
-  strip.addEventListener('click', (e) => {
-    const d = e.target.closest('.dot');
-    if (d) pin(d);
-  });
-  strip.addEventListener('pointerover', (e) => show(e.target.closest('.dot')));
-  strip.addEventListener('pointerleave', () => show(null));
+  strip.setAttribute('role', 'toolbar');
   strip.addEventListener('focusin', (e) => {
     const d = e.target.closest('.dot');
-    // one ring at a time: moving by keyboard lets go of a pinned square
-    for (const q of strip.closest('.problem').querySelectorAll('.dot.picked')) q.classList.remove('picked');
     for (const q of squares) q.tabIndex = q === d ? 0 : -1;
-    show(d);
   });
-  strip.addEventListener('focusout', () => show(null));
   strip.addEventListener('keydown', (e) => {
     const at = squares.indexOf(document.activeElement);
     const to = { ArrowRight: at + 1, ArrowDown: at + 1, ArrowLeft: at - 1, ArrowUp: at - 1, Home: 0, End: squares.length - 1 }[e.key];
@@ -966,8 +913,7 @@ function failMidway(message) {
     $('svg', li).outerHTML = icon('i-dot');
     $('span', li).append(' (stopped here)');
   }
-  for (const seg of els.problems.querySelectorAll('.step-bar .now')) seg.className = 'stopped';
-  for (const m of document.querySelectorAll('.hero-flow i.now')) m.className = 'stopped';
+  for (const bar of els.problems.querySelectorAll('.progress')) bar.classList.add('stopped');
   els.run.classList.add('is-bad');
   setStatus('Did not finish', 'destructive');
   showActions('done');
