@@ -206,9 +206,12 @@ const num = (n: number, digits = 2) => {
 /**
  * A GitLab metrics report (OpenMetrics names, one "name value" per line). The
  * MR widget lists each metric with its value on the target branch, so a change
- * to the data, the coefficients or the CI shows up as a difference.
+ * to the data or the coefficients shows up as a difference. The CI footprint
+ * stays out: an MR's median of its earlier, smaller pipelines against main's
+ * median of full pipelines is not a real difference (!238 showed -91%). It is
+ * still in sci-report.json, on the page and in the log.
  */
-export function metricsText(s: SciSummary, ci?: CiFootprint | null): string {
+export function metricsText(s: SciSummary): string {
   const lines = [`sci_sessions_counted ${s.sessions}`, `sci_grid_gco2e_per_kwh ${s.coefficients.gridGramsPerKwh}`];
   for (const t of s.tiers) {
     const p = `sci_review_${t.tier}`;
@@ -222,8 +225,6 @@ export function metricsText(s: SciSummary, ci?: CiFootprint | null): string {
       `${p}_gco2e_per_mtok_high ${num(t.gramsPerMTokens.high)}`,
     );
   }
-  // per pipeline, so an MR's few pipelines and main's last 10 compare under one name
-  if (ci) lines.push(`sci_ci_runner_gco2e_per_pipeline_median ${num(ci.perPipelineGrams)}`, `sci_ci_runner_minutes_per_pipeline_median ${num(ci.perPipelineMinutes, 1)}`);
   return lines.join('\n') + '\n';
 }
 

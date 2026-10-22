@@ -70,7 +70,7 @@ if (argv.includes('--ci') && !(env.CI_API_V4_URL && env.CI_PROJECT_ID)) {
 }
 
 mkdirSync(outDir, { recursive: true });
-writeFileSync(join(outDir, 'metrics.txt'), metricsText(summary, ci));
+writeFileSync(join(outDir, 'metrics.txt'), metricsText(summary));
 writeFileSync(join(outDir, 'sci-report.json'), JSON.stringify({ functionalUnit: 'one merge request review', ...summary, impactFramework: check, ci }, null, 2) + '\n');
 writeFileSync(
   join(outDir, 'index.html'),
