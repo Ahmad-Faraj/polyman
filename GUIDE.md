@@ -1986,7 +1986,7 @@ polyman remote pull 123456 ./my-problem
    - **Metadata** (description, tags)
 5. **Step 5:** Creates local directory structure
 6. **Step 6:** Generates `Config.json` with all settings
-7. **Step 7:** Downloads tests for specified testsets
+7. **Step 7:** Downloads tests for specified testsets. Without `-t`, only the testset named `tests` is downloaded, and the closing summary says so. Polygon's API cannot list a problem's testsets, so any other testset must be named with `-t a,b`.
 
 Result: a complete problem directory matching the polyman layout (see [Directory Structure](#directory-structure)).
 
@@ -2007,6 +2007,8 @@ polyman remote pull 123456 ./my-problem -t samples,tests
 # Pull everything (default)
 polyman remote pull 123456 ./my-problem --all
 ```
+
+**Note on testsets:** when `-t` is not given, `pull` downloads only the testset named `tests`. Its summary lists the testsets it downloaded and reminds you that others must be named with `-t a,b`, because Polygon's API cannot list a problem's testsets. For a problem with a second testset (for example `generate`), run `polyman remote pull 123456 ./my-problem -t tests,generate`.
 
 **Available Options:**
 

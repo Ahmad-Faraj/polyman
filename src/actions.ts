@@ -1483,6 +1483,14 @@ export const remotePullProblemAction = async (
     fmt.info(
       `  ${fmt.infoIcon()} Review Config.json and update solution tags as needed`
     );
+    if (pullTests && !options?.tests) {
+      fmt.info(
+        `  ${fmt.infoIcon()} Testsets downloaded: ${fmt.highlight('tests')}`
+      );
+      fmt.info(
+        `  ${fmt.infoIcon()} Other testsets were not pulled (Polygon's API cannot list them). Name them with ${fmt.highlight('-t a,b')}`
+      );
+    }
     fmt.newLine();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

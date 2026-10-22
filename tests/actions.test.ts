@@ -879,6 +879,38 @@ describe('actions.ts', () => {
       expect(steps.stepDownloadTests).toHaveBeenCalledTimes(2);
     });
 
+    describe('testset summary', () => {
+      const infoLines = (): string[] =>
+        vi.mocked(formatter.fmt.info).mock.calls.map(c => String(c[0]));
+
+      beforeEach(() => {
+        vi.mocked(formatter.fmt.highlight).mockImplementation((s: string) => s);
+      });
+
+      it('should say which testset was pulled when -t is not given', async () => {
+        await actions.remotePullProblemAction('123', './out', {});
+        const lines = infoLines();
+        expect(lines.some(l => l.includes('Testsets downloaded: tests'))).toBe(
+          true
+        );
+        expect(lines.some(l => l.includes('-t a,b'))).toBe(true);
+      });
+
+      it('should not print the testset line when -t names testsets', async () => {
+        await actions.remotePullProblemAction('123', './out', {
+          tests: 'ts1,ts2',
+        });
+        expect(infoLines().some(l => l.includes('-t a,b'))).toBe(false);
+      });
+
+      it('should not print the testset line when tests are not pulled', async () => {
+        await actions.remotePullProblemAction('123', './out', {
+          solutions: true,
+        });
+        expect(infoLines().some(l => l.includes('-t a,b'))).toBe(false);
+      });
+    });
+
     it('should skip tests when not requested', async () => {
       await actions.remotePullProblemAction('123', './out', {
         solutions: true,
