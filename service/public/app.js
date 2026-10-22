@@ -328,9 +328,15 @@ function upload(file) {
   start('/api/verify', body, file.name);
 }
 
+/** The hero's ten marks follow the run's ten steps: done, under way, or still to come (-1 clears them). */
+function heroSteps(at) {
+  document.querySelectorAll('.hero-flow i').forEach((m, i) => (m.className = at < 0 ? '' : i < at ? 'done' : i === at ? 'now' : ''));
+}
+
 function setBusy(on) {
   running = on;
   for (const b of document.querySelectorAll('.sample, #pick, #demo, #own')) b.disabled = on;
+  for (const b of document.querySelectorAll('.sample')) b.title = on ? 'Stop the check to switch' : '';
   els.demo.innerHTML = on ? `${icon('i-spin')}Checking…` : demoLabel;
 }
 
@@ -409,7 +415,7 @@ async function start(url, body, name, tries = 1) {
   clearTimeout(headTimer);
   afterLanding = null;
   lastVerdict = '';
-  document.querySelector('.hero').classList.remove('answered');
+  heroSteps(-1);
   els.run.classList.add('is-running');
   setHead(`Checking ${label}`, 'Checking the problem…', 'Usually about 20 seconds.');
   setStatus('Running', 'secondary');
@@ -560,11 +566,13 @@ function handle(ev) {
     [...$('.step-bar', c).children].forEach((seg, i) => (seg.className = i < at ? 'done' : i === at ? 'now' : ''));
     $('.sols', c).classList.toggle('is-running', ev.title === 'Running Solutions');
     if (cards.size === 1) {
+      heroSteps(at);
       step = at + 1;
       els.sub.textContent = progress(runStart);
       say(`Step ${step} of ${STEPS.length}: ${STEP_WORDS[ev.title] ?? ev.title}.`);
     }
   } else if (ev.type === 'problem') {
+    if (cards.size === 1 && ev.report) heroSteps(STEPS.length);
     renderProblem(card(ev.problem), ev);
   } else if (ev.type === 'done') {
     settle();
@@ -601,23 +609,18 @@ function handle(ev) {
       els.note.innerHTML = `<svg class="stamp" viewBox="0 0 32 32" aria-hidden="true"><path class="hex" d="M16 2.6 27.6 9.3v13.4L16 29.4 4.4 22.7V9.3Z"/><path class="tick" d="m10.5 16.6 3.9 3.9 7.3-8.2"/></svg><span></span>`;
       $('span', els.note).textContent = win;
       els.note.classList.add('found');
+      els.run.classList.add('has-found');
+      els.note.hidden = false;
     }
     // status, colour and the sample's answer all wait for the verdict, so nothing gives it away early
     const reveal = () => {
       els.run.classList.add(ev.ok ? 'is-good' : 'is-bad');
       setStatus(ev.ok ? 'All good' : unfinished ? 'Did not finish' : 'Needs work', ev.ok ? 'success' : 'destructive');
-      if (win) {
-        els.run.classList.add('has-found');
-        els.note.hidden = false;
-      }
-      // the page has answered its own question: the hero's question steps back
-      if (!unfinished) document.querySelector('.hero').classList.add('answered');
       // (the sample's answer is read once, as focus lands on it, so the announcement leaves it out)
       say(`Checked ${label} in ${ev.seconds.toFixed(1)} seconds. ${lastVerdict || els.verdict.textContent}`);
       (win ? els.note : els.verdict).focus({ preventScroll: true });
     };
     if (els.run.classList.contains('revealing') && !els.run.classList.contains('landed')) {
-      setHead(null, 'Reading the results…', '');
       setStatus('Reading', 'secondary');
       afterLanding = reveal;
     } else reveal();
@@ -667,14 +670,15 @@ function renderProblem(card, ev) {
   }
   if (cards.size === 1) {
     lastVerdict = title;
+    // the verdict takes its place at once, unseen until the rows land, so nothing under it moves
+    setHead(null, title, body);
+    if (/see the limits in the docs:$/.test(body)) {
+      const a = document.createElement('a');
+      a.href = '/docs#limits';
+      a.textContent = 'Limits and privacy';
+      els.sub.append(' ', a);
+    }
     const land = () => {
-      setHead(null, title, body);
-      if (/see the limits in the docs:$/.test(body)) {
-        const a = document.createElement('a');
-        a.href = '/docs#limits';
-        a.textContent = 'Limits and privacy';
-        els.sub.append(' ', a);
-      }
       els.run.classList.add('landed');
       afterLanding?.();
       afterLanding = null;
@@ -806,7 +810,7 @@ function solutionRow(s) {
   const expectedToFail = s.matchesTag && s.tests.some((t) => t.verdict !== 'OK');
   if (!s.matchesTag) tr.className = 'broken';
   if (expectedToFail) tr.className = 'expected-fail';
-  tr.innerHTML = `<td class="sol"><b class="sol-name"></b><span class="sol-label"></span></td><td class="tests"><div class="dots" role="group"></div><p class="dot-detail"></p><small class="dots-note"></small><ul class="fails"></ul></td><td class="res"></td>`;
+  tr.innerHTML = `<td class="sol"><b class="sol-name"></b><span class="sol-label"></span></td><td class="tests"><div class="dots" role="group"></div><small class="dots-note"></small><ul class="fails"></ul></td><td class="res"></td>`;
   $('.sol-name', tr).textContent = s.name;
   // the setter's own tag letters stay visible beside the plain words
   $('.sol-label', tr).textContent = `labelled ${tagWords(s.tag)} (${s.tag})`;
@@ -824,14 +828,15 @@ function solutionRow(s) {
     if (kind !== 'ok') d.innerHTML = icon(kind === 'limit' ? 'i-clock' : 'i-x');
     dots.append(d);
   });
-  wireSquares(dots, $('.dot-detail', tr));
   const stoppedEarly = s.tests.length === 1 && s.tests[0].verdict !== 'OK';
   // the slowest test in words, since a dot's own time is only in its tooltip
   // (only for a solution that passed: on a failing one the time says nothing)
   const slowest = s.tests.length > 1 && s.tests.every((t) => t.verdict === 'OK') ? `, slowest ${ms(Math.max(...s.tests.map((t) => t.timeMs)))}` : '';
   // a solution meant to fail that fails is fine: say so, so its red dots don't read as a problem
   const asLabelled = expectedToFail ? ' That is what its label expects.' : '';
-  $('.dots-note', tr).textContent = stoppedEarly ? `${cap(verdictWords(s.tests[0].verdict))} on the first test, so it was stopped there.${asLabelled}` : `${cap(outcome(s))}${slowest}.${asLabelled}`;
+  const note = $('.dots-note', tr);
+  note.textContent = note.dataset.summary = stoppedEarly ? `${cap(verdictWords(s.tests[0].verdict))} on the first test, so it was stopped there.${asLabelled}` : `${cap(outcome(s))}${slowest}.${asLabelled}`;
+  wireSquares(dots, note);
   // the proof for a solution that broke its label: each failing test and what the checker saw
   const fails = $('.fails', tr);
   const failing = s.matchesTag ? [] : s.tests.filter((t) => t.verdict !== 'OK');
@@ -867,19 +872,18 @@ function testDetail(t) {
 function wireSquares(strip, line) {
   const squares = [...strip.children];
   // focus and hover preview a square; a click or tap pins it, one pinned square per report
+  // the row's summary line spells out the chosen square, and comes back when none is
   const show = (d) => {
-    const pinned = $('.dot.picked', strip);
-    const at = d ?? pinned;
-    // the line is always there (no jump), and says what the squares are for until one is chosen
-    line.textContent = at ? at.dataset.detail : '';
+    const at = d ?? $('.dot.picked', strip);
+    line.textContent = at ? at.dataset.detail : line.dataset.summary;
+    line.classList.toggle('reading', !!at);
   };
-  show(null);
   const pin = (d) => {
     for (const other of strip.closest('.problem').querySelectorAll('.dot.picked')) {
       other.classList.remove('picked');
-      const otherLine = $('.dot-detail', other.closest('td'));
-      otherLine.textContent = '';
-      otherLine.classList.remove('on');
+      const otherLine = $('.dots-note', other.closest('td'));
+      otherLine.textContent = otherLine.dataset.summary;
+      otherLine.classList.remove('reading');
     }
     d.classList.add('picked');
     show(d);
@@ -963,9 +967,12 @@ function failMidway(message) {
     $('span', li).append(' (stopped here)');
   }
   for (const seg of els.problems.querySelectorAll('.step-bar .now')) seg.className = 'stopped';
+  for (const m of document.querySelectorAll('.hero-flow i.now')) m.className = 'stopped';
   els.run.classList.add('is-bad');
   setStatus('Did not finish', 'destructive');
   showActions('done');
+  els.again.removeAttribute('data-variant');
+  els.download.hidden = true;
   setBusy(false);
   say(`The check did not finish. ${message}`);
   els.verdict.focus({ preventScroll: true });
