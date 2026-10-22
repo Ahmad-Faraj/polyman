@@ -138,6 +138,8 @@ let runStart = 0;
 /** The verdict waits for the rows to land; this holds it until then. */
 let headTimer = 0;
 let lastVerdict = '';
+/** What the finished run shows once its verdict has landed (status, colour, the sample's answer). */
+let afterLanding = null;
 /** Each sample's solution names, so a run shows who is being judged before results arrive. */
 const expected = new Map();
 const demoLabel = els.demo.innerHTML;
@@ -365,6 +367,7 @@ function showActions(state) {
   els.instead.hidden = state !== 'refused' || !expected.has(pending);
   els.next.hidden = true;
   els.stop.hidden = state !== 'running';
+  els.again.dataset.variant = 'outline';
   els.again.hidden = state === 'running' || state === 'refused';
   els.choose.hidden = state !== 'refused';
   els.download.hidden = state === 'running' || state === 'refused';
@@ -404,6 +407,7 @@ async function start(url, body, name, tries = 1) {
   else els.problems.replaceChildren();
   els.run.classList.remove('is-bad', 'is-good', 'revealing', 'has-found', 'landed');
   clearTimeout(headTimer);
+  afterLanding = null;
   lastVerdict = '';
   document.querySelector('.hero').classList.remove('answered');
   els.run.classList.add('is-running');
@@ -583,8 +587,6 @@ function handle(ev) {
     // a check that ended without a report (a timeout) judged nothing: it didn't finish, the problem isn't to blame
     const reports = events.filter((e) => e.type === 'problem');
     const unfinished = !reports.length || reports.every((e) => !e.report);
-    els.run.classList.add(ev.ok ? 'is-good' : 'is-bad');
-    setStatus(ev.ok ? 'All good' : unfinished ? 'Did not finish' : 'Needs work', ev.ok ? 'success' : 'destructive');
     showActions('done');
     if (!unfinished) suggestNext(ev.ok);
     else if (lastRun?.body) els.choose.hidden = false;
@@ -592,19 +594,34 @@ function handle(ev) {
     const [, , about] = (!unfinished && !lastRun?.body && SAMPLES[label]) || [];
     const sol = about && reports[0]?.report?.solutions.find((s) => s.name === about);
     const win = !sol ? '' : !sol.matchesTag ? `Found it: ${about} is the planted mistake.` : sol.tests.some((t) => t.verdict !== 'OK') ? `The sandbox held: ${about} never got root, so it failed as labelled.` : '';
+    // a timed-out check gets its own way back: running it again is the main action
+    if (unfinished) els.again.removeAttribute('data-variant');
     if (win) {
       // a stamp in the mark's own hexagon draws itself in, then the answer
       els.note.innerHTML = `<svg class="stamp" viewBox="0 0 32 32" aria-hidden="true"><path class="hex" d="M16 2.6 27.6 9.3v13.4L16 29.4 4.4 22.7V9.3Z"/><path class="tick" d="m10.5 16.6 3.9 3.9 7.3-8.2"/></svg><span></span>`;
       $('span', els.note).textContent = win;
       els.note.classList.add('found');
-      els.run.classList.add('has-found');
-      els.note.hidden = false;
     }
-    // the page has answered its own question: the hero's question steps back
-    if (!unfinished) document.querySelector('.hero').classList.add('answered');
+    // status, colour and the sample's answer all wait for the verdict, so nothing gives it away early
+    const reveal = () => {
+      els.run.classList.add(ev.ok ? 'is-good' : 'is-bad');
+      setStatus(ev.ok ? 'All good' : unfinished ? 'Did not finish' : 'Needs work', ev.ok ? 'success' : 'destructive');
+      if (win) {
+        els.run.classList.add('has-found');
+        els.note.hidden = false;
+      }
+      // the page has answered its own question: the hero's question steps back
+      if (!unfinished) document.querySelector('.hero').classList.add('answered');
+      // (the sample's answer is read once, as focus lands on it, so the announcement leaves it out)
+      say(`Checked ${label} in ${ev.seconds.toFixed(1)} seconds. ${lastVerdict || els.verdict.textContent}`);
+      (win ? els.note : els.verdict).focus({ preventScroll: true });
+    };
+    if (els.run.classList.contains('revealing') && !els.run.classList.contains('landed')) {
+      setHead(null, 'Reading the results…', '');
+      setStatus('Reading', 'secondary');
+      afterLanding = reveal;
+    } else reveal();
     if (unfinished && reports.some((e) => /time|timed out/i.test(e.error ?? ''))) els.title.textContent = `Checked ${label}: stopped at the time limit`;
-    say(`Checked ${label} in ${ev.seconds.toFixed(1)} seconds. ${win} ${lastVerdict || els.verdict.textContent}`);
-    (win ? els.note : els.verdict).focus({ preventScroll: true });
   } else if (ev.type === 'error') {
     failMidway(ev.message);
   }
@@ -659,6 +676,8 @@ function renderProblem(card, ev) {
         els.sub.append(' ', a);
       }
       els.run.classList.add('landed');
+      afterLanding?.();
+      afterLanding = null;
     };
     // the evidence lands first, row by row; the verdict follows as the last beat (at once if motion is reduced)
     clearTimeout(headTimer);
@@ -689,7 +708,7 @@ function renderProblem(card, ev) {
       const tr = solutionRow(s);
       if (s.name === focus && s.matchesTag) tr.classList.add('focus');
       tr.classList.add('reveal');
-      tr.style.setProperty('--r', order.indexOf(s));
+      tr.style.setProperty('--r', rows.indexOf(s));
       return tr;
     }));
   }
@@ -763,7 +782,7 @@ function legendFor(card, solutions) {
     ['bad-hollow', 'dot bad hollow', 'i-x', 'wrong, on purpose'],
     ['limit-hollow', 'dot limit hollow', 'i-clock', 'too slow, on purpose'],
   ].filter(([kind]) => seen.has(kind));
-  $('.legend', card).innerHTML = `<span class="legend-note">One square per test:</span>${items.map(([, cls, glyph, words]) => `<span><span class="${cls}" aria-hidden="true">${glyph ? icon(glyph) : ''}</span>${words}</span>`).join('')}`;
+  $('.legend', card).innerHTML = `<span class="legend-note">One square per test (${matchMedia('(hover: hover)').matches ? 'hover or click' : 'tap'} one to read it):</span>${items.map(([, cls, glyph, words]) => `<span><span class="${cls}" aria-hidden="true">${glyph ? icon(glyph) : ''}</span>${words}</span>`).join('')}`;
 }
 
 /** What a solution got, in words: "wrong answer on 6 of 12 tests". */
@@ -825,7 +844,7 @@ function solutionRow(s) {
     $('span', li).textContent = detail || said;
     fails.append(li);
   }
-  if (failing.length > 6) fails.insertAdjacentHTML('beforeend', `<li class="more-fails">and ${failing.length - 6} more in the report below</li>`);
+  if (failing.length > 6) fails.insertAdjacentHTML('beforeend', `<li class="more-fails">and ${failing.length - 6} more: their squares say which</li>`);
   if (!failing.length) fails.remove();
   $('.res', tr).innerHTML = s.matchesTag ? `<span class="res-ok">${icon('i-check')}${expectedToFail ? 'Fails as labelled' : 'As labelled'}</span>` : `<span class="res-bad">${icon('i-x')}Not as labelled</span>`;
   return tr;
@@ -852,8 +871,7 @@ function wireSquares(strip, line) {
     const pinned = $('.dot.picked', strip);
     const at = d ?? pinned;
     // the line is always there (no jump), and says what the squares are for until one is chosen
-    line.textContent = at ? at.dataset.detail : 'Hover, tap or arrow to a square to read that test.';
-    line.classList.toggle('hint', !at);
+    line.textContent = at ? at.dataset.detail : '';
   };
   show(null);
   const pin = (d) => {
