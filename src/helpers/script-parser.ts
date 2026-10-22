@@ -687,6 +687,10 @@ export function parseGeneratorScript(script: string): ParsedScriptLine[] {
 
     const tokens = tokenize(left);
     const generator = tokens[0];
+    if (generator === undefined) {
+      // tokenize() drops empty quoted tokens, so `"" > 1` has none.
+      throw new Error(`Empty generator command on line ${lineNumber}`);
+    }
     if (path.extname(generator) !== '') {
       throw new Error(
         `Generator name must not include an extension on line ${lineNumber}: "${generator}"`

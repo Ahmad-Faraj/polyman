@@ -68,6 +68,20 @@ describe('parseGeneratorScript - errors', () => {
     expect(() => parser.parseGeneratorScript('gen.cpp 1 > 1')).toThrow();
   });
 
+  it('rejects a generator name that is an empty quoted token', () => {
+    for (const script of ['"" > 1', "'' > 1", '" > $']) {
+      expect(() => parser.parseGeneratorScript(script)).toThrow(
+        'Empty generator command on line 1'
+      );
+    }
+  });
+
+  it('reports the line number of an empty generator name', () => {
+    expect(() =>
+      parser.parseGeneratorScript('gen 1 > 1\n\n"" > 2\ngen 3 > 3')
+    ).toThrow('Empty generator command on line 3');
+  });
+
   it('rejects missing > target', () => {
     expect(() => parser.parseGeneratorScript('gen 1 2 3')).toThrow(
       /Missing '> target'/
