@@ -6,7 +6,7 @@
  * (the MR widget shows what changed), a static page for Pages, and Markdown
  * for the job log.
  */
-import { type GitLab, finishedJobs } from './gitlab.ts';
+import { type GitLab, finishedJobs, pipelineJobs } from './gitlab.ts';
 import { INFERENCE_WH_PER_CALL, type Calls, type Footprint, type SciCoefficients, footprint, sessionGrams } from './sci.ts';
 import { type CountedSession, countedRuns } from './manifest.ts';
 import { type TokenClasses, NONE, add, median, totalTokens } from './tokens.ts';
@@ -422,4 +422,101 @@ export async function ciFootprint(gl: Pick<GitLab, 'get'>, env: NodeJS.ProcessEn
     minutes.push(fp.runnerSeconds / 60);
   }
   return { scope, pipelines: ids.length, footprint: footprint(jobs, c), perPipelineGrams: median(grams), perPipelineMinutes: median(minutes) };
+}
+
+export interface PipelineFootprint {
+  pipelineId: number;
+  /** finished jobs with runner time, retries included */
+  jobs: { name: string; seconds: number }[];
+  /** what wasn't counted and why: this job, or a job with no runner time (running, manual, skipped...) */
+  leftOut: { name: string; status: string }[];
+  footprint: Footprint;
+}
+
+const FINISHED = ['success', 'failed', 'canceled'];
+
+/**
+ * The runner footprint of this pipeline, read by a job in its last stage
+ * (.post): every finished job, retries included since they cost what they
+ * cost, without the job that reads it. MR and main pipelines give the same
+ * quantity, so the MR widget compares one pipeline with one pipeline.
+ */
+export async function pipelineFootprint(gl: Pick<GitLab, 'get'>, env: NodeJS.ProcessEnv, c: SciCoefficients): Promise<PipelineFootprint> {
+  const pipelineId = Number(env.CI_PIPELINE_ID);
+  if (!pipelineId) throw new Error('CI_PIPELINE_ID is not set');
+  const self = Number(env.CI_JOB_ID);
+  const jobs: PipelineFootprint['jobs'] = [];
+  const leftOut: PipelineFootprint['leftOut'] = [];
+  for (const j of await pipelineJobs(gl, pipelineId)) {
+    if (j.id === self) leftOut.push({ name: j.name, status: 'this job' });
+    else if (FINISHED.includes(j.status) && j.duration) jobs.push({ name: j.name, seconds: j.duration });
+    else leftOut.push({ name: j.name, status: j.status === 'manual' ? 'manual, not run' : FINISHED.includes(j.status) ? `${j.status}, no runner time` : j.status });
+  }
+  return { pipelineId, jobs, leftOut, footprint: footprint(jobs.map((j) => ({ name: j.name, duration: j.seconds })), c) };
+}
+
+/** The metrics report of autonomy:sci:pipeline: one pipeline's figures, never a median. */
+export function pipelineMetricsText(p: PipelineFootprint): string {
+  return [
+    `sci_ci_runner_minutes_this_pipeline ${num(p.footprint.runnerSeconds / 60, 1)}`,
+    `sci_ci_runner_gco2e_this_pipeline ${num(p.footprint.totalGrams)}`,
+    `sci_ci_jobs_counted_this_pipeline ${p.jobs.length}`,
+  ].join('\n') + '\n';
+}
+
+/** The same figures for the job log, with what was left out. */
+export function pipelineSummary(p: PipelineFootprint): string {
+  const f = p.footprint;
+  return [
+    `CI runner footprint of this pipeline (${p.pipelineId}): ${p.jobs.length} finished job${p.jobs.length === 1 ? '' : 's'}, retries included, ${(f.runnerSeconds / 60).toFixed(1)} runner-min, ${(f.energyKwh * 1000).toFixed(1)} Wh, ${f.totalGrams.toFixed(2)} gCO2e (${f.operationalGrams.toFixed(2)} g operational, ${f.embodiedGrams.toFixed(2)} g embodied).`,
+    `left out: ${p.leftOut.length ? p.leftOut.map((j) => `${j.name} (${j.status})`).join(', ') : 'nothing'}`,
+  ].join('\n');
+}
+
+export interface MainComparison {
+  branch: string;
+  pipelines: number;
+  /** this pipeline's 5 costliest jobs by name (retries summed), with main's median for the same name, or null */
+  top: { name: string; minutes: number; mainMinutes: number | null }[];
+  /** jobs in at least half of main's pipelines that this one didn't count */
+  mainOnly: { jobs: number; minutes: number };
+}
+
+const minutesByName = (jobs: { name: string; seconds: number }[]) => {
+  const by = new Map<string, number>();
+  for (const j of jobs) by.set(j.name, (by.get(j.name) ?? 0) + j.seconds / 60);
+  return by;
+};
+
+/**
+ * Why this pipeline costs what it does: its costliest jobs against the same
+ * job names on the target branch's last 10 successful push pipelines. Job
+ * times only; nothing from it goes into the metrics report.
+ */
+export async function compareWithMain(gl: Pick<GitLab, 'get'>, branch: string, p: PipelineFootprint): Promise<MainComparison> {
+  const path = `/:project/pipelines?ref=${encodeURIComponent(branch)}&status=success&source=push&per_page=10`;
+  const list = await gl.get<{ id: number }[]>(path);
+  if (!Array.isArray(list)) throw new Error(`GET ${path} did not return a list: ${JSON.stringify(list).slice(0, 100)}`);
+  const ids = list.map((x) => x.id).filter((id) => id !== p.pipelineId);
+  const runs = new Map<string, number[]>();
+  for (const id of ids) {
+    const jobs = (await finishedJobs(gl, [id])).map((j) => ({ name: j.name, seconds: j.duration }));
+    for (const [name, minutes] of minutesByName(jobs)) runs.set(name, [...(runs.get(name) ?? []), minutes]);
+  }
+  const here = minutesByName(p.jobs);
+  const top = [...here]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([name, minutes]) => ({ name, minutes, mainMinutes: runs.has(name) ? median(runs.get(name)!) : null }));
+  const usual = [...runs].filter(([name, ms]) => !here.has(name) && ms.length * 2 >= ids.length);
+  return { branch, pipelines: ids.length, top, mainOnly: { jobs: usual.length, minutes: usual.reduce((n, [, ms]) => n + median(ms), 0) } };
+}
+
+export function comparisonSummary(m: MainComparison): string {
+  const diff = (here: number, main: number) => `${here >= main ? '+' : ''}${(here - main).toFixed(1)} min, ${here >= main ? '+' : ''}${main ? Math.round(((here - main) / main) * 100) : 0}%`;
+  return [
+    `Top ${m.top.length} jobs here by runner-min, against the median of the same job on ${m.branch}'s last ${m.pipelines} successful push pipelines:`,
+    ...m.top.map((j) => `  ${j.name}: ${j.minutes.toFixed(1)} min, ${j.mainMinutes === null ? `not on ${m.branch}` : `${m.branch} ${j.mainMinutes.toFixed(1)} min (${diff(j.minutes, j.mainMinutes)})`}`),
+    `${m.branch}'s usual jobs not run here: ${m.mainOnly.jobs}, ${m.mainOnly.minutes.toFixed(1)} runner-min at ${m.branch}'s median.`,
+  ].join('\n');
 }
