@@ -865,6 +865,7 @@ describe('actions.ts', () => {
     });
 
     it('should pull all by default', async () => {
+      vi.mocked(steps.stepDownloadTests).mockResolvedValue(true);
       await actions.remotePullProblemAction('123', './out', { all: true });
       expect(steps.stepFetchProblemInfo).toHaveBeenCalled();
       expect(steps.stepCreatePulledProblemDirectory).toHaveBeenCalled();
@@ -885,6 +886,15 @@ describe('actions.ts', () => {
 
       beforeEach(() => {
         vi.mocked(formatter.fmt.highlight).mockImplementation((s: string) => s);
+        vi.mocked(steps.stepDownloadTests).mockResolvedValue(true);
+      });
+
+      it('should not claim tests were downloaded when the download failed', async () => {
+        vi.mocked(steps.stepDownloadTests).mockResolvedValue(false);
+        await actions.remotePullProblemAction('123', './out', {});
+        const lines = infoLines();
+        expect(lines.some(l => l.includes('Testsets downloaded'))).toBe(false);
+        expect(lines.some(l => l.includes('-t a,b'))).toBe(true);
       });
 
       it('should say which testset was pulled when -t is not given', async () => {

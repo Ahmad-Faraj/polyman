@@ -1118,8 +1118,15 @@ describe('steps.ts', () => {
         manualCount: 0,
       } as any);
       vi.mocked(fs.writeFileSync).mockImplementation(() => undefined);
-      await steps.stepDownloadTests(1, {} as any, 7, 'tests', 'savePath');
+      const result = await steps.stepDownloadTests(
+        1,
+        {} as any,
+        7,
+        'tests',
+        'savePath'
+      );
       expect(fs.writeFileSync).toHaveBeenCalled();
+      expect(result).toBe(true);
     });
 
     it('should update existing testset in config', async () => {
@@ -1150,7 +1157,7 @@ describe('steps.ts', () => {
       ).mockRejectedValue(new Error('boom'));
       await expect(
         steps.stepDownloadTests(1, {} as any, 7, 'tests', 'savePath')
-      ).resolves.toBeUndefined();
+      ).resolves.toBe(false);
       expect(formatter.fmt.warning).toHaveBeenCalled();
     });
 
@@ -1205,7 +1212,7 @@ describe('steps.ts', () => {
       ).mockRejectedValue('plain string failure');
       await expect(
         steps.stepDownloadTests(1, {} as any, 7, 'tests', 'savePath')
-      ).resolves.toBeUndefined();
+      ).resolves.toBe(false);
       expect(formatter.fmt.warning).toHaveBeenCalledWith(
         expect.stringContaining('plain string failure')
       );
