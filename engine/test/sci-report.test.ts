@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 import { countedRuns, ifManifest } from '../src/manifest.ts';
 import { DEFAULT_SCI, footprint, sessionGrams } from '../src/sci.ts';
-import { type SessionRecord, checkIfRun, ciFootprint, invalidInput, markdownSummary, metricsText, renderSciPage, summarize } from '../src/sci-report.ts';
+import { type SessionRecord, checkIfRun, ciFootprint, compareWithMain, comparisonSummary, invalidInput, markdownSummary, metricsText, pipelineFootprint, pipelineMetricsText, pipelineSummary, renderSciPage, summarize } from '../src/sci-report.ts';
 
 const session = (over: Partial<SessionRecord>): SessionRecord => ({
   at: '2026-10-17T10:00:00Z',
@@ -393,5 +393,148 @@ describe('the page escapes every field', () => {
     expect(invalidInput([session({ seconds: 1e308 })], DEFAULT_SCI)).toMatch(/seconds 1e\+308, not a number/);
     expect(invalidInput([session({ seconds: Number.MAX_SAFE_INTEGER })], DEFAULT_SCI)).toBeNull();
     expect(invalidInput([session({ seconds: 2 ** 53 })], DEFAULT_SCI)).toMatch(/seconds 9007199254740992, not a number/);
+  });
+});
+
+describe('pipelineFootprint', () => {
+  const job = (id: number, name: string, status: string, duration: number | null) => ({ id, name, status, duration });
+  /** answers the jobs of pipeline 50, page by page, and records the paths */
+  const fake = (pages: unknown[]) => {
+    const seen: string[] = [];
+    return {
+      seen,
+      get: async <T>(path: string) => {
+        seen.push(path);
+        const n = Number(/[?&]page=(\d+)/.exec(path)?.[1]);
+        if (!path.startsWith('/:project/pipelines/50/jobs?') || !path.includes('include_retried=true')) throw new Error(`unexpected ${path}`);
+        return pages[n - 1] as T;
+      },
+    };
+  };
+  const env = { CI_PIPELINE_ID: '50', CI_JOB_ID: '9' };
+
+  it('sums only finished jobs with runner time, and lists the rest with their status', async () => {
+    const pf = await pipelineFootprint(
+      fake([[
+        job(1, 'test', 'success', 120),
+        job(2, 'lint', 'failed', 30),
+        job(3, 'deploy', 'canceled', 6),
+        job(4, 'corpus', 'running', 50),
+        job(5, 'pages', 'pending', null),
+        job(6, 'release', 'manual', null),
+        job(7, 'docs', 'skipped', null),
+        job(8, 'never', 'canceled', null),
+      ]]),
+      env,
+      DEFAULT_SCI,
+    );
+    expect(pf.jobs).toEqual([{ name: 'test', seconds: 120 }, { name: 'lint', seconds: 30 }, { name: 'deploy', seconds: 6 }]);
+    expect(pf.footprint.runnerSeconds).toBe(156);
+    expect(pf.footprint.totalGrams).toBeCloseTo(footprint([{ name: 'x', duration: 156 }], DEFAULT_SCI).totalGrams, 10);
+    expect(pf.leftOut).toEqual([
+      { name: 'corpus', status: 'running' },
+      { name: 'pages', status: 'pending' },
+      { name: 'release', status: 'manual, not run' },
+      { name: 'docs', status: 'skipped' },
+      { name: 'never', status: 'canceled, no runner time' },
+    ]);
+  });
+
+  it('leaves out its own job by id even when it has a duration, and says so', async () => {
+    const pf = await pipelineFootprint(fake([[job(1, 'test', 'success', 60), job(9, 'autonomy:sci:pipeline', 'success', 40)]]), env, DEFAULT_SCI);
+    expect(pf.jobs).toEqual([{ name: 'test', seconds: 60 }]);
+    expect(pf.leftOut).toEqual([{ name: 'autonomy:sci:pipeline', status: 'this job' }]);
+    expect(pipelineSummary(pf)).toContain('left out: autonomy:sci:pipeline (this job)');
+  });
+
+  it('counts a retried job each time it ran', async () => {
+    const pf = await pipelineFootprint(fake([[job(1, 'test', 'failed', 90), job(2, 'test', 'success', 100)]]), env, DEFAULT_SCI);
+    expect(pf.jobs).toHaveLength(2);
+    expect(pf.footprint.runnerSeconds).toBe(190);
+  });
+
+  it('reads every page: 100 jobs and then 3 give 103', async () => {
+    const page1 = Array.from({ length: 100 }, (_, i) => job(100 + i, `j${i}`, 'success', 60));
+    const page2 = [job(1, 'a', 'success', 60), job(2, 'b', 'success', 60), job(3, 'c', 'success', 60)];
+    const gl = fake([page1, page2]);
+    const pf = await pipelineFootprint(gl, env, DEFAULT_SCI);
+    expect(pf.jobs).toHaveLength(103);
+    expect(pf.footprint.runnerSeconds).toBe(103 * 60);
+    expect(gl.seen).toHaveLength(2);
+  });
+
+  it('throws on an answer that is not a list, and without a pipeline id', async () => {
+    await expect(pipelineFootprint(fake([{ message: 'no' }]), env, DEFAULT_SCI)).rejects.toThrow(/pipelines\/50\/jobs\?per_page=100&include_retried=true&page=1 did not return a list/);
+    await expect(pipelineFootprint(fake([[]]), {}, DEFAULT_SCI)).rejects.toThrow(/CI_PIPELINE_ID is not set/);
+  });
+
+  it('writes exactly the three this-pipeline metrics, at 7.5627 g per runner-hour, and no median', async () => {
+    const pf = await pipelineFootprint(fake([[job(1, 'a', 'success', 3600), job(2, 'b', 'success', 1800)]]), env, DEFAULT_SCI);
+    const text = pipelineMetricsText(pf);
+    expect(text).toBe('sci_ci_runner_minutes_this_pipeline 90\nsci_ci_runner_gco2e_this_pipeline 11.34\nsci_ci_jobs_counted_this_pipeline 2\n');
+    for (const line of text.trimEnd().split('\n')) {
+      expect(line).toMatch(/^[a-z][a-z0-9_]* -?\d+(\.\d+)?$/);
+      expect(line).not.toContain('median');
+    }
+  });
+});
+
+describe('compareWithMain', () => {
+  const run = (name: string, duration: number) => ({ id: 0, name, status: 'success', duration });
+  const gl = (pipelines: unknown, jobs: Record<number, unknown[]>) => ({
+    get: async <T>(path: string) => {
+      if (path.startsWith('/:project/pipelines?ref=main&status=success&source=push')) return pipelines as T;
+      const id = Number(/pipelines\/(\d+)\/jobs/.exec(path)?.[1]);
+      if (jobs[id]) return jobs[id] as T;
+      throw new Error(`unexpected ${path}`);
+    },
+  });
+  const here = { pipelineId: 50, jobs: [{ name: 'test', seconds: 600 }, { name: 'test', seconds: 60 }, { name: 'new', seconds: 120 }], leftOut: [], footprint: footprint([], DEFAULT_SCI) };
+
+  it("puts this pipeline's costliest jobs next to main's median for the same name, and sums main's usual jobs not run here", async () => {
+    const m = await compareWithMain(
+      gl([{ id: 1 }, { id: 2 }, { id: 3 }, { id: 50 }], {
+        1: [run('test', 300), run('windows', 600)],
+        2: [run('test', 420), run('windows', 780)],
+        3: [run('test', 360), run('rare', 60)],
+      }),
+      'main',
+      here,
+    );
+    expect(m.pipelines).toBe(3);
+    expect(m.top).toEqual([
+      { name: 'test', minutes: 11, mainMinutes: 6 },
+      { name: 'new', minutes: 2, mainMinutes: null },
+    ]);
+    // windows ran in 2 of 3 (median 11.5 min); rare in 1 of 3, not usual
+    expect(m.mainOnly).toEqual({ jobs: 1, minutes: 11.5 });
+    const text = comparisonSummary(m);
+    expect(text).toContain('test: 11.0 min, main 6.0 min (+5.0 min, +83%)');
+    expect(text).toContain('new: 2.0 min, not on main');
+    expect(text).toContain("main's usual jobs not run here: 1, 11.5 runner-min");
+  });
+
+  it("does not list main's own measuring job as a usual job not run here", async () => {
+    const mine = { pipelineId: 50, jobs: [{ name: 'test', seconds: 60 }], leftOut: [{ name: 'autonomy:sci:pipeline', status: 'this job' }], footprint: footprint([], DEFAULT_SCI) };
+    const m = await compareWithMain(
+      gl([{ id: 1 }, { id: 2 }], {
+        1: [run('test', 60), run('autonomy:sci:pipeline', 30)],
+        2: [run('test', 60), run('autonomy:sci:pipeline', 30)],
+      }),
+      'main',
+      mine,
+    );
+    expect(m.mainOnly).toEqual({ jobs: 0, minutes: 0 });
+    expect(comparisonSummary(m)).toContain("main's usual jobs not run here: 0, 0.0 runner-min");
+  });
+
+  it('prints a tiny negative difference as +0.0 min, never -0.0', () => {
+    const text = comparisonSummary({ branch: 'main', pipelines: 3, top: [{ name: 'test', minutes: 3, mainMinutes: 3.02 }], mainOnly: { jobs: 0, minutes: 0 } });
+    expect(text).toContain('test: 3.0 min, main 3.0 min (+0.0 min, -1%)');
+    expect(text).not.toContain('-0.0');
+  });
+
+  it('throws on a pipeline list that is not a list', async () => {
+    await expect(compareWithMain(gl({}, {}), 'main', here)).rejects.toThrow(/did not return a list/);
   });
 });
