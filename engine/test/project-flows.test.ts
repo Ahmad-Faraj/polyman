@@ -361,6 +361,16 @@ describe("the project's Duo flows", () => {
     );
   });
 
+  // !241: the go-ahead guard refused a merge commit the builder pushed; the prompt never forbade one.
+  // An issue's open MR changes through the reviewer's fix round, not another push from the issue side.
+  it('the builder never pushes a merge commit, nor to an open MR that already closes the issue', () => {
+    const text = promptOf('issue-builder.yaml');
+    expect(text).toContain('never push a merge commit (a person merges the default branch in)');
+    expect(text).toContain(
+      "If an open MR already closes the issue, don't push to it: changes there go through the reviewer's fix round on that MR, so post a note linking that MR and stop.",
+    );
+  });
+
   // each flow's go-ahead rule and the go-ahead line of its proposal: [start, end] of each clause
   const goAheadClauses: Record<string, [string, string][]> = {
     'mr-reviewer.yaml': [
