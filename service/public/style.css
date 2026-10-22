@@ -3,19 +3,10 @@
  * This file only sets the theme tokens, the page layout, and the few pieces a stock component
  * doesn't cover (the per-test squares and the step list). Light theme only.
  */
-@font-face {
-  font-family: 'Geist Sans';
-  src: url('/fonts/geist.woff2') format('woff2');
-  font-weight: 100 900;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'Geist Mono';
-  src: url('/fonts/geist-mono.woff2') format('woff2');
-  font-weight: 100 900;
-  font-display: swap;
-}
 :root {
+  /* system fonts only: no font files are bundled */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   /* shadcn tokens, light; the primary is polyman's cyan */
   --background: #ffffff;
   --foreground: #09090b;

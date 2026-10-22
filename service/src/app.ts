@@ -56,10 +56,8 @@ const STATIC: Record<string, string> = {
   '/app.js': 'app.js',
   '/style.css': 'style.css',
   '/vendor/basecoat.css': 'vendor/basecoat.css',
-  '/fonts/geist.woff2': 'fonts/geist.woff2',
-  '/fonts/geist-mono.woff2': 'fonts/geist-mono.woff2',
 };
-const TYPES: Record<string, string> = { html: 'text/html; charset=utf-8', js: 'text/javascript; charset=utf-8', css: 'text/css; charset=utf-8', woff2: 'font/woff2' };
+const TYPES: Record<string, string> = { html: 'text/html; charset=utf-8', js: 'text/javascript; charset=utf-8', css: 'text/css; charset=utf-8' };
 
 export function buildApp(opts: AppOptions) {
   const maxUploadBytes = opts.maxUploadBytes ?? 20 * 1024 * 1024;
