@@ -325,7 +325,27 @@ describe('autonomy:ledger against a git repo and a stand-in for GitLab', () => {
     });
     expect(out.summary).toMatchObject({ loops: 1, approverNotRequester: 1, giverMerged: 0 });
     expect(text).toContain('1 loop; go-ahead never from the requester (1/1); in 0 of 1 the go-ahead giver also merged;');
+    expect(text).toMatch(/^loop !7 .*, \d+\.\d-\d+\.\d gCO2e over 2 session\(s\)$/m);
     expect(page()).toContain('<h2>One row per loop</h2>');
+  });
+
+  it('says "gCO2e not counted" for a loop with no counted sessions, as the page does, not 0.0-0.0', async () => {
+    const r = repo();
+    const sessions = join(r.dir, 'loop-sessions.json');
+    writeFileSync(
+      sessions,
+      JSON.stringify({
+        counted_up_to: '2026-10-18T00:00:00Z',
+        source: 'test',
+        sessions: [{ workflow: 3, pipeline: 3, at: '2026-10-17T22:55:00Z', flow: 'mr-reviewer', mr: 8, issue: null, seconds: 60, calls: 20 }],
+      }),
+    );
+    const { code, text, loops, page } = await run(r, { env: { LOOP_SESSIONS: sessions } });
+    expect(code).toBe(0);
+    expect(loops().loops[0]).toMatchObject({ mr: 7, grams: { sessions: 0 } });
+    expect(text).toMatch(/^loop !7 .*, gCO2e not counted$/m);
+    expect(text).not.toContain('0.0-0.0');
+    expect(page()).toContain('<span class="muted">not counted</span>');
   });
 
   it('shows the loops without grams when no session counts are committed', async () => {

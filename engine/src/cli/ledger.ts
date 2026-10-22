@@ -361,7 +361,7 @@ async function loopView(
   for (const l of loops) {
     const g = grams.get(l.mr);
     console.log(
-      `loop !${l.mr}${l.moved_from.length ? ` (from ${l.moved_from.map((m) => `!${m}`).join(', ')})` : ''}${l.issues.length ? ` for ${l.issues.map((i) => `#${i}`).join(', ')}` : ''}: asked by ${l.requesters.map((x) => `@${x}`).join(', ') || 'nobody on record'}, go-ahead @${l.go_ahead.by}, merged by ${l.merged_by ? `@${l.merged_by}` : 'unknown'}, ${l.minutes} min, ${l.fix_rounds} fix round(s), ${l.refused_pushes.length} refused push(es), ${l.refused_go_aheads.length} go-ahead(s) that didn't count${g ? `, ${g.low.toFixed(1)}-${g.high.toFixed(1)} gCO2e over ${g.sessions} session(s)` : ''}`,
+      `loop !${l.mr}${l.moved_from.length ? ` (from ${l.moved_from.map((m) => `!${m}`).join(', ')})` : ''}${l.issues.length ? ` for ${l.issues.map((i) => `#${i}`).join(', ')}` : ''}: asked by ${l.requesters.map((x) => `@${x}`).join(', ') || 'nobody on record'}, go-ahead @${l.go_ahead.by}, merged by ${l.merged_by ? `@${l.merged_by}` : 'unknown'}, ${l.minutes} min, ${l.fix_rounds} fix round(s), ${l.refused_pushes.length} refused push(es), ${l.refused_go_aheads.length} go-ahead(s) that didn't count${g ? (g.sessions ? `, ${g.low.toFixed(1)}-${g.high.toFixed(1)} gCO2e over ${g.sessions} session(s)` : ', gCO2e not counted') : ''}`,
     );
   }
   console.log(summaryLine(summary) + (sessions ? ` (agent sessions counted up to ${sessions.counted_up_to})` : ''));
