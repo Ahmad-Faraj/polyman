@@ -48,3 +48,48 @@ export function renderFlow(source: string, values: FlowValues): string {
   if (missing.length) throw new Error(`no value for ${missing.map((k) => `@@${k}@@`).join(', ')}`);
   return source.replace(MARKER, (_, k: string) => values[k]);
 }
+
+/** The .autonomy.yml setting each marker is filled from (the flow IDs come from the catalog). */
+export const MARKER_SETTINGS: Record<string, string> = {
+  about: 'agents.about',
+  checks: 'agents.checks',
+  test_guide: 'agents.test_guide',
+  security_focus: 'agents.security_focus',
+  reviewer_account: 'agents.reviewer_account',
+  fixer_account: 'agents.fixer_account',
+  protected_paths: 'governance',
+  measured_routes: 'monitor.measured_routes',
+  production_jobs: 'monitor.production_jobs',
+  rollback_job: 'monitor.rollback_job',
+  maintainers: 'go_ahead.maintainers',
+  people: 'go_ahead.people',
+};
+
+export interface FlowChange {
+  flow: string;
+  /** the .autonomy.yml settings this flow uses whose filled-in value changed */
+  settings: string[];
+  /** the flow file itself was added or changed */
+  fileChanged: boolean;
+}
+
+/**
+ * The flows whose published version would no longer be what the repo says
+ * once `after` replaces `before`: a setting they use changed (go_ahead.people,
+ * say), or the file itself did. GitLab keeps running what was published, so
+ * each of these needs sync-flows. A flow that was removed needs nothing.
+ */
+export function flowChanges(
+  before: { sources: Map<string, string>; values: FlowValues },
+  after: { sources: Map<string, string>; values: FlowValues },
+): FlowChange[] {
+  const changes: FlowChange[] = [];
+  for (const [flow, source] of [...after.sources].sort(([a], [b]) => a.localeCompare(b))) {
+    const settings = markersIn(source)
+      .filter((m) => before.values[m] !== after.values[m])
+      .map((m) => MARKER_SETTINGS[m] ?? `@@${m}@@`);
+    const fileChanged = before.sources.get(flow) !== source;
+    if (settings.length || fileChanged) changes.push({ flow, settings: [...new Set(settings)], fileChanged });
+  }
+  return changes;
+}

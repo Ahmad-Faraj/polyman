@@ -122,7 +122,7 @@ for (const name of FLOWS) {
   if (problems.length) report('fail', `flow ${name}`, problems.join('; '));
   else if (!node.item.latestVersion?.definition) report('warn', `flow ${name}`, "couldn't read the published version");
   else if (!isDeepStrictEqual(parse(node.item.latestVersion.definition), parse(rendered))) {
-    report('fail', `flow ${name}`, `published ${node.item.latestVersion.versionName} differs from the repo; run node engine/src/cli/sync-flows.ts`);
+    report('fail', `flow ${name}`, `published ${node.item.latestVersion.versionName} differs from the repo (a flow file, or a value it is filled in with from .autonomy.yml such as go_ahead.people, changed since it was published); run node engine/src/cli/sync-flows.ts from the default branch`);
   } else report('ok', `flow ${name}`, `published ${node.item.latestVersion.versionName} matches the repo`);
 }
 
