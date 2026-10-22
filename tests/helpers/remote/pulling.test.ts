@@ -214,6 +214,20 @@ describe('pulling.ts', () => {
         expect(vi.mocked(fs.writeFileSync).mock.calls[0][1]).toBe(javaCode);
       });
 
+      it('renames Main for an uppercase .JAVA extension', async () => {
+        mockSdk.getSolutions.mockResolvedValue([
+          entry('Solution.JAVA', 'java21'),
+        ]);
+        mockSdk.viewSolution.mockResolvedValue(javaCode);
+
+        await pulling.downloadSolutions(asSdk(mockSdk), 1, 'dir');
+
+        const written = vi.mocked(fs.writeFileSync).mock.calls[0][1] as string;
+        expect(written).toContain('public class Solution {');
+        expect(written).toContain('new Solution();');
+        expect(written).not.toContain('public class Main');
+      });
+
       it('leaves C++ solutions unchanged', async () => {
         const cpp = 'class Main {};\n';
         mockSdk.getSolutions.mockResolvedValue([

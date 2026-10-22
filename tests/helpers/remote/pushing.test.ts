@@ -399,6 +399,30 @@ describe('pushing.ts', () => {
         expect(mocks.saveSolution.mock.calls[0][2]).toBe(code);
       });
 
+      it('renames the public class to Main for an uppercase .JAVA extension', async () => {
+        const { sdk, mocks } = buildSdk();
+        mockedReadFileSync.mockReturnValue(javaCode);
+        mockedExistsSync.mockReturnValue(true);
+        const cfg = asConfig({
+          solutions: [
+            {
+              name: 'a',
+              source: 'ProblemA.JAVA',
+              tag: 'MA',
+              sourceType: 'java21',
+            },
+          ],
+        });
+
+        await pushing.uploadSolutions(sdk, 1, 'dir', cfg);
+
+        const uploaded = mocks.saveSolution.mock.calls[0][2] as string;
+        expect(uploaded).toContain('public class Main {');
+        expect(uploaded).toContain('new Main();');
+        expect(uploaded).not.toContain('public class ProblemA');
+        expect(mocks.saveSolution.mock.calls[0][1]).toBe('ProblemA.JAVA');
+      });
+
       it('leaves C++ solutions unchanged', async () => {
         const { sdk, mocks } = buildSdk();
         const code = 'class ProblemA {};\n';
