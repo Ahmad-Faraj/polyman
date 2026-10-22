@@ -321,9 +321,10 @@ function readCommand(command: string, depth = 0): CommandRead {
       for (const b of pushed) read.branches.push(b);
       continue;
     }
-    // git and push as words of their own, not in a commit message or a pattern to grep for
+    // git and push as words of their own, not in a commit message or a pattern to grep for. Not when
+    // git is the command: gitPush has read it, and `git stash push` or `git log --grep push` is no push
     const bare = raw.slice(k).filter((w) => !/["']/.test(w));
-    if ((bare.some((w) => /(^|\/)git$/.test(w)) && bare.includes('push')) || (INTERPRETERS.test(cmd) && gitThenPush(segment))) read.unparsed = true;
+    if ((!isGit && bare.some((w) => /(^|\/)git$/.test(w)) && bare.includes('push')) || (INTERPRETERS.test(cmd) && gitThenPush(segment))) read.unparsed = true;
     const filter = ['tail', 'head'].includes(cmd) && words.slice(1).every((w, i) => w.startsWith('-') || (/^\d+$/.test(w) && words[i] === '-n'));
     if (cmd && cmd !== 'cd' && !filter && !(isGit && QUIET_GIT.includes(words[gitSubcommand(words)]))) {
       read.prints = true;
@@ -340,13 +341,17 @@ function gitSubcommand(words: string[]): number {
   return i;
 }
 
-/** The branches a `git push` names (null: the current branch); null for any other git command. */
+/**
+ * The branches a `git push` or `git subtree push --prefix=dir <remote> <branch>` names (null: the
+ * current branch); null for any other git command.
+ */
 function gitPush(words: string[]): (string | null)[] | null {
-  const i = gitSubcommand(words);
-  if (words[i] !== 'push') return null;
+  let i = gitSubcommand(words);
+  if (words[i] === 'subtree' && words[i + 1] === 'push') i++;
+  else if (words[i] !== 'push') return null;
   const positional: string[] = [];
   for (let j = i + 1; j < words.length; j++) {
-    if (['-o', '--push-option', '--repo', '--receive-pack', '--exec'].includes(words[j])) j++;
+    if (['-o', '--push-option', '--repo', '--receive-pack', '--exec', '-P', '--prefix', '-m', '--message'].includes(words[j])) j++;
     else if (!words[j].startsWith('-') && !/^[0-9&]?>/.test(words[j])) positional.push(words[j]);
     else if (/^[0-9&]?>>?$/.test(words[j])) j++; // a redirection's target
   }
