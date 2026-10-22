@@ -633,6 +633,30 @@ describe('actions.ts', () => {
       expect(printed).toHaveLength(2);
     });
 
+    it('should skip the warning when test-validator itself fails', async () => {
+      const warning = 'the validator has no INVALID self-tests';
+      vi.mocked(utils.readConfigFile).mockReturnValue({} as any);
+      vi.mocked(validatorSelfTests.validatorSelfTestWarning).mockReturnValue(
+        warning
+      );
+      vi.mocked(steps.stepTestValidator).mockRejectedValueOnce(
+        new Error('Some validator tests failed')
+      );
+
+      await actions.fullVerificationAction({ json: true });
+
+      const doc = writtenJson();
+      expect(doc.failedStep).toBe('test-validator');
+      expect(doc.warnings).toEqual([]);
+      expect(
+        validatorSelfTests.validatorSelfTestWarning
+      ).not.toHaveBeenCalled();
+      const printed = vi
+        .mocked(formatter.fmt.warning)
+        .mock.calls.filter(([m]) => m.includes(warning));
+      expect(printed).toHaveLength(0);
+    });
+
     it('should report no warnings when the validator has INVALID self-tests', async () => {
       vi.mocked(utils.readConfigFile).mockReturnValue({} as any);
       vi.mocked(validatorSelfTests.validatorSelfTestWarning).mockReturnValue(
