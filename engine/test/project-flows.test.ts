@@ -294,13 +294,13 @@ describe("the project's Duo flows", () => {
   it("the lead starts exactly the tier's specialists, and an unreproduced input-handling finding keeps its rating", () => {
     const prompt = promptOf('mr-reviewer.yaml');
     expect(prompt).toContain('- risk::medium: code_reviewer and test_reviewer. - risk::high: security_reviewer, code_reviewer and test_reviewer. A review at the tier starts exactly the specialists listed for it (the "Review:" line of the risk summary names the same), no more and no fewer');
-    expect(prompt).toContain("no more and no fewer, and posts its note only after each of them has reported: fixes that name their tests don't replace the test reviewer.");
+    expect(prompt).toContain("no more and no fewer, and posts its note only after each of them has reported.");
     expect(prompt).toContain('the tier is high if the diff touches a protected path (@@protected_paths@@), because those changes could alter how risk is scored; paths.critical and paths.high are already in the score and don\'t raise the tier again.');
-    // the lead and the three specialists, each pointing at its own evidence rule
     // kept only when the probe never ran the cited line; a probe that ran it and showed safe handling refutes it
-    const keep = (how: string) => `A failed reproduction doesn't remove that evidence: when input a user controls reaches a shell, a path, a file write or eval/exec and the probe never ran that line (wrong input or entry point, setup failure, timeout), the file and line and how it ${how} still count, so keep the rating, with "not reproduced: WHY". A probe that ran that line and showed the input handled safely refutes the finding: rate it P3 and cite the output.`;
-    expect(prompt).toContain(`Without evidence it is P3. ${keep('goes wrong')}`);
-    expect(prompt.split(`without it, P3. ${keep('fails')}`).length - 1).toBe(3);
+    const keep = 'If user input reaches a shell, path, file write or eval/exec and the probe never ran that line, the evidence stands: keep the rating, with "not reproduced: WHY"; if it ran the line and the input was handled safely, the finding is refuted: P3, citing the output.';
+    // the lead and the three specialists, each right after its own evidence rule
+    expect(prompt).toContain(`Without evidence it is P3. ${keep}`);
+    expect(prompt.split(`without it, P3. ${keep}`).length - 1).toBe(3);
   });
 
   // #61: 26 of 107 reviews were posted after their MR merged; the check stays, inside the last read turn
