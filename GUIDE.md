@@ -1593,7 +1593,7 @@ polyman test wa-solution
 **What Happens:**
 
 1. Generates tests if needed, runs the main solution to get jury answers, then runs the target solution
-2. Uses the checker to compare outputs and confirms the target solution behaves as its tag advertises (e.g., a `WA`-tagged solution must fail at least one test)
+2. Uses the checker to compare outputs and confirms the target solution behaves as its tag advertises (e.g., a `WA`-tagged solution passes when it gets WA or PE on at least one test, as on Polygon)
 
 **Use Case:** Verify that WA/TL/RE solutions actually fail as expected.
 

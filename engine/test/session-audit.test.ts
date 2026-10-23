@@ -252,6 +252,120 @@ describe("git push's output and command", () => {
     expect(pushesOf([call({ args: { command: 'grep -n "git push" CONTRIBUTING.md' }, response: 'Exit code: 0\n' })], session)).toEqual([]);
   });
 
+  it('takes no git stash push for a push: a builder stashed its fix to see the new test fail on the old code', () => {
+    // session 9859568 on Oct 22, the one call as it ran: a heredoc that adds tests, then `git stash push ...; npx vitest ...; git stash pop`
+    const calls = callsOf(parseTrace(read('trace-stash.jsonl')).lines, null);
+    expect(calls).toEqual([expect.objectContaining({ name: 'run_command', response: expect.stringMatching(/^Exit code: 0\nnpm notice/) })]);
+    expect(calls[0].args.command).toContain('git stash push src/helpers/script-parser.ts -q;');
+    expect(pushesOf(calls, { id: 9859568, flow: 'issue-builder' })).toEqual([]);
+  });
+
+  it('takes no other git subcommand with the word push for a push', () => {
+    for (const command of ['git stash push -q', 'git stash push -m wip', 'git remote set-url --push origin x', 'git config push.default current', 'git log --grep push']) {
+      expect(pushesOf([call({ args: { command }, response: 'Exit code: 0\n' })], session), command).toEqual([]);
+    }
+    // in a later command, and behind a prefix, a runner, git's own options or a shell
+    for (const command of [
+      'cd r && git stash push -q',
+      'echo hi; git log --grep push',
+      'FOO=1 git stash push',
+      'env git stash push -q',
+      'git -C r -c a=b stash push',
+      '/usr/bin/git stash push',
+      'sh -c "git stash push"',
+    ]) {
+      expect(pushesOf([call({ args: { command }, response: 'Exit code: 0\n' })], session), command).toEqual([]);
+    }
+  });
+
+  it('still counts a real push next to a stash, a subtree push, and no quoted push', () => {
+    expect(pushesInCommand('git push origin feat')).toEqual(['feat']);
+    expect(pushesInCommand('git -C repo push -q')).toEqual([null]);
+    expect(pushesInCommand('git stash push -q && git push origin fix-1')).toEqual(['fix-1']);
+    // git subtree push pushes too: before, it was only caught as an unread push
+    expect(pushesInCommand('git subtree push --prefix dist origin gh-pages')).toEqual(['gh-pages']);
+    expect(pushesInCommand('git subtree push -P dist -q origin gh-pages')).toEqual(['gh-pages']);
+    expect(pushesInCommand('git -C repo subtree push --prefix=dist origin gh-pages')).toEqual(['gh-pages']);
+    for (const command of ['echo "git push origin x"', "grep -n 'git push' CONTRIBUTING.md", 'git commit -m "explain git push"']) {
+      expect(pushesOf([call({ args: { command }, response: 'Exit code: 0\n' })], session), command).toEqual([]);
+    }
+  });
+
+  it("reads a push after git's own options with their value as a separate word", () => {
+    expect(pushesInCommand('git --git-dir .. push origin a')).toEqual(['a']);
+    expect(pushesInCommand('git --work-tree X push')).toEqual([null]);
+    expect(pushesInCommand('git --namespace ns push origin a')).toEqual(['a']);
+    expect(pushesInCommand('git --git-dir=x push origin a')).toEqual(['a']);
+    expect(pushesInCommand('git --config-env foo=BAR push origin a')).toEqual(['a']);
+    expect(pushesInCommand('git --attr-source HEAD push origin a')).toEqual(['a']);
+    expect(pushesInCommand('git --super-prefix x push origin a')).toEqual(['a']);
+    // --exec-path and --list-cmds take their value only after =; on its own --exec-path takes no word after it
+    expect(pushesInCommand('git --exec-path=/x push origin a')).toEqual(['a']);
+    expect(pushesInCommand('git --list-cmds=main push origin a')).toEqual(['a']);
+    expect(pushesInCommand('git --exec-path push origin a')).toEqual(['a']);
+    // -P and -m are git subtree's options; plain git push has neither, so nothing after them is skipped
+    expect(pushesInCommand('git push -P origin a')).toEqual(['a']);
+    // git push's own options with a value as a separate word
+    for (const option of ['-o ci.skip', '--push-option ci.skip', '--repo r', '--receive-pack x', '--exec x']) {
+      expect(pushesInCommand(`git push ${option} origin a`), option).toEqual(['a']);
+    }
+    // git subtree push's own options with a value: the branch is still the last word
+    for (const option of ['--onto abc', '-b br', '--branch br', '--annotate foo', '-m msg', '--message msg']) {
+      expect(pushesInCommand(`git subtree push --prefix x ${option} origin main`), option).toEqual(['main']);
+    }
+    // only git subtree push pushes; git subtree add, pull and split don't
+    for (const command of ['git subtree add --prefix x origin main', 'git subtree pull --prefix x origin main', 'git subtree split --prefix x -b br']) {
+      expect(pushesInCommand(command), command).toEqual([]);
+    }
+    for (const command of ['git subtree push', 'git subtree push --prefix', 'git subtree push origin']) {
+      expect(pushesInCommand(command), command).toEqual([null]);
+    }
+    // git status after git's own options prints nothing a push's output could be taken for, as after -C:
+    // the ref line is the first push's, not a second push's
+    const out = 'Exit code: 0\nTo https://gitlab.com/group/showcase.git\n   1111111..2222222  fix-1 -> fix-1';
+    for (const command of ['git push; git --git-dir x status', 'git push; git --work-tree x status']) {
+      expect(pushesOf([call({ args: { command }, response: out })], session), command).toEqual([expect.objectContaining({ branch: 'fix-1', head: '2222222' })]);
+    }
+  });
+
+  it('still counts a push run through a git subcommand as unread, and none for a subcommand that never pushes', () => {
+    const unread = (command: string) => pushesOf([call({ args: { command }, response: 'Exit code: 0\n' })], session);
+    for (const command of [
+      'git submodule foreach git push',
+      'git bisect run git push',
+      'git config alias.p push && git p',
+      // config keys are case-insensitive
+      'git config Alias.p push && git p',
+      'git config ALIAS.p push && git p',
+    ]) {
+      expect(unread(command), command).toEqual([expect.objectContaining({ branch: null })]);
+    }
+    for (const command of [
+      'git commit -m "push"',
+      'git grep push',
+      'git show HEAD',
+      'git diff',
+      'git tag push-1',
+      'git submodule add "git@github.com:org/push-tool.git" x',
+      'git submodule update --init',
+      'git bisect run ./push-check.sh',
+      'git config alias.pp "log --grep push"',
+      // push as a bare word to a subcommand that never pushes
+      'git commit -m push',
+      'git tag push',
+      'git show push',
+      'git diff push',
+      'git remote add push x',
+      'git config user.name push',
+      'git config --unset alias.push',
+    ]) {
+      expect(unread(command), command).toEqual([]);
+    }
+    expect(unread('git stash push -q && git submodule foreach git push')).toHaveLength(1);
+    // only a command that is git itself can be harmless: here nice runs git push, and log is nice's argument
+    expect(unread('nice -n log git push')).toHaveLength(1);
+  });
+
   it('reads git then push in what an interpreter runs only in that order, as whole words', () => {
     const unread = (command: string) => pushesOf([call({ args: { command }, response: 'Exit code: 0\n' })], session).length;
     expect(unread(`node -e "require('child_process').execSync('git fetch && git push')"`)).toBe(1);

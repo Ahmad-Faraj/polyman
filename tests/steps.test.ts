@@ -1020,7 +1020,13 @@ describe('steps.ts', () => {
   });
 
   describe('stepDownloadProblemFilesAndSetUpConfig', () => {
-    const pullWithChecker = async (checker: object) => {
+    const pullWithChecker = async (
+      checker: object,
+      validatorResult: object = {
+        count: 1,
+        data: { name: 'val', source: 'val.cpp' },
+      }
+    ) => {
       vi.mocked(remoteUtils.fetchProblemInfo).mockResolvedValue({
         name: 'p',
         owner: 'o',
@@ -1038,10 +1044,9 @@ describe('steps.ts', () => {
         count: 1,
         data: checker,
       } as any);
-      vi.mocked(pulling.downloadValidator).mockResolvedValue({
-        count: 1,
-        data: { name: 'val', source: 'val.cpp' },
-      } as any);
+      vi.mocked(pulling.downloadValidator).mockResolvedValue(
+        validatorResult as any
+      );
       vi.mocked(pulling.downloadGenerators).mockResolvedValue({
         count: 2,
         data: [],
@@ -1056,7 +1061,7 @@ describe('steps.ts', () => {
       } as any);
       vi.mocked(fs.writeFileSync).mockImplementation(() => undefined);
 
-      await steps.stepDownloadProblemFilesAndSetUpConfig(
+      return steps.stepDownloadProblemFilesAndSetUpConfig(
         1,
         {} as any,
         7,
@@ -1081,6 +1086,28 @@ describe('steps.ts', () => {
         expect.stringContaining('savePath'),
         ['val']
       );
+    });
+
+    it('should return no warnings when the validator was pulled', async () => {
+      const warnings = await pullWithChecker({
+        name: 'wcmp',
+        source: 'wcmp.cpp',
+        isStandard: true,
+      });
+      expect(warnings).toEqual([]);
+    });
+
+    it('should return a warning when Polygon has no validator', async () => {
+      const warnings = await pullWithChecker(
+        { name: 'wcmp', source: 'wcmp.cpp', isStandard: true },
+        {
+          count: 0,
+          data: { name: 'validator', source: 'val.cpp' },
+          missing: true,
+        }
+      );
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain('no validator set for problem 7');
     });
 
     it('should not download a custom checker as a generator', async () => {

@@ -84,7 +84,12 @@ import {
   findMatchingSolutions,
   validateTimeLimitMultipliers,
 } from './helpers/solution';
-import { readConfigFile, isNumeric, isCppSource } from './helpers/utils';
+import {
+  readConfigFile,
+  isNumeric,
+  isCppSource,
+  ensureConfigSourcesExist,
+} from './helpers/utils';
 import { EXIT_NON_INTERACTIVE, NonInteractiveError } from './helpers/errors';
 import {
   clearCache,
@@ -912,6 +917,7 @@ export const fullVerificationAction = async (
     report.beginStep('read-config');
     const config = readConfigFile();
     validateTimeLimitMultipliers(config);
+    ensureConfigSourcesExist(config);
     let stepNum = 1;
 
     // step 1: Compile generators
@@ -1455,7 +1461,7 @@ export const remotePullProblemAction = async (
 
     // step 6: Download problem files and create Config.json
     // Note: Currently pulls all files - selective pull will be implemented in future
-    await stepDownloadProblemFilesAndSetUpConfig(
+    const pullWarnings = await stepDownloadProblemFilesAndSetUpConfig(
       stepNum++,
       sdk,
       problemId,
@@ -1499,6 +1505,9 @@ export const remotePullProblemAction = async (
       fmt.info(
         `  ${fmt.infoIcon()} Other testsets were not pulled (Polygon's API cannot list them). Name them with ${fmt.highlight('-t a,b')}`
       );
+    }
+    for (const warning of pullWarnings) {
+      fmt.warning(`  ⚠️  ${warning}`);
     }
     fmt.newLine();
   } catch (error) {
