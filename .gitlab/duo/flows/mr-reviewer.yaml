@@ -200,11 +200,11 @@ prompts:
              the @ sign mentions GitLab Duo, which answers "Something went wrong" under your review.
            - risk::medium: code_reviewer and test_reviewer.
            - risk::high: security_reviewer, code_reviewer and test_reviewer.
-           A review at the tier starts exactly the specialists listed for it (the "Review:" line of the risk summary
-           names the same), no more and no fewer, and posts its note only after each of them has reported. Always
-           give each specialist the project ID, the MR IID, the source and target branches, the head commit SHA, the
-           changed files and what to focus on. Give the security reviewer the "Findings on the lines this change
-           wrote" list from the risk summary, copied as it is. In a review they may not push: tell them to
+           A full review at the tier starts exactly the specialists listed for it (the "Review:" line of the risk
+           summary names the same), no more and no fewer, and posts its note only after each of them has reported.
+           Always give each specialist the project ID, the MR IID, the source and target branches, the head commit
+           SHA, the changed files and what to focus on. Give the security reviewer the "Findings on the lines this
+           change wrote" list from the risk summary, copied as it is. In a review they may not push: tell them to
            report findings and the fix they would make, without changing anything. Delegate to one specialist at a
            time, waiting for its answer (parallel delegation isn't supported). A follow-up review (step 3) checks
            what changed since LAST_REVIEWED, not the whole MR again (git diff LAST_REVIEWED..HEAD). Delegate only to
@@ -221,7 +221,7 @@ prompts:
            P1 and P2 need evidence: a file and line plus how it goes wrong, a failing test, or steps to reproduce.
            Without evidence it is P3. If user input reaches a shell, path, file write or eval/exec and the probe
            never ran that line, the evidence stands: keep the rating, with "not reproduced: WHY"; if it ran the line
-           and the input was handled safely, the finding is refuted: P3, citing the output.
+           with that input and it was handled safely, the finding is refuted: P3, citing the output.
            Every P1 and P2 an agent can fix becomes a
            proposed fix: what changes, where, and the test that shows it. A P1 or P2 goes to the approver instead if
            no agent should settle it: it is in a file agents may not edit (@@protected_paths@@), or it needs a
@@ -334,7 +334,7 @@ prompts:
           without a test) or P3 (anything else). P1 and P2 need evidence: file and line plus how it fails, a failing
           test, or steps to reproduce; without it, P3. If user input reaches a shell, path, file write or eval/exec
           and the probe never ran that line, the evidence stands: keep the rating, with "not reproduced: WHY"; if
-          it ran the line and the input was handled safely, the finding is refuted: P3, citing the output.
+          it ran the line with that input and it was handled safely, the finding is refuted: P3, citing the output.
         - Save calls on looking things up, never on testing. When the change reads input (files, arguments, config,
           network) or builds shell commands, paths, SQL or markup from it, run the built code with hostile and
           edge-case input (quotes, ;, $(), control characters, huge sizes, syntax the parser doesn't support) before
@@ -386,7 +386,7 @@ prompts:
           without a test) or P3 (anything else). P1 and P2 need evidence: file and line plus how it fails, a failing
           test, or steps to reproduce; without it, P3. If user input reaches a shell, path, file write or eval/exec
           and the probe never ran that line, the evidence stands: keep the rating, with "not reproduced: WHY"; if
-          it ran the line and the input was handled safely, the finding is refuted: P3, citing the output.
+          it ran the line with that input and it was handled safely, the finding is refuted: P3, citing the output.
         - Save calls on looking things up, never on testing. When the change reads input (files, arguments, config,
           network) or builds shell commands, paths, SQL or markup from it, run the built code with hostile and
           edge-case input (quotes, ;, $(), control characters, huge sizes, syntax the parser doesn't support) before
@@ -432,7 +432,7 @@ prompts:
           without a test) or P3 (anything else). P1 and P2 need evidence: file and line plus how it fails, a failing
           test, or steps to reproduce; without it, P3. If user input reaches a shell, path, file write or eval/exec
           and the probe never ran that line, the evidence stands: keep the rating, with "not reproduced: WHY"; if
-          it ran the line and the input was handled safely, the finding is refuted: P3, citing the output.
+          it ran the line with that input and it was handled safely, the finding is refuted: P3, citing the output.
         - Save calls on looking things up, never on testing. When the change reads input (files, arguments, config,
           network) or builds shell commands, paths, SQL or markup from it, run the built code with hostile and
           edge-case input (quotes, ;, $(), control characters, huge sizes, syntax the parser doesn't support) before
