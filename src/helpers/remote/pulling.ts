@@ -220,7 +220,8 @@ export async function downloadChecker(
  * @param {PolygonSDK} sdk - Polygon SDK instance
  * @param {number} problemId - Problem ID
  * @param {string} problemDir - Target directory for validator
- * @returns {Promise<{ data: LocalValidator; count: number}>}
+ * @returns {Promise<{ data: LocalValidator; count: number; missing?: boolean }>}
+ *   `missing` is true when Polygon has no validator set for the problem
  */
 export async function downloadValidator(
   sdk: PolygonSDK,
@@ -229,11 +230,23 @@ export async function downloadValidator(
 ): Promise<{
   data: LocalValidator;
   count: number;
+  missing?: boolean;
 }> {
   let count = 0;
 
   try {
-    const validatorName = assertPlainName(await sdk.getValidator(problemId));
+    const rawName = await sdk.getValidator(problemId);
+    if (rawName === '') {
+      fmt.warning(
+        `  ⚠️  No validator set on Polygon for problem ${problemId}, adding val.cpp to be implemented`
+      );
+      return {
+        data: { name: 'validator', source: 'val.cpp' },
+        count: 0,
+        missing: true,
+      };
+    }
+    const validatorName = assertPlainName(rawName);
     const validatorCode = await sdk.viewFile(
       problemId,
       'source',

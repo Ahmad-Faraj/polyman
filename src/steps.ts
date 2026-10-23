@@ -1071,13 +1071,16 @@ export function stepCreatePulledProblemDirectory(
 
 /**
  * Step: Download all problem files from Polygon and create Config.json
+ *
+ * @returns {Promise<string[]>} Warnings about the pulled problem that the
+ *   caller should repeat in its summary (for now: no validator on Polygon)
  */
 export async function stepDownloadProblemFilesAndSetUpConfig(
   stepNum: number,
   sdk: PolygonSDK,
   problemId: number,
   savePath: string
-): Promise<void> {
+): Promise<string[]> {
   fmt.step(stepNum, 'Downloading Problem Files & Creating Config');
   const problemDir = path.resolve(process.cwd(), savePath);
   let downloadCount = 0;
@@ -1150,6 +1153,14 @@ export async function stepDownloadProblemFilesAndSetUpConfig(
     `  ${fmt.infoIcon()} Memory Limit: ${fmt.highlight(info.memoryLimit + 'MB')}`
   );
   fmt.stepComplete('Files downloaded & Config.json created');
+
+  const warnings: string[] = [];
+  if (validatorResult.missing) {
+    warnings.push(
+      `Polygon has no validator set for problem ${problemId}: val.cpp is listed in Config.json but not created, so verify will fail until you add it`
+    );
+  }
+  return warnings;
 }
 
 /**
