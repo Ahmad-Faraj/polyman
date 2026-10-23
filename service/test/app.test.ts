@@ -85,6 +85,8 @@ beforeAll(() => {
   mkdirSync(join(base, 'public'));
   writeFileSync(join(base, 'public', 'index.html'), '<h1>verify</h1>');
   writeFileSync(join(base, 'public', 'docs.html'), '<h1>how it works</h1>');
+  mkdirSync(join(base, 'public', 'fonts'));
+  for (const f of ['oxanium', 'ibm-plex-sans', 'jetbrains-mono']) writeFileSync(join(base, 'public', 'fonts', `${f}.woff2`), Buffer.from('wOF2-test'));
   mkdirSync(join(base, 'public', 'vendor'));
   writeFileSync(join(base, 'public', 'vendor', 'basecoat.css'), '.btn{}');
   mkdirSync(join(base, 'samples', 'demo'), { recursive: true });
@@ -120,6 +122,18 @@ describe('read-only routes', () => {
     expect(docs.body).toContain('how it works');
     expect((await app.inject('/health')).json()).toEqual({ ok: true });
     expect((await app.inject('/api/version')).json()).toEqual({ polyman: '9.9.9', service: '0.1.0', commit: 'abc1234' });
+  });
+
+  it('serves the three page fonts as woff2, kept by the browser for a week', async () => {
+    for (const f of ['oxanium', 'ibm-plex-sans', 'jetbrains-mono']) {
+      const font = await app.inject(`/fonts/${f}.woff2`);
+      expect(font.statusCode).toBe(200);
+      expect(font.headers['content-type']).toBe('font/woff2');
+      expect(font.headers['cache-control']).toBe('public, max-age=604800');
+      expect(font.rawPayload.toString()).toBe('wOF2-test');
+    }
+    // the page itself is always revalidated
+    expect((await app.inject('/')).headers['cache-control']).toBe('no-cache');
   });
 
   it('serves the vendored component styles', async () => {

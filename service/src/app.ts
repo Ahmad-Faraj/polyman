@@ -56,8 +56,11 @@ const STATIC: Record<string, string> = {
   '/app.js': 'app.js',
   '/style.css': 'style.css',
   '/vendor/basecoat.css': 'vendor/basecoat.css',
+  '/fonts/oxanium.woff2': 'fonts/oxanium.woff2',
+  '/fonts/ibm-plex-sans.woff2': 'fonts/ibm-plex-sans.woff2',
+  '/fonts/jetbrains-mono.woff2': 'fonts/jetbrains-mono.woff2',
 };
-const TYPES: Record<string, string> = { html: 'text/html; charset=utf-8', js: 'text/javascript; charset=utf-8', css: 'text/css; charset=utf-8' };
+const TYPES: Record<string, string> = { html: 'text/html; charset=utf-8', js: 'text/javascript; charset=utf-8', css: 'text/css; charset=utf-8', woff2: 'font/woff2' };
 
 export function buildApp(opts: AppOptions) {
   const maxUploadBytes = opts.maxUploadBytes ?? 20 * 1024 * 1024;
@@ -105,7 +108,9 @@ export function buildApp(opts: AppOptions) {
   for (const [route, file] of Object.entries(STATIC)) {
     app.get(route, async (_req, reply) => {
       const ext = file.split('.').pop()!;
-      return reply.type(TYPES[ext]).header('cache-control', 'no-cache').send(readFileSync(join(opts.publicDir, file)));
+      // (a font file never changes under its name: the browser keeps it a week; the page itself is always revalidated)
+      const cache = ext === 'woff2' ? 'public, max-age=604800' : 'no-cache';
+      return reply.type(TYPES[ext]).header('cache-control', cache).send(readFileSync(join(opts.publicDir, file)));
     });
   }
 

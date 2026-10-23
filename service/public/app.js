@@ -179,6 +179,18 @@ fetch('/api/version')
   })
   .catch((err) => console.warn('version unavailable', err));
 
+/** The badge's dot beats while the service answers /health, and stops, turned red, when it doesn't. Checked every 30 s while the tab is open. */
+const dot = $('.live-dot');
+const pulse = () => {
+  if (document.hidden) return;
+  fetch('/health', { cache: 'no-store' })
+    .then((r) => dot.classList.toggle('down', !r.ok))
+    .catch(() => dot.classList.add('down'));
+};
+pulse();
+setInterval(pulse, 30_000);
+document.addEventListener('visibilitychange', pulse);
+
 /** The GitLab records with a line of real figures each, read from the project's own published data; the plain text stays if a source can't be read. */
 const getJSON = (url) => fetch(url).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))));
 /** How many items a GitLab list has, from its X-Total header. */
@@ -293,6 +305,7 @@ fetch('/api/samples')
       b.textContent = s.name;
       const hint = SAMPLE_HINT[s.name] ?? s.description;
       b.dataset.tooltip = hint;
+      b.title = hint;
       b.dataset.side = 'bottom';
       b.setAttribute('aria-description', hint);
       b.addEventListener('click', () => {
@@ -347,18 +360,36 @@ const STEP_INFO = {
   'Verifying Solutions Against Main Correct': 'Compares what each solution did with the main correct solution and with its label.',
 };
 const STEP_CLASS = { done: 'step-primary', now: 'step-primary', failed: 'step-error', stopped: 'step-neutral', pending: '' };
-const STEP_ICON = { done: 'i-check', now: 'i-spin', failed: 'i-x', stopped: 'i-stop', pending: 'i-dot' };
+const STEP_ICON = { done: 'i-check', now: 'i-spin', failed: 'i-x', stopped: 'i-stop' };
+/** The three stages of the ten steps, as the stage brackets above them show: how many steps each spans. */
+const STAGES = [
+  { name: 'Make the tests', steps: STEPS.slice(0, 5) },
+  { name: 'Prove the checker', steps: STEPS.slice(5, 7) },
+  { name: 'Judge every solution', steps: STEPS.slice(7) },
+];
+const stepIcon = (state, i) => (state === 'pending' ? `<b>${String(i + 1).padStart(2, '0')}</b>` : icon(STEP_ICON[state]));
 
 /** Build the pipeline once, every step waiting. (The tooltip sits on the label: the step's own ::before is its connector.) */
 function buildPipeline(node) {
   const el = $('.pipeline', node);
   if (!el || el.children.length) return;
+  $('.pipe-stages', node).replaceChildren(
+    ...STAGES.map((st) => {
+      const b = document.createElement('div');
+      b.className = 'stage';
+      b.dataset.state = 'pending';
+      b.style.gridColumn = `span ${st.steps.length}`;
+      b.innerHTML = '<em></em><small></small>';
+      $('em', b).textContent = st.name;
+      return b;
+    }),
+  );
   for (const title of STEPS) {
     const li = document.createElement('li');
     li.className = 'step';
     li.dataset.title = title;
     li.dataset.state = 'pending';
-    li.innerHTML = `<span class="step-icon">${icon('i-dot')}</span><span class="step-label" tabindex="0"><span></span><small></small></span>`;
+    li.innerHTML = `<span class="step-icon">${stepIcon('pending', STEPS.indexOf(title))}</span><span class="step-label" tabindex="0"><span></span><small></small></span>`;
     const label = $('.step-label', li);
     label.dataset.tooltip = `${STEP_WORDS[title]}. ${STEP_INFO[title]}`;
     // (the tooltip opens away from the card's nearer edge: the first steps' rightwards, the last ones' leftwards)
@@ -374,19 +405,31 @@ function paintStep(li, state, time = '') {
   if (li.dataset.state !== state) {
     li.dataset.state = state;
     li.className = `step ${STEP_CLASS[state]}`.trim();
-    $('.step-icon', li).innerHTML = icon(STEP_ICON[state]);
+    $('.step-icon', li).innerHTML = stepIcon(state, STEPS.indexOf(li.dataset.title));
   }
   $('small', li).textContent = time;
+}
+
+/** A stage bracket's state, and (once the run is over) the time its steps took in all. */
+function paintStages(node, time = null) {
+  const lis = [...node.querySelectorAll('.pipeline .step')];
+  node.querySelectorAll('.pipe-stages .stage').forEach((el, i) => {
+    const mine = lis.filter((li) => STAGES[i].steps.includes(li.dataset.title));
+    const states = mine.map((li) => li.dataset.state);
+    el.dataset.state = states.includes('failed') ? 'failed' : states.every((s) => s === 'done') ? 'done' : states.includes('now') || states.includes('done') ? 'now' : 'pending';
+    $('small', el).textContent = time ? time(STAGES[i].steps) : '';
+  });
 }
 
 /** Light the pipeline to step `at` (0-9): the ones before it done, that one under way, the rest waiting. */
 function setPipeline(node, at) {
   buildPipeline(node);
   node.querySelectorAll('.pipeline .step').forEach((li, i) => paintStep(li, i < at ? 'done' : i === at ? 'now' : 'pending'));
+  paintStages(node);
 }
 
 /** The run is over: each step as its report has it (passed, failed or not reached), with the time it took. */
-function finishPipeline(node, steps, took) {
+function finishPipeline(node, steps, took, langs = '') {
   buildPipeline(node);
   const byTitle = new Map(steps.map((s) => [s.title, s]));
   const time = (ms) => (ms < 100 ? `${Math.max(1, Math.round(ms))} ms` : seconds(ms / 1000));
@@ -397,8 +440,13 @@ function finishPipeline(node, steps, took) {
     const dur = s ? took(title) : null;
     const text = dur === null ? '' : time(dur);
     paintStep(li, state, text);
-    $('.step-label', li).dataset.tooltip = `${STEP_WORDS[title]}. ${STEP_INFO[title]}${state === 'failed' ? ' It failed.' : state === 'pending' ? ' Not reached.' : text ? ` Took ${text}.` : ''}`;
+    $('.step-label', li).dataset.tooltip = `${STEP_WORDS[title]}${title === 'Compiling Solutions' && langs ? ` (${langs})` : ''}. ${STEP_INFO[title]}${state === 'failed' ? ' It failed.' : state === 'pending' ? ' Not reached.' : text ? ` Took ${text}.` : ''}`;
   }
+  // each bracket totals the time of the steps under it
+  paintStages(node, (titles) => {
+    const total = titles.reduce((sum, t) => sum + (byTitle.has(t) ? took(t) ?? 0 : 0), 0);
+    return total ? time(total) : '';
+  });
 }
 
 /** All ten steps up front, the first under way, so the wait shows how far along it is. */
@@ -408,6 +456,8 @@ function runningSteps(node) {
 
 /** Empty the card's body for what comes next, the guidelines too (after a result they sit below its actions). */
 function clearProblems(...nodes) {
+  $('#run-legend').hidden = true;
+  els.run.classList.toggle('single', nodes.length === 1);
   els.run.querySelector(':scope > .more')?.remove();
   els.problems.replaceChildren(...nodes);
 }
@@ -424,6 +474,9 @@ function showPreview(name) {
 
 /** Before a sample runs: its solutions in the card, its story in the head, and the card's own button. */
 function showIdle(name) {
+  // (a sample waiting to be run has no log yet)
+  els.log.hidden = true;
+  els.log.replaceChildren();
   pending = name;
   markSample(name);
   showPreview(name);
@@ -483,7 +536,7 @@ function waitingRows(node, name) {
   for (const sol of [...(expected.get(name) ?? [])].sort((a, b) => Number(b === lead) - Number(a === lead))) {
     const tr = document.createElement('tr');
     tr.className = 'waiting';
-    tr.innerHTML = `<td class="sol"><b class="sol-name"></b><span class="sol-label"></span></td><td class="tests"><span class="skeleton" aria-hidden="true"></span></td><td class="slow"><span class="skeleton" aria-hidden="true"></span></td><td class="res"><span class="skeleton" aria-hidden="true"></span></td>`;
+    tr.innerHTML = `<td class="sol"><b class="sol-name"></b><span class="sol-label"></span></td><td class="tests"><div class="dots" aria-hidden="true">${Array.from({ length: 12 }, (_, i) => `<span class="dot wait" style="--i:${i}"></span>`).join('')}</div></td><td class="slow"><span class="wait-time" aria-hidden="true">—</span></td><td class="res"><span class="wait-res"><svg class="hexspin" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.6 20.4 7.3v9.4L12 21.4 3.6 16.7V7.3Z" pathLength="100"/></svg><span class="q">Waiting</span><span class="j">Judging…</span></span></td>`;
     $('.sol-name', tr).textContent = sol;
     const tag = SAMPLES[name]?.[3]?.[sol];
     if (tag) labelText($('.sol-label', tr), tag);
@@ -821,6 +874,7 @@ function handle(ev) {
       els.problems.append(node);
       node.id = `problem-${ev.problems.indexOf(name)}`;
       cards.set(name, node);
+      els.run.classList.toggle('single', cards.size === 1);
     }
   } else if (ev.type === 'step') {
     const c = card(ev.problem);
@@ -902,6 +956,7 @@ function handle(ev) {
       tab.insertAdjacentHTML('beforeend', icon(ev.ok ? 'i-check' : 'i-x').replace('<svg', `<svg class="tab-result ${ev.ok ? 'ok' : 'bad'}"`));
       tab.setAttribute('aria-label', `${label}, ${status.toLowerCase()}`);
       tab.dataset.tooltip = `${SAMPLE_HINT[label] ?? tab.dataset.tooltip.split(' · ')[0]} · ${status.toLowerCase()}`;
+      tab.title = tab.dataset.tooltip;
       showTab(tab);
     }
     setStatus(status, ev.ok ? 'success' : win ? 'outline' : 'destructive');
@@ -1003,8 +1058,6 @@ function writeFacts(el, facts) {
 
 /** "How it was checked": each step the report lists, passed or failed, with the time it took as this page saw it. */
 function howChecked(card, ev, at) {
-  const how = $('.how', card);
-  if (!how) return;
   const seen = stepAt.get(ev.problem) ?? [];
   // a step's time is from when the service said it began to when the next one began (the last: to the result)
   const took = (title) => {
@@ -1018,24 +1071,8 @@ function howChecked(card, ev, at) {
     ? ev.report.steps.filter((s) => STEP_TITLE[s.name]).map((s) => ({ title: STEP_TITLE[s.name], state: s.ok ? 'ok' : 'failed' }))
     : seen.map((s, i) => ({ title: s.title, state: i < seen.length - 1 ? 'ok' : 'stopped' }));
   if (!steps.length) return;
-  const list = $('.how-steps', how);
-  list.replaceChildren(
-    ...steps.map((s) => {
-      const li = document.createElement('li');
-      li.className = s.state;
-      li.innerHTML = `${icon(s.state === 'ok' ? 'i-check' : s.state === 'failed' ? 'i-x' : 'i-stop')}<span class="how-step"></span><span class="how-time"></span>`;
-      $('.how-step', li).textContent = STEP_WORDS[s.title] ?? s.title;
-      // (the languages the solutions were in, as the report's own guideline found them)
-      if (s.title === 'Compiling Solutions' && langs) $('.how-step', li).append(Object.assign(document.createElement('span'), { className: 'how-note', textContent: ` · ${langs}` }));
-      const dur = took(s.title);
-      $('.how-time', li).textContent = dur === null ? '' : dur < 100 ? `${Math.max(1, Math.round(dur))} ms` : seconds(dur / 1000);
-      return li;
-    }),
-  );
   // the same steps in the pipeline above the table, so the whole run reads without opening anything
-  finishPipeline(card, steps, took);
-  $('.how-title', how).textContent = `How it was checked · ${plural(steps.length, 'step')}, ${seconds(at / 1000)} from the click`;
-  how.hidden = false;
+  finishPipeline(card, steps, took, langs);
 }
 
 function renderProblem(card, ev, at) {
@@ -1136,6 +1173,10 @@ function renderProblem(card, ev, at) {
     li.innerHTML = `${icon(c.ok ? 'i-check' : c.severity === 'critical' ? 'i-x' : 'i-alert')}<span><span class="t"></span><small></small></span>`;
     $('.t', li).textContent = GUIDE_WORDS[c.id] ?? c.title;
     $('small', li).textContent = c.ok ? cap(tidy(c.detail)) : `${cap(SEVERITY_WORDS[c.severity] ?? c.severity)}. ${cap(tidy(c.detail))}`;
+    if (c.ok) {
+      li.dataset.tooltip = $('small', li).textContent;
+      li.dataset.align = 'start';
+    }
     list.append(li);
   }
   // when some guidelines aren't met, those lead and the met ones wait behind a toggle
@@ -1189,7 +1230,10 @@ function legendFor(card, solutions) {
     ['bad-hollow', 'dot bad hollow', 'i-x', 'wrong, on purpose'],
     ['limit-hollow', 'dot limit hollow', 'i-clock', 'too slow, on purpose'],
   ].filter(([kind]) => seen.has(kind));
-  $('.legend', card).innerHTML = `<span class="legend-note">${matchMedia('(hover: hover)').matches ? 'Each square is a test:' : 'Each square is a test, tap to read it:'}</span>${items.map(([, cls, glyph, words]) => `<span><span class="${cls}" aria-hidden="true">${glyph ? icon(glyph) : ''}</span>${words}</span>`).join('')}`;
+  const key = cards.size === 1 ? $('#run-legend') : $('.legend', card);
+  key.innerHTML = `<span class="legend-note">${matchMedia('(hover: hover)').matches ? 'Each square is a test:' : 'Each square is a test, tap to read it:'}</span>${items.map(([, cls, glyph, words]) => `<span><span class="${cls}" aria-hidden="true">${glyph ? icon(glyph) : ''}</span>${words}</span>`).join('')}`;
+  key.hidden = false;
+  if (cards.size === 1) $('.legend', card).hidden = true;
 }
 
 /** What a solution got, in words: "wrong answer on 6 of 12 tests". */
@@ -1227,7 +1271,17 @@ function solutionRow(s) {
   tr.innerHTML = `<td class="sol"><b class="sol-name"></b><span class="sol-label"></span></td><td class="tests"><div class="dots"></div><small class="dots-note"></small></td><td class="slow"></td><td class="res"></td>`;
   $('.sol-name', tr).textContent = s.name;
   // the slowest test of the solution, as its own column (a failing solution's time is still the time it took)
-  $('.slow', tr).textContent = s.tests.length ? ms(Math.max(...s.tests.map((t) => t.timeMs))) : '';
+  const slowest = s.tests.length ? Math.max(...s.tests.map((t) => t.timeMs)) : null;
+  // its colour and a word say how fast: a time-limit failure or a second or more is slow, a quarter of a second or more is moderate
+  const overLimit = s.tests.some((t) => verdictKind(t.verdict) === 'limit');
+  const speed = slowest === null ? '' : overLimit || slowest >= 1000 ? 'slow' : slowest >= 250 ? 'mid' : 'fast';
+  $('.slow', tr).dataset.speed = speed;
+  if (slowest !== null) {
+    $('.slow', tr).innerHTML = '<span class="t"></span><small class="flag"></small>';
+    $('.slow .t', tr).textContent = ms(slowest);
+    $('.slow .flag', tr).textContent = overLimit ? 'too slow' : { fast: 'fast', mid: 'moderate', slow: 'slow' }[speed];
+    $('.slow', tr).title = `Slowest test: ${ms(slowest)}`;
+  }
   // the setter's own tag letters stay visible beside the plain words
   labelText($('.sol-label', tr), s.tag);
   const dots = $('.dots', tr);
@@ -1325,7 +1379,7 @@ function settle() {
   els.run.classList.remove('is-running');
   els.run.style.minHeight = '';
   els.head.style.minHeight = '';
-  els.log.hidden = true;
+  els.log.hidden = cards.size !== 1;
   // a passing message from the run (a file dropped mid-run) goes with it, so it doesn't cover the result
   clearTimeout(noticeTimer);
   $('#toaster .toast')?.setAttribute('aria-hidden', 'true');
@@ -1351,6 +1405,7 @@ function failMidway(message) {
   // no step is still under way: the one that was stops, neutral (the connection broke, not that step)
   for (const li of els.problems.querySelectorAll('.pipeline .step[data-state=now]')) {
     paintStep(li, 'stopped');
+    paintStages(li.closest('.pipe'));
     const label = $('.step-label', li);
     label.dataset.tooltip = `${label.dataset.tooltip} The run stopped here.`;
   }
