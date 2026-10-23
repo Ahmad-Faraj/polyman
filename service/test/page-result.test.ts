@@ -119,3 +119,31 @@ describe('howChecked with no steps', () => {
     expect(c.lis.filter((li) => li.dataset.state === 'now')).toEqual([]);
   });
 });
+
+describe('settle', () => {
+  const run = (cards: Map<string, unknown>) => {
+    const log = { ...el(), hidden: false };
+    const run = { classList: { remove() {} }, style: { minHeight: 'x' } };
+    const head = { style: { minHeight: 'x' } };
+    const { ctx } = page({ cards });
+    runInNewContext(`${fn('settle')}\nsettle()`, {
+      ...ctx,
+      els: { log, run, head },
+      $: () => null,
+      clearInterval() {},
+      clearTimeout() {},
+      timer: 0,
+      noticeTimer: 0,
+      finished: false,
+    });
+    return log;
+  };
+
+  it('keeps the run log for a contest: it is where a contest ends', () => {
+    expect(run(new Map([['a', {}], ['b', {}]])).hidden).toBe(false);
+  });
+
+  it('keeps the run log for one problem too', () => {
+    expect(run(new Map([['a', {}]])).hidden).toBe(false);
+  });
+});

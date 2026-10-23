@@ -900,12 +900,6 @@ function handle(ev) {
     // (every time on the page is on one clock, the page's, from the click)
     const took = (cards.size === 1 && resultAt) || performance.now() - runStart;
     logLine(null, 'Done');
-    // the log folds into each problem's "How it was checked"
-    for (const [name, c] of cards) {
-      // (one problem's details sit after the card's actions)
-      const pre = cards.size === 1 ? $(':scope > .more .how-log', els.run) : $('.how-log', c);
-      if (pre) writeLog(pre, runLog.filter((l) => !l.problem || l.problem === name), cards.size > 1 ? name : null);
-    }
     settle();
     // scripts wait on this line: it reads "Checked <name> in <s> s" when the run is over
     els.title.textContent = `Checked ${label} in ${seconds(took / 1000)}`;
@@ -1392,7 +1386,6 @@ function settle() {
   els.run.classList.remove('is-running');
   els.run.style.minHeight = '';
   els.head.style.minHeight = '';
-  els.log.hidden = cards.size !== 1;
   // a passing message from the run (a file dropped mid-run) goes with it, so it doesn't cover the result
   clearTimeout(noticeTimer);
   $('#toaster .toast')?.setAttribute('aria-hidden', 'true');
