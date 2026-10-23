@@ -71,10 +71,19 @@ section[aria-labelledby] h2 { scroll-margin-top: 96px; }
 
 /* hero: the claim on the left, the product itself on the right */
 /* (the card's column is as wide as a result's twelve squares need, with the hero's top edge level with the tabs) */
-.hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr); gap: 40px; align-items: start; padding-block: 24px 64px; }
+.hero { display: grid; grid-template-columns: minmax(0, 1fr); gap: 32px; align-items: start; padding-block: 24px 64px; }
 /* the claim stays in view beside a long result, instead of leaving an empty column */
-.hero-copy { position: sticky; top: 88px; }
-.hero h1 { font-size: clamp(2.2rem, 1.4rem + 2.2vw, 2.5rem); }
+.hero-copy { position: static; }
+@media (min-width: 961px) {
+  .hero-copy { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 64px; align-items: start; }
+  .hero-copy > .badge { grid-column: 1 / -1; justify-self: start; }
+  .hero-copy > h1 { grid-column: 1; grid-row: 2 / span 3; align-self: start; margin-top: 16px; }
+  .hero-copy > .hero-lede { grid-column: 2; grid-row: 2; margin-top: 16px; }
+  .hero-copy > .hero-actions { grid-column: 2; grid-row: 3; margin-top: 20px; }
+  .hero-copy > .hero-note { grid-column: 2; grid-row: 4; margin-top: 16px; }
+}
+.result .run-desc { max-width: 110ch; }
+.hero h1 { font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3.1rem); }
 .hero .badge { gap: 8px; padding-inline: 12px; height: 28px; font-size: 0.8rem; }
 .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--brand); }
 h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-height: 1.05; font-weight: 700; letter-spacing: -0.04em; text-wrap: balance; }
@@ -151,41 +160,30 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 .problem-name { margin: 0; font-size: 1.05rem; font-weight: 600; }
 
 /* while polyman works: the progress bar and the step under way (the card's description counts the steps) */
-/* the ten steps as a pipeline: three stages joined by arrows, each step lit as the run reaches it */
-.pipeline { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1.1fr) 20px minmax(0, 1fr) 20px minmax(0, 1fr); align-items: start; }
-.pipeline .link { display: flex; justify-content: center; padding-top: 3px; color: var(--muted-foreground); }
-.pipeline .link svg { width: 18px; height: 18px; }
-.stage-head { display: grid; grid-template-columns: 18px 1fr; column-gap: 8px; align-items: center; font-size: 0.875rem; line-height: 1.3; }
-.stage-head svg { width: 16px; height: 16px; color: var(--muted-foreground); transition: color 200ms; }
-.stage-head strong { font-weight: 600; }
-.stage-head small { grid-column: 2; font-size: 0.75rem; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
-.stage[data-state=now] .stage-head svg { color: var(--primary); }
-.stage[data-state=done] .stage-head svg { color: var(--pass); }
-.stage[data-state=failed] .stage-head svg { color: var(--fail); }
-.nodes { list-style: none; margin: 8px 0 0 7px; padding: 0 0 0 10px; display: grid; gap: 1px; border-inline-start: 2px solid var(--border); transition: border-color 300ms; }
-.stage[data-state=done] .nodes { border-color: var(--pass); }
-.stage[data-state=now] .nodes { border-image: linear-gradient(var(--pass), var(--border)) 1; }
-.stage[data-state=failed] .nodes { border-color: var(--fail); }
-.node { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 3px 6px; margin-inline-start: -4px; border-radius: 6px; font-size: 0.8125rem; color: var(--muted-foreground); cursor: default; transition: background-color 150ms, color 200ms; }
-.node svg { width: 14px; height: 14px; color: #a1a1aa; }
-.node time { font-size: 0.75rem; font-variant-numeric: tabular-nums; }
-.node[data-state=now] { color: var(--foreground); font-weight: 500; }
-.node[data-state=now] svg { color: var(--primary); animation: spin 900ms linear infinite; }
-.node[data-state=done] { color: var(--foreground); }
-.node[data-state=done] svg { color: var(--pass); animation: pop 260ms ease-out; }
-.node[data-state=failed] { color: var(--fail-ink); font-weight: 500; }
-.node[data-state=failed] svg { color: var(--fail); animation: pop 260ms ease-out; }
-.node:is(:hover, :focus-visible) { background-color: var(--accent); color: var(--accent-foreground); }
-@keyframes pop { from { transform: scale(0.5); opacity: 0; } }
-.node[data-tooltip]:before { width: max-content; max-width: min(260px, calc(100vw - 64px)); white-space: normal; text-align: start; }
-@media (max-width: 640px) {
-  .pipeline { grid-template-columns: minmax(0, 1fr); row-gap: 4px; }
-  .pipeline .link { padding: 2px 0 2px 5px; justify-content: flex-start; }
-  .pipeline .link svg { transform: rotate(90deg); }
-  /* on a phone a stage that went through shows its header and total; the one under way, or that failed, opens its steps */
-  .stage[data-state=done] .nodes { display: none; }
+/* the ten steps: daisyUI Steps (MIT, below), mapped onto this page's colours; a state is the step's class */
+.pipeline.steps {
+  --color-base-300: var(--border); --color-base-content: var(--foreground);
+  --color-primary: var(--pass); --color-primary-content: #fff;
+  --color-error: var(--fail); --color-error-content: #fff;
+  --color-neutral: var(--muted-foreground); --color-neutral-content: #fff;
+  display: grid; width: 100%; padding-bottom: 4px;
 }
-@media (prefers-reduced-motion: reduce) { .node[data-state] svg { animation: none; } }
+/* a tooltip pokes out of the line, so on a wide screen (where all ten fit) nothing scrolls; a phone scrolls it sideways */
+@media (min-width: 900px) { .pipeline.steps { overflow: visible; } }
+.pipeline .step { min-width: 5.75rem; grid-template-rows: 32px auto; }
+.pipeline .step:before { height: 0.25rem; }
+.pipeline .step > .step-icon { width: 1.75rem; height: 1.75rem; }
+.pipeline .step-icon svg { width: 14px; height: 14px; }
+.pipeline .step[data-state=now] .step-icon svg { animation: spin 900ms linear infinite; }
+.pipeline .step[data-state=done] .step-icon svg, .pipeline .step[data-state=failed] .step-icon svg { animation: pop 260ms ease-out; }
+@keyframes pop { from { transform: scale(0.5); opacity: 0; } }
+.step-label { display: grid; justify-items: center; gap: 1px; margin-top: 8px; padding: 2px 6px; border-radius: 6px; font-size: 0.8125rem; line-height: 1.3; color: var(--muted-foreground); text-wrap: balance; cursor: default; transition: background-color 150ms, color 200ms; }
+.step-label small { font-size: 0.75rem; font-variant-numeric: tabular-nums; min-height: 1em; }
+.step[data-state=now] .step-label, .step[data-state=done] .step-label { color: var(--foreground); }
+.step[data-state=failed] .step-label { color: var(--fail-ink); font-weight: 600; }
+.step-label:is(:hover, :focus-visible) { background-color: var(--accent); color: var(--accent-foreground); }
+.step-label[data-tooltip]:before { width: max-content; max-width: min(260px, calc(100vw - 64px)); white-space: normal; text-align: start; }
+@media (prefers-reduced-motion: reduce) { .step[data-state] .step-icon svg { animation: none; } }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* the solutions: a shadcn Table, flush in the card (no frame of its own), its key as the caption */
@@ -300,19 +298,6 @@ button.dot:focus-visible { outline: 2px solid var(--primary); outline-offset: 2p
 .flow { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 32px; }
 .flow li { position: relative; }
 .flow-icon { width: 24px; height: 24px; margin-bottom: 12px; color: var(--primary); }
-/* the same three parts beside the hero, as Basecoat items */
-.hero-parts { margin-top: 40px; padding-top: 16px; border-top: 1px solid var(--border); gap: 0; }
-.hero-parts .item { padding-inline: 0; }
-.hero-parts .item > figure { color: var(--primary); }
-.hero-parts .item strong { font-weight: 500; transition: color 200ms; }
-/* the three parts follow the run: waiting muted, under way with a Spinner, done with a check */
-/* (a part the run never reached is muted; one it broke off in keeps its words, with a stop mark) */
-.hero-parts .item[data-state='pending'] strong { color: var(--muted-foreground); }
-.hero-parts .item:is([data-state='pending'], [data-state='stopped']) > figure { color: var(--muted-foreground); }
-.hero-parts .item[data-state='active'] > figure svg { animation: spin 900ms linear infinite; }
-.hero-parts .item[data-state='done'] > figure { color: var(--pass); }
-.hero-parts .item[data-state='failed'] > figure { color: var(--fail); }
-@media (max-width: 960px) { .hero-parts { display: none; } }
 .flow h3 { margin: 0; font-size: 1.05rem; font-weight: 600; letter-spacing: -0.01em; }
 .flow p { margin: 8px 0 0; color: var(--muted-foreground); line-height: 1.6; text-wrap: pretty; }
 /* the GitLab records, as links to the pages themselves */
@@ -460,8 +445,6 @@ button.dot:focus-visible { outline: 2px solid var(--primary); outline-offset: 2p
 /* the result card has the run button beside the claim on a wide screen; the hero's copy of it is for phones,
    and the upload is a quiet link there, so the card's button is the one filled action on screen */
 @media (min-width: 961px) {
-  /* the hero row is as tall as the tallest sample's finished card, so a result that lands doesn't push the page under it */
-  .hero { min-height: 52rem; }
   #demo { display: none; }
   #own { background: none; border-color: transparent; box-shadow: none; padding-inline: 0; height: auto; color: var(--primary); }
   #own:hover { text-decoration: underline; text-underline-offset: 3px; }
@@ -497,3 +480,19 @@ button.dot:focus-visible { outline: 2px solid var(--primary); outline-offset: 2p
   .sols td { padding-block: 6px; }
   .result { gap: 16px; }
 }
+
+/* daisyUI 5.7.50 Steps, MIT License, https://daisyui.com (base rules only, taken out of its cascade layer) */
+.steps{counter-reset:step;grid-auto-columns:1fr;grid-auto-flow:column;display:inline-grid;overflow:auto hidden}
+.steps .step{text-align:center;--step-bg:var(--color-base-300);--step-fg:var(--color-base-content);grid-template-rows:40px 1fr;grid-template-columns:auto;place-items:center;min-width:4rem;display:grid;&:before{width:100%;height:.5rem;color:var(--step-bg);background-color:var(--step-bg);content:"";border:1px solid;grid-row-start:1;grid-column-start:1;margin-inline-start:-100%;top:0}&>.step-icon,&:not(:has(.step-icon)):after{--tw-content:counter(step);content:var(--tw-content);counter-increment:step;z-index:1;color:var(--step-fg);background-color:var(--step-bg);border:1px solid var(--step-bg);border-radius:3.40282e38px;grid-row-start:1;grid-column-start:1;place-self:center;place-items:center;width:2rem;height:2rem;display:grid;position:relative}&:first-child:before{--tw-content:none;content:var(--tw-content)}&[data-content]:after{--tw-content:attr(data-content);content:var(--tw-content)}}
+.steps .step-neutral+.step-neutral:before,.steps .step-neutral:after,.steps .step-neutral>.step-icon{--step-bg:var(--color-neutral);--step-fg:var(--color-neutral-content)}
+.steps .step-primary+.step-primary:before,.steps .step-primary:after,.steps .step-primary>.step-icon{--step-bg:var(--color-primary);--step-fg:var(--color-primary-content)}
+.steps .step-secondary+.step-secondary:before,.steps .step-secondary:after,.steps .step-secondary>.step-icon{--step-bg:var(--color-secondary);--step-fg:var(--color-secondary-content)}
+.steps .step-accent+.step-accent:before,.steps .step-accent:after,.steps .step-accent>.step-icon{--step-bg:var(--color-accent);--step-fg:var(--color-accent-content)}
+.steps .step-info+.step-info:before,.steps .step-info:after,.steps .step-info>.step-icon{--step-bg:var(--color-info);--step-fg:var(--color-info-content)}
+.steps .step-success+.step-success:before,.steps .step-success:after,.steps .step-success>.step-icon{--step-bg:var(--color-success);--step-fg:var(--color-success-content)}
+.steps .step-warning+.step-warning:before,.steps .step-warning:after,.steps .step-warning>.step-icon{--step-bg:var(--color-warning);--step-fg:var(--color-warning-content)}
+.steps .step-error+.step-error:before,.steps .step-error:after,.steps .step-error>.step-icon{--step-bg:var(--color-error);--step-fg:var(--color-error-content)}
+.steps-horizontal{grid-auto-columns:1fr;grid-auto-flow:column;display:inline-grid;overflow:auto hidden}
+.steps-horizontal .step{text-align:center;grid-template-rows:40px 1fr;grid-template-columns:auto;place-items:center;min-width:4rem;display:grid;&:before{width:100%;height:.5rem;margin-inline-start:-100%;translate:0}[dir=rtl] &:before{translate:0}}
+.steps-vertical{grid-auto-rows:1fr;grid-auto-flow:row}
+.steps-vertical .step{grid-template-rows:auto;grid-template-columns:40px 1fr;justify-items:start;gap:.5rem;min-height:4rem;display:grid;&:before{width:.5rem;height:100%;margin-inline-start:50%;translate:-50% -50%}[dir=rtl] &:before{translate:50% -50%}}

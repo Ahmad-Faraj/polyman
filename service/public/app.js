@@ -319,12 +319,8 @@ fetch('/api/samples')
 
 const runSample = (name) => start(`/api/samples/${encodeURIComponent(name)}/verify`, null, name);
 
-/** The ten steps as a pipeline of three stages, as the hero names them. Each step has a short name and, on hover or focus, what it does. */
-const STAGES = [
-  { name: 'Make the tests', icon: 'i-list-checks', steps: STEPS.slice(0, 5) },
-  { name: 'Prove the checker', icon: 'i-check-check', steps: STEPS.slice(5, 7) },
-  { name: 'Judge every solution', icon: 'i-scale', steps: STEPS.slice(7) },
-];
+/** The ten steps as daisyUI Steps, a ready-made stepper: a line of steps joined by connectors, each lit as the run reaches it.
+ * Each step has a short name and, on hover or focus, what it does. */
 const STEP_SHORT = {
   'Compiling Generators': 'Build generators',
   'Generating Tests': 'Generate tests',
@@ -339,7 +335,7 @@ const STEP_SHORT = {
 };
 /** What each step does, in the words of the "What the check does" section. */
 const STEP_INFO = {
-  'Compiling Generators': 'Builds the problem\u2019s test generators.',
+  'Compiling Generators': 'Builds the problem’s test generators.',
   'Generating Tests': 'Runs the generators to write every test.',
   'Compiling Validator': 'Builds the validator, the program that says whether a test input is allowed.',
   'Testing Validator': 'Runs the validator on its own tests.',
@@ -350,83 +346,55 @@ const STEP_INFO = {
   'Running Solutions': 'Runs each solution on the tests with the time and memory limits, in a sandbox with no internet.',
   'Verifying Solutions Against Main Correct': 'Compares what each solution did with the main correct solution and with its label.',
 };
+const STEP_CLASS = { done: 'step-primary', now: 'step-primary', failed: 'step-error', stopped: 'step-neutral', pending: '' };
+const STEP_ICON = { done: 'i-check', now: 'i-spin', failed: 'i-x', stopped: 'i-stop', pending: 'i-dot' };
 
-/** Build the pipeline once, every step waiting. */
+/** Build the pipeline once, every step waiting. (The tooltip sits on the label: the step's own ::before is its connector.) */
 function buildPipeline(node) {
   const el = $('.pipeline', node);
   if (!el || el.children.length) return;
-  STAGES.forEach((stage, i) => {
+  for (const title of STEPS) {
     const li = document.createElement('li');
-    li.className = 'stage';
+    li.className = 'step';
+    li.dataset.title = title;
     li.dataset.state = 'pending';
-    li.innerHTML = `<div class="stage-head">${icon(stage.icon)}<strong></strong><small></small></div><ol class="nodes"></ol>`;
-    $('strong', li).textContent = stage.name;
-    $('small', li).textContent = plural(stage.steps.length, 'step');
-    for (const title of stage.steps) {
-      const n = document.createElement('li');
-      n.className = 'node';
-      n.tabIndex = 0;
-      n.dataset.title = title;
-      n.dataset.tooltip = `${STEP_WORDS[title]}. ${STEP_INFO[title]}`;
-      // (the last stage sits at the card's right edge: its tooltips open leftwards)
-      n.dataset.align = i === STAGES.length - 1 ? 'end' : 'start';
-      n.innerHTML = `${icon('i-dot')}<span></span><time></time>`;
-      $('span', n).textContent = STEP_SHORT[title];
-      $('.nodes', li).append(n);
-    }
+    li.innerHTML = `<span class="step-icon">${icon('i-dot')}</span><span class="step-label" tabindex="0" data-align="center"><span></span><small></small></span>`;
+    const label = $('.step-label', li);
+    label.dataset.tooltip = `${STEP_WORDS[title]}. ${STEP_INFO[title]}`;
+    $('.step-label > span', li).textContent = STEP_SHORT[title];
     el.append(li);
-    // an arrow to the next stage
-    if (i < STAGES.length - 1) {
-      const a = document.createElement('li');
-      a.className = 'link';
-      a.setAttribute('aria-hidden', 'true');
-      a.innerHTML = icon('i-next');
-      el.append(a);
-    }
-  });
+  }
+}
+
+/** One step in a state: its class (the colour), its icon, and the time it took once it is known. */
+function paintStep(li, state, time = '') {
+  if (li.dataset.state !== state) {
+    li.dataset.state = state;
+    li.className = `step ${STEP_CLASS[state]}`.trim();
+    $('.step-icon', li).innerHTML = icon(STEP_ICON[state]);
+  }
+  $('small', li).textContent = time;
 }
 
 /** Light the pipeline to step `at` (0-9): the ones before it done, that one under way, the rest waiting. */
 function setPipeline(node, at) {
   buildPipeline(node);
-  for (const stage of node.querySelectorAll('.stage')) {
-    const nodes = [...stage.querySelectorAll('.node')];
-    for (const n of nodes) {
-      const i = STEPS.indexOf(n.dataset.title);
-      const state = i < at ? 'done' : i === at ? 'now' : 'pending';
-      if (n.dataset.state === state) continue;
-      n.dataset.state = state;
-      $('svg', n).outerHTML = icon(state === 'done' ? 'i-check' : state === 'now' ? 'i-spin' : 'i-dot');
-    }
-    stage.dataset.state = nodes.every((n) => n.dataset.state === 'done') ? 'done' : nodes.some((n) => n.dataset.state !== 'pending') ? 'now' : 'pending';
-  }
+  node.querySelectorAll('.pipeline .step').forEach((li, i) => paintStep(li, i < at ? 'done' : i === at ? 'now' : 'pending'));
 }
 
-/** The run is over: each step as its report has it (passed, failed or not reached), with the time it took and each stage's total. */
+/** The run is over: each step as its report has it (passed, failed or not reached), with the time it took. */
 function finishPipeline(node, steps, took) {
   buildPipeline(node);
   const byTitle = new Map(steps.map((s) => [s.title, s]));
   const time = (ms) => (ms < 100 ? `${Math.max(1, Math.round(ms))} ms` : seconds(ms / 1000));
-  for (const stage of node.querySelectorAll('.stage')) {
-    let total = 0;
-    let timed = false;
-    const nodes = [...stage.querySelectorAll('.node')];
-    for (const n of nodes) {
-      const s = byTitle.get(n.dataset.title);
-      const state = !s ? 'pending' : s.state === 'ok' ? 'done' : s.state === 'failed' ? 'failed' : 'stopped';
-      n.dataset.state = state;
-      $('svg', n).outerHTML = icon(state === 'done' ? 'i-check' : state === 'failed' ? 'i-x' : state === 'stopped' ? 'i-stop' : 'i-dot');
-      const dur = s ? took(n.dataset.title) : null;
-      const text = dur === null ? '' : time(dur);
-      $('time', n).textContent = text;
-      if (dur !== null) {
-        total += dur;
-        timed = true;
-      }
-      n.dataset.tooltip = `${STEP_WORDS[n.dataset.title]}. ${STEP_INFO[n.dataset.title]}${state === 'failed' ? ' It failed.' : state === 'pending' ? ' Not reached.' : text ? ` Took ${text}.` : ''}`;
-    }
-    stage.dataset.state = nodes.some((n) => n.dataset.state === 'failed') ? 'failed' : nodes.every((n) => n.dataset.state === 'done') ? 'done' : nodes.some((n) => n.dataset.state === 'pending') ? 'pending' : 'now';
-    $('small', stage).textContent = `${plural(nodes.length, 'step')}${timed ? ` · ${time(total)}` : ''}`;
+  for (const li of node.querySelectorAll('.pipeline .step')) {
+    const title = li.dataset.title;
+    const s = byTitle.get(title);
+    const state = !s ? 'pending' : s.state === 'ok' ? 'done' : s.state === 'failed' ? 'failed' : 'stopped';
+    const dur = s ? took(title) : null;
+    const text = dur === null ? '' : time(dur);
+    paintStep(li, state, text);
+    $('.step-label', li).dataset.tooltip = `${STEP_WORDS[title]}. ${STEP_INFO[title]}${state === 'failed' ? ' It failed.' : state === 'pending' ? ' Not reached.' : text ? ` Took ${text}.` : ''}`;
   }
 }
 
@@ -1419,10 +1387,10 @@ function failMidway(message) {
   settle();
   setHead(`Did not finish: ${label}`, 'The check did not finish.', message);
   // no step is still under way: the one that was stops, neutral (the connection broke, not that step)
-  for (const n of els.problems.querySelectorAll('.pipeline .node[data-state=now]')) {
-    n.dataset.state = 'stopped';
-    $('svg', n).outerHTML = icon('i-stop');
-    n.dataset.tooltip = `${n.dataset.tooltip} The run stopped here.`;
+  for (const li of els.problems.querySelectorAll('.pipeline .step[data-state=now]')) {
+    paintStep(li, 'stopped');
+    const label = $('.step-label', li);
+    label.dataset.tooltip = `${label.dataset.tooltip} The run stopped here.`;
   }
   for (const bar of els.problems.querySelectorAll('.progress')) bar.classList.add('stopped');
   heroParts('stopped');
