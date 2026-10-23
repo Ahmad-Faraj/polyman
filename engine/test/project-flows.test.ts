@@ -346,6 +346,8 @@ describe("the project's Duo flows", () => {
     expect(saysGoAhead('> @ai-reviewer go-ahead', 'ai-reviewer')).toBe(false);
     // requesters come from the oldest commit: the commits list is newest first
     expect(body).toContain('its oldest commit, the last one in the commits list, was authored by a service account');
+    // the list pages at 20 (!261 had 22 commits), so the lead asks for 100 to see the oldest
+    expect(body).toContain('on closes_issues and commits?per_page=100 (for the requesters)');
   });
 
   // 23 Oct review, finding 9: the follow-up decision needs the new commits, not the whole MR diff

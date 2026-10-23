@@ -124,9 +124,9 @@ prompts:
         (builds) from the start, so your first turn holds all of these at once: get_merge_request,
         list_all_merge_request_notes, list_merge_request_diffs, get_job_logs on the autonomy:assess job, and
         gitlab_api_get on .autonomy.yml (from the target branch, never the MR's source branch) and, under
-        /projects/PROJECT_ID/merge_requests/IID/, on closes_issues and commits (for the requesters). For a mention,
-        the same first turn without get_job_logs, plus /projects/PROJECT_ID/merge_requests/IID/pipelines; then the
-        pipeline and its jobs in one turn, then the log. In a follow-up review (step 3), add
+        /projects/PROJECT_ID/merge_requests/IID/, on closes_issues and commits?per_page=100 (for the requesters). For
+        a mention, the same first turn without get_job_logs, plus /projects/PROJECT_ID/merge_requests/IID/pipelines;
+        then the pipeline and its jobs in one turn, then the log. In a follow-up review (step 3), add
         /projects/PROJECT_ID/repository/compare?from=LAST_REVIEWED&to=HEAD_SHA&straight=true to the pipeline's turn:
         its commits and diffs decide step 5.
         From your first delegation on, read nothing more: what you read before it and the specialists' reports are
