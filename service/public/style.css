@@ -615,13 +615,13 @@ button.dot:focus-visible { outline: 2px solid var(--primary); outline-offset: 2p
 #own, #own:hover { clip-path: none; background: none; padding-inline: 0; --ring: transparent; }
 #own::after { display: none; }
 /* the run log is as tall as the table beside it, scrolls inside, and keeps its title in view */
-.run-log { padding-top: 0; }
+.run-log { padding-top: 0; padding-bottom: 8px; max-height: 9.5rem; }
 .run-log::before { position: sticky; top: 0; z-index: 1; margin: 0 -14px 6px; padding: 10px 14px 6px; background: color-mix(in srgb, var(--muted) 55%, #fff); }
 .accordion > details > summary { padding-block: 10px; }
 
 
 /* the log at the card's bottom right, beside the guidelines; below the guidelines on a narrow screen */
-.result.single > .run-log { order: 2; margin: 4px 24px 0; max-height: 14rem; height: auto; min-height: 0; }
+.result.single > .run-log { order: 2; margin: 4px 24px 0; max-height: 9.5rem; height: auto; min-height: 0; }
 .result.single > .more { order: 1; }
 @media (min-width: 1100px) {
   .result.single { display: grid; grid-template-columns: minmax(0, 1fr) 21rem; column-gap: 28px; align-items: start; }
@@ -644,7 +644,7 @@ button.dot:focus-visible { outline: 2px solid var(--primary); outline-offset: 2p
 .hero, .gitlab { overflow-x: clip; }
 @media (max-width: 760px) { .sols td.tests { width: auto; } }
 
-.run-log { font-family: var(--font-mono); font-size: 0.75rem; line-height: 1.6; color: var(--foreground); white-space: normal; overflow-wrap: anywhere; }
+.run-log { font-family: var(--font-mono); font-size: 0.6875rem; line-height: 1.45; color: var(--foreground); white-space: normal; overflow-wrap: anywhere; }
 .run-log:focus-visible { outline-offset: -2px; }
 
 /* daisyUI 5.7.50 Steps, MIT License, https://daisyui.com (base rules only, taken out of its cascade layer) */
