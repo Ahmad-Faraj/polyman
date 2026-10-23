@@ -203,16 +203,26 @@ function noStat(name, err) {
   $(`[data-stat="${name}"]`).hidden = true;
 }
 const bad = (what) => Promise.reject(new Error(`unexpected ${what}`));
+/** The ledger's counts, or null when its records read oddly. */
+function ledgerCounts(l) {
+  const recs = Array.isArray(l?.records) ? l.records : [];
+  // (a go-ahead that didn't count may have no approver on record; only an accepted one needs one)
+  if (!recs.length || !recs.every((r) => isDate(r?.merged_at) && typeof r?.agent === 'string' && (r?.accepted !== true || typeof r?.go_ahead?.by === 'string'))) return null;
+  return {
+    total: recs.length,
+    approved: recs.filter((r) => r.accepted === true && r.approver_not_requester === true).length,
+    agents: new Set(recs.map((r) => r.agent)).size,
+    approvers: new Set(recs.filter((r) => r.accepted === true).map((r) => r.go_ahead.by)).size,
+    newest: recs.map((r) => r.merged_at).sort().at(-1),
+  };
+}
 getJSON(`${PAGES}/ledger/ledger.json`)
   .then((l) => {
-    const recs = Array.isArray(l?.records) ? l.records : [];
-    if (!recs.length || !recs.every((r) => isDate(r?.merged_at) && typeof r?.go_ahead?.by === 'string' && typeof r?.agent === 'string')) return bad('ledger');
-    const approved = recs.filter((r) => r.accepted === true && r.approver_not_requester === true).length;
-    const agents = new Set(recs.map((r) => r.agent)).size;
-    const approvers = new Set(recs.map((r) => r.go_ahead.by)).size;
-    const newest = recs.map((r) => r.merged_at).sort().at(-1);
+    const c = ledgerCounts(l);
+    if (!c) return bad('ledger');
+    const { total, approved, agents, approvers, newest } = c;
     // (counts only: who approved stays on the ledger's own page)
-    stat('ledger', `${approved === recs.length ? recs.length : `${approved} of ${recs.length}`} agent pushes, each approved by a teammate who didn't ask for it · ${plural(agents, 'agent')}, ${plural(approvers, 'approver')} · newest ${day(newest)}`);
+    stat('ledger', `${approved === total ? total : `${approved} of ${total}`} agent pushes, each approved by a teammate who didn't ask for it · ${plural(agents, 'agent')}, ${plural(approvers, 'approver')} · newest ${day(newest)}`);
     if (typeof l.head === 'string') $('[data-stat="ledger"]').title = `Chain head ${l.head.slice(0, 12)}`;
   })
   .catch((err) => noStat('ledger', err));
@@ -1351,6 +1361,10 @@ function showError(message, issues, kind = 'refused', detail = '') {
   const plain = offline ? 'Could not reach the service.' : local ? message : plainReason(message);
   const next = BROKEN_ZIP.test(message) ? 'Nothing was run. Zip the folder again and choose the new file.' : 'Nothing was run. See how to prepare the zip, then try again.';
   setHead(label ? `Not checked: ${label}` : 'Not checked', plain, offline ? 'Check your connection and run it again. If it still fails, the service may be restarting: try again in a minute.' : local ? detail : next);
+  // nothing of an earlier result stays: its facts, its title layout, its pass/found look
+  els.title.classList.remove('own-line');
+  els.facts.hidden = true;
+  els.run.classList.remove('is-good', 'has-found');
   els.run.classList.add('is-bad');
   // the browser's own check sent nothing, so the service refused nothing
   setStatus(offline ? 'Not reached' : local ? 'Not sent' : BROKEN_ZIP.test(message) ? 'Not a zip' : 'Refused', 'destructive');
