@@ -274,7 +274,8 @@ describe("the project's Duo flows", () => {
   // so both are reverted (!234): findings are rated on evidence again, with no reproduce rule and no rating floor
   it('the reviewer rates findings on evidence, without the E-R2 reproduce rule or rating floor (E-R2 reverted)', () => {
     const prompt = promptOf('mr-reviewer.yaml');
-    expect(prompt).toContain('P1 and P2 need evidence: a file and line plus how it goes wrong, a failing test, or steps to reproduce. Without evidence it is P3. Every P1 and P2 an agent can fix becomes a proposed fix');
+    expect(prompt).toContain('P1 and P2 need evidence: a file and line plus how it goes wrong, a failing test, or steps to reproduce. Without evidence it is P3.');
+    expect(prompt).toContain('Every P1 and P2 an agent can fix becomes a proposed fix');
     expect(prompt.split('P1 and P2 need evidence: file and line plus how it fails, a failing test, or steps to reproduce; without it, P3.').length - 1).toBe(3);
     expect(prompt.split('run the built code with hostile and edge-case input').length - 1).toBe(3);
     // the removed lines, as E-R2 wrote them, anywhere in the file
@@ -285,6 +286,19 @@ describe("the project's Duo flows", () => {
     expect(text).not.toContain('Keep each specialist\'s "reproduced:"');
     expect(text).not.toContain('reproduced: COMMAND -> OUTPUT');
     expect(text).not.toContain('reproduce every bug');
+  });
+
+  // E-B33, from the E-B32 traces: a high-tier lead skipped the test reviewer (2 test-gap P2s lost), a medium one added
+  // security, and !59's P1 (names reaching bash unquoted) went to P3 because a probe didn't reproduce it
+  it("the lead starts exactly the tier's specialists, and an unreproduced input-handling finding keeps its rating", () => {
+    const prompt = promptOf('mr-reviewer.yaml');
+    expect(prompt).toContain('- risk::medium: code_reviewer and test_reviewer. - risk::high: security_reviewer, code_reviewer and test_reviewer. A review at the tier starts exactly the specialists listed for it, no more and no fewer, whatever the diff looks like');
+    expect(prompt).toContain("fixes that name their tests don't replace the test reviewer");
+    const keep = 'When input a user controls reaches a shell, a path, a file write or eval/exec, a failed reproduction doesn\'t lower the rating its evidence supports: keep it, with "not reproduced: WHY".';
+    // the lead and the three specialists
+    expect(prompt.split(keep).length - 1).toBe(4);
+    expect(prompt).toContain(`Without evidence it is P3. ${keep}`);
+    expect(prompt.split(`without it, P3. ${keep}`).length - 1).toBe(3);
   });
 
   // #61: 26 of 107 reviews were posted after their MR merged; the check stays, inside the last read turn

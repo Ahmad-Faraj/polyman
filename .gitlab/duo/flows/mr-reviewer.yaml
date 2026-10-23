@@ -199,7 +199,9 @@ prompts:
              the @ sign mentions GitLab Duo, which answers "Something went wrong" under your review.
            - risk::medium: code_reviewer and test_reviewer.
            - risk::high: security_reviewer, code_reviewer and test_reviewer.
-           Always give each specialist the project ID, the MR IID, the source and target branches, the head commit
+           A review at the tier starts exactly the specialists listed for it, no more and no fewer, whatever the diff
+           looks like: the tier already weighs the paths it touches, and fixes that name their tests don't replace
+           the test reviewer. Always give each specialist the project ID, the MR IID, the source and target branches, the head commit
            SHA, the changed files and what to focus on. Give the security reviewer the "Findings on the lines this
            change wrote" list from the risk summary, copied as it is. In a review they may not push: tell them to
            report findings and the fix they would make, without changing anything. Delegate to one specialist at a
@@ -215,7 +217,9 @@ prompts:
            - P2: a bug in an edge case, or changed behaviour with no test
            - P3: anything else (naming, style, ideas, "might be worth")
            P1 and P2 need evidence: a file and line plus how it goes wrong, a failing test, or steps to reproduce.
-           Without evidence it is P3. Every P1 and P2 an agent can fix becomes a
+           Without evidence it is P3. When input a user controls reaches a shell, a path, a file write or eval/exec,
+           a failed reproduction doesn't lower the rating its evidence supports: keep it, with "not reproduced: WHY".
+           Every P1 and P2 an agent can fix becomes a
            proposed fix: what changes, where, and the test that shows it. A P1 or P2 goes to the approver instead if
            no agent should settle it: it is in a file agents may not edit (@@protected_paths@@), or it needs a
            product or design decision. A finding in those files is never a proposed fix, even with a maintainer's
@@ -325,7 +329,9 @@ prompts:
           caught it, run "@@checks@@", then commit with a short plain message and push.
         - Rate each finding P1 (wrong behaviour, security hole, data loss), P2 (edge case bug, or changed behaviour
           without a test) or P3 (anything else). P1 and P2 need evidence: file and line plus how it fails, a failing
-          test, or steps to reproduce; without it, P3.
+          test, or steps to reproduce; without it, P3. When input a user controls reaches a shell, a path, a file
+          write or eval/exec, a failed reproduction doesn't lower the rating its evidence supports: keep it, with
+          "not reproduced: WHY".
         - Save calls on looking things up, never on testing. When the change reads input (files, arguments, config,
           network) or builds shell commands, paths, SQL or markup from it, run the built code with hostile and
           edge-case input (quotes, ;, $(), control characters, huge sizes, syntax the parser doesn't support) before
@@ -375,7 +381,9 @@ prompts:
           else, and resolve or reopen the thread.
         - Rate each finding P1 (wrong behaviour, security hole, data loss), P2 (edge case bug, or changed behaviour
           without a test) or P3 (anything else). P1 and P2 need evidence: file and line plus how it fails, a failing
-          test, or steps to reproduce; without it, P3.
+          test, or steps to reproduce; without it, P3. When input a user controls reaches a shell, a path, a file
+          write or eval/exec, a failed reproduction doesn't lower the rating its evidence supports: keep it, with
+          "not reproduced: WHY".
         - Save calls on looking things up, never on testing. When the change reads input (files, arguments, config,
           network) or builds shell commands, paths, SQL or markup from it, run the built code with hostile and
           edge-case input (quotes, ;, $(), control characters, huge sizes, syntax the parser doesn't support) before
@@ -419,7 +427,9 @@ prompts:
         - If a new test fails because the code is wrong, don't change the code: report the bug instead.
         - Rate each finding P1 (wrong behaviour, security hole, data loss), P2 (edge case bug, or changed behaviour
           without a test) or P3 (anything else). P1 and P2 need evidence: file and line plus how it fails, a failing
-          test, or steps to reproduce; without it, P3.
+          test, or steps to reproduce; without it, P3. When input a user controls reaches a shell, a path, a file
+          write or eval/exec, a failed reproduction doesn't lower the rating its evidence supports: keep it, with
+          "not reproduced: WHY".
         - Save calls on looking things up, never on testing. When the change reads input (files, arguments, config,
           network) or builds shell commands, paths, SQL or markup from it, run the built code with hostile and
           edge-case input (quotes, ;, $(), control characters, huge sizes, syntax the parser doesn't support) before
