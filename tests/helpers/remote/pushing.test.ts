@@ -5,6 +5,7 @@ import type { PathLike, PathOrFileDescriptor } from 'fs';
 import type { PolygonSDK } from '../../../src/polygon';
 import type ConfigFile from '../../../src/types';
 import { fmt } from '../../../src/formatter';
+import { normalizeLineEndingsFromSystemToRemote } from '../../../src/helpers/remote/utils';
 
 vi.mock('fs');
 vi.mock('../../../src/formatter', () => ({
@@ -361,6 +362,126 @@ describe('pushing.ts', () => {
       });
       const result = await pushing.uploadSolutions(sdk, 1, 'dir', cfg);
       expect(result).toBe(1);
+    });
+
+    describe('Java class naming', () => {
+      const javaCode =
+        'public class ProblemA {\n  String s = "ProblemA";\n  public static void main(String[] a) { new ProblemA(); }\n}\n';
+
+      it('renames the public class to Main in the uploaded copy', async () => {
+        const { sdk, mocks } = buildSdk();
+        mockedReadFileSync.mockReturnValue(javaCode);
+        mockedExistsSync.mockReturnValue(true);
+        const cfg = asConfig({
+          solutions: [{ name: 'a', source: 'ProblemA.java', tag: 'MA' }],
+        });
+
+        await pushing.uploadSolutions(sdk, 1, 'dir', cfg);
+
+        const uploaded = mocks.saveSolution.mock.calls[0][2] as string;
+        expect(uploaded).toContain('public class Main {');
+        expect(uploaded).toContain('new Main();');
+        expect(uploaded).toContain('"ProblemA"');
+        expect(mocks.saveSolution.mock.calls[0][1]).toBe('ProblemA.java');
+        expect(fs.writeFileSync).not.toHaveBeenCalled();
+      });
+
+      it('leaves Main.java unchanged', async () => {
+        const { sdk, mocks } = buildSdk();
+        const code = 'public class Main {}\n';
+        mockedReadFileSync.mockReturnValue(code);
+        mockedExistsSync.mockReturnValue(true);
+        const cfg = asConfig({
+          solutions: [{ name: 'a', source: 'Main.java', tag: 'MA' }],
+        });
+
+        await pushing.uploadSolutions(sdk, 1, 'dir', cfg);
+
+        expect(mocks.saveSolution.mock.calls[0][2]).toBe(code);
+      });
+
+      it('renames the public class to Main for an uppercase .JAVA extension', async () => {
+        const { sdk, mocks } = buildSdk();
+        mockedReadFileSync.mockReturnValue(javaCode);
+        mockedExistsSync.mockReturnValue(true);
+        const cfg = asConfig({
+          solutions: [
+            {
+              name: 'a',
+              source: 'ProblemA.JAVA',
+              tag: 'MA',
+              sourceType: 'java21',
+            },
+          ],
+        });
+
+        await pushing.uploadSolutions(sdk, 1, 'dir', cfg);
+
+        const uploaded = mocks.saveSolution.mock.calls[0][2] as string;
+        expect(uploaded).toContain('public class Main {');
+        expect(uploaded).toContain('new Main();');
+        expect(uploaded).not.toContain('public class ProblemA');
+        expect(mocks.saveSolution.mock.calls[0][1]).toBe('ProblemA.JAVA');
+      });
+
+      it.each(['sol-a.java', '1a.java', 'class.java'])(
+        'leaves %s byte-identical when the base name is not an identifier',
+        async source => {
+          const { sdk, mocks } = buildSdk();
+          const code = 'public class Main {\n  Main() {}\n}\n';
+          mockedReadFileSync.mockReturnValue(code);
+          mockedExistsSync.mockReturnValue(true);
+          const cfg = asConfig({
+            solutions: [{ name: 'a', source, tag: 'MA' }],
+          });
+
+          await pushing.uploadSolutions(sdk, 1, 'dir', cfg);
+
+          expect(mocks.saveSolution.mock.calls[0][2]).toBe(code);
+        }
+      );
+
+      it('renames to Main in CRLF input, then normalizes line endings', async () => {
+        const actual = await vi.importActual<
+          typeof import('../../../src/helpers/remote/utils')
+        >('../../../src/helpers/remote/utils');
+        vi.mocked(
+          normalizeLineEndingsFromSystemToRemote
+        ).mockImplementationOnce(actual.normalizeLineEndingsFromSystemToRemote);
+        const { sdk, mocks } = buildSdk();
+        const crlf =
+          'public class ProblemA {\r\n  ProblemA() {}\r\n  String s = "ProblemA";\r\n}\r\n';
+        mockedReadFileSync.mockReturnValue(crlf);
+        mockedExistsSync.mockReturnValue(true);
+        const cfg = asConfig({
+          solutions: [{ name: 'a', source: 'ProblemA.java', tag: 'MA' }],
+        });
+
+        await pushing.uploadSolutions(sdk, 1, 'dir', cfg);
+
+        // The rename sees the CRLF text and normalization receives its result.
+        const renamed =
+          'public class Main {\r\n  Main() {}\r\n  String s = "ProblemA";\r\n}\r\n';
+        expect(normalizeLineEndingsFromSystemToRemote).toHaveBeenCalledWith(
+          renamed
+        );
+        // Remote text is CRLF with no stray bare LF or doubled CR.
+        expect(mocks.saveSolution.mock.calls[0][2]).toBe(renamed);
+      });
+
+      it('leaves C++ solutions unchanged', async () => {
+        const { sdk, mocks } = buildSdk();
+        const code = 'class ProblemA {};\n';
+        mockedReadFileSync.mockReturnValue(code);
+        mockedExistsSync.mockReturnValue(true);
+        const cfg = asConfig({
+          solutions: [{ name: 'a', source: 'ProblemA.cpp', tag: 'MA' }],
+        });
+
+        await pushing.uploadSolutions(sdk, 1, 'dir', cfg);
+
+        expect(mocks.saveSolution.mock.calls[0][2]).toBe(code);
+      });
     });
   });
 

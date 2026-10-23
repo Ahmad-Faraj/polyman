@@ -670,6 +670,32 @@ describe('actions.ts', () => {
       expect(formatter.fmt.warning).not.toHaveBeenCalled();
     });
 
+    it('should stop at read-config when a source file named in Config.json is missing', async () => {
+      const config = {
+        validator: { name: 'validator', source: 'val.cpp' },
+      };
+      vi.mocked(utils.readConfigFile).mockReturnValue(config as any);
+      vi.mocked(utils.ensureConfigSourcesExist).mockImplementationOnce(() => {
+        throw new Error('validator file not found: val.cpp');
+      });
+
+      await actions.fullVerificationAction({ json: true });
+
+      expect(utils.ensureConfigSourcesExist).toHaveBeenCalledWith(config);
+      const doc = writtenJson();
+      expect(doc.ok).toBe(false);
+      expect(doc.failedStep).toBe('read-config');
+      expect(doc.steps).toEqual([
+        {
+          name: 'read-config',
+          ok: false,
+          errors: ['validator file not found: val.cpp'],
+        },
+      ]);
+      expect(steps.stepCompileValidator).not.toHaveBeenCalled();
+      expect(process.exit).toHaveBeenCalledWith(1);
+    });
+
     it('should attribute a Config.json read failure to read-config', async () => {
       vi.mocked(utils.readConfigFile).mockImplementationOnce(() => {
         throw new Error('ENOENT Config.json');
@@ -948,6 +974,31 @@ describe('actions.ts', () => {
       vi.mocked(steps.stepReadCredentials).mockReturnValue({} as any);
       vi.mocked(steps.stepInitializeSDK).mockReturnValue({} as any);
       vi.mocked(steps.stepGetProblemId).mockReturnValue(123 as any);
+      vi.mocked(steps.stepDownloadProblemFilesAndSetUpConfig).mockResolvedValue(
+        []
+      );
+    });
+
+    it('should repeat the pull warnings after the success box', async () => {
+      vi.mocked(steps.stepDownloadProblemFilesAndSetUpConfig).mockResolvedValue(
+        ['Polygon has no validator set for problem 123']
+      );
+      await actions.remotePullProblemAction('123', './out', { all: true });
+      const warning = vi
+        .mocked(formatter.fmt.warning)
+        .mock.calls.find(c => String(c[0]).includes('no validator set'));
+      expect(warning).toBeDefined();
+      expect(
+        vi.mocked(formatter.fmt.successBox).mock.invocationCallOrder[0]
+      ).toBeLessThan(
+        vi.mocked(formatter.fmt.warning).mock.invocationCallOrder[0]
+      );
+      expect(process.exit).not.toHaveBeenCalled();
+    });
+
+    it('should not warn when the pull had no warnings', async () => {
+      await actions.remotePullProblemAction('123', './out', { all: true });
+      expect(formatter.fmt.warning).not.toHaveBeenCalled();
     });
 
     it('should pull all by default', async () => {

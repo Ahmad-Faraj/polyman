@@ -13,6 +13,7 @@ import { normalizeLineEndingsFromSystemToRemote } from './utils';
 import { LocalTestset, TestOptions } from '../../types';
 import { readScriptText, toPolygonScript } from '../script-parser';
 import { getResolvedTests } from '../testset';
+import { renamePublicClass } from '../java-class';
 
 /** Polygon compiler used for C++ files that do not declare a `sourceType`. */
 export const DEFAULT_CPP_SOURCE_TYPE = 'cpp.g++17';
@@ -110,10 +111,18 @@ export async function uploadSolutions(
         throw new Error(`Solution file not found: ${solution.source}`);
       }
 
-      const code = normalizeLineEndingsFromSystemToRemote(
-        fs.readFileSync(solutionPath, 'utf-8')
-      );
+      let source = fs.readFileSync(solutionPath, 'utf-8');
       const filename = path.basename(solution.source);
+      // Polygon requires `public class Main`; locally the public class
+      // matches the file name. Only the uploaded copy is renamed.
+      if (path.extname(filename).toLowerCase() === '.java') {
+        source = renamePublicClass(
+          source,
+          path.basename(filename, path.extname(filename)),
+          'Main'
+        );
+      }
+      const code = normalizeLineEndingsFromSystemToRemote(source);
 
       const sourceType = resolveSourceType(filename, solution.sourceType);
 

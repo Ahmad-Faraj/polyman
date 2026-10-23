@@ -578,6 +578,52 @@ export function readConfigFile(): ConfigFile {
 }
 
 /**
+ * Checks that every source file Config.json names exists: the validator, the
+ * checker (unless it is a standard one shipped with polyman), the generators
+ * and the solutions. Paths are resolved against the current directory, as the
+ * compile steps do. All missing files are reported in one error, so the setter
+ * can fix them in one go instead of meeting them one compile step at a time.
+ *
+ * @param {ConfigFile} config - Parsed Config.json
+ * @throws {Error} If any named source file does not exist
+ *
+ * @example
+ * ensureConfigSourcesExist(readConfigFile());
+ * // throws: Config.json names source files that do not exist:
+ * //   - validator file not found: val.cpp
+ */
+export function ensureConfigSourcesExist(config: ConfigFile): void {
+  const missing: string[] = [];
+  const check = (label: string, source: string | undefined): void => {
+    if (!source) {
+      return;
+    }
+    if (!fs.existsSync(path.resolve(process.cwd(), source))) {
+      missing.push(`${label} file not found: ${source}`);
+    }
+  };
+
+  check('validator', config.validator?.source);
+  if (!config.checker?.isStandard) {
+    check('checker', config.checker?.source);
+  }
+  for (const generator of config.generators ?? []) {
+    check(`generator "${generator.name}"`, generator.source);
+  }
+  for (const solution of config.solutions ?? []) {
+    check(`solution "${solution.name}"`, solution.source);
+  }
+
+  if (missing.length > 0) {
+    throw new Error(
+      `Config.json names source files that do not exist:\n${missing
+        .map(line => `  - ${line}`)
+        .join('\n')}`
+    );
+  }
+}
+
+/**
  * Whether stdin is an interactive terminal, i.e. a prompt could be answered.
  * Headless agents and CI pipelines get false; commands must not block on a
  * prompt in that case.
