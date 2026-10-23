@@ -1232,9 +1232,11 @@ function legendFor(card, solutions) {
     ['limit-hollow', 'dot limit hollow', 'i-clock', 'too slow, on purpose'],
   ].filter(([kind]) => seen.has(kind));
   const key = cards.size === 1 ? $('#run-legend') : $('.legend', card);
-  key.innerHTML = `<span class="legend-note">${matchMedia('(hover: hover)').matches ? 'Each square is a test:' : 'Each square is a test, tap to read it:'}</span>${items.map(([, cls, glyph, words]) => `<span><span class="${cls}" aria-hidden="true">${glyph ? icon(glyph) : ''}</span>${words}</span>`).join('')}`;
-  key.hidden = false;
   if (cards.size === 1) $('.legend', card).hidden = true;
+  // no solutions, no marks to explain: no key
+  key.hidden = !items.length;
+  if (!items.length) return;
+  key.innerHTML = `<span class="legend-note">${matchMedia('(hover: hover)').matches ? 'Each square is a test:' : 'Each square is a test, tap to read it:'}</span>${items.map(([, cls, glyph, words]) => `<span><span class="${cls}" aria-hidden="true">${glyph ? icon(glyph) : ''}</span>${words}</span>`).join('')}`;
 }
 
 /** What a solution got, in words: "wrong answer on 6 of 12 tests". */
