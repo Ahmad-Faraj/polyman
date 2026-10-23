@@ -5,6 +5,7 @@ import fs from 'fs';
 import { fmt } from '../../../src/formatter';
 import type { PolygonSDK } from '../../../src/polygon';
 import type { StatementConfig } from '../../../src/types';
+import { normalizeLineEndingsFromRemoteToSystem } from '../../../src/helpers/remote/utils';
 
 vi.mock('fs');
 vi.mock('../../../src/formatter', () => ({
@@ -178,6 +179,109 @@ describe('pulling.ts', () => {
 
       expect(result.count).toBe(0);
       expect(result.data[0].source).toBe('acc.cpp');
+    });
+
+    describe('Java class naming', () => {
+      const entry = (name: string, sourceType: string) => ({
+        name,
+        modificationTimeSeconds: 0,
+        length: 0,
+        sourceType,
+        tag: 'OK' as const,
+      });
+      const javaCode =
+        'public class Main {\n  String s = "Main";\n  public static void main(String[] a) { new Main(); }\n}\n';
+
+      it('renames Main to the file name for a Java solution', async () => {
+        mockSdk.getSolutions.mockResolvedValue([
+          entry('Solution.java', 'java21'),
+        ]);
+        mockSdk.viewSolution.mockResolvedValue(javaCode);
+
+        await pulling.downloadSolutions(asSdk(mockSdk), 1, 'dir');
+
+        const written = vi.mocked(fs.writeFileSync).mock.calls[0][1] as string;
+        expect(written).toContain('public class Solution {');
+        expect(written).toContain('new Solution();');
+        expect(written).toContain('"Main"');
+      });
+
+      it('leaves Main.java unchanged', async () => {
+        mockSdk.getSolutions.mockResolvedValue([entry('Main.java', 'java21')]);
+        mockSdk.viewSolution.mockResolvedValue(javaCode);
+
+        await pulling.downloadSolutions(asSdk(mockSdk), 1, 'dir');
+
+        expect(vi.mocked(fs.writeFileSync).mock.calls[0][1]).toBe(javaCode);
+      });
+
+      it('renames Main for an uppercase .JAVA extension', async () => {
+        mockSdk.getSolutions.mockResolvedValue([
+          entry('Solution.JAVA', 'java21'),
+        ]);
+        mockSdk.viewSolution.mockResolvedValue(javaCode);
+
+        await pulling.downloadSolutions(asSdk(mockSdk), 1, 'dir');
+
+        const written = vi.mocked(fs.writeFileSync).mock.calls[0][1] as string;
+        expect(written).toContain('public class Solution {');
+        expect(written).toContain('new Solution();');
+        expect(written).not.toContain('public class Main');
+      });
+
+      it.each(['sol-a.java', '1a.java', 'class.java'])(
+        'leaves %s byte-identical when the base name is not an identifier',
+        async name => {
+          const code = 'public class Main {\n  Main() {}\n}\n';
+          mockSdk.getSolutions.mockResolvedValue([entry(name, 'java21')]);
+          mockSdk.viewSolution.mockResolvedValue(code);
+
+          await pulling.downloadSolutions(asSdk(mockSdk), 1, 'dir');
+
+          expect(vi.mocked(fs.writeFileSync).mock.calls[0][1]).toBe(code);
+        }
+      );
+
+      it('renames Main in CRLF remote content, then normalizes line endings', async () => {
+        const actual = await vi.importActual<
+          typeof import('../../../src/helpers/remote/utils')
+        >('../../../src/helpers/remote/utils');
+        vi.mocked(
+          normalizeLineEndingsFromRemoteToSystem
+        ).mockImplementationOnce(actual.normalizeLineEndingsFromRemoteToSystem);
+        const crlf =
+          'public class Main {\r\n  Main() {}\r\n  String s = "Main";\r\n}\r\n';
+        mockSdk.getSolutions.mockResolvedValue([
+          entry('Solution.java', 'java21'),
+        ]);
+        mockSdk.viewSolution.mockResolvedValue(crlf);
+
+        await pulling.downloadSolutions(asSdk(mockSdk), 1, 'dir');
+
+        // The rename sees the CRLF text and normalization receives its result.
+        expect(normalizeLineEndingsFromRemoteToSystem).toHaveBeenCalledWith(
+          'public class Solution {\r\n  Solution() {}\r\n  String s = "Main";\r\n}\r\n'
+        );
+        const written = vi.mocked(fs.writeFileSync).mock.calls[0][1] as string;
+        const lf =
+          'public class Solution {\n  Solution() {}\n  String s = "Main";\n}\n';
+        // On win32 the remote text is kept as is; elsewhere CRLF becomes LF.
+        expect(written).toBe(
+          process.platform === 'win32' ? lf.replace(/\n/g, '\r\n') : lf
+        );
+      });
+
+      it('leaves C++ solutions unchanged', async () => {
+        const cpp = 'class Main {};\n';
+        mockSdk.getSolutions.mockResolvedValue([
+          entry('Main2.cpp', 'cpp.g++17'),
+        ]);
+        mockSdk.viewSolution.mockResolvedValue(cpp);
+
+        await pulling.downloadSolutions(asSdk(mockSdk), 1, 'dir');
+
+        expect(vi.mocked(fs.writeFileSync).mock.calls[0][1]).toBe(cpp);
+      });
     });
   });
 

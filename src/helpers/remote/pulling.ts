@@ -19,6 +19,7 @@ import type {
 import { fmt } from '../../formatter';
 import { normalizeLineEndingsFromRemoteToSystem } from './utils';
 import { CPP_EXTENSIONS } from '../utils';
+import { renamePublicClass } from '../java-class';
 import { UNPRINTABLE, printable } from '../printable';
 
 export { printable };
@@ -84,7 +85,16 @@ export async function downloadSolutions(
     for (const solution of solutions) {
       try {
         assertPlainName(solution.name);
-        const code = await sdk.viewSolution(problemId, solution.name);
+        let code = await sdk.viewSolution(problemId, solution.name);
+        // Polygon requires `public class Main`; locally the public class
+        // must match the file name.
+        if (path.extname(solution.name).toLowerCase() === '.java') {
+          code = renamePublicClass(
+            code,
+            'Main',
+            path.basename(solution.name, path.extname(solution.name))
+          );
+        }
         const targetPath = path.join(problemDir, 'solutions', solution.name);
         fs.writeFileSync(
           targetPath,
