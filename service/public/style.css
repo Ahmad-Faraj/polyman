@@ -199,13 +199,16 @@ h1 { margin: 20px 0 0; font-size: clamp(2.1rem, 1.3rem + 2.2vw, 3.1rem); line-he
 /* the three stages as brackets over their steps, with the time each took */
 .pipe { display: grid; gap: 6px; }
 .pipe-stages { display: grid; grid-template-columns: repeat(10, minmax(5.75rem, 1fr)); gap: 0 8px; }
-.pipe-stages .stage { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 0 6px 6px; border: 2px solid var(--border); border-bottom: 0; border-radius: 8px 8px 0 0; transition: border-color 0.4s; }
-.pipe-stages em { font-family: var(--font-display); font-style: normal; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted-foreground); }
+.pipe-stages { margin-bottom: 8px; }
+/* each stage is a hexagon-ended band over its steps: a tint while waiting, the theme's gradient once running or done */
+.pipe-stages .stage { --n: 12px; display: flex; align-items: center; justify-content: space-between; gap: 6px; min-height: 30px; padding: 0 calc(var(--n) + 4px); border: 0; border-radius: 0; background: #edf4f9; clip-path: polygon(var(--n) 0, calc(100% - var(--n)) 0, 100% 50%, calc(100% - var(--n)) 100%, var(--n) 100%, 0 50%); transition: background 0.4s; }
+.pipe-stages em { font-family: var(--font-display); font-style: normal; font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted-foreground); white-space: nowrap; }
 .pipe-stages small { font-family: var(--font-mono); font-size: 0.6875rem; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
-.pipe-stages .stage[data-state=now], .pipe-stages .stage[data-state=done] { border-color: var(--brand-2); }
-.pipe-stages .stage[data-state=now] em, .pipe-stages .stage[data-state=done] em { color: #1272b8; }
-.pipe-stages .stage[data-state=failed] { border-color: var(--fail); }
-.pipe-stages .stage[data-state=failed] em { color: var(--fail-ink); }
+.pipe-stages .stage[data-state=now], .pipe-stages .stage[data-state=done] { background: linear-gradient(100deg, #d6f1fd, #e3fbfb); }
+.pipe-stages .stage[data-state=now] em, .pipe-stages .stage[data-state=done] em { color: #0f5f9c; }
+.pipe-stages .stage[data-state=now] small, .pipe-stages .stage[data-state=done] small { color: #0f5f9c; }
+.pipe-stages .stage[data-state=failed] { background: #fde8e8; }
+.pipe-stages .stage[data-state=failed] em, .pipe-stages .stage[data-state=failed] small { color: var(--fail-ink); }
 @media (min-width: 900px) { .pipeline.steps { overflow: visible; } }
 @media (max-width: 899px) { .pipe { overflow-x: auto; padding-bottom: 4px; } .pipe > * { min-width: 60rem; } }
 @media (prefers-reduced-motion: reduce) { .step[data-state] .step-icon svg, .pipeline .step[data-state=now]:before, .pipeline .step[data-state=now]:after { animation: none; } }
