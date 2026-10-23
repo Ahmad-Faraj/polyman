@@ -1071,7 +1071,11 @@ function howChecked(card, ev, at) {
   const steps = ev.report
     ? ev.report.steps.filter((s) => STEP_TITLE[s.name]).map((s) => ({ title: STEP_TITLE[s.name], state: s.ok ? 'ok' : 'failed' }))
     : seen.map((s, i) => ({ title: s.title, state: i < seen.length - 1 ? 'ok' : 'stopped' }));
-  if (!steps.length) return;
+  if (!steps.length) {
+    // no step to show: still end the pipeline, so no step is left spinning
+    finishPipeline(card, [], took, langs);
+    return;
+  }
   // the same steps in the pipeline above the table, so the whole run reads without opening anything
   finishPipeline(card, steps, took, langs);
 }

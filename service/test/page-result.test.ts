@@ -108,3 +108,14 @@ describe('legendFor', () => {
     expect(runLegend.innerHTML).toBe('');
   });
 });
+
+describe('howChecked with no steps', () => {
+  it('ends the pipeline: no step is left spinning', () => {
+    const c = card();
+    const { ctx } = page();
+    expect(c.lis[0].dataset.state).toBe('now');
+    // "could not finish": no report and no step event was seen
+    runInNewContext(`${CODE}\nhowChecked(c, { problem: 'p', error: 'boom' }, 1000)`, { ...ctx, c });
+    expect(c.lis.filter((li) => li.dataset.state === 'now')).toEqual([]);
+  });
+});
