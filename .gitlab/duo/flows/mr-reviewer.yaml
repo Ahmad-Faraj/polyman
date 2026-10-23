@@ -214,7 +214,8 @@ prompts:
            commits change behaviour without a test. Do a full review at the tier instead when the new commits touch
            a file the last review didn't cover, change more than 150 lines, or touch a protected path.
         6. Have every finding rated, with evidence:
-           - P1: wrong behaviour, a security hole or data loss
+           - P1: wrong behaviour, a security hole or data loss; in a check, a gate or a guard, a failure that
+             passes quietly is P1
            - P2: a bug in an edge case, or changed behaviour with no test
            - P3: anything else (naming, style, ideas, "might be worth")
            P1 and P2 need evidence: a file and line plus how it goes wrong, a failing test, or steps to reproduce.

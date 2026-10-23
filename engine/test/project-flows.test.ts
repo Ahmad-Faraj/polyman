@@ -301,6 +301,9 @@ describe("the project's Duo flows", () => {
     // the lead and the three specialists, each right after its own evidence rule
     expect(prompt).toContain(`Without evidence it is P3. ${keep}`);
     expect(prompt.split(`without it, P3. ${keep}`).length - 1).toBe(3);
+    // the lead's P1 carries the code reviewer's clause, so it doesn't lower a quiet failure in a gate (!274 clearTestset)
+    expect(prompt).toContain('- P1: wrong behaviour, a security hole or data loss; in a check, a gate or a guard, a failure that passes quietly is P1 - P2:');
+    expect(prompt.split('In a check, a gate or a guard, a failure that passes quietly is P1.').length - 1).toBe(1);
   });
 
   // #61: 26 of 107 reviews were posted after their MR merged; the check stays, inside the last read turn
