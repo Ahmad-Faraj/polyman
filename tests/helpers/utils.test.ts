@@ -11,6 +11,7 @@ import {
   findPrebuiltTestlib,
   markPrebuiltTestlibUnsupported,
 } from '../../src/helpers/prebuilt-testlib';
+import { findPch, markPchUnsupported } from '../../src/helpers/pch';
 import { quoteShellArgument } from '../../src/helpers/shell';
 import * as utils from '../../src/helpers/utils';
 import type ConfigFile from '../../src/types';
@@ -49,6 +50,12 @@ vi.mock('../../src/helpers/compile-cache', () => ({
       await compile();
     }
   ),
+  debugLog: vi.fn(),
+}));
+// No PCH unless a test provides one; pch.test.ts covers building it.
+vi.mock('../../src/helpers/pch', () => ({
+  findPch: vi.fn(() => Promise.resolve(null)),
+  markPchUnsupported: vi.fn(),
 }));
 // No prebuilt testlib unless a test provides one; prebuilt-testlib.test.ts
 // covers building it.
@@ -807,6 +814,72 @@ describe('utils.ts', () => {
           expect(
             vi.mocked(markPrebuiltTestlibUnsupported)
           ).not.toHaveBeenCalled();
+        });
+      });
+
+      describe('with a precompiled header', () => {
+        const cwd = path.resolve('/p');
+        const pch = { key: 'pk', includeDir: path.join('/cache', 'pch', 'pk') };
+        const q = (value: string) => quoteShellArgument(value);
+        const source = path.join(cwd, 'solutions', 'main.cpp');
+        const output = path.join(cwd, 'solutions', 'main');
+        const base = `${q('g++')} ${q('-O2')} ${q('-std=c++23')} -iquote ${q(cwd)}`;
+        const pchCommand = `${base} -I ${q(pch.includeDir)} -o ${q(output)} ${q(source)}`;
+        const fullCommand = `${base} -o ${q(output)} ${q(source)}`;
+        let cwdSpy: MockInstance<() => string>;
+
+        beforeEach(() => {
+          cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(cwd);
+          vi.mocked(findPch).mockResolvedValueOnce(pch);
+        });
+
+        afterEach(() => {
+          cwdSpy.mockRestore();
+        });
+
+        it('puts the PCH folder on the include path', async () => {
+          await utils.compileCPP('solutions/main.cpp');
+
+          expect(executeMock()).toHaveBeenCalledTimes(1);
+          expect(executeMock()).toHaveBeenCalledWith(
+            pchCommand,
+            expect.anything()
+          );
+          expect(vi.mocked(findPch)).toHaveBeenCalledWith({
+            sourcePath: source,
+            compiler: 'g++',
+            flags: ['-O2', '-std=c++23'],
+          });
+        });
+
+        it('compiles without it and marks it unsupported when it fails', async () => {
+          executeMock()
+            .mockRejectedValueOnce(new Error('bad pch'))
+            .mockResolvedValueOnce({
+              stdout: '',
+              stderr: '',
+              exitCode: 0,
+              success: true,
+            });
+
+          await utils.compileCPP('solutions/main.cpp');
+
+          expect(executeMock()).toHaveBeenLastCalledWith(
+            fullCommand,
+            expect.anything()
+          );
+          expect(vi.mocked(markPchUnsupported)).toHaveBeenCalledWith(pch);
+        });
+
+        it('reports the normal compile error when the source is broken', async () => {
+          executeMock()
+            .mockRejectedValueOnce(new Error('with pch: expected ;'))
+            .mockRejectedValueOnce(new Error('main.cpp:3: expected ;'));
+
+          await expect(utils.compileCPP('solutions/main.cpp')).rejects.toThrow(
+            'main.cpp:3: expected ;'
+          );
+          expect(vi.mocked(markPchUnsupported)).not.toHaveBeenCalled();
         });
       });
     });
