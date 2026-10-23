@@ -12,6 +12,7 @@ import * as testset from '../src/helpers/testset';
 import * as solution from '../src/helpers/solution';
 import * as createTemplate from '../src/helpers/create-template';
 import * as compileCache from '../src/helpers/compile-cache';
+import * as validatorSelfTests from '../src/helpers/validator-selftests';
 import { report } from '../src/report';
 import type { LocalSolution } from '../src/types';
 import fs from 'fs';
@@ -23,6 +24,7 @@ vi.mock('../src/helpers/testset');
 vi.mock('../src/helpers/solution');
 vi.mock('../src/helpers/create-template');
 vi.mock('../src/helpers/compile-cache');
+vi.mock('../src/helpers/validator-selftests');
 vi.mock('../src/formatter');
 vi.mock('fs');
 
@@ -39,6 +41,7 @@ interface ReportDoc {
   failedStep?: string | null;
   steps?: { name: string; ok: boolean; errors: string[] }[];
   solutions?: unknown[];
+  warnings?: string[];
 }
 
 const writtenJson = (): ReportDoc => {
@@ -582,6 +585,89 @@ describe('actions.ts', () => {
       expect(doc.solutions).toEqual([]);
       expect(steps.stepValidateGeneratedTests).not.toHaveBeenCalled();
       expect(process.exit).toHaveBeenCalledWith(1);
+    });
+
+    it('should warn, without failing, when the validator has no INVALID self-tests', async () => {
+      const warning = 'the validator has no INVALID self-tests';
+      vi.mocked(utils.readConfigFile).mockReturnValue({} as any);
+      vi.mocked(validatorSelfTests.validatorSelfTestWarning).mockReturnValue(
+        warning
+      );
+
+      await actions.fullVerificationAction({ json: true });
+
+      const doc = writtenJson();
+      expect(doc.ok).toBe(true);
+      expect(doc.failedStep).toBeNull();
+      expect(doc.warnings).toEqual([warning]);
+      expect(formatter.fmt.warning).toHaveBeenCalledWith(
+        expect.stringContaining(warning)
+      );
+      // once where it is found and once in the closing summary
+      const printed = vi
+        .mocked(formatter.fmt.warning)
+        .mock.calls.filter(([m]) => m.includes(warning));
+      expect(printed).toHaveLength(2);
+      expect(formatter.fmt.successBox).toHaveBeenCalled();
+      expect(process.exit).not.toHaveBeenCalled();
+    });
+
+    it('should repeat the warning in the summary when verification fails later', async () => {
+      const warning = 'the validator has no INVALID self-tests';
+      vi.mocked(utils.readConfigFile).mockReturnValue({} as any);
+      vi.mocked(validatorSelfTests.validatorSelfTestWarning).mockReturnValue(
+        warning
+      );
+      vi.mocked(steps.stepValidateGeneratedTests).mockRejectedValueOnce(
+        new Error('bad test')
+      );
+
+      await actions.fullVerificationAction({ json: true });
+
+      const doc = writtenJson();
+      expect(doc.ok).toBe(false);
+      expect(doc.warnings).toEqual([warning]);
+      const printed = vi
+        .mocked(formatter.fmt.warning)
+        .mock.calls.filter(([m]) => m.includes(warning));
+      expect(printed).toHaveLength(2);
+    });
+
+    it('should skip the warning when test-validator itself fails', async () => {
+      const warning = 'the validator has no INVALID self-tests';
+      vi.mocked(utils.readConfigFile).mockReturnValue({} as any);
+      vi.mocked(validatorSelfTests.validatorSelfTestWarning).mockReturnValue(
+        warning
+      );
+      vi.mocked(steps.stepTestValidator).mockRejectedValueOnce(
+        new Error('Some validator tests failed')
+      );
+
+      await actions.fullVerificationAction({ json: true });
+
+      const doc = writtenJson();
+      expect(doc.failedStep).toBe('test-validator');
+      expect(doc.warnings).toEqual([]);
+      expect(
+        validatorSelfTests.validatorSelfTestWarning
+      ).not.toHaveBeenCalled();
+      const printed = vi
+        .mocked(formatter.fmt.warning)
+        .mock.calls.filter(([m]) => m.includes(warning));
+      expect(printed).toHaveLength(0);
+    });
+
+    it('should report no warnings when the validator has INVALID self-tests', async () => {
+      vi.mocked(utils.readConfigFile).mockReturnValue({} as any);
+      vi.mocked(validatorSelfTests.validatorSelfTestWarning).mockReturnValue(
+        null
+      );
+
+      await actions.fullVerificationAction({ json: true });
+
+      const doc = writtenJson();
+      expect(doc.warnings).toEqual([]);
+      expect(formatter.fmt.warning).not.toHaveBeenCalled();
     });
 
     it('should stop at read-config when a source file named in Config.json is missing', async () => {

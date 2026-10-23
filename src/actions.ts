@@ -100,6 +100,7 @@ import {
   logCacheSummary,
 } from './helpers/compile-cache';
 import { listPrebuiltTestlibs } from './helpers/prebuilt-testlib';
+import { validatorSelfTestWarning } from './helpers/validator-selftests';
 
 import { fmt } from './formatter';
 import { report } from './report';
@@ -913,6 +914,16 @@ export const fullVerificationAction = async (
   }
   fmt.section('🏆 POLYGON PROBLEM VERIFICATION');
 
+  const warnings: string[] = [];
+  const logWarningsSummary = () => {
+    if (warnings.length === 0) return;
+    fmt.newLine();
+    fmt.warning(`  ${fmt.warningIcon()} Warnings (${warnings.length}):`);
+    for (const warning of warnings) {
+      fmt.warning(`    - ${warning}`);
+    }
+  };
+
   try {
     report.beginStep('read-config');
     const config = readConfigFile();
@@ -935,6 +946,12 @@ export const fullVerificationAction = async (
     // step 4: Test validator
     report.beginStep('test-validator');
     await stepTestValidator(stepNum++);
+    const selfTestWarning = validatorSelfTestWarning(config.validator);
+    if (selfTestWarning) {
+      warnings.push(selfTestWarning);
+      fmt.warning(`  ${fmt.warningIcon()} ${selfTestWarning}`);
+      report.addWarning(selfTestWarning);
+    }
 
     // step 5: Validate generated tests
     report.beginStep('validate-tests');
@@ -967,6 +984,7 @@ export const fullVerificationAction = async (
     fmt.success(
       `  ${fmt.checkmark()} All components tested and verified successfully`
     );
+    logWarningsSummary();
     fmt.newLine();
     report.finish(true);
   } catch (error) {
@@ -974,6 +992,7 @@ export const fullVerificationAction = async (
     logCacheSummary();
     fmt.errorBox('VERIFICATION FAILED!');
     fmt.error(`${message}`);
+    logWarningsSummary();
     fmt.newLine();
     report.fail(message);
     report.finish(false);

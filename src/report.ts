@@ -78,6 +78,7 @@ interface ActiveReport {
   currentStep: StepResult | null;
   failedStep: string | null;
   errors: string[];
+  warnings: string[];
   solutions: Map<string, SolutionEntry>;
 }
 
@@ -169,6 +170,18 @@ export class ReportCollector {
     const step = this.active.currentStep;
     if (step && !step.errors.includes(clean)) {
       step.errors.push(clean);
+    }
+  }
+
+  /**
+   * Records a warning. Warnings never fail a step; they are listed in the
+   * verify report's `warnings` array.
+   */
+  addWarning(message: string): void {
+    if (!this.active) return;
+    const clean = stripAnsi(message).trim();
+    if (clean && !this.active.warnings.includes(clean)) {
+      this.active.warnings.push(clean);
     }
   }
 
@@ -285,6 +298,7 @@ export class ReportCollector {
       currentStep: null,
       failedStep: null,
       errors: [],
+      warnings: [],
       solutions: new Map(),
     };
     this.finished = false;
@@ -389,6 +403,7 @@ export class ReportCollector {
         ok: step.ok,
         errors: step.ok ? [] : [...step.errors],
       })),
+      warnings: [...active.warnings],
       solutions,
     };
     return verify;
