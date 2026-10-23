@@ -219,8 +219,10 @@ prompts:
            - P3: anything else (naming, style, ideas, "might be worth")
            P1 and P2 need evidence: a file and line plus how it goes wrong, a failing test, or steps to reproduce.
            Without evidence it is P3. A failed reproduction doesn't remove that evidence: when input a user controls
-           reaches a shell, a path, a file write or eval/exec, the file and line and how it goes wrong still count,
-           so keep the rating, with "not reproduced: WHY".
+           reaches a shell, a path, a file write or eval/exec and the probe never ran that line (wrong input or entry
+           point, setup failure, timeout), the file and line and how it goes wrong still count, so keep the rating,
+           with "not reproduced: WHY". A probe that ran that line and showed the input handled safely refutes the
+           finding: rate it P3 and cite the output.
            Every P1 and P2 an agent can fix becomes a
            proposed fix: what changes, where, and the test that shows it. A P1 or P2 goes to the approver instead if
            no agent should settle it: it is in a file agents may not edit (@@protected_paths@@), or it needs a
@@ -332,8 +334,10 @@ prompts:
         - Rate each finding P1 (wrong behaviour, security hole, data loss), P2 (edge case bug, or changed behaviour
           without a test) or P3 (anything else). P1 and P2 need evidence: file and line plus how it fails, a failing
           test, or steps to reproduce; without it, P3. A failed reproduction doesn't remove that evidence: when
-          input a user controls reaches a shell, a path, a file write or eval/exec, the file and line and how it
-          fails still count, so keep the rating, with "not reproduced: WHY".
+          input a user controls reaches a shell, a path, a file write or eval/exec and the probe never ran that line
+          (wrong input or entry point, setup failure, timeout), the file and line and how it fails still count, so
+          keep the rating, with "not reproduced: WHY". A probe that ran that line and showed the input handled
+          safely refutes the finding: rate it P3 and cite the output.
         - Save calls on looking things up, never on testing. When the change reads input (files, arguments, config,
           network) or builds shell commands, paths, SQL or markup from it, run the built code with hostile and
           edge-case input (quotes, ;, $(), control characters, huge sizes, syntax the parser doesn't support) before
@@ -384,8 +388,10 @@ prompts:
         - Rate each finding P1 (wrong behaviour, security hole, data loss), P2 (edge case bug, or changed behaviour
           without a test) or P3 (anything else). P1 and P2 need evidence: file and line plus how it fails, a failing
           test, or steps to reproduce; without it, P3. A failed reproduction doesn't remove that evidence: when
-          input a user controls reaches a shell, a path, a file write or eval/exec, the file and line and how it
-          fails still count, so keep the rating, with "not reproduced: WHY".
+          input a user controls reaches a shell, a path, a file write or eval/exec and the probe never ran that line
+          (wrong input or entry point, setup failure, timeout), the file and line and how it fails still count, so
+          keep the rating, with "not reproduced: WHY". A probe that ran that line and showed the input handled
+          safely refutes the finding: rate it P3 and cite the output.
         - Save calls on looking things up, never on testing. When the change reads input (files, arguments, config,
           network) or builds shell commands, paths, SQL or markup from it, run the built code with hostile and
           edge-case input (quotes, ;, $(), control characters, huge sizes, syntax the parser doesn't support) before
@@ -430,8 +436,10 @@ prompts:
         - Rate each finding P1 (wrong behaviour, security hole, data loss), P2 (edge case bug, or changed behaviour
           without a test) or P3 (anything else). P1 and P2 need evidence: file and line plus how it fails, a failing
           test, or steps to reproduce; without it, P3. A failed reproduction doesn't remove that evidence: when
-          input a user controls reaches a shell, a path, a file write or eval/exec, the file and line and how it
-          fails still count, so keep the rating, with "not reproduced: WHY".
+          input a user controls reaches a shell, a path, a file write or eval/exec and the probe never ran that line
+          (wrong input or entry point, setup failure, timeout), the file and line and how it fails still count, so
+          keep the rating, with "not reproduced: WHY". A probe that ran that line and showed the input handled
+          safely refutes the finding: rate it P3 and cite the output.
         - Save calls on looking things up, never on testing. When the change reads input (files, arguments, config,
           network) or builds shell commands, paths, SQL or markup from it, run the built code with hostile and
           edge-case input (quotes, ;, $(), control characters, huge sizes, syntax the parser doesn't support) before
