@@ -1802,6 +1802,13 @@ If any of these change, the source is recompiled; otherwise the cached binary is
 
 **testlib is compiled once.** Most of a generator's, validator's or checker's compile time is spent on `testlib.h` itself. The first compile that needs it splits a copy of the problem's `testlib.h` into declarations and definitions, compiles the definitions once into `.polyman/cache/testlib/<key>/testlib.o`, and every testlib program then only parses the declarations and links that object (about 1s instead of 5s per program). The problem's `testlib.h` is never modified. A source compiles against the original header as before when it defines a macro or uses a pragma before `#include "testlib.h"` (testlib reads settings such as `EJUDGE` that way), keeps its own `testlib.h` next to it, is compiled with `--no-cache`, or fails to build against the split while it builds against the original.
 
+**Precompiled `<bits/stdc++.h>`.** With g++, most of a solution's compile time is parsing `<bits/stdc++.h>`. When a source's first directive is `#include <bits/stdc++.h>`, polyman builds `bits/stdc++.h.gch` once and reuses it for every problem you compile with the same compiler and flags. It is stored in your user cache (`~/.cache/polyman/pch` on Linux, `~/Library/Caches/polyman/pch` on macOS, `%LOCALAPPDATA%\polyman\pch` on Windows; `POLYMAN_CACHE_DIR` moves it). Binaries and verdicts are the same with or without it. If a compile fails with the PCH, it is retried without it and reports the normal error.
+
+- **Disk use.** Each `.gch` is about 140 MB. At most 2 are kept (different compilers, `cppStandard` or `compiler.flags` each need their own); the least recently used is removed when a third is built.
+- **Not used** with clang or Apple's `g++`, with `--no-cache`, when `CPLUS_INCLUDE_PATH` is set, or for flags the compile cache does not accept.
+- **A failed build** is retried after a day and after a polyman upgrade; until then compiles go on normally.
+- **Turn it off** with `POLYMAN_PCH=0`, or delete the `pch` folder to free the space. `POLYMAN_DEBUG=1` logs which path each compile took.
+
 **Managing the cache.**
 
 ```bash

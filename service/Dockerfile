@@ -57,6 +57,7 @@ ENV NODE_ENV=production \
     POLYMAN_CLI=/app/dist/cli.js \
     TESTLIB_H=/opt/testlib/testlib.h \
     PCH_DIR=/opt/pch \
+    POLYMAN_PCH=0 \
     RUNNER_UID=10001 \
     RUNNER_GID=10001 \
     APP_COMMIT=$APP_COMMIT

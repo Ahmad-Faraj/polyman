@@ -193,6 +193,190 @@ describe('pch.ts', () => {
     });
   });
 
+  describe('atomic build', () => {
+    it('never shows the .gch under its final name before the build ends', async () => {
+      const seen: boolean[] = [];
+      const base = executeMock.getMockImplementation()!;
+      executeMock.mockImplementation(async (command, options) => {
+        const result = await base(command, options);
+        if (command.includes('c++-header')) {
+          const key = pch.pchKey(request(), GCC);
+          seen.push(
+            fs.existsSync(
+              path.join(cacheDir, 'pch', key, 'bits', 'stdc++.h.gch')
+            )
+          );
+        }
+        return result;
+      });
+
+      const built = await pch.findPch(request());
+
+      expect(seen).toEqual([false]);
+      expect(
+        fs.existsSync(path.join(built!.includeDir, 'bits', 'stdc++.h.gch'))
+      ).toBe(true);
+      expect(fs.readdirSync(path.join(built!.includeDir, 'bits'))).toEqual([
+        'stdc++.h.gch',
+      ]);
+    });
+
+    it('leaves no temp file behind after a failed build', async () => {
+      fakeCompiler({ failBuild: true });
+      await pch.findPch(request());
+      const dir = path.join(
+        cacheDir,
+        'pch',
+        pch.pchKey(request(), GCC),
+        'bits'
+      );
+      expect(fs.existsSync(dir) ? fs.readdirSync(dir) : []).toEqual([]);
+    });
+  });
+
+  describe('unsupported mark', () => {
+    const key = () => pch.pchKey(request(), GCC);
+    const markFile = () => path.join(cacheDir, 'pch', key(), 'unsupported');
+    const writeMark = (content: string) => {
+      fs.mkdirSync(path.dirname(markFile()), { recursive: true });
+      fs.writeFileSync(markFile(), content);
+    };
+    const version = () =>
+      (
+        JSON.parse(
+          fs.readFileSync(
+            path.join(__dirname, '..', '..', 'package.json'),
+            'utf8'
+          )
+        ) as { version: string }
+      ).version;
+
+    it('records the time and the polyman version', async () => {
+      fakeCompiler({ failBuild: true });
+      await pch.findPch(request());
+      const mark = JSON.parse(fs.readFileSync(markFile(), 'utf8')) as {
+        at: number;
+        version: string;
+      };
+      expect(typeof mark.at).toBe('number');
+      expect(mark.version).toBe(version());
+    });
+
+    it('honours a fresh mark', async () => {
+      writeMark(JSON.stringify({ at: Date.now() - 1000, version: version() }));
+      expect(await pch.findPch(request())).toBeNull();
+      expect(pchBuilds()).toHaveLength(0);
+    });
+
+    it('retries the build after a day, and a successful build clears the mark', async () => {
+      writeMark(
+        JSON.stringify({
+          at: Date.now() - pch.UNSUPPORTED_RETRY_MS - 1000,
+          version: version(),
+        })
+      );
+      const result = await pch.findPch(request());
+      expect(result).not.toBeNull();
+      expect(pchBuilds()).toHaveLength(1);
+      expect(fs.existsSync(markFile())).toBe(false);
+    });
+
+    it('retries the build when the mark is from another polyman version', async () => {
+      writeMark(JSON.stringify({ at: Date.now(), version: '0.0.0-old' }));
+      expect(await pch.findPch(request())).not.toBeNull();
+      expect(pchBuilds()).toHaveLength(1);
+      expect(fs.existsSync(markFile())).toBe(false);
+    });
+
+    it.each([
+      ['an empty mark', ''],
+      ['an unreadable mark', '{not json'],
+    ])('treats %s as expired', async (_name, content) => {
+      writeMark(content);
+      expect(await pch.findPch(request())).not.toBeNull();
+      expect(pchBuilds()).toHaveLength(1);
+    });
+
+    it('expires the mark a failed compile left, too', async () => {
+      const first = await pch.findPch(request());
+      pch.markPchUnsupported(first!);
+      const mark = JSON.parse(fs.readFileSync(markFile(), 'utf8')) as {
+        at: number;
+        version: string;
+      };
+      expect(typeof mark.at).toBe('number');
+      expect(mark.version).toBe(version());
+      writeMark(
+        JSON.stringify({
+          at: Date.now() - pch.UNSUPPORTED_RETRY_MS - 1000,
+          version: version(),
+        })
+      );
+      pch.resetPchState();
+      expect(await pch.findPch(request())).not.toBeNull();
+      expect(fs.existsSync(markFile())).toBe(false);
+    });
+  });
+
+  describe('at most 2 keys', () => {
+    const flagsFor = (n: number) => ['-O2', `-std=c++${n}`];
+    const gchOf = (r: PchRequest) =>
+      path.join(cacheDir, 'pch', pch.pchKey(r, GCC), 'bits', 'stdc++.h.gch');
+    const age = (r: PchRequest, ms: number) => {
+      const when = new Date(Date.now() - ms);
+      fs.utimesSync(gchOf(r), when, when);
+    };
+
+    it('removes the least recently used key when a third is built', async () => {
+      const a = request({ flags: flagsFor(11) });
+      const b = request({ flags: flagsFor(14) });
+      const c = request({ flags: flagsFor(17) });
+      await pch.findPch(a);
+      await pch.findPch(b);
+      age(a, 3 * 60 * 60 * 1000);
+      age(b, 2 * 60 * 60 * 1000);
+
+      await pch.findPch(c);
+
+      expect(fs.existsSync(gchOf(a))).toBe(false);
+      expect(fs.existsSync(gchOf(b))).toBe(true);
+      expect(fs.existsSync(gchOf(c))).toBe(true);
+    });
+
+    it('keeps a key that was used recently, whatever its age of creation', async () => {
+      const a = request({ flags: flagsFor(11) });
+      const b = request({ flags: flagsFor(14) });
+      const c = request({ flags: flagsFor(17) });
+      await pch.findPch(a);
+      await pch.findPch(b);
+      age(a, 3 * 60 * 60 * 1000);
+      age(b, 2 * 60 * 60 * 1000);
+      pch.resetPchState();
+      await pch.findPch(a); // use refreshes a's mtime
+
+      await pch.findPch(c);
+
+      expect(fs.existsSync(gchOf(a))).toBe(true);
+      expect(fs.existsSync(gchOf(b))).toBe(false);
+      expect(fs.existsSync(gchOf(c))).toBe(true);
+    });
+
+    it('never removes the key just built, even when it looks oldest', async () => {
+      const a = request({ flags: flagsFor(11) });
+      const b = request({ flags: flagsFor(14) });
+      const c = request({ flags: flagsFor(17) });
+      await pch.findPch(a);
+      await pch.findPch(b);
+      const future = new Date(Date.now() + 60 * 60 * 1000);
+      fs.utimesSync(gchOf(a), future, future);
+      fs.utimesSync(gchOf(b), future, future);
+
+      await pch.findPch(c);
+
+      expect(fs.existsSync(gchOf(c))).toBe(true);
+    });
+  });
+
   describe('when it does not apply', () => {
     it.each([
       ['testlib first', '#include "testlib.h"\n#include <bits/stdc++.h>\n'],

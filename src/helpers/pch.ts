@@ -45,6 +45,12 @@ export const PCH_FORMAT_VERSION = 1;
 const GCH = path.join('bits', 'stdc++.h.gch');
 const BAD = 'unsupported';
 
+/** A failed build, or a compile that failed with the PCH, is retried after this. */
+export const UNSUPPORTED_RETRY_MS = 24 * 60 * 60 * 1000;
+
+/** Each `.gch` is about 140 MB, so a user cache keeps at most this many keys. */
+export const MAX_PCH_KEYS = 2;
+
 /** Building the PCH takes a few seconds once; give it room on slow machines. */
 const PCH_BUILD_TIMEOUT_MS = 120000;
 
@@ -170,30 +176,88 @@ async function findHeader(request: PchRequest, dir: string): Promise<string> {
   }
 }
 
-function markBad(dir: string): void {
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, BAD), '');
+function readPolymanVersion(): string {
+  try {
+    const raw = fs.readFileSync(
+      path.join(__dirname, '..', '..', 'package.json'),
+      'utf8'
+    );
+    const parsed = JSON.parse(raw) as { version?: unknown };
+    return typeof parsed.version === 'string' ? parsed.version : 'unknown';
+  } catch {
+    return 'unknown';
+  }
 }
 
-/** Removes PCHs nobody used for longer than the cache's maximum age. */
+function markBad(dir: string): void {
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, BAD),
+    JSON.stringify({ at: Date.now(), version: readPolymanVersion() })
+  );
+}
+
+/**
+ * Whether the key is marked unsupported right now. A mark that is older than
+ * a day, was written by another polyman version, or can't be read is removed,
+ * so the build is tried again.
+ */
+function isMarkedBad(dir: string): boolean {
+  const mark = path.join(dir, BAD);
+  let raw: string;
+  try {
+    raw = fs.readFileSync(mark, 'utf8');
+  } catch {
+    return false;
+  }
+  let fresh = false;
+  try {
+    const parsed = JSON.parse(raw) as { at?: unknown; version?: unknown };
+    fresh =
+      typeof parsed.at === 'number' &&
+      Date.now() - parsed.at < UNSUPPORTED_RETRY_MS &&
+      parsed.version === readPolymanVersion();
+  } catch {
+    // an empty or unreadable mark counts as expired
+  }
+  if (!fresh) fs.rmSync(mark, { force: true });
+  return fresh;
+}
+
+/**
+ * Removes PCHs nobody used for longer than the cache's maximum age, then the
+ * least recently used ones until at most `MAX_PCH_KEYS` hold a `.gch`. The
+ * key just built or used is never removed.
+ */
 function pruneOthers(keep: string): void {
   const root = getPchRoot();
   const now = Date.now();
+  const kept: { dir: string; usedAt: number }[] = [];
   for (const key of fs.readdirSync(root)) {
     if (key === keep) continue;
     const dir = path.join(root, key);
     const gch = path.join(dir, GCH);
-    const stamp = fs.existsSync(gch) ? gch : dir;
-    if (now - fs.statSync(stamp).mtimeMs > DEFAULT_MAX_ENTRY_AGE_MS) {
+    const hasGch = fs.existsSync(gch);
+    const usedAt = fs.statSync(hasGch ? gch : dir).mtimeMs;
+    if (now - usedAt > DEFAULT_MAX_ENTRY_AGE_MS) {
       fs.rmSync(dir, { recursive: true, force: true });
+    } else if (hasGch) {
+      kept.push({ dir, usedAt });
     }
+  }
+  kept.sort((a, b) => b.usedAt - a.usedAt);
+  for (const entry of kept.slice(MAX_PCH_KEYS - 1)) {
+    fs.rmSync(entry.dir, { recursive: true, force: true });
+    debugLog(
+      `pch: removed least recently used ${path.basename(entry.dir).slice(0, 12)}`
+    );
   }
 }
 
 async function prepare(key: string, request: PchRequest): Promise<Pch | null> {
   const dir = path.join(getPchRoot(), key);
   const gch = path.join(dir, GCH);
-  if (fs.existsSync(path.join(dir, BAD))) {
+  if (isMarkedBad(dir)) {
     debugLog(`pch: key ${key.slice(0, 12)} marked unsupported, not used`);
     return null;
   }
@@ -221,6 +285,7 @@ async function prepare(key: string, request: PchRequest): Promise<Pch | null> {
       { timeout: PCH_BUILD_TIMEOUT_MS, silent: true }
     );
     fs.renameSync(tmp, gch);
+    fs.rmSync(path.join(dir, BAD), { force: true });
   } catch (error) {
     debugLog(
       `pch: build failed for key ${key.slice(0, 12)} (${String(error).split('\n')[0]}); normal compiles`
