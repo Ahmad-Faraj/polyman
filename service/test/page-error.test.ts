@@ -14,12 +14,17 @@ const CODE = [
   piece(/^const cap = .*$/m),
   piece(/^const BROKEN_ZIP = .*$/m),
   piece(/^function plainReason\([\s\S]*?^\}$/m),
+  piece(/^function hideLog\([\s\S]*?^\}$/m),
+  piece(/^function settle\([\s\S]*?^\}$/m),
+  piece(/^function stopped\([\s\S]*?^\}$/m),
   piece(/^function showError\([\s\S]*?^\}$/m),
 ].join('\n');
 
 class El {
   classList: Set<string> & { add(...c: string[]): void; remove(...c: string[]): void; contains(c: string): boolean };
   hidden = false;
+  style = { minHeight: '' };
+  kids = 0;
   textContent = '';
   innerHTML = '';
   className = '';
@@ -36,10 +41,14 @@ class El {
   append() {}
   focus() {}
   removeAttribute() {}
+  setAttribute() {}
+  replaceChildren() {
+    this.kids = 0;
+  }
 }
 
 /** A page after a passing run that also found something, then showError(...args). */
-function refuseAfterPass(args: unknown[], times = 1) {
+function refuseAfterPass(args: unknown[], times = 1, call = 'showError(...args)') {
   const els = {
     run: new El('is-good', 'has-found'),
     title: new El('own-line'),
@@ -48,6 +57,8 @@ function refuseAfterPass(args: unknown[], times = 1) {
     again: new El(),
     download: new El(),
     verdict: new El(),
+    log: Object.assign(new El(), { kids: 3 }),
+    head: new El(),
   };
   const noop = () => {};
   const ctx = {
@@ -56,8 +67,16 @@ function refuseAfterPass(args: unknown[], times = 1) {
     pending: 'even-sum',
     $: () => new El(),
     document: { createElement: () => new El() },
-    settle: () => els.run.classList.remove('is-running'),
-    heroParts: noop,
+    clearInterval: noop,
+    clearTimeout: noop,
+    timer: 0,
+    noticeTimer: 0,
+    finished: false,
+    // a one-problem run just ended: its log is on show
+    cards: new Map([['even-sum', {}]]),
+    lastRun: null,
+    expected: new Set(),
+    showPreview: noop,
     setHead: noop,
     setStatus: noop,
     markSample: noop,
@@ -67,7 +86,7 @@ function refuseAfterPass(args: unknown[], times = 1) {
     showCard: noop,
     say: noop,
   };
-  runInNewContext(`${CODE}\nshowError(...args)`, { ...ctx, args });
+  runInNewContext(`${CODE}\n${call}`, { ...ctx, args });
   return els;
 }
 
@@ -85,5 +104,16 @@ describe('showError after a passing result', () => {
       expect(els.title.classList.contains('own-line')).toBe(false);
       expect(els.facts.hidden).toBe(true);
     }
+  });
+});
+
+describe('the run log after a one-problem run', () => {
+  it.each([
+    ['showError', 'showError(...args)', ['notes.txt isn\'t a .zip.', null, 'local', 'Nothing was sent.']],
+    ['stopped', 'stopped()', []],
+  ])('%s hides and empties the old log', (_name, call, args) => {
+    const els = refuseAfterPass(args, 1, call);
+    expect(els.log.hidden).toBe(true);
+    expect(els.log.kids).toBe(0);
   });
 });

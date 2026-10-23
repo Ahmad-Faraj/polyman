@@ -799,6 +799,7 @@ async function start(url, body, name, tries = 1) {
 /** The service checks one upload at a time: wait for the slot, then start again by itself. */
 function queue(wait, tries) {
   settle();
+  hideLog();
   clearProblems();
   // nothing is under way while it waits its turn
   if (tries >= MAX_TRIES) {
@@ -1373,6 +1374,12 @@ function holdHead() {
 }
 
 /** The run is over, with or without an answer: let the card size itself again. */
+/** No run to show a log for: hide it and empty it, so an old run's lines never sit under a new head. */
+function hideLog() {
+  els.log.hidden = true;
+  els.log.replaceChildren();
+}
+
 function settle() {
   finished = true;
   clearInterval(timer);
@@ -1387,6 +1394,7 @@ function settle() {
 
 function stopped() {
   settle();
+  hideLog();
   // a sample keeps its solutions in view, as before it ran
   if (!lastRun?.body && expected.has(label)) showPreview(label);
   else clearProblems();
@@ -1430,6 +1438,7 @@ function plainReason(message = '') {
 
 function showError(message, issues, kind = 'refused', detail = '') {
   settle();
+  hideLog();
   const offline = kind === 'offline';
   // the browser's own checks: a short fact and what to do, and the service never saw the file
   const local = kind === 'local';
