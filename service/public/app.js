@@ -437,38 +437,6 @@ function showIdle(name) {
 }
 
 /** The tab for the sample in the result card is the selected one, and the one Tab lands on. */
-/** The hero's three parts (shadcn Items) follow the run's ten steps: 5 make the tests, 2 prove the checker, 3 judge.
- * at: the step under way (0-9), STEPS.length when all are done, -1 for no run, 'stopped' when a run broke off. */
-const PARTS = [5, 7, 10];
-function heroParts(at) {
-  document.querySelectorAll('.hero-parts .item').forEach((item, i) => {
-    const use = $('figure use', item);
-    item.dataset.icon ??= use.getAttribute('href');
-    const from = i ? PARTS[i - 1] : 0;
-    const state = at === -1 ? '' : at === 'stopped' ? (item.dataset.state === 'active' ? 'stopped' : item.dataset.state) : at >= PARTS[i] ? 'done' : at >= from ? 'active' : 'pending';
-    item.dataset.state = state ?? '';
-    use.setAttribute('href', state === 'done' ? '#i-check' : state === 'active' ? '#i-spin' : state === 'stopped' ? '#i-stop' : item.dataset.icon);
-  });
-}
-
-/** polyman's report names its steps; each belongs to one of the three parts (reading the config comes first). */
-const STEP_PART = {
-  'read-config': 0, 'compile-generators': 0, 'generate-tests': 0, 'compile-validator': 0, 'test-validator': 0, 'validate-tests': 0,
-  'compile-checker': 1, 'test-checker': 1,
-  'compile-solutions': 2, 'run-solutions': 2, 'verify-solutions': 2,
-};
-/** The run is over: each part ends passed (a check), failed (an x), or not reached; a contest's parts fail if any problem's did. */
-function heroResult(reports) {
-  document.querySelectorAll('.hero-parts .item').forEach((item, i) => {
-    const steps = reports.flatMap((r) => r.steps).filter((s) => STEP_PART[s.name] === i);
-    const use = $('figure use', item);
-    item.dataset.icon ??= use.getAttribute('href');
-    const state = !steps.length ? 'pending' : steps.every((s) => s.ok) ? 'done' : 'failed';
-    item.dataset.state = state;
-    use.setAttribute('href', state === 'done' ? '#i-check' : state === 'failed' ? '#i-x' : item.dataset.icon);
-  });
-}
-
 function markSample(name) {
   const tabs = [...els.samples.querySelectorAll('.sample')];
   for (const b of tabs) {
@@ -686,7 +654,6 @@ async function start(url, body, name, tries = 1) {
   els.log.hidden = false;
   logLine(null, body ? `Sent ${name} to the service` : `Asked the service to check the ${name} sample`);
   els.run.classList.remove('has-found');
-  heroParts(0);
   // the sample cards mark the one in the result card; an upload is none of them
   if (!body) pending = name;
   markSample(body ? null : name);
@@ -778,7 +745,6 @@ function queue(wait, tries) {
   settle();
   clearProblems();
   // nothing is under way while it waits its turn
-  heroParts(-1);
   if (tries >= MAX_TRIES) {
     setHead(`Not started: ${label}`, 'The service is still busy.', 'Other checks have kept it busy for a few minutes. Run it again in a minute.');
     setStatus('Busy', 'secondary');
@@ -862,10 +828,7 @@ function handle(ev) {
     if (!stepAt.has(ev.problem)) stepAt.set(ev.problem, []);
     stepAt.get(ev.problem).push({ title: ev.title, t: performance.now() - runStart });
     logLine(ev.problem, STEP_WORDS[ev.title] ?? ev.title);
-    // (a contest's parts go as far as the problem furthest behind)
-    if (cards.size > 1) heroParts(Math.min(...[...cards.keys()].map((n) => reached.get(n) ?? 0)));
     if (cards.size === 1) {
-      heroParts(at);
       step = at + 1;
       els.sub.textContent = progress(runStart);
       holdHead();
@@ -909,9 +872,6 @@ function handle(ev) {
     const reports = events.filter((e) => e.type === 'problem');
     const unfinished = !reports.length || reports.every((e) => !e.report);
     showActions('done');
-    // the hero's parts end as the report says each went; a run with no report leaves the part under way stopped
-    if (unfinished) heroParts('stopped');
-    else heroResult(reports.filter((e) => e.report).map((e) => e.report));
     if (!unfinished) suggestNext(ev.ok);
     else if (lastRun?.body) els.choose.hidden = false;
     // a sample's point, answered first: the demo asked "can the check find it?", sandbox-check "does the sandbox hold?"
@@ -1374,7 +1334,6 @@ function stopped() {
   if (!lastRun?.body && expected.has(label)) showPreview(label);
   else clearProblems();
   setHead(`Stopped ${label}`, 'You stopped the check.', 'Nothing was kept. Run it again whenever you like.');
-  heroParts(-1);
   setStatus('Stopped', 'secondary');
   showActions('done');
   els.download.hidden = true;
@@ -1392,8 +1351,6 @@ function failMidway(message) {
     const label = $('.step-label', li);
     label.dataset.tooltip = `${label.dataset.tooltip} The run stopped here.`;
   }
-  for (const bar of els.problems.querySelectorAll('.progress')) bar.classList.add('stopped');
-  heroParts('stopped');
   els.run.classList.add('is-bad');
   setStatus('Did not finish', 'destructive');
   showActions('done');
@@ -1415,7 +1372,6 @@ function plainReason(message = '') {
 
 function showError(message, issues, kind = 'refused', detail = '') {
   settle();
-  heroParts(-1);
   const offline = kind === 'offline';
   // the browser's own checks: a short fact and what to do, and the service never saw the file
   const local = kind === 'local';

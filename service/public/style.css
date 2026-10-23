@@ -142,15 +142,6 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 .checks.folded li.ok { display: none; }
 .checks .met-toggle { display: block; grid-column: 1 / -1; padding: 2px 0 0 28px; }
 .checks .met-toggle .btn { padding-inline: 0; height: auto; min-height: 44px; }
-.steps-live li.stopped { color: var(--muted-foreground); }
-/* the run's progress (Basecoat progress), stopped grey if the run broke off */
-.progress > span { background-color: var(--pass); }
-.progress.stopped > span { background-color: var(--muted-foreground); }
-/* indeterminate while the first, longest step runs */
-/* (the Skeleton's shimmer, in the pass colour: the bar is working, how far is not known yet) */
-.progress.indeterminate > span { width: 100%; background: linear-gradient(90deg, var(--muted) 0%, var(--pass) 50%, var(--muted) 100%) 0 0 / 200% 100%; animation: shimmer 1.4s linear infinite; }
-/* (with motion reduced the shimmer can't move, so the bar is the plain track until it knows how far) */
-@media (prefers-reduced-motion: reduce) { .progress.indeterminate > span { background: none; } }
 /* CardFooter: the actions in shadcn's order, and no empty footer while a run is on */
 .result > footer { flex-wrap: wrap; gap: 8px; }
 .result > footer #download { margin-left: auto; margin-right: calc(var(--spacing) * -3); }
