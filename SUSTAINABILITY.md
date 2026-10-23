@@ -10,13 +10,14 @@
 - **M, embodied:** per vCPU-hour for the runner (1.2 g per vCPU-hour); not included for the model's hardware ["How it's calculated", "The warm verify instance"].
 - **The gain, on the same diffs (n=5):** the same five MRs, frozen at the heads of their first reviews, reviewed again. Median per review 8.4-70.0 → 4.0-31.1 gCO2e, and 13.1 → 5.8 credits (original reviews against reviewer 1.0.25). **The quality cost:** about two thirds of the original P1/P2 findings, 11 of 17 found at P1/P2, plus 6 new ones and no false P1; the one P1 was rated P2. n=5, one run per version ["Same diffs, three reviewer versions"].
 - **A change that failed its bar and was reverted (E-R):** a rule to reproduce each P1/P2 before rating it. The bar, written before the rerun, was at least 15 of 17; it found 9 of 17, so !182 reverted it ["The change that was reverted"].
-- **E-R2 (clean recall rerun): results on Friday.**
-- **The warm verify instance (judging window), counted too:** 92-146 gCO2e per day, 2,500-4,000 g for 20 Oct to 16 Nov (an upper bound), about the grams of 3 to 14 high-risk reviews a day. It saves a judge's first verify a 23.6 s cold start and goes back to 0 after judging ["The warm verify instance"].
-- **How to recompute:** the per-tier review figures (Oct 16-18) are in an Impact Framework manifest, [sustainability/agent-reviews.yml](sustainability/agent-reviews.yml), builtin Multiply and Sum only: `npx -y -p @grnsft/if@1.1.1 if-run -m sustainability/agent-reviews.yml`. The same-diff figures come from the session ids listed under "How it was verified", by the same method.
+- **The warm verify instance (judging window), counted too:** 92-146 gCO2e per day, 2,500-4,000 g for 20 Oct to 16 Nov (an upper bound), about the grams of 4 to 18 high-risk reviews a day. It saves a judge's first verify a 23.6 s cold start and goes back to 0 after judging ["The warm verify instance"].
+- **How to recompute:** the per-tier review figures (Oct 16-23, all reviewer versions) are in an Impact Framework manifest, [sustainability/agent-reviews.yml](sustainability/agent-reviews.yml), builtin Multiply and Sum only: `npx -y -p @grnsft/if@1.1.1 if-run -m sustainability/agent-reviews.yml`. The same-diff figures come from the session ids listed under "How it was verified", by the same method.
 
 Our agents run on GitLab: each Duo flow session is a CI job on a runner, and
-its model calls run on GitLab's side. We count both, and say which part is
-measured and which is estimated.
+its model calls run on GitLab's side. We count both: every model call of every
+agent session, read from the session's checkpoints, and each session's runner
+time from the GitLab API. The committed data has 719 sessions, Oct 16 18:58 to
+Oct 23 12:59 UTC. We say which part is measured and which is estimated.
 
 ## The numbers in short
 
@@ -26,12 +27,15 @@ low and a high end (method below).
 
 | Review depth (set by the risk score) | Reviews | Model calls | Tokens | gCO2e per review, low-high |
 |---|---|---|---|---|
-| high: security, code and test specialists | 105 | 38 | 1.62M | 6.8-56.2 |
-| medium: code and test specialists | 26 | 30 | 1.23M | 5.0-44.8 |
-| low: one light review | 16 | 7 | 0.35M | 1.2-10.4 |
+| high: security, code and test specialists | 311 | 27 | 0.93M | 5.0-40.8 |
+| medium: code and test specialists | 71 | 19 | 0.66M | 3.3-28.7 |
+| low: one light review | 58 | 5 | 0.28M | 0.9-7.5 |
 
-Medians per review, Oct 16 18:58 to Oct 18 17:39 UTC, before the cuts below (from the committed
-[sustainability/agent-tokens.json](sustainability/agent-tokens.json)). After them (reviewer 1.0.17, 9 full
+Medians per review, Oct 16 18:58 to Oct 23 12:59 UTC, every reviewer version together, before and after the
+cuts below (from the committed [sustainability/agent-tokens.json](sustainability/agent-tokens.json)). When the file
+stopped at Oct 18 17:39 UTC (counted on Oct 18), the same table read high
+105 reviews, 38 calls, 1.62M tokens, 6.8-56.2 g; medium 26, 30, 1.23M, 5.0-44.8 g; low 16, 7, 0.35M, 1.2-10.4 g.
+After the cuts (reviewer 1.0.17, 9 full
 reviews, Oct 18 17:58 to 23:26 UTC) a full review takes a median of 21 calls and 493k input tokens, and about
 5.8 GitLab credits instead of 11.1 (72 full reviews before), on mostly small MRs.
 Median credits per full review by reviewer version, counted from every session's checkpoints to Oct 19 20:03 UTC:
@@ -42,11 +46,12 @@ against 1.0.22-1.0.24), while the lead stayed at 7 to 8 calls. The later reviews
 (651 changed lines on average, against 114) and mostly re-reviews (10 of 13, 9 of them asked for by a
 person), so we don't split the rise between testing and MR size.
 
-- **Inference is most of it.** The runner is about 1.9 g of a high review on average; the
-  model calls are the rest. A carbon number that counts only CI misses most of
-  what agents emit.
+- **Most of it is the model calls, so we count every one.** The runner is about 1.3 g
+  of a high review on average (Oct 16-23); the model calls are the rest, 76-97% of
+  its estimated total.
 - **Depth follows risk: a low-risk review takes about 1/5 of the calls and
-  tokens of a high-risk one.** The risk score comes from what changed (paths,
+  3/10 of the tokens of a high-risk one** (medians: 5 calls and 278k tokens
+  against 27 and 930k). The risk score comes from what changed (paths,
   size, new scanner findings on the lines it wrote), so a small documentation or
   test change doesn't get three specialists.
 - **Sessions that didn't do their job.** Of 176 reviewer sessions before
@@ -103,33 +108,33 @@ A review is only part of a fix. Functional unit two: **one judge-found bug fixed
 
 [SCI for AI](https://github.com/Green-Software-Foundation/sci-ai/blob/dev/SPEC.md) (Green Software Foundation) draws the consumer's boundary around inference and orchestration. It takes a language model's functional unit per token and an agentic workload's per workflow execution: here, one review. Each session's checkpoint holds every model reply with its usage, so this section counts the calls instead of bounding them from the log, and splits the tokens into four classes: uncached input, cache writes, cache reads and output.
 
-232 sessions, from Oct 16 18:58 to Oct 18 17:39 UTC (all in the committed sessions file; `node engine/src/cli/sci-report.ts` prints these tables from it):
+719 sessions, from Oct 16 18:58 to Oct 23 12:59 UTC, every flow version together (all in the committed sessions file; `node engine/src/cli/sci-report.ts` prints these tables from it):
 
 | Flow | Sessions | Model calls | Tokens | Cache reads | Output |
 |---|---|---|---|---|---|
-| mr-reviewer | 176 (27 skipped) | 5,573 | 283.8M | 82% | 3.4% |
-| issue-builder | 28 | 286 | 12.0M | 83% | 2.4% |
-| pipeline-fixer | 12 | 82 | 3.6M | 78% | 0.9% |
-| incident-responder | 5 | 28 | 1.5M | 75% | 1.1% |
+| mr-reviewer | 561 (115 skipped) | 11,467 | 495.4M | 76% | 3.4% |
+| issue-builder | 89 | 942 | 42.8M | 86% | 1.6% |
+| pipeline-fixer | 44 (8 skipped) | 256 | 11.0M | 76% | 0.9% |
+| incident-responder | 14 | 88 | 4.9M | 76% | 1.1% |
 | GitLab's own flows (Developer and others) | 11 | 59 | 0.9M | 29% | 4.0% |
 
 Reviews by risk tier, median per review:
 
 | Tier | Reviews | Model calls | Tokens | of which cache reads | gCO2e per review, low-high | gCO2e per 1M tokens, low-high |
 |---|---|---|---|---|---|---|
-| high | 105 | 38 | 1.62M | 1.28M | 6.8-56.2 | 3.5-28.6 |
-| medium | 26 | 30 | 1.23M | 0.91M | 5.0-44.8 | 4.3-34.4 |
-| low | 16 | 7 | 0.35M | 0.27M | 1.2-10.4 | 2.7-23.4 |
+| high | 311 | 27 | 0.93M | 0.68M | 5.0-40.8 | 4.2-34.4 |
+| medium | 71 | 19 | 0.66M | 0.44M | 3.3-28.7 | 4.6-37.3 |
+| low | 58 | 5 | 0.28M | 0.18M | 0.9-7.5 | 3.2-26.5 |
 
-- **The reviewer is 94% of every token our agents used.** Builds, fixes and incidents together are 6%. Review depth, and which reviews run at all, is where savings are.
-- **Counted calls narrow the range.** A high review averages 43.7 counted calls (8.0-65.2 g).
-- **Most input is a cache read.** That's 79% of a high review's tokens (1.28M of 1.62M, medians), and its uncached input is under 100 tokens. Output is about 3%. A per-token energy figure that assumes every input token is computed afresh would overstate this workload, so the energy stays per call (below), and none of the figures is measured for this model.
-- **The security reviewer carries 38% of a high review's tokens with 27% of its calls.** It has the largest input per call: the scanner findings it pulled for the whole branch. Since !98 it gets only the findings on the lines the MR wrote.
+- **The reviewer is 89% of every token our agents used.** Builds, fixes and incidents together are 11%. Review depth, and which reviews run at all, is where savings are.
+- **Counted calls narrow the range.** A high review averages 30.4 counted calls (5.6-45.3 g).
+- **Most input is a cache read.** That's 73% of a high review's tokens (0.68M of 0.93M, medians), and its uncached input is under 100 tokens (median 62). Output is about 3%. A per-token energy figure that assumes every input token is computed afresh would overstate this workload, so the energy stays per call (below), and none of the figures is measured for this model.
+- **The security reviewer carries 28% of a high review's tokens with 25% of its calls**, and the lead 35% with 23%. In the Oct 16-18 sessions it carried 38% with 27%: it had the largest input per call, the scanner findings it pulled for the whole branch. Since !98 it gets only the findings on the lines the MR wrote.
 - **The small model made the test reviewer dearer, so it went back.** !99 moved it to `claude-haiku-4-5`; in the 5 full reviews that followed it made 18 to 93 calls (median 43) where it had made a median of 9 (72 full reviews before), and a full review took a median of 57 calls instead of 40. It also edited files during reviews it was told only to report on. !107 put it back on the default model.
 
 ### What the cuts did (Oct 18)
 
-The reviewer changed in two releases of the flow, at 16:41 and 17:47 UTC: !98 (only the scanner findings on the lines the MR wrote), !100 (the specialists chain their reads into fewer calls), !102 (the diff is read once, with git), !106 (the lead reads the tier and the assess job from the pipeline event) and !107 (above). Counted the same way as the table above, but from every session to Oct 19 20:03 UTC (the committed file stops at Oct 18 17:39), a full review:
+The reviewer changed in two releases of the flow, at 16:41 and 17:47 UTC: !98 (only the scanner findings on the lines the MR wrote), !100 (the specialists chain their reads into fewer calls), !102 (the diff is read once, with git), !106 (the lead reads the tier and the assess job from the pipeline event) and !107 (above). Counted the same way as the table above, but from every session to Oct 19 20:03 UTC (counted on Oct 19, with reviewer versions told apart; the committed file now runs to Oct 23 12:59 and mixes them), a full review:
 
 | | Reviews | Model calls | Input tokens | GitLab credits |
 |---|---|---|---|---|
@@ -143,7 +148,7 @@ Credits are model calls divided by 3.6: that's what the calls of the sessions Ma
 
 The nine reviews after the cuts were on small MRs (median 52 lines). The cuts also cost depth: on frozen copies of three earlier MRs (!110, !111, !113), reviewer 1.0.17 found 8 of the 14 known findings at P1-P2 (3 more as P3), against 9 for the original reviews of the same heads (#61), and rated the command injection in !59 (P1 in the original review) as P3. !116 asks the specialists to save calls on lookups, never on testing; it was written after that miss, and on the frozen copy of !67 (!124) reviewer 1.0.18 then found 4 of its 5 findings, against 3 of 5 for 1.0.17. On a later frozen copy of !59 (!145, one run) whose description named the injection as the thing being measured, reviewer 1.0.22 rated it P1 with a working exploit in 19 calls (about 5.3 credits), against 47 calls (about 13.1 credits) for the original review. Because the description named the target, and the prompt line it tests was written from this finding, that run shows the rating rule works once the bug is in view; it is not a blind recall result. The same-diff benchmark of five MRs below measures cost and findings together.
 
-**Every loop, on the ledger.** The [go-ahead ledger](https://showcase-ce2cdc.gitlab.io/ledger/) has one row per agent-built change a person merged, with the grams of that loop's agent sessions by this method: every session on its issue and MRs up to the merge, runner time plus counted model calls. CI's job token can't read the session checkpoints, so the counts are committed in [sustainability/loop-sessions.json](sustainability/loop-sessions.json) with the time they are counted up to, and the ledger job reads them. To refresh it from a session count (one row per `duo_workflow` pipeline): `node engine/src/cli/loop-sessions.ts <sessions.json>`.
+**Every loop, on the ledger.** The [go-ahead ledger](https://showcase-ce2cdc.gitlab.io/ledger/) has one row per agent-built change a person merged, with the grams of that loop's agent sessions by this method: every session on its issue and MRs up to the merge, runner time plus counted model calls. CI's job token can't read the session checkpoints, so the counts are committed in [sustainability/loop-sessions.json](sustainability/loop-sessions.json) with the time they are counted up to, and the ledger job reads them. With sessions counted up to Oct 23 12:59 UTC, the 44 loops came to 613-5,026 gCO2e in all ([ledger job 17424130908](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17424130908)). !265 and !262 merged after that cut-off (12:59:31 and 13:08 UTC), so they are only partly counted. To refresh it from a session count (one row per `duo_workflow` pipeline): `node engine/src/cli/loop-sessions.ts <sessions.json>`.
 
 The data per session (pipeline, workflow, MR, tier, runner seconds, tokens by class and by role) is in [sustainability/agent-tokens.json](sustainability/agent-tokens.json). To rebuild it (read-only, needs a token that can read job logs and agent sessions):
 
@@ -180,7 +185,7 @@ How it was verified:
 
 On 1.0.25 the four missed findings were all bugs that show only when the code runs, and the specialists ran the MR's code in 23 calls over the five reviews, against 44 in the originals. !165 added one rule for the specialists: reproduce each P1/P2 by running code before rating it, write "reproduced: command -> output" or "not reproduced: why" under it, and rate an unreproduced bug at most P2. The bar was written down before the rerun: keep it only if at least 15 of the 17 are found at P1/P2, !59's P1 is rated P1, and the median stays below about 9 credits.
 
-Result on 1.0.26 (!165, tightened by !168): **9 of 17, so it failed the bar.** The other two conditions passed: !59's P1 was rated P1, reproduced in an interactive shell, and the median was 6.9 credits. 15 of the 19 P1/P2 it reported carry a reproduction. The loss was mostly in rating, not detection (14 of 17 found at any severity): on !69, a prompt change in a flow file with nothing to run, both original P2s were found and rated P3. As the bar said, !165 was reverted in !182 (Oct 20, 11:45 UTC; reviewer 1.0.28). The revert keeps !168's shorter reviewer prompt, whose rating and sandbox sentences mean the same as 1.0.25's, and !184's rule that agents don't fix protected paths. The reviewer running now has not been rerun on these copies.
+Result on 1.0.26 (!165, tightened by !168): **9 of 17, so it failed the bar.** The other two conditions passed: !59's P1 was rated P1, reproduced in an interactive shell, and the median was 6.9 credits. 15 of the 19 P1/P2 it reported carry a reproduction. The loss was mostly in rating, not detection (14 of 17 found at any severity): on !69, a prompt change in a flow file with nothing to run, both original P2s were found and rated P3. As the bar said, !165 was reverted in !182 (Oct 20, 11:45 UTC; reviewer 1.0.28). The revert keeps !168's shorter reviewer prompt, whose rating and sandbox sentences mean the same as 1.0.25's, and !184's rule that agents don't fix protected paths. Rerun on 23 Oct (E-B32) on the same 5 copies: 28.6 credits against 56.1 (about half), but it found 7 of 17 P1/P2 findings against 11 for 1.0.25. A fix for the gap (E-B33) is being tested; until then we claim the saving, not the same quality. The copies are [!270](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/270), [!271](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/271), [!272](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/272), [!273](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/273), [!274](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/274) (closed, with their review notes), reviewed by reviewer 1.0.32; calls are counted from the session checkpoints and credits are calls divided by 3.6, as above.
 
 A gap of 11 against 9 is inside run-to-run variance: earlier reruns of the same copies swung by a whole P1. So the rerun doesn't show that 1.0.26 was worse than 1.0.25, only that it didn't reach the bar set before it ran.
 
@@ -233,9 +238,9 @@ manifest, [sustainability/agent-reviews.yml](sustainability/agent-reviews.yml)
     npx -y -p @grnsft/if@1.1.1 if-run -m sustainability/agent-reviews.yml
 
 `if-run` sums each tier's reviews, with every model call counted: for the high tier
-it prints carbon-low 838.6 and carbon-high 6848.7 g, which over 105 reviews is the
-8.0-65.2 g per review above (medium: 147.3 and 1175.9 g over 26; low: 22.9 and
-198.3 g over 16). It calls `lsb_release`, so a minimal container needs that
+it prints carbon-low 1729.0 and carbon-high 14085.6 g, which over 311 reviews is the
+5.6-45.3 g per review above (medium: 275.6 and 2231.8 g over 71; low: 58.2 and
+480.8 g over 58). It calls `lsb_release`, so a minimal container needs that
 installed, and `npm list` in its working directory, so run it after `npm ci` or
 from another folder. To rebuild the manifest from the committed sessions (no
 token): `node engine/src/cli/review-manifest.ts`. A test fails if the committed
@@ -266,7 +271,7 @@ Requests from judges come on top and are not in these figures.
 | per day | 60-153 Wh | 35-89 | 58 | 92-146 |
 | 20 Oct to 16 Nov (27 days, from the 20 Oct promote) | 1.6-4.1 kWh | 930-2,400 | 1,560 | 2,500-4,000 |
 
-A day of the warm instance is about the grams of 3 to 14 high-risk reviews
+A day of the warm instance is about the grams of 4 to 18 high-risk reviews
 (table above, low end against low end and high against high). When Google
 Cloud's Carbon Footprint report has the project's figure for these months, it
 replaces this estimate here.
