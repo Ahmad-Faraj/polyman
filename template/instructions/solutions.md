@@ -8,7 +8,7 @@ Solutions are reference and adversarial implementations of the problem. Every so
 | ---- | ---------------------- | ---------------------------------------------- |
 | `MA` | Main correct           | Passes every test. **Exactly one required.**   |
 | `OK` | Alternative correct    | Passes every test.                             |
-| `WA` | Wrong answer           | WA on at least one test.                       |
+| `WA` | Wrong answer           | WA or PE on at least one test (as on Polygon). |
 | `TL` | Time limit exceeded    | TLE on at least one test.                      |
 | `TO` | TLE-or-OK              | Algorithmically correct, may TLE — not strict. Use sparingly. |
 | `ML` | Memory limit exceeded  | MLE on at least one test.                      |
