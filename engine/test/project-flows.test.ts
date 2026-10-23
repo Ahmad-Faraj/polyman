@@ -288,17 +288,18 @@ describe("the project's Duo flows", () => {
     expect(text).not.toContain('reproduce every bug');
   });
 
-  // E-B33, from the E-B32 traces: a high-tier lead skipped the test reviewer (2 test-gap P2s lost), a medium one added
-  // security, and !59's P1 (names reaching bash unquoted) went to P3 because a probe didn't reproduce it
+  // E-B33, from the E-B32 traces: a high-tier lead ran security and code, then posted without the test reviewer (2
+  // test-gap P2s lost); a medium-tier lead read the critical path as a protected one, raised the tier and added
+  // security; !59's P1 (names reaching bash unquoted) went to P3 because a probe didn't reproduce it
   it("the lead starts exactly the tier's specialists, and an unreproduced input-handling finding keeps its rating", () => {
     const prompt = promptOf('mr-reviewer.yaml');
-    expect(prompt).toContain('- risk::medium: code_reviewer and test_reviewer. - risk::high: security_reviewer, code_reviewer and test_reviewer. A review at the tier starts exactly the specialists listed for it, no more and no fewer, whatever the diff looks like');
-    expect(prompt).toContain("fixes that name their tests don't replace the test reviewer");
-    const keep = 'When input a user controls reaches a shell, a path, a file write or eval/exec, a failed reproduction doesn\'t lower the rating its evidence supports: keep it, with "not reproduced: WHY".';
-    // the lead and the three specialists
-    expect(prompt.split(keep).length - 1).toBe(4);
-    expect(prompt).toContain(`Without evidence it is P3. ${keep}`);
-    expect(prompt.split(`without it, P3. ${keep}`).length - 1).toBe(3);
+    expect(prompt).toContain('- risk::medium: code_reviewer and test_reviewer. - risk::high: security_reviewer, code_reviewer and test_reviewer. A review at the tier starts exactly the specialists listed for it');
+    expect(prompt).toContain("no more and no fewer, and posts its note only after each of them has reported: fixes that name their tests don't replace the test reviewer.");
+    expect(prompt).toContain('the tier is high if the diff touches a protected path (@@protected_paths@@), because those changes could alter how risk is scored; paths.critical and paths.high are already in the score and don\'t raise the tier again.');
+    // the lead and the three specialists, each pointing at its own evidence rule
+    const keep = (how: string) => `A failed reproduction doesn't remove that evidence: when input a user controls reaches a shell, a path, a file write or eval/exec, the file and line and how it ${how} still count, so keep the rating, with "not reproduced: WHY".`;
+    expect(prompt).toContain(`Without evidence it is P3. ${keep('goes wrong')}`);
+    expect(prompt.split(`without it, P3. ${keep('fails')}`).length - 1).toBe(3);
   });
 
   // #61: 26 of 107 reviews were posted after their MR merged; the check stays, inside the last read turn
