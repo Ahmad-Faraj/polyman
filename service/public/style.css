@@ -173,6 +173,12 @@ h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-heig
 .sols td.sol { width: 1%; white-space: nowrap; }
 .sols th { white-space: nowrap; line-height: 1.3; }
 .sols td.res { width: 1%; white-space: nowrap; }
+.sols :is(th, td).slow { width: 1%; white-space: nowrap; text-align: end; font-variant-numeric: tabular-nums; color: var(--muted-foreground); }
+.sols td.slow { font-size: 0.8125rem; }
+.sols tr.waiting td.slow .skeleton { width: 44px; height: 14px; margin-inline-start: auto; }
+.chips { list-style: none; margin: 0 0 4px; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.chips .badge[data-variant='outline'] svg { color: var(--pass); }
+@media (max-width: 640px) { .chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin-inline: -4px; padding-inline: 4px; } .chips .badge { flex: none; } }
 .sols tbody tr:last-child { border-bottom: 1px solid var(--border); }
 /* (no hover tint on rows that aren't links: only the broken one is marked) */
 @media (hover: hover) { .sols tbody tr:not([data-state=selected]):hover { background-color: transparent; } }
@@ -408,7 +414,11 @@ button.dot:focus-visible { outline: 2px solid var(--primary); outline-offset: 2p
   .sols td { display: block; }
   .sols td.sol { grid-column: 1; grid-row: 1; width: auto; padding-bottom: 8px; white-space: normal; }
   .sols td.res { grid-column: 2; grid-row: 1; width: auto; padding-bottom: 8px; }
-  .sols td.tests { grid-column: 1 / -1; grid-row: 2; padding: 0 0 12px; }
+  .sols td.tests { grid-column: 1 / -1; grid-row: 2; padding: 0 0 4px; }
+  .sols td.slow { grid-column: 1 / -1; grid-row: 3; width: auto; padding: 0 0 12px; text-align: start; }
+  .sols td.slow:not(:empty)::before { content: 'Slowest '; }
+  .sols tbody tr[data-state=selected] td.slow { padding-inline-start: 10px; }
+  .sols tr.waiting td.slow { display: none; }
   .sols tbody tr[data-state=selected] td.tests { padding-inline-start: 10px; }
   .sols tbody tr[data-state=selected] td:first-child { box-shadow: none; padding-inline-start: 10px; }
   .sols tbody tr[data-state=selected] { box-shadow: inset 2px 0 0 var(--fail); }

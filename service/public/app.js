@@ -442,7 +442,7 @@ function waitingRows(node, name) {
   for (const sol of [...(expected.get(name) ?? [])].sort((a, b) => Number(b === lead) - Number(a === lead))) {
     const tr = document.createElement('tr');
     tr.className = 'waiting';
-    tr.innerHTML = `<td class="sol"><b class="sol-name"></b><span class="sol-label"></span></td><td class="tests"><span class="skeleton" aria-hidden="true"></span></td><td class="res"><span class="skeleton" aria-hidden="true"></span></td>`;
+    tr.innerHTML = `<td class="sol"><b class="sol-name"></b><span class="sol-label"></span></td><td class="tests"><span class="skeleton" aria-hidden="true"></span></td><td class="slow"><span class="skeleton" aria-hidden="true"></span></td><td class="res"><span class="skeleton" aria-hidden="true"></span></td>`;
     $('.sol-name', tr).textContent = sol;
     const tag = SAMPLES[name]?.[3]?.[sol];
     if (tag) labelText($('.sol-label', tr), tag);
@@ -1009,6 +1009,21 @@ function howChecked(card, ev, at) {
       return li;
     }),
   );
+  // the same steps as a row of badges above the table, so the whole run can be read without opening anything
+  const chips = $('.chips', card);
+  if (chips) {
+    chips.replaceChildren(
+      ...steps.map((s) => {
+        const li = document.createElement('li');
+        li.className = 'badge';
+        li.dataset.variant = s.state === 'ok' ? 'outline' : s.state === 'failed' ? 'destructive' : 'secondary';
+        li.innerHTML = icon(s.state === 'ok' ? 'i-check' : s.state === 'failed' ? 'i-x' : 'i-stop');
+        li.append(STEP_WORDS[s.title] ?? s.title);
+        return li;
+      }),
+    );
+    chips.hidden = false;
+  }
   $('.how-title', how).textContent = `How it was checked · ${plural(steps.length, 'step')}, ${seconds(at / 1000)} from the click`;
   how.hidden = false;
 }
@@ -1104,6 +1119,8 @@ function renderProblem(card, ev, at) {
 
   $('.guides-title', card).textContent = checks.length ? `Contest guidelines · ${checks.length - gaps.length} of ${checks.length} met` : 'Contest guidelines';
   if (!checks.length) $('.guides', card).hidden = true;
+  // every guideline with its evidence is the answer to "is it ready", so it opens with the result
+  else $('.guides', card).open = true;
   const list = $('.checks', card);
   for (const c of [...checks].sort((a, b) => Number(a.ok) - Number(b.ok))) {
     const li = document.createElement('li');
@@ -1199,8 +1216,10 @@ function solutionRow(s) {
     tr.dataset.state = 'selected';
   }
   if (expectedToFail) tr.className = 'expected-fail';
-  tr.innerHTML = `<td class="sol"><b class="sol-name"></b><span class="sol-label"></span></td><td class="tests"><div class="dots"></div><small class="dots-note"></small></td><td class="res"></td>`;
+  tr.innerHTML = `<td class="sol"><b class="sol-name"></b><span class="sol-label"></span></td><td class="tests"><div class="dots"></div><small class="dots-note"></small></td><td class="slow"></td><td class="res"></td>`;
   $('.sol-name', tr).textContent = s.name;
+  // the slowest test of the solution, as its own column (a failing solution's time is still the time it took)
+  $('.slow', tr).textContent = s.tests.length ? ms(Math.max(...s.tests.map((t) => t.timeMs))) : '';
   // the setter's own tag letters stay visible beside the plain words
   labelText($('.sol-label', tr), s.tag);
   const dots = $('.dots', tr);
@@ -1221,12 +1240,9 @@ function solutionRow(s) {
     dots.append(d);
   });
   const stoppedEarly = s.tests.length === 1 && s.tests[0].verdict !== 'OK';
-  // the slowest test in words, since a dot's own time is only in its tooltip
-  // (only for a solution that passed: on a failing one the time says nothing)
-  const slowest = s.tests.length > 1 && s.tests.every((t) => t.verdict === 'OK') ? `, slowest ${ms(Math.max(...s.tests.map((t) => t.timeMs)))}` : '';
   // a solution meant to fail that fails is fine: say so, so its red dots don't read as a problem
   // (a solution that broke its label names its failing tests; what the checker saw on each is in its square)
-  $('.dots-note', tr).textContent = !s.matchesTag ? `${cap(failedOn(s))}.` : stoppedEarly ? `${cap(verdictWords(s.tests[0].verdict))} on the first test, so it was stopped there.` : `${cap(outcome(s))}${slowest}.`;
+  $('.dots-note', tr).textContent = !s.matchesTag ? `${cap(failedOn(s))}.` : stoppedEarly ? `${cap(verdictWords(s.tests[0].verdict))} on the first test, so it was stopped there.` : `${cap(outcome(s))}.`;
   wireSquares(dots);
   // whether it kept its label, as a shadcn badge
   $('.res', tr).innerHTML = s.matchesTag ? `<span class="badge" data-variant="outline">${icon('i-check')}${expectedToFail ? 'Fails as labelled' : 'As labelled'}</span>` : `<span class="badge" data-variant="destructive">${icon('i-x')}Not as labelled</span>`;
