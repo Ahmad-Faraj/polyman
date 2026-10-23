@@ -647,6 +647,19 @@ button.dot:focus-visible { outline: 2px solid var(--primary); outline-offset: 2p
 .run-log { font-family: var(--font-mono); font-size: 0.6875rem; line-height: 1.45; color: var(--foreground); white-space: normal; overflow-wrap: anywhere; }
 .run-log:focus-visible { outline-offset: -2px; }
 
+/* the run log as a timeline: a rail down the left with a hexagon for each event, the newest one lit, the time in blue */
+.run-log { background: #fff; border-color: #cfe3ee; border-radius: 10px; padding-inline: 14px 10px; scrollbar-width: thin; scrollbar-color: var(--brand-2) transparent; }
+.run-log::-webkit-scrollbar { display: block; width: 6px; }
+.run-log::-webkit-scrollbar-thumb { background: linear-gradient(var(--brand), var(--brand-2)); border-radius: 3px; }
+.run-log::before { background: #fff; margin: 0 -10px 4px -14px; padding: 10px 14px 8px 32px; border-bottom: 1px solid #e3eef5; color: var(--primary); letter-spacing: 0.14em; background-image: radial-gradient(circle, var(--brand-2) 0 3px, transparent 3.5px); background-size: 8px 8px; background-repeat: no-repeat; background-position: 14px 50%; }
+.log-line { position: relative; grid-template-columns: 5.5ch minmax(0, 1fr); column-gap: 12px; padding: 2px 0 2px 18px; }
+.log-line::before { content: ''; position: absolute; left: 0; top: 0.55em; width: 9px; height: 9px; background: #bfe3f7; clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%); }
+.log-line::after { content: ''; position: absolute; left: 4px; top: calc(0.55em + 9px); bottom: -0.55em; width: 1px; background: #d6e8f2; }
+.log-line:last-child::after { display: none; }
+.log-t { text-align: left; color: var(--accent-foreground); font-weight: 500; }
+.run-log .log-line:last-child { font-weight: 600; }
+.run-log .log-line:last-child::before { background: var(--brand-2); box-shadow: 0 0 0 3px rgba(53, 174, 238, 0.2); }
+
 /* daisyUI 5.7.50 Steps, MIT License, https://daisyui.com (base rules only, taken out of its cascade layer) */
 .steps{counter-reset:step;grid-auto-columns:1fr;grid-auto-flow:column;display:inline-grid;overflow:auto hidden}
 .steps .step{text-align:center;--step-bg:var(--color-base-300);--step-fg:var(--color-base-content);grid-template-rows:40px 1fr;grid-template-columns:auto;place-items:center;min-width:4rem;display:grid;&:before{width:100%;height:.5rem;color:var(--step-bg);background-color:var(--step-bg);content:"";border:1px solid;grid-row-start:1;grid-column-start:1;margin-inline-start:-100%;top:0}&>.step-icon,&:not(:has(.step-icon)):after{--tw-content:counter(step);content:var(--tw-content);counter-increment:step;z-index:1;color:var(--step-fg);background-color:var(--step-bg);border:1px solid var(--step-bg);border-radius:3.40282e38px;grid-row-start:1;grid-column-start:1;place-self:center;place-items:center;width:2rem;height:2rem;display:grid;position:relative}&:first-child:before{--tw-content:none;content:var(--tw-content)}&[data-content]:after{--tw-content:attr(data-content);content:var(--tw-content)}}
