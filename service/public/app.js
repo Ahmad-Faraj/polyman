@@ -358,9 +358,12 @@ function buildPipeline(node) {
     li.className = 'step';
     li.dataset.title = title;
     li.dataset.state = 'pending';
-    li.innerHTML = `<span class="step-icon">${icon('i-dot')}</span><span class="step-label" tabindex="0" data-align="center"><span></span><small></small></span>`;
+    li.innerHTML = `<span class="step-icon">${icon('i-dot')}</span><span class="step-label" tabindex="0"><span></span><small></small></span>`;
     const label = $('.step-label', li);
     label.dataset.tooltip = `${STEP_WORDS[title]}. ${STEP_INFO[title]}`;
+    // (the tooltip opens away from the card's nearer edge: the first steps' rightwards, the last ones' leftwards)
+    const at = STEPS.indexOf(title);
+    label.dataset.align = at < 2 ? 'start' : at >= STEPS.length - 3 ? 'end' : 'center';
     $('.step-label > span', li).textContent = STEP_SHORT[title];
     el.append(li);
   }
