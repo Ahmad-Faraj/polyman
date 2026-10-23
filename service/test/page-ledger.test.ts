@@ -36,9 +36,15 @@ describe('ledgerCounts', () => {
     expect({ ...c }).toEqual({ total: 3, approved: 3, agents: 2, approvers: 2, newest: '2026-10-22T12:00:00Z' });
   });
 
-  it('keeps a go-ahead that did not count and has no approver on record', () => {
-    const c = ledgerCounts({ records: [rec(), rec({ accepted: false, approver_not_requester: false, go_ahead: { by: null } })] });
+  it('keeps a go-ahead that did not count and has no go-ahead on record', () => {
+    // (the shape refused records have in ledger.json: go_ahead is null)
+    const c = ledgerCounts({ records: [rec(), rec({ accepted: false, approver_not_requester: false, go_ahead: null })] });
     expect({ ...c }).toMatchObject({ total: 2, approved: 1, approvers: 1 });
+  });
+
+  it('does not count an accepted go-ahead from the requester as approved', () => {
+    const c = ledgerCounts({ records: [rec(), rec({ approver_not_requester: false, go_ahead: { by: 'Mazen-Ghanaym' } })] });
+    expect({ ...c }).toMatchObject({ total: 2, approved: 1, approvers: 2 });
   });
 
   it('refuses an accepted go-ahead with no approver', () => {
