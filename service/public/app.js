@@ -319,19 +319,120 @@ fetch('/api/samples')
 
 const runSample = (name) => start(`/api/samples/${encodeURIComponent(name)}/verify`, null, name);
 
-/** All ten steps up front, the first under way, so the wait shows how far along it is;
- * above them, how far along as a Basecoat progress bar (indeterminate until the first step is done: that one takes the longest). */
-function runningSteps(node) {
-  const list = $('.steps-live', node);
-  if (!list || list.children.length) return;
-  for (const title of STEPS) {
+/** The ten steps as a pipeline of three stages, as the hero names them. Each step has a short name and, on hover or focus, what it does. */
+const STAGES = [
+  { name: 'Make the tests', icon: 'i-list-checks', steps: STEPS.slice(0, 5) },
+  { name: 'Prove the checker', icon: 'i-check-check', steps: STEPS.slice(5, 7) },
+  { name: 'Judge every solution', icon: 'i-scale', steps: STEPS.slice(7) },
+];
+const STEP_SHORT = {
+  'Compiling Generators': 'Build generators',
+  'Generating Tests': 'Generate tests',
+  'Compiling Validator': 'Build validator',
+  'Testing Validator': 'Test validator',
+  'Validating Generated Tests': 'Check every test',
+  'Compiling Checker': 'Build checker',
+  'Testing Checker': 'Test checker',
+  'Compiling Solutions': 'Compile',
+  'Running Solutions': 'Run',
+  'Verifying Solutions Against Main Correct': 'Compare labels',
+};
+/** What each step does, in the words of the "What the check does" section. */
+const STEP_INFO = {
+  'Compiling Generators': 'Builds the problem\u2019s test generators.',
+  'Generating Tests': 'Runs the generators to write every test.',
+  'Compiling Validator': 'Builds the validator, the program that says whether a test input is allowed.',
+  'Testing Validator': 'Runs the validator on its own tests.',
+  'Validating Generated Tests': 'Checks that every generated test is valid.',
+  'Compiling Checker': 'Builds the answer checker, the program that decides every answer.',
+  'Testing Checker': 'Runs the checker on its own tests, because it decides every answer that follows.',
+  'Compiling Solutions': 'Compiles every solution with its own language.',
+  'Running Solutions': 'Runs each solution on the tests with the time and memory limits, in a sandbox with no internet.',
+  'Verifying Solutions Against Main Correct': 'Compares what each solution did with the main correct solution and with its label.',
+};
+
+/** Build the pipeline once, every step waiting. */
+function buildPipeline(node) {
+  const el = $('.pipeline', node);
+  if (!el || el.children.length) return;
+  STAGES.forEach((stage, i) => {
     const li = document.createElement('li');
-    li.innerHTML = `${icon(title === STEPS[0] ? 'i-spin' : 'i-dot')}<span></span>`;
-    if (title === STEPS[0]) li.className = 'now';
-    $('span', li).textContent = STEP_WORDS[title];
-    list.append(li);
+    li.className = 'stage';
+    li.dataset.state = 'pending';
+    li.innerHTML = `<div class="stage-head">${icon(stage.icon)}<strong></strong><small></small></div><ol class="nodes"></ol>`;
+    $('strong', li).textContent = stage.name;
+    $('small', li).textContent = plural(stage.steps.length, 'step');
+    for (const title of stage.steps) {
+      const n = document.createElement('li');
+      n.className = 'node';
+      n.tabIndex = 0;
+      n.dataset.title = title;
+      n.dataset.tooltip = `${STEP_WORDS[title]}. ${STEP_INFO[title]}`;
+      // (the last stage sits at the card's right edge: its tooltips open leftwards)
+      n.dataset.align = i === STAGES.length - 1 ? 'end' : 'start';
+      n.innerHTML = `${icon('i-dot')}<span></span><time></time>`;
+      $('span', n).textContent = STEP_SHORT[title];
+      $('.nodes', li).append(n);
+    }
+    el.append(li);
+    // an arrow to the next stage
+    if (i < STAGES.length - 1) {
+      const a = document.createElement('li');
+      a.className = 'link';
+      a.setAttribute('aria-hidden', 'true');
+      a.innerHTML = icon('i-next');
+      el.append(a);
+    }
+  });
+}
+
+/** Light the pipeline to step `at` (0-9): the ones before it done, that one under way, the rest waiting. */
+function setPipeline(node, at) {
+  buildPipeline(node);
+  for (const stage of node.querySelectorAll('.stage')) {
+    const nodes = [...stage.querySelectorAll('.node')];
+    for (const n of nodes) {
+      const i = STEPS.indexOf(n.dataset.title);
+      const state = i < at ? 'done' : i === at ? 'now' : 'pending';
+      if (n.dataset.state === state) continue;
+      n.dataset.state = state;
+      $('svg', n).outerHTML = icon(state === 'done' ? 'i-check' : state === 'now' ? 'i-spin' : 'i-dot');
+    }
+    stage.dataset.state = nodes.every((n) => n.dataset.state === 'done') ? 'done' : nodes.some((n) => n.dataset.state !== 'pending') ? 'now' : 'pending';
   }
-  list.insertAdjacentHTML('beforebegin', `<div class="progress indeterminate" role="progressbar" aria-label="Steps done" aria-valuemin="0" aria-valuemax="${STEPS.length}"><span></span></div>`);
+}
+
+/** The run is over: each step as its report has it (passed, failed or not reached), with the time it took and each stage's total. */
+function finishPipeline(node, steps, took) {
+  buildPipeline(node);
+  const byTitle = new Map(steps.map((s) => [s.title, s]));
+  const time = (ms) => (ms < 100 ? `${Math.max(1, Math.round(ms))} ms` : seconds(ms / 1000));
+  for (const stage of node.querySelectorAll('.stage')) {
+    let total = 0;
+    let timed = false;
+    const nodes = [...stage.querySelectorAll('.node')];
+    for (const n of nodes) {
+      const s = byTitle.get(n.dataset.title);
+      const state = !s ? 'pending' : s.state === 'ok' ? 'done' : s.state === 'failed' ? 'failed' : 'stopped';
+      n.dataset.state = state;
+      $('svg', n).outerHTML = icon(state === 'done' ? 'i-check' : state === 'failed' ? 'i-x' : state === 'stopped' ? 'i-stop' : 'i-dot');
+      const dur = s ? took(n.dataset.title) : null;
+      const text = dur === null ? '' : time(dur);
+      $('time', n).textContent = text;
+      if (dur !== null) {
+        total += dur;
+        timed = true;
+      }
+      n.dataset.tooltip = `${STEP_WORDS[n.dataset.title]}. ${STEP_INFO[n.dataset.title]}${state === 'failed' ? ' It failed.' : state === 'pending' ? ' Not reached.' : text ? ` Took ${text}.` : ''}`;
+    }
+    stage.dataset.state = nodes.some((n) => n.dataset.state === 'failed') ? 'failed' : nodes.every((n) => n.dataset.state === 'done') ? 'done' : nodes.some((n) => n.dataset.state === 'pending') ? 'pending' : 'now';
+    $('small', stage).textContent = `${plural(nodes.length, 'step')}${timed ? ` · ${time(total)}` : ''}`;
+  }
+}
+
+/** All ten steps up front, the first under way, so the wait shows how far along it is. */
+function runningSteps(node) {
+  setPipeline(node, 0);
 }
 
 /** Empty the card's body for what comes next, the guidelines too (after a result they sit below its actions). */
@@ -345,6 +446,7 @@ function showPreview(name) {
   const node = els.tpl.content.firstElementChild.cloneNode(true);
   $('.problem-name', node).classList.add('sr-only');
   $('.problem-name', node).textContent = name;
+  setPipeline(node, -1);
   waitingRows(node, name);
   clearProblems(node);
 }
@@ -786,17 +888,7 @@ function handle(ev) {
   } else if (ev.type === 'step') {
     const c = card(ev.problem);
     const at = STEPS.includes(ev.title) ? STEPS.indexOf(ev.title) : ev.step - 1;
-    [...$('.steps-live', c).children].forEach((li, i) => {
-      const state = i < at ? 'done' : i === at ? 'now' : '';
-      if (li.className === state) return;
-      li.className = state;
-      $('svg', li).outerHTML = icon(state === 'done' ? 'i-check' : state === 'now' ? 'i-spin' : 'i-dot');
-    });
-    const bar = $('.progress', c);
-    bar.classList.toggle('indeterminate', at < 1);
-    if (at < 1) bar.removeAttribute('aria-valuenow');
-    else bar.setAttribute('aria-valuenow', at);
-    $('span', bar).style.width = at < 1 ? '' : `${(at / STEPS.length) * 100}%`;
+    setPipeline(c, at);
     $('.sols', c).classList.toggle('is-running', ev.title === 'Running Solutions');
     reached.set(ev.problem, at);
     if (!stepAt.has(ev.problem)) stepAt.set(ev.problem, []);
@@ -1009,21 +1101,8 @@ function howChecked(card, ev, at) {
       return li;
     }),
   );
-  // the same steps as a row of badges above the table, so the whole run can be read without opening anything
-  const chips = $('.chips', card);
-  if (chips) {
-    chips.replaceChildren(
-      ...steps.map((s) => {
-        const li = document.createElement('li');
-        li.className = 'badge';
-        li.dataset.variant = s.state === 'ok' ? 'outline' : s.state === 'failed' ? 'destructive' : 'secondary';
-        li.innerHTML = icon(s.state === 'ok' ? 'i-check' : s.state === 'failed' ? 'i-x' : 'i-stop');
-        li.append(STEP_WORDS[s.title] ?? s.title);
-        return li;
-      }),
-    );
-    chips.hidden = false;
-  }
+  // the same steps in the pipeline above the table, so the whole run reads without opening anything
+  finishPipeline(card, steps, took);
   $('.how-title', how).textContent = `How it was checked · ${plural(steps.length, 'step')}, ${seconds(at / 1000)} from the click`;
   how.hidden = false;
 }
@@ -1038,8 +1117,6 @@ function renderProblem(card, ev, at) {
   const fix = (list) => list.map((c) => GUIDE_FIX[c.id] ?? (GUIDE_WORDS[c.id] ?? c.title).toLowerCase()).join('; ');
   const recommended = gaps.filter((c) => c.severity !== 'critical');
   const also = recommended.length ? ` Also recommended: ${fix(recommended)}.` : '';
-  $('.steps-live', card).hidden = true;
-  $('.progress', card)?.remove();
 
   // the answer first: what is wrong and what to do
   let title;
@@ -1342,10 +1419,10 @@ function failMidway(message) {
   settle();
   setHead(`Did not finish: ${label}`, 'The check did not finish.', message);
   // no step is still under way: the one that was stops, neutral (the connection broke, not that step)
-  for (const li of els.problems.querySelectorAll('.steps-live li.now')) {
-    li.className = 'stopped';
-    $('svg', li).outerHTML = icon('i-dot');
-    $('span', li).append(' (stopped here)');
+  for (const n of els.problems.querySelectorAll('.pipeline .node[data-state=now]')) {
+    n.dataset.state = 'stopped';
+    $('svg', n).outerHTML = icon('i-stop');
+    n.dataset.tooltip = `${n.dataset.tooltip} The run stopped here.`;
   }
   for (const bar of els.problems.querySelectorAll('.progress')) bar.classList.add('stopped');
   heroParts('stopped');
