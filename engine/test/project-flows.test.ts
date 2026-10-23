@@ -5,6 +5,7 @@ import { loadConfig } from '../src/config.ts';
 import { checkFlow } from '../src/flows.ts';
 import { isProposal } from '../src/goahead.ts';
 import { HANDOFF_FLOWS, flowValues, markersIn, renderFlow } from '../src/render.ts';
+import { renderRiskSummary } from '../src/report.ts';
 
 // The project's own flows and policy, one folder up. The autonomy:flows job
 // lints them too; this also checks them filled in with the project's values.
@@ -348,6 +349,60 @@ describe("the project's Duo flows", () => {
     const text = promptOf('mr-reviewer.yaml');
     expect(text).toContain('it is in a file agents may not edit (@@protected_paths@@)');
     expect(text).toContain('A finding in those files is never a proposed fix, even with a maintainer\'s go-ahead: it always goes to the approver.');
+  });
+
+  // 23 Oct review, finding 2: !253 took 7 full reviews (about 70 credits) because each round found new test gaps on
+  // lines earlier rounds had seen, and nothing let a person accept a P2
+  it('re-reviews converge: test gaps on new behaviour only, old lines P3 unless P1, a P2 a maintainer accepted is closed', () => {
+    const body = promptOf('mr-reviewer.yaml');
+    expect(body).toContain('Once you reviewed this MR before, a missing test is P2 only when a behaviour the new commits add or change has no test at all (one more input of a tested behaviour is P3), and a finding on lines unchanged since LAST_REVIEWED is P3 unless it is P1.');
+    expect(body).toContain('A P2 that one of @@maintainers@@ (not a requester) accepted in a reply naming it is closed: list it as accepted and don\'t raise it again.');
+    // a P1 can't be accepted away
+    expect(body).not.toMatch(/P1 (or P2 )?that one of @@maintainers@@ .{0,20}accepted/);
+    // finding 9: the specialist gets the base of the follow-up, and an unreadable compare means a full review
+    expect(body).toContain("In a follow-up, give the specialist LAST_REVIEWED; if you couldn't read the changes since it, review at the tier.");
+    // all of it sits in step 5, before the ratings of step 6
+    expect(body.indexOf('Once you reviewed this MR before')).toBeLessThan(body.indexOf('6. Have every finding rated'));
+  });
+
+  // 23 Oct review, finding 16: nothing checked the MR against what its issue asks, the misses were bugs only a run
+  // shows, and "pre-existing" / "unlikely" moved ratings both ways (E-R2)
+  it('the review checks the issue items, runs untested changed code once, and defines pre-existing and unlikely', () => {
+    const body = promptOf('mr-reviewer.yaml');
+    expect(body).toContain('Give the code reviewer the closed issue\'s "Done when" or acceptance items (at risk::low, check them yourself); one the diff doesn\'t meet is P2.');
+    const code = body.slice(body.indexOf('prompt_id: "code_reviewer"'), body.indexOf('prompt_id: "test_reviewer"'));
+    expect(code).toContain('Say which issue items the lead copied the diff doesn\'t meet. Run each changed function no test covers once, on an ordinary and a boundary input, in a mktemp -d copy (below).');
+    // the run goes in the throwaway copy the same prompt describes further down
+    expect(code.indexOf('in a mktemp -d copy (below)')).toBeLessThan(code.indexOf('mktemp -d', code.indexOf('in a mktemp -d copy (below)') + 30));
+    expect(body).toContain('- P3: anything else (naming, style, ideas, "might be worth"), and a pre-existing bug (in lines the diff neither changes nor newly reaches). "Unlikely" needs the reason that input can\'t occur here');
+  });
+
+  // 23 Oct review, finding 13 (second half) and the !276 review: the lead lowered specialist ratings without saying
+  // why, and nothing said what happens when a specialist never reports
+  it('the lead keeps a specialist P1 or P2 unless a rule or evidence lowers it, and a failed specialist blocks ready', () => {
+    const body = promptOf('mr-reviewer.yaml');
+    expect(body).toContain('Lower a specialist\'s P1 or P2 only by these rules or with evidence.');
+    expect(body).toContain('A specialist that failed or timed out makes the review not ready.');
+  });
+
+  // !276 review P3: nothing tied the prompt's staffing to the "Review:" line the assess job prints
+  it("the prompt's specialists per tier match the risk summary's Review: line", () => {
+    const body = promptOf('mr-reviewer.yaml');
+    const summary = (tier: 'medium' | 'high') =>
+      renderRiskSummary({ score: 0, tier, forcedBy: null, factors: [], counted: [], stats: { files: 1, linesChanged: 1, findings: { Critical: 0, High: 0, Medium: 0, Low: 0, Info: 0, Unknown: 0 } } });
+    expect(summary('medium')).toContain('Review: Code and test reviewers.');
+    expect(body).toContain('- risk::medium: code_reviewer and test_reviewer.');
+    expect(summary('high')).toContain('Review: Security, code and test reviewers.');
+    expect(body).toContain('- risk::high: security_reviewer, code_reviewer and test_reviewer.');
+  });
+
+  // the 24 Oct trims kept every limit the release monitor and the specialists rely on
+  it('the shortened watch and diff-read rules keep their limits', () => {
+    const body = promptOf('mr-reviewer.yaml');
+    expect(body).toContain('Signals: error_rate (0-1), preferred, or p95_ms at 60000 or more');
+    expect(body).toContain('only from: @@measured_routes@@');
+    expect(body).toContain('leave the list empty ([])');
+    expect(body.split('Read the diff once, with git fetch origin, then git diff origin/TARGET...origin/SOURCE').length - 1).toBe(3);
   });
 
   // !184 follow-up: the builder and the fixer offered the protected paths to a maintainer's go-ahead too,
