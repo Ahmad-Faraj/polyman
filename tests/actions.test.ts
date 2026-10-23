@@ -916,6 +916,7 @@ describe('actions.ts', () => {
     });
 
     it('should pull all by default', async () => {
+      vi.mocked(steps.stepDownloadTests).mockResolvedValue(true);
       await actions.remotePullProblemAction('123', './out', { all: true });
       expect(steps.stepFetchProblemInfo).toHaveBeenCalled();
       expect(steps.stepCreatePulledProblemDirectory).toHaveBeenCalled();
@@ -928,6 +929,90 @@ describe('actions.ts', () => {
         tests: 'ts1,ts2',
       });
       expect(steps.stepDownloadTests).toHaveBeenCalledTimes(2);
+    });
+
+    describe('testset summary', () => {
+      const infoLines = (): string[] =>
+        vi.mocked(formatter.fmt.info).mock.calls.map(c => String(c[0]));
+
+      beforeEach(() => {
+        vi.mocked(formatter.fmt.highlight).mockImplementation((s: string) => s);
+        vi.mocked(steps.stepDownloadTests).mockResolvedValue(true);
+      });
+
+      it('should not claim tests were downloaded when the download failed', async () => {
+        vi.mocked(steps.stepDownloadTests).mockResolvedValue(false);
+        await actions.remotePullProblemAction('123', './out', {});
+        const lines = infoLines();
+        expect(lines.some(l => l.includes('Testsets downloaded'))).toBe(false);
+        expect(lines.some(l => l.includes('-t a,b'))).toBe(true);
+      });
+
+      it('should say which testset was pulled when -t is not given', async () => {
+        await actions.remotePullProblemAction('123', './out', {});
+        const lines = infoLines();
+        expect(lines.some(l => l.includes('Testsets downloaded: tests'))).toBe(
+          true
+        );
+        expect(steps.stepDownloadTests).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.anything(),
+          expect.anything(),
+          'tests',
+          expect.anything()
+        );
+        expect(lines.some(l => l.includes('-t a,b'))).toBe(true);
+      });
+
+      it('should not print the testset summary when -t names testsets', async () => {
+        await actions.remotePullProblemAction('123', './out', {
+          tests: 'ts1,ts2',
+        });
+        const lines = infoLines();
+        expect(lines.some(l => l.includes('Testsets downloaded'))).toBe(false);
+        expect(lines.some(l => l.includes('Other testsets'))).toBe(false);
+      });
+
+      it('should not print the testset summary when tests are not pulled', async () => {
+        await actions.remotePullProblemAction('123', './out', {
+          solutions: true,
+        });
+        const lines = infoLines();
+        expect(lines.some(l => l.includes('Testsets downloaded'))).toBe(false);
+        expect(lines.some(l => l.includes('Other testsets'))).toBe(false);
+      });
+
+      it('should print the testset summary when --all is set', async () => {
+        await actions.remotePullProblemAction('123', './out', { all: true });
+        const lines = infoLines();
+        expect(lines.some(l => l.includes('Testsets downloaded'))).toBe(true);
+        expect(lines.some(l => l.includes('Other testsets'))).toBe(true);
+      });
+
+      it('should not print the testset summary when --all is set with -t', async () => {
+        await actions.remotePullProblemAction('123', './out', {
+          all: true,
+          tests: 'a',
+        });
+        const lines = infoLines();
+        expect(lines.some(l => l.includes('Testsets downloaded'))).toBe(false);
+        expect(lines.some(l => l.includes('Other testsets'))).toBe(false);
+      });
+
+      it('should treat an empty -t as the default testset', async () => {
+        await actions.remotePullProblemAction('123', './out', { tests: '' });
+        expect(steps.stepDownloadTests).toHaveBeenCalledTimes(1);
+        expect(steps.stepDownloadTests).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.anything(),
+          expect.anything(),
+          'tests',
+          expect.anything()
+        );
+        const lines = infoLines();
+        expect(lines.some(l => l.includes('Testsets downloaded'))).toBe(true);
+        expect(lines.some(l => l.includes('Other testsets'))).toBe(true);
+      });
     });
 
     it('should skip tests when not requested', async () => {

@@ -1172,7 +1172,7 @@ export async function stepDownloadTests(
   problemId: number,
   testset: string,
   savePath: string
-): Promise<void> {
+): Promise<boolean> {
   fmt.step(stepNum, 'Downloading Test Files');
   const problemDir = path.resolve(process.cwd(), savePath);
   const configPath = path.join(problemDir, 'Config.json');
@@ -1217,6 +1217,7 @@ export async function stepDownloadTests(
       `  ${fmt.infoIcon()} Downloaded ${fmt.highlight(manualCount.toString())} manual test(s); ${totalTests} configured`
     );
     fmt.stepComplete('Tests downloaded and testset configured');
+    return true;
   } catch (error) {
     // The message can carry text from Polygon (its `comment`), so escape it.
     const why = printable(
@@ -1224,6 +1225,7 @@ export async function stepDownloadTests(
     );
     fmt.warning(`  ⚠️  Could not fetch tests information: ${why}`);
     fmt.stepComplete('No tests to download');
+    return false;
   }
 }
 
