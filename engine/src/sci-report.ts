@@ -10,6 +10,7 @@ import { type GitLab, finishedJobs, pipelineJobs } from './gitlab.ts';
 import { INFERENCE_WH_PER_CALL, type Calls, type Footprint, type SciCoefficients, footprint, sessionGrams } from './sci.ts';
 import { type CountedSession, countedRuns } from './manifest.ts';
 import { type TokenClasses, NONE, add, median, totalTokens } from './tokens.ts';
+import { EVIDENCE_CSS } from './page-style.ts';
 
 /** One session as agent-tokens.ts saved it with --json (the fields used here). */
 export interface SessionRecord extends CountedSession {
@@ -320,37 +321,15 @@ export function renderSciPage({ summary: s, check, ci, web, generatedAt, commit,
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Agent carbon (SCI)</title>
-<style>
-:root { --bg: #fbfbfa; --fg: #1d1d1b; --muted: #6b6b66; --line: #e2e1dc; --tile: #ffffff; --ok: #1a7f37; --bad: #b42318; --link: #1f5fbf; }
-@media (prefers-color-scheme: dark) { :root { --bg: #161615; --fg: #ecebe6; --muted: #a09f98; --line: #34332f; --tile: #1f1f1d; --ok: #4ac26b; --bad: #ff7b72; --link: #7cacf8; } }
-* { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
-main { max-width: 1100px; margin: 0 auto; padding: 32px 16px 64px; }
-h1 { font-size: 28px; margin: 0 0 8px; }
-h2 { font-size: 18px; margin: 40px 0 12px; }
-p { max-width: 75ch; }
-a { color: var(--link); }
-code { font: 13px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace; }
-.muted { color: var(--muted); font-size: 13px; }
-.ok { color: var(--ok); font-weight: 600; }
-.bad { color: var(--bad); font-weight: 600; }
-.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin: 24px 0; }
-.tile { background: var(--tile); border: 1px solid var(--line); border-radius: 8px; padding: 16px; }
-.tile .label { color: var(--muted); font-size: 13px; }
-.tile .value { font-size: 28px; font-weight: 650; font-variant-numeric: tabular-nums; margin: 4px 0; }
-.tile .sub { color: var(--muted); font-size: 13px; }
-.scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--tile); }
-table { border-collapse: collapse; width: 100%; }
-th, td { text-align: left; vertical-align: top; padding: 10px 12px; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
-thead th { font-size: 13px; color: var(--muted); font-weight: 600; white-space: nowrap; }
-tbody th { font-weight: 600; white-space: nowrap; }
-tr:last-child td, tr:last-child th { border-bottom: 0; }
+<style>${EVIDENCE_CSS}
 </style>
 </head>
 <body>
-<main>
+<header class="band"><div class="wrap">
 <h1>Agent carbon (SCI)</h1>
 <p>What our Duo agents emit per merge request review, as Software Carbon Intensity (ISO/IEC 21031:2024): <code>(E × I + M) per R</code>, R = one review. The runner time and every model call are counted from ${esc(s.sessions)} agent sessions (${esc(day(s.from))} to ${esc(day(s.to))} UTC); energy per call is a cited range, so each figure has a low and a high end. Method and limits: <a href="${href(`${web}/-/blob/main/SUSTAINABILITY.md`)}">SUSTAINABILITY.md</a>.</p>
+</div></header>
+<main class="wrap">
 <div class="tiles">
 ${tiles}
 </div>

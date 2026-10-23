@@ -1,136 +1,465 @@
+/*
+ * polyman verify on top of Basecoat (vendor/basecoat.css: shadcn/ui components for plain HTML).
+ * This file only sets the theme tokens, the page layout, and the few pieces a stock component
+ * doesn't cover (the per-test squares and the step list). Light theme only.
+ */
 :root {
-  --bg: #f7f6f2;
-  --surface: #ffffff;
-  --ink: #1d2126;
-  --muted: #5c6470;
-  --line: #e1ddd3;
-  --accent: #1f6feb;
-  --accent-ink: #ffffff;
-  --ok: #1a7f37;
-  --ok-bg: #e3f4e8;
-  --bad: #c62828;
-  --bad-bg: #fbe5e5;
-  --warn: #9a6700;
-  --warn-bg: #fdf1d6;
-  --info: #57606a;
-  --info-bg: #eef0f2;
-  --code: #efede7;
+  /* system fonts only: no font files are bundled */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  /* shadcn tokens, light; the primary is polyman's cyan */
+  --background: #ffffff;
+  --foreground: #09090b;
+  --card: #ffffff;
+  --card-foreground: #09090b;
+  --primary: #0e7490;
+  --primary-foreground: #ffffff;
+  --secondary: #f4f4f5;
+  --secondary-foreground: #18181b;
+  --muted: #f4f4f5;
+  --muted-foreground: #5f5f69;
+  --accent: #ecfeff;
+  --accent-foreground: #155e75;
+  --destructive: #c81e1e;
+  --border: #e4e4e7;
+  --input: #e4e4e7;
+  --ring: #06b6d4;
+  --radius: 0.75rem;
+  /* polyman's own */
+  --brand: #06b6d4;
+  --brand-soft: #ecfeff;
+  --pass: #0891b2;
+  --fail: #dc2626;
+  --slow: #b45309;
+  --fail-ink: #b91c1c;
+  --pass-ink: #0e7490;
+  color-scheme: light;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #14171b;
-    --surface: #1c2026;
-    --ink: #e7e9ec;
-    --muted: #9aa3ad;
-    --line: #2d333b;
-    --accent: #4f8ff7;
-    --ok: #56d364;
-    --ok-bg: #16301e;
-    --bad: #ff7b72;
-    --bad-bg: #3a1c1c;
-    --warn: #e3b341;
-    --warn-bg: #3a2e12;
-    --info: #9aa3ad;
-    --info-bg: #262b31;
-    --code: #262b31;
-    color-scheme: dark;
-  }
-}
-* { box-sizing: border-box; }
-/* the hidden attribute has to win over display rules like .run-actions { display: flex } */
-[hidden] { display: none !important; }
-body {
-  margin: 0;
-  background: var(--bg);
-  color: var(--ink);
-  font: 16px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-}
-code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.9em; background: var(--code); padding: 1px 5px; border-radius: 4px; }
-a { color: var(--accent); }
-.wrap { max-width: 920px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right)); }
-.top { border-bottom: 1px solid var(--line); background: var(--surface); }
-.top .wrap { display: flex; align-items: center; justify-content: space-between; height: 56px; }
-.brand { font-weight: 700; color: var(--ink); text-decoration: none; letter-spacing: -0.01em; }
-.brand span { color: var(--accent); }
-.version { color: var(--muted); font-size: 0.85rem; }
-main { display: flex; flex-direction: column; gap: 40px; padding-block: 40px; }
-h1 { font-size: clamp(1.6rem, 4vw, 2.2rem); line-height: 1.2; margin: 0 0 12px; text-wrap: balance; }
-h2 { font-size: 1.25rem; margin: 0; }
-h3 { font-size: 1rem; margin: 0; }
-h4 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 20px 0 8px; }
-.intro p { color: var(--muted); max-width: 64ch; margin: 0; }
-.start { display: grid; grid-template-columns: 3fr 2fr; gap: 16px; }
-@media (max-width: 720px) { .start { grid-template-columns: 1fr; } }
-.drop {
-  border: 2px dashed var(--line); border-radius: 14px; background: var(--surface);
-  padding: 32px 24px; text-align: center; transition: border-color 0.15s, background 0.15s;
-}
-.drop.over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, var(--surface)); }
-.drop-title { font-size: 1.15rem; font-weight: 600; margin: 0 0 4px; }
-.drop-sub, .drop-hint { margin: 0; color: var(--muted); font-size: 0.95rem; }
-.drop-hint { margin-top: 12px; font-size: 0.85rem; }
-.linkish { background: none; border: 0; padding: 0; color: var(--accent); font: inherit; cursor: pointer; text-decoration: underline; }
-.samples { border: 1px solid var(--line); border-radius: 14px; background: var(--surface); padding: 20px; display: flex; flex-direction: column; gap: 12px; }
-.samples-title { margin: 0; font-weight: 600; }
-.sample-list { display: flex; flex-direction: column; gap: 8px; }
-.sample { text-align: left; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); padding: 10px 12px; cursor: pointer; color: var(--ink); font: inherit; }
-.sample:hover { border-color: var(--accent); }
-.sample b { display: block; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.9rem; }
-.sample span { color: var(--muted); font-size: 0.85rem; }
-button:disabled { opacity: 0.5; cursor: not-allowed; }
-.run { display: flex; flex-direction: column; gap: 16px; }
-.run-head { display: flex; align-items: center; gap: 12px; }
-.pill { font-size: 0.8rem; font-weight: 600; padding: 2px 10px; border-radius: 999px; background: var(--info-bg); color: var(--info); }
-.pill.ok { background: var(--ok-bg); color: var(--ok); }
-.pill.bad { background: var(--bad-bg); color: var(--bad); }
-.problems { display: flex; flex-direction: column; gap: 12px; }
-.problem { border: 1px solid var(--line); border-radius: 14px; background: var(--surface); padding: 16px 20px; min-width: 0; }
-.problem-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.problem-name { font-family: ui-monospace, Menlo, Consolas, monospace; }
-.steps { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
-.steps li { font-size: 0.8rem; padding: 2px 8px; border-radius: 6px; background: var(--info-bg); color: var(--muted); }
-.steps li.done { background: var(--ok-bg); color: var(--ok); }
-.steps li.now { background: color-mix(in srgb, var(--accent) 15%, var(--surface)); color: var(--accent); }
-.problem-error { color: var(--bad); white-space: pre-wrap; margin: 12px 0 0; max-height: 14em; overflow: auto; font-size: 0.9rem; }
-.table-wrap { overflow-x: auto; }
-table { border-collapse: collapse; width: 100%; font-size: 0.92rem; }
-th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
-th { color: var(--muted); font-weight: 600; font-size: 0.8rem; }
-td.yes { color: var(--ok); font-weight: 600; }
-td.no { color: var(--bad); font-weight: 600; }
-.checks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.checks li { display: grid; grid-template-columns: 22px 1fr; gap: 8px; align-items: start; font-size: 0.92rem; }
-.checks .mark { font-weight: 700; }
-.checks .ok .mark { color: var(--ok); }
-.checks .critical .mark { color: var(--bad); }
-.checks .warning .mark { color: var(--warn); }
-.checks .info .mark { color: var(--info); }
-.checks small { display: block; color: var(--muted); }
-.run-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.button { border: 0; border-radius: 10px; padding: 10px 16px; font: inherit; font-weight: 600; cursor: pointer; background: var(--accent); color: var(--accent-ink); }
-.button.quiet { background: var(--surface); color: var(--ink); border: 1px solid var(--line); }
-.how h2 { margin-bottom: 16px; }
-.how-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
-.how-grid > div { border-top: 3px solid var(--accent); background: var(--surface); padding: 16px; border-radius: 0 0 10px 10px; }
-.how-grid p { color: var(--muted); margin: 6px 0 0; font-size: 0.95rem; }
-.fine { color: var(--muted); font-size: 0.85rem; margin-top: 16px; }
-.error-box { border: 1px solid var(--bad); background: var(--bad-bg); color: var(--bad); border-radius: 10px; padding: 12px 16px; }
-.error-box ul { margin: 6px 0 0; padding-left: 18px; }
-.foot { color: var(--muted); font-size: 0.85rem; padding-block: 24px 40px; border-top: 1px solid var(--line); }
+html { scroll-behavior: smooth; }
+body { font-feature-settings: 'tnum' 1; -webkit-font-smoothing: antialiased; }
+::selection { background: #cffafe; }
+a:where(:not(.btn, .badge, .logo)) { color: var(--primary); text-underline-offset: 3px; }
+code { font-family: var(--font-mono); font-size: max(0.85em, 12.5px); background: var(--muted); border-radius: 6px; padding: 2px 6px; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.skip { position: absolute; left: 16px; top: -48px; z-index: 30; background: var(--primary); color: var(--primary-foreground); padding: 8px 12px; border-radius: 8px; }
+.skip:focus { top: 8px; }
+@media (pointer: coarse) { .skip { min-height: 44px; display: inline-flex; align-items: center; } }
+.container { width: 100%; max-width: 1180px; margin-inline: auto; padding-inline: 24px; }
+/* the primary button darkens on hover, so its label keeps its contrast */
+.btn:not([data-variant]):hover:not(:disabled), .btn[data-variant='primary']:hover:not(:disabled) { background-color: #155e75; color: var(--primary-foreground); }
+.badge[data-variant='destructive'] { color: var(--fail-ink); }
+.badge[data-variant='success'] { background: #cffafe; color: #155e75; border-color: transparent; }
+.badge svg { width: 12px; height: 12px; }
+/* one focus ring everywhere, 5:1 against white, in place of Basecoat's half-alpha cyan (which outranks a :where()) */
+a:focus-visible, .checks li:focus-visible, .btn:focus-visible, .sample:focus-visible, summary:focus-visible, pre:focus-visible, .accordion > details > summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; box-shadow: none; }
+/* (Basecoat animates every property, the ring included, and tints the border; neither, so the ring is the ring from the first frame) */
+.btn, .accordion > details > summary { transition-property: color, background-color, opacity, transform; }
+.btn[data-variant='outline']:focus-visible { border-color: var(--border); }
+.accordion > details > summary:focus-visible { border-color: transparent; outline-offset: 4px; }
+.nowrap { white-space: nowrap; }
+section[aria-labelledby] h2 { scroll-margin-top: 96px; }
 
-/* header links and the docs page */
-.nav { display: flex; align-items: center; gap: 16px; font-size: 0.9rem; }
-.nav a { color: var(--muted); text-decoration: none; }
-.nav a:hover, .nav a[aria-current="page"] { color: var(--ink); }
-.docs { max-width: 760px; }
-.docs section { scroll-margin-top: 16px; }
-.docs h2 { margin: 0 0 10px; }
-.docs p, .docs li { max-width: 68ch; }
-.docs .lead { color: var(--muted); font-size: 1.05rem; }
-.docs ol, .docs ul { padding-left: 20px; display: grid; gap: 4px; }
-.docs pre { background: var(--code); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; overflow-x: auto; font-size: 0.85rem; line-height: 1.5; }
-.docs pre code { background: none; padding: 0; }
-.docs table { margin: 8px 0 4px; }
-.toc { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
-.toc a { font-size: 0.85rem; padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--ink); text-decoration: none; background: var(--surface); }
-.toc a:hover { border-color: var(--accent); }
+/* header */
+.site-header { position: sticky; top: 0; z-index: 20; background: var(--background); border-bottom: 1px solid var(--border); }
+.header-row { display: flex; align-items: center; justify-content: space-between; height: 64px; gap: 16px; }
+.logo { display: inline-flex; align-items: center; gap: 10px; font-weight: 600; font-size: 1.05rem; letter-spacing: -0.01em; color: var(--foreground); text-decoration: none; }
+.logo span { color: var(--muted-foreground); font-weight: 500; }
+.logo-mark { width: 28px; height: 28px; }
+.header-nav { display: flex; align-items: center; gap: 4px; }
+/* the page you're on is marked, not offered as a button */
+.header-nav [aria-current] { background: none; font-weight: 600; box-shadow: inset 0 -2px 0 var(--primary); border-radius: 0; }
+
+/* hero: the claim on the left, the product itself on the right */
+/* (the card's column is as wide as a result's twelve squares need, with the hero's top edge level with the tabs) */
+.hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr); gap: 40px; align-items: start; padding-block: 24px 64px; }
+/* the claim stays in view beside a long result, instead of leaving an empty column */
+.hero-copy { position: sticky; top: 88px; }
+.hero h1 { font-size: clamp(2.2rem, 1.4rem + 2.2vw, 2.5rem); }
+.hero .badge { gap: 8px; padding-inline: 12px; height: 28px; font-size: 0.8rem; }
+.live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--brand); }
+h1 { margin: 20px 0 0; font-size: clamp(2.2rem, 1.4rem + 2.2vw, 3rem); line-height: 1.05; font-weight: 700; letter-spacing: -0.04em; text-wrap: balance; }
+.hero-lede { margin: 20px 0 0; max-width: 46ch; font-size: 1.1rem; line-height: 1.6; color: var(--muted-foreground); text-wrap: pretty; }
+.hero-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 32px; }
+/* while a run is on, the big button says so instead of fading out */
+#demo:not([data-variant]):disabled { opacity: 1; background-color: #155e75; }
+#demo[data-variant]:disabled { opacity: 0.7; }
+#demo:disabled svg { animation: spin 900ms linear infinite; }
+.hero-note { margin: 24px 0 0; max-width: 46ch; font-size: 0.875rem; line-height: 1.55; color: var(--muted-foreground); text-wrap: pretty; }
+
+/* the samples: shadcn Tabs, the list full width over the card that is their panel */
+.run-col { scroll-margin-top: 80px; }
+.run-col .sample svg.tab-result { width: 14px; height: 14px; }
+/* (a disabled tab mid-run keeps no tooltip over the card) */
+.run-col .sample:disabled[data-tooltip]:before { display: none; }
+.run-meta.own-line { display: block; margin-top: 2px; }
+.run-col .sample .tab-result.ok { color: var(--pass); }
+.run-col .sample .tab-result.bad { color: var(--fail); }
+.run-col > [role=tablist] { width: 100%; }
+.run-col .sample { font-family: var(--font-mono); font-size: 0.8125rem; }
+/* (the one being checked stays readable while the others are locked) */
+.run-col .sample[aria-selected='true']:disabled { opacity: 1; }
+.sample:focus-visible { outline-offset: 2px; }
+.switcher-error { margin: 0; padding: 0 8px; font-size: 0.875rem; color: var(--muted-foreground); }
+
+/* the result: a shadcn Card, titled with the verdict, the status badge as its action */
+.result { scroll-margin-top: 88px; }
+/* the card's edge is a ring, so the verdict tints the ring (not when a sample's answer leads: its badge and row say it) */
+.result.is-bad:not(.has-found) { --tw-ring-color: #fca5a5; }
+.result.is-good { --tw-ring-color: #67e8f9; }
+#run-status svg { animation: spin 900ms linear infinite; }
+.result > header { row-gap: 6px; }
+.result > header > .card-action { grid-row: 1; }
+/* (on a phone Stop is 44px: the action keeps that height when it hides, so the head doesn't drop as the verdict lands) */
+@media (max-width: 760px) { .result > header > .card-action { min-height: 44px; } }
+/* the CardDescription: what the verdict means, then the run's own line in muted text */
+.result > header > .run-desc { grid-column: 1 / -1; margin: 0; }
+.result > header > h2 { font-size: 1.375rem; line-height: 1.3; font-weight: 650; letter-spacing: -0.02em; text-wrap: balance; outline: none; }
+.result.is-bad > header > h2 { color: var(--fail-ink); }
+.result.is-good > header > h2, .result.has-found > header > h2 { color: var(--pass-ink); }
+/* a sample's answer leads with shadcn's icon-and-title */
+.result > header > h2 > svg { display: inline-block; width: 1.05em; height: 1.05em; margin-right: 0.35em; vertical-align: -0.17em; color: var(--pass); }
+.result > header > .run-desc { color: var(--foreground); line-height: 1.55; text-wrap: pretty; }
+.run-meta { font-size: 0.8125rem; color: var(--muted-foreground); white-space: nowrap; }
+/* the verdict arrives with one short fade, the rows top to bottom (tailwindcss-animate: animate-in fade-in slide-in-from-bottom-1) */
+.result:is(.is-good, .is-bad) > header > :is(h2, .run-desc) { animation: fade-in 200ms ease-out; }
+/* a little tighter than Basecoat's 24px between the card's parts, so a result and its actions share a laptop screen */
+.result { gap: 20px; padding-block: 20px; }
+.run-col { gap: 8px; }
+/* the guidelines after the actions: the card's last row, so no rule under it */
+.result > .more > details:not(:has(~ details:not([hidden]))) { border-bottom: 0; }
+.sols tbody tr:not(.waiting) { animation: enter 200ms ease-out backwards; animation-delay: calc(var(--r, 0) * 40ms); }
+@keyframes fade-in { from { opacity: 0; } }
+@keyframes enter { from { opacity: 0; transform: translateY(0.25rem); } }
+.checks.folded li.ok { display: none; }
+.checks .met-toggle { display: block; grid-column: 1 / -1; padding: 2px 0 0 28px; }
+.checks .met-toggle .btn { padding-inline: 0; height: auto; min-height: 44px; }
+.steps-live li.stopped { color: var(--muted-foreground); }
+/* the run's progress (Basecoat progress), stopped grey if the run broke off */
+.progress > span { background-color: var(--pass); }
+.progress.stopped > span { background-color: var(--muted-foreground); }
+/* indeterminate while the first, longest step runs */
+/* (the Skeleton's shimmer, in the pass colour: the bar is working, how far is not known yet) */
+.progress.indeterminate > span { width: 100%; background: linear-gradient(90deg, var(--muted) 0%, var(--pass) 50%, var(--muted) 100%) 0 0 / 200% 100%; animation: shimmer 1.4s linear infinite; }
+/* (with motion reduced the shimmer can't move, so the bar is the plain track until it knows how far) */
+@media (prefers-reduced-motion: reduce) { .progress.indeterminate > span { background: none; } }
+/* CardFooter: the actions in shadcn's order, and no empty footer while a run is on */
+.result > footer { flex-wrap: wrap; gap: 8px; }
+.result > footer #download { margin-left: auto; margin-right: calc(var(--spacing) * -3); }
+.result > footer:not(:has(> :not([hidden]))) { display: none; }
+.problems { display: flex; flex-direction: column; gap: 28px; }
+.problem { display: grid; gap: 16px; }
+.problem-name { margin: 0; font-size: 1.05rem; font-weight: 600; }
+
+/* while polyman works: the progress bar and the step under way (the card's description counts the steps) */
+.steps-live { list-style: none; margin: -8px 0 0; padding: 0; }
+.steps-live:empty { display: none; }
+.steps-live li:not(.now, .stopped) { display: none; }
+.steps-live li { display: flex; align-items: center; gap: 10px; font-size: 0.875rem; color: var(--muted-foreground); transition: color 200ms; }
+.steps-live li svg { width: 16px; height: 16px; flex: none; color: #8a8a94; }
+.steps-live li.done svg { color: var(--pass); }
+.steps-live li.now { color: var(--foreground); font-weight: 500; }
+.steps-live li.now svg { color: var(--pass); animation: spin 900ms linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* the solutions: a shadcn Table, flush in the card (no frame of its own), its key as the caption */
+/* (nothing scrolls sideways at this width, so the squares' tooltips aren't clipped) */
+.result .table-container { overflow: visible; }
+.sols { table-layout: auto; }
+.sols tr { border-bottom: 1px solid var(--border); }
+.sols th, .sols td { padding-inline: 8px; }
+.sols :is(th, td):first-child { padding-inline-start: 0; }
+.sols :is(th, td):last-child { padding-inline-end: 0; text-align: end; }
+.sols td { vertical-align: top; padding-block: 10px; white-space: normal; }
+.sols td.sol { width: 1%; white-space: nowrap; }
+.sols th { white-space: nowrap; line-height: 1.3; }
+.sols td.res { width: 1%; white-space: nowrap; }
+.sols tbody tr:last-child { border-bottom: 1px solid var(--border); }
+/* (no hover tint on rows that aren't links: only the broken one is marked) */
+@media (hover: hover) { .sols tbody tr:not([data-state=selected]):hover { background-color: transparent; } }
+.sols tbody tr[data-state=selected] td:first-child { box-shadow: inset 2px 0 0 var(--fail); padding-inline-start: 10px; }
+.sols tr[data-state=selected] .dots-note { color: var(--fail-ink); }
+.result .badge svg { width: 12px; height: 12px; }
+.sols .badge[data-variant='outline'] svg { color: var(--pass); }
+/* before results: a shadcn Skeleton where each solution's tests and result will go */
+.sols tr.waiting td.tests, .sols tr.waiting td.res { vertical-align: middle; }
+/* (a check that ended without judging them leaves those rows plain, not still loading) */
+.result:is(.is-good, .is-bad) .sols tr.waiting .skeleton { visibility: hidden; }
+.sols tr.waiting td.res .skeleton { width: 88px; height: 20px; border-radius: 999px; margin-inline-start: auto; }
+/* a solution that fails as its label says: its marks drawn in outline, so a passing result doesn't shout red */
+.sols tr.expected-fail .dot.bad, .sols tr.expected-fail .dot.limit, .legend .dot.hollow { background: #fff; box-shadow: inset 0 0 0 1.5px currentColor; }
+.sols tr.expected-fail .dot.bad, .legend .dot.hollow.bad { color: var(--fail); }
+.sols tr.expected-fail .dot.limit, .legend .dot.hollow.limit { color: var(--slow); }
+/* whether each solution kept its label: words and a mark, no pill */
+.res-ok, .res-bad { display: inline-flex; align-items: center; gap: 6px; font-size: 0.8125rem; font-weight: 500; }
+.res-ok { color: var(--muted-foreground); }
+.res-bad { color: var(--fail-ink); font-weight: 600; }
+.res-ok svg, .res-bad svg { width: 14px; height: 14px; }
+.res-ok svg { color: var(--pass); }
+/* while a run is on: an empty strip where each solution's tests will go, shimmering once they run */
+.skeleton { display: block; height: 18px; max-width: 280px; border-radius: 5px; background: var(--muted); }
+.result.is-running .skeleton { background: linear-gradient(90deg, var(--muted) 0%, #dff7fb 50%, var(--muted) 100%) 0 0 / 200% 100%; animation: shimmer 1.4s linear infinite; }
+@keyframes shimmer { to { background-position: -200% 0; } }
+.sol-name { display: block; font-family: var(--font-mono); font-size: 0.85rem; font-weight: 600; }
+.sol-label { display: block; margin-top: 2px; font-size: 0.8rem; color: var(--muted-foreground); }
+.dots { display: flex; flex-wrap: wrap; gap: 3px; }
+/* a result's squares are 24px apart centre to centre, so each is a fair target for a mouse */
+.sols .dots { gap: 6px; }
+.sols .dot { width: 18px; height: 18px; border-radius: 5px; }
+.sols .dot svg { width: 12px; height: 12px; }
+.dot { display: inline-grid; place-items: center; width: 13px; height: 13px; border-radius: 4px; background: var(--pass); color: #fff; vertical-align: -2px; }
+/* a square in a result is a control: its Basecoat tooltip says which test it is */
+button.dot { padding: 0; border: 0; font: inherit; cursor: help; }
+button.dot::after { content: ''; position: absolute; inset: -3px -2px; }
+button.dot:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+/* (Basecoat hides a tooltip on keyboard focus; a square's shows, so the keyboard reads what the mouse does) */
+.dots [data-tooltip]:focus-visible:before { display: inline-flex; visibility: visible; opacity: 1; scale: 1; --tw-translate-y: 0; translate: var(--tw-translate-x) var(--tw-translate-y); }
+/* (on a narrow screen a long test detail wraps instead of running off the card) */
+@media (max-width: 760px) { .dots [data-tooltip]:before { width: max-content; max-width: calc(50vw - 24px); white-space: normal; } }
+/* (on a wide screen the longest test detail fits on one line, uncut) */
+@media (min-width: 761px) { .dots [data-tooltip]:before { max-width: none; } }
+.dot.bad { background: var(--fail); }
+.dot.limit { background: var(--slow); }
+.dot svg { width: 10px; height: 10px; }
+.dots-note { display: block; margin-top: 6px; color: var(--muted-foreground); font-size: 0.8rem; line-height: 1.45; white-space: normal; }
+/* the key, as the table's caption: one line */
+.sols caption.legend { text-align: start; font-size: 0.8125rem; }
+.legend > span { display: inline-flex; align-items: center; gap: 6px; margin-inline-end: 14px; white-space: nowrap; }
+.legend .legend-note { color: var(--foreground); }
+/* (each entry centred on the line, so a square sits level with its words) */
+.legend > span { vertical-align: middle; }
+@media (min-width: 761px) { .label-word { display: none; } }
+/* every fifth test a little apart, so a long strip can be counted */
+.dots .dot:nth-child(5n):not(:last-child) { margin-right: 4px; }
+.accordion summary { gap: 8px; }
+.checks { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 4px 24px; }
+.checks li { display: grid; grid-template-columns: 18px 1fr; gap: 10px; padding: 6px 0; font-size: 0.875rem; }
+.checks li svg { width: 16px; height: 16px; margin-top: 2px; color: var(--pass); }
+.checks li.critical svg { color: var(--fail); }
+.checks li.warning svg, .checks li.info svg { color: var(--muted-foreground); }
+.checks small { display: block; margin-top: 2px; font-size: 0.8125rem; line-height: 1.45; color: var(--muted-foreground); }
+.problem-error { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--font-mono); font-size: 0.8rem; color: var(--muted-foreground); max-height: 16em; overflow: auto; }
+.alert[data-variant='destructive'] > section { color: var(--foreground); }
+.result .alert { border: 0; border-radius: 0; padding-inline: 0; background: none; }
+.alert:not([data-variant]) > svg { color: var(--pass); }
+.result .alert:not([data-variant]) > h2 { color: var(--pass-ink); }
+/* a contest: each problem's report under its own ruled heading */
+.problem + .problem { border-top: 1px solid var(--border); padding-top: 24px; }
+.problem-name { scroll-margin-top: 96px; }
+.problem { scroll-margin-top: 96px; }
+.refusal p { margin: 0 0 8px; }
+.refusal .raw { color: var(--muted-foreground); font-size: 0.85rem; overflow-wrap: anywhere; }
+.refusal ul { margin: 0 0 8px; padding-left: 18px; }
+
+/* sections below */
+.section { padding-block: 40px; }
+.section-head { margin-bottom: 24px; }
+.section-head h2 { margin: 0; font-size: 1.75rem; font-weight: 700; letter-spacing: -0.03em; }
+.section-head p { margin: 6px 0 0; color: var(--muted-foreground); text-wrap: pretty; }
+.card-action { display: flex; align-items: center; gap: 8px; }
+
+/* the upload: a Basecoat empty state, dashed */
+.dropzone { border-width: 1px; border-color: var(--border); transition: border-color 150ms, background-color 150ms; }
+.dropzone figure { color: var(--primary); }
+.dropzone > section { gap: 8px; }
+.dropzone.over { border-color: var(--brand); background: var(--brand-soft); }
+.dropzone.flash { animation: flash 1.6s cubic-bezier(0.16, 1, 0.3, 1); }
+@keyframes flash { from { border-color: var(--brand); background: var(--brand-soft); } }
+.dropzone p { margin: 0; color: var(--muted-foreground); max-width: 56ch; text-wrap: pretty; }
+.dropzone-hint { font-size: 0.85rem; }
+/* three parts, each with its Lucide icon */
+.flow { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 32px; }
+.flow li { position: relative; }
+.flow-icon { width: 24px; height: 24px; margin-bottom: 12px; color: var(--primary); }
+/* the same three parts beside the hero, as Basecoat items */
+.hero-parts { margin-top: 40px; padding-top: 16px; border-top: 1px solid var(--border); gap: 0; }
+.hero-parts .item { padding-inline: 0; }
+.hero-parts .item > figure { color: var(--primary); }
+.hero-parts .item strong { font-weight: 500; transition: color 200ms; }
+/* the three parts follow the run: waiting muted, under way with a Spinner, done with a check */
+/* (a part the run never reached is muted; one it broke off in keeps its words, with a stop mark) */
+.hero-parts .item[data-state='pending'] strong { color: var(--muted-foreground); }
+.hero-parts .item:is([data-state='pending'], [data-state='stopped']) > figure { color: var(--muted-foreground); }
+.hero-parts .item[data-state='active'] > figure svg { animation: spin 900ms linear infinite; }
+.hero-parts .item[data-state='done'] > figure { color: var(--pass); }
+.hero-parts .item[data-state='failed'] > figure { color: var(--fail); }
+@media (max-width: 960px) { .hero-parts { display: none; } }
+.flow h3 { margin: 0; font-size: 1.05rem; font-weight: 600; letter-spacing: -0.01em; }
+.flow p { margin: 8px 0 0; color: var(--muted-foreground); line-height: 1.6; text-wrap: pretty; }
+/* the GitLab records, as links to the pages themselves */
+.gitlab { display: grid; grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr); gap: 48px; align-items: start; padding-top: 56px; }
+.gitlab h2 { margin: 0; font-size: 1.75rem; font-weight: 700; letter-spacing: -0.03em; text-wrap: balance; outline: none; scroll-margin-top: 96px; }
+.gitlab-copy p { margin: 12px 0 0; color: var(--muted-foreground); line-height: 1.6; text-wrap: pretty; }
+/* the GitLab records: Basecoat items, one per page, ruled apart */
+.records { gap: 0; }
+.records > hr { border-color: var(--border); margin: 0; }
+.records .item { color: var(--foreground); text-decoration: none; }
+.records .item:focus-visible { outline-offset: -2px; }
+/* (the whole sentence shows: Basecoat clips an item's text at two lines) */
+.records .item p { display: block; -webkit-line-clamp: unset; text-wrap: pretty; }
+.records .item h3 { font-size: 0.9375rem; font-weight: 600; }
+.records .item > figure svg { width: 20px; height: 20px; color: var(--primary); }
+.records .item > aside svg { width: 16px; height: 16px; color: var(--muted-foreground); }
+.dropzone-hint code { white-space: nowrap; }
+.privacy { display: block; text-align: center; margin: 4px 0 0 !important; font-size: 0.875rem; color: var(--muted-foreground); }
+.privacy svg { display: inline; width: 16px; height: 16px; margin-right: 6px; vertical-align: -3px; }
+.refusal .prep a { display: inline-block; padding-block: 13px; }
+.site-footer { border-top: 1px solid var(--border); margin-top: 40px; }
+.footer-row { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px 24px; padding-block: 28px 40px; font-size: 0.875rem; color: var(--muted-foreground); }
+.footer-links { display: flex; flex-wrap: wrap; gap: 4px 20px; }
+
+/* the docs page */
+.docs-layout { max-width: 1180px; margin: 0 auto; padding: 56px 24px 32px; display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 56px; }
+.toc { position: sticky; top: 88px; align-self: start; display: flex; flex-direction: column; gap: 2px; font-size: 0.875rem; }
+.toc p { margin: 0 0 8px; font-weight: 600; }
+.toc a:not(.btn) { color: var(--muted-foreground); text-decoration: none; padding: 6px 10px; border-radius: 8px; }
+.toc a:not(.btn):hover { color: var(--foreground); background: var(--muted); }
+.docs { max-width: 740px; display: flex; flex-direction: column; gap: 56px; }
+.docs section { scroll-margin-top: 88px; }
+.docs h1 { margin: 0 0 16px; font-size: clamp(2.2rem, 1.6rem + 2vw, 3rem); }
+.docs h2 { margin: 0 0 12px; font-size: 1.6rem; font-weight: 700; letter-spacing: -0.03em; }
+.docs p, .docs li { line-height: 1.7; color: #3f3f46; text-wrap: pretty; }
+.docs .lede { font-size: 1.125rem; color: var(--muted-foreground); }
+.docs ol, .docs ul { padding-left: 22px; display: grid; gap: 6px; list-style: revert; }
+.docs pre { margin: 12px 0 16px; background: #fafafa; border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; overflow-x: auto; font-size: 0.85rem; line-height: 1.6; }
+.docs pre code { background: none; padding: 0; font-size: 1em; }
+.docs .table-container { margin: 12px 0 4px; }
+.docs .table { border: 1px solid var(--border); border-radius: var(--radius); border-collapse: separate; border-spacing: 0; overflow: hidden; }
+.docs .table th, .docs .table td { padding: 10px 14px; white-space: normal; }
+.docs .table th { background: var(--muted); font-size: 0.8rem; color: var(--muted-foreground); }
+
+/* the run as it happens: a log in Basecoat's code style, a muted band flush in the card (shadcn ScrollArea: fixed height, newest at the foot) */
+.run-log, .how-log { margin: 0; padding: 0; font-family: var(--font-mono); font-size: 0.75rem; line-height: 1.6; color: var(--foreground); white-space: normal; overflow-wrap: anywhere; }
+/* (flush in the card under a hairline: whole lines only, the oldest fading out at the top) */
+.run-log { margin-top: 16px; padding-top: 10px; border-top: 1px solid var(--border); height: calc(6 * 1.6em + 10px); overflow-y: auto; scrollbar-width: none; mask-image: linear-gradient(to bottom, transparent 10px, #000 calc(10px + 1.6em)); }
+.run-log::-webkit-scrollbar { display: none; }
+.run-log[hidden] { display: none; }
+.run-log:focus-visible, .how-log:focus-visible { outline-offset: -2px; }
+.log-tick { color: var(--muted-foreground); font-weight: 400; font-variant-numeric: tabular-nums; }
+.log-line { display: grid; grid-template-columns: 6ch minmax(0, 1fr); column-gap: 1.5ch; }
+.log-t { color: var(--muted-foreground); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.run-log .log-line:last-child { font-weight: 600; }
+.how-run { margin-top: 10px; }
+.how-run > summary { cursor: pointer; font-size: 0.8125rem; color: var(--muted-foreground); padding-block: 4px; width: fit-content; }
+.how-run > summary:focus-visible { outline-offset: -2px; }
+.how-run[open] > summary { margin-bottom: 6px; }
+.how-note { color: var(--muted-foreground); }
+@media (max-width: 760px) { .run-log { height: calc(3 * 1.6em + 10px); } }
+/* what the run did, counted from its report: the numbers in the foreground, the words muted */
+.run-facts { color: var(--muted-foreground); font-size: 0.8125rem; }
+.run-facts .fact { white-space: nowrap; }
+.run-facts .fact + .fact::before { content: '·'; margin-inline: 0.3em; color: var(--muted-foreground); }
+.result > header > .run-desc > .run-facts { font-size: 0.75rem; }
+/* (on a phone the facts wrap: gaps part them, so no dot starts or ends a line) */
+@media (max-width: 760px) { .run-facts { column-gap: 14px; } .run-facts .fact + .fact::before { content: none; } }
+.run-facts b { color: var(--foreground); font-weight: 600; font-variant-numeric: tabular-nums; }
+.result > header > .run-desc > .run-facts { display: flex; flex-wrap: wrap; margin-top: 4px; }
+.result > header > .run-desc > .run-facts[hidden] { display: none; }
+.verdict .run-facts { display: flex; flex-wrap: wrap; margin: 6px 0 0; }
+/* "How it was checked": the ten steps, each passed or failed and how long it took */
+.how-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.how-steps li { display: grid; grid-template-columns: 18px 1fr auto; gap: 10px; align-items: center; padding: 3px 0; font-size: 0.875rem; }
+.how-steps li svg { width: 16px; height: 16px; color: var(--pass); }
+.how-steps li.failed svg { color: var(--fail); }
+.how-steps li.stopped svg { color: var(--muted-foreground); }
+.how-time { color: var(--muted-foreground); font-size: 0.8125rem; font-variant-numeric: tabular-nums; }
+/* the GitLab records' own figures, read from what they publish */
+.records .item .item-stat { display: block; margin-top: 4px; min-height: calc(2 * 1.45em); font-size: 0.8125rem; line-height: 1.45; color: var(--foreground); font-variant-numeric: tabular-nums; text-wrap: pretty; }
+.records .item .item-stat.loading::before { content: ''; display: block; width: 60%; height: 0.8em; margin-top: 0.35em; border-radius: 4px; background: var(--muted); animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+.records .item .item-stat[hidden] { display: none; }
+.gitlab-copy .before-after { color: var(--foreground); }
+/* (the pipeline's line is short: one line held on a wide screen) */
+@media (min-width: 961px) { .records .item .item-stat[data-stat=pipelines] { min-height: 1.45em; } }
+
+@media (max-width: 960px) {
+  .hero { grid-template-columns: minmax(0, 1fr); gap: 32px; padding-block: 48px 40px; }
+  .hero-copy { padding-top: 0; position: static; }
+  .gitlab { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+}
+@media (max-width: 760px) {
+  .container { padding-inline: 16px; }
+  /* on a phone each page links to the other one, and Source keeps only its icon */
+  .header-nav [aria-current] { display: none; }
+  .header-nav .nav-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .hero { padding-block: 32px; }
+  .hero-lede { font-size: 1rem; }
+  .hero-actions { margin-top: 24px; }
+  .hero-actions .btn { width: 100%; height: 44px; }
+  .header-nav .btn { height: 44px; min-width: 44px; }
+  .footer-links a { display: inline-block; padding-block: 10px; }
+  .result .btn, .dropzone .btn { height: 44px; }
+  /* the hero's run button is the phone's primary; the card's steps back to outline */
+  #start { background: var(--background); color: var(--foreground); box-shadow: inset 0 0 0 1px var(--border); }
+  .toc a:not(.btn) { min-width: 44px; text-align: center; }
+  .logo { padding-block: 8px; }
+  .footer-links a { padding-block: 12px; }
+  .toc a:not(.btn) { padding-block: 12px; }
+  .flow { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+  /* on a phone the tabs stay one row, scrolling sideways, and fade at the edge while there is more */
+  .run-col > [role=tablist] { justify-content: flex-start; overflow-x: auto; scrollbar-width: none; }
+  .run-col > [role=tablist].more-right { mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent); }
+  .run-col .sample { flex: none; }
+  /* (a finger's worth of tab: 44px tall) */
+  .run-col > [role=tablist] { height: auto; }
+  .run-col .sample { height: 44px; }
+  /* each solution stacks: name and result on top, then its tests across the full width */
+  .sols thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .sols tbody { display: block; }
+  .sols tbody tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; }
+  .sols td { display: block; }
+  .sols td.sol { grid-column: 1; grid-row: 1; width: auto; padding-bottom: 8px; white-space: normal; }
+  .sols td.res { grid-column: 2; grid-row: 1; width: auto; padding-bottom: 8px; }
+  .sols td.tests { grid-column: 1 / -1; grid-row: 2; padding: 0 0 12px; }
+  .sols tbody tr[data-state=selected] td.tests { padding-inline-start: 10px; }
+  .sols tbody tr[data-state=selected] td:first-child { box-shadow: none; padding-inline-start: 10px; }
+  .sols tbody tr[data-state=selected] { box-shadow: inset 2px 0 0 var(--fail); }
+  .sols caption.legend { line-height: 1.9; }
+  .gitlab { padding-top: 40px; }
+  .docs-layout { grid-template-columns: minmax(0, 1fr); gap: 24px; padding-top: 32px; }
+  .toc { position: static; flex-direction: row; flex-wrap: wrap; }
+  .toc p { width: 100%; }
+  .result > header > h2 { font-size: 1.2rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 1ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; scroll-behavior: auto !important; }
+}
+
+/* the result card has the run button beside the claim on a wide screen; the hero's copy of it is for phones,
+   and the upload is a quiet link there, so the card's button is the one filled action on screen */
+@media (min-width: 961px) {
+  /* the hero row is as tall as the tallest sample's finished card, so a result that lands doesn't push the page under it */
+  .hero { min-height: 52rem; }
+  #demo { display: none; }
+  #own { background: none; border-color: transparent; box-shadow: none; padding-inline: 0; height: auto; color: var(--primary); }
+  #own:hover { text-decoration: underline; text-underline-offset: 3px; }
+}
+/* no dragging on a touch screen */
+@media (hover: none) {
+  .drop-hint { display: none; }
+}
+/* the docs' tag letters and guideline severities, as words, not pills */
+.tag { font-family: var(--font-mono); font-weight: 650; font-size: 0.85rem; }
+.tag-pass { color: var(--pass-ink); }
+.tag-fail { color: var(--fail-ink); }
+.tag-slow { color: var(--slow); }
+.sev { font-weight: 500; }
+.sev-must-fix { color: var(--fail-ink); }
+.sev-recommended, .sev-nice-to-have { color: var(--muted-foreground); }
+
+/* a finger needs bigger squares: on touch screens they grow to a tappable size */
+@media (pointer: coarse) {
+  .sols button.dot { width: 20px; height: 20px; border-radius: 5px; }
+  .sols button.dot svg { width: 14px; height: 14px; }
+  .sols .dots { gap: 4px; }
+  .sols .dots .dot:nth-child(5n):not(:last-child) { margin-right: 4px; }
+  .sols button.dot::after { inset: -1px; }
+}
+
+/* the tab just pressed keeps its tooltip quiet until the pointer leaves it */
+.run-col .sample.quiet[data-tooltip]::before { display: none; }
+@media (prefers-reduced-motion: reduce) { .records .item .item-stat.loading::before { animation: none; } }
+
+/* a short laptop screen (about 730 px of page): the rows sit closer, so the card's actions stay on the first screen */
+@media (min-width: 961px) and (max-height: 760px) {
+  .sols td { padding-block: 6px; }
+  .result { gap: 16px; }
+}

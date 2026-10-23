@@ -1,5 +1,6 @@
 import type { Counters, GuardRun, Ledger, NoteRef, OpenPush } from './ledger.ts';
 import { type Loop, type LoopGrams, type LoopSummary, gramsRange, summaryLine } from './loops.ts';
+import { EVIDENCE_CSS } from './page-style.ts';
 
 /** The ledger as a static page for Pages: the counters, then every record. */
 
@@ -162,39 +163,16 @@ export function renderLedgerPage({ ledger, open, runs, counters: c, web, generat
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Go-ahead ledger</title>
-<style>
-:root { --bg: #fbfbfa; --fg: #1d1d1b; --muted: #6b6b66; --line: #e2e1dc; --tile: #ffffff; --ok: #1a7f37; --bad: #b42318; --refused: #fdf1ef; --link: #1f5fbf; }
-@media (prefers-color-scheme: dark) { :root { --bg: #161615; --fg: #ecebe6; --muted: #a09f98; --line: #34332f; --tile: #1f1f1d; --ok: #4ac26b; --bad: #ff7b72; --refused: #2a1a18; --link: #7cacf8; } }
-* { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
-main { max-width: 1280px; margin: 0 auto; padding: 32px 16px 64px; }
-h1 { font-size: 28px; margin: 0 0 8px; }
-h2 { font-size: 18px; margin: 40px 0 12px; }
-p { max-width: 75ch; }
-a { color: var(--link); }
-code { font: 13px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace; }
-.muted { color: var(--muted); font-size: 13px; }
-.ok { color: var(--ok); font-weight: 600; }
-.bad { color: var(--bad); font-weight: 600; }
-.summary { font-size: 18px; font-weight: 600; max-width: none; }
-.num { white-space: nowrap; font-variant-numeric: tabular-nums; }
-.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin: 24px 0; }
-.tile { background: var(--tile); border: 1px solid var(--line); border-radius: 8px; padding: 16px; }
-.tile .label { color: var(--muted); font-size: 13px; }
-.tile .value { font-size: 32px; font-weight: 650; font-variant-numeric: tabular-nums; margin: 4px 0; }
-.tile .sub { color: var(--muted); font-size: 13px; }
-.scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--tile); }
-table { border-collapse: collapse; width: 100%; min-width: 1100px; }
-th, td { text-align: left; vertical-align: top; padding: 10px 12px; border-bottom: 1px solid var(--line); }
-th { font-size: 13px; color: var(--muted); font-weight: 600; white-space: nowrap; }
-tr.refused td { background: var(--refused); }
-tr:last-child td { border-bottom: 0; }
+<style>${EVIDENCE_CSS}
+table { min-width: 1100px; }
 </style>
 </head>
 <body>
-<main>
+<header class="band"><div class="wrap">
 <h1>Go-ahead ledger</h1>
 <p>Every push an agent made to a merged MR since the go-ahead guard (<code>autonomy:goahead</code>) reached <code>main</code> (${sha(ledger.since.commit, web)}, ${esc(ledger.since.at.replace('T', ' ').replace('Z', ' UTC'))}), judged again by the guard's own code from what GitLab recorded: who wrote each note and when, who pushed what and when. Each record holds the SHA-256 of the record before it. CI rebuilds the chain from the GitLab API on every pipeline on <code>main</code> and fails if this published ledger isn't the start of the rebuilt one, so a record can't be changed after the fact. The rules: <a href="${esc(web)}/-/wikis/Assisted">Assisted</a>.</p>
+</div></header>
+<main class="wrap">
 ${loops ? `<h2>One row per loop</h2>\n${renderLoops(loops, web)}\n<h2>Every agent push</h2>` : ''}
 <div class="tiles">
 ${tiles}
