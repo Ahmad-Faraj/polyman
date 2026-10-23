@@ -1300,6 +1300,69 @@ describe('solution.ts', () => {
         ).rejects.toThrow(/Presentation Error/);
       });
 
+      it('rejects a PE-tagged solution that passes every test', async () => {
+        mockedGetTestFiles.mockReturnValue(['t1.txt']);
+        mockedRunChecker.mockResolvedValue(undefined);
+
+        await expect(
+          solution.startTheComparisonProcess(
+            checkerConfig,
+            mainSol,
+            solutionWithTag('PE'),
+            [{ name: 'ts1' }]
+          )
+        ).rejects.toThrow(/did not get Presentation Error/);
+      });
+
+      it('rejects a PE-tagged solution that only gets wrong answers', async () => {
+        mockedGetTestFiles.mockReturnValue(['t1.txt']);
+        mockedRunChecker.mockRejectedValue(new Error('Wrong Answer'));
+
+        await expect(
+          solution.startTheComparisonProcess(
+            checkerConfig,
+            mainSol,
+            solutionWithTag('PE'),
+            [{ name: 'ts1' }]
+          )
+        ).rejects.toThrow(/did not get Presentation Error/);
+      });
+
+      it('accepts a PE-tagged solution with both PE and WA tests, and records each', async () => {
+        const targetSol = solutionWithTag('PE');
+        const spy = vi.spyOn(report, 'updateTestVerdict');
+
+        mockedGetTestFiles.mockReturnValue(['t1.txt', 't2.txt']);
+        mockedRunChecker
+          .mockRejectedValueOnce(new checker.PresentationError('bad format'))
+          .mockRejectedValueOnce(new Error('Wrong Answer'));
+
+        await expect(
+          solution.startTheComparisonProcess(
+            checkerConfig,
+            mainSol,
+            targetSol,
+            [{ name: 'ts1' }]
+          )
+        ).resolves.not.toThrow();
+
+        expect(spy).toHaveBeenCalledWith(
+          targetSol,
+          'ts1',
+          1,
+          'PE',
+          'bad format'
+        );
+        expect(spy).toHaveBeenCalledWith(
+          targetSol,
+          'ts1',
+          2,
+          'WA',
+          'Wrong Answer'
+        );
+        spy.mockRestore();
+      });
+
       it('still records WA for a plain checker failure', async () => {
         const targetSol = solutionWithTag('WA');
         const spy = vi.spyOn(report, 'updateTestVerdict');
@@ -1794,7 +1857,8 @@ describe('solution.ts', () => {
       },
       {
         outcome: 'WA',
-        accepted: ['WA', 'PE', 'RJ'],
+        // PE is not accepted here: a PE-tagged solution needs a PE verdict
+        accepted: ['WA', 'RJ'],
         rejected: ['MA', 'OK', 'TL', 'TO', 'ML', 'RE'],
       },
       {
@@ -1835,6 +1899,7 @@ describe('solution.ts', () => {
           'marked as ML but did not get Memory Limit Exceeded on any test',
         ],
         ['WA', 'marked as WA but did not get Wrong Answer on any test'],
+        ['PE', 'marked as PE but did not get Presentation Error on any test'],
         ['RJ', 'marked as RJ but passed all tests correctly'],
       ];
       for (const [tag, message] of mustFail) {
