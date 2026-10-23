@@ -903,21 +903,64 @@ describe('actions.ts', () => {
         expect(lines.some(l => l.includes('Testsets downloaded: tests'))).toBe(
           true
         );
+        expect(steps.stepDownloadTests).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.anything(),
+          expect.anything(),
+          'tests',
+          expect.anything()
+        );
         expect(lines.some(l => l.includes('-t a,b'))).toBe(true);
       });
 
-      it('should not print the testset line when -t names testsets', async () => {
+      it('should not print the testset summary when -t names testsets', async () => {
         await actions.remotePullProblemAction('123', './out', {
           tests: 'ts1,ts2',
         });
-        expect(infoLines().some(l => l.includes('-t a,b'))).toBe(false);
+        const lines = infoLines();
+        expect(lines.some(l => l.includes('Testsets downloaded'))).toBe(false);
+        expect(lines.some(l => l.includes('Other testsets'))).toBe(false);
       });
 
-      it('should not print the testset line when tests are not pulled', async () => {
+      it('should not print the testset summary when tests are not pulled', async () => {
         await actions.remotePullProblemAction('123', './out', {
           solutions: true,
         });
-        expect(infoLines().some(l => l.includes('-t a,b'))).toBe(false);
+        const lines = infoLines();
+        expect(lines.some(l => l.includes('Testsets downloaded'))).toBe(false);
+        expect(lines.some(l => l.includes('Other testsets'))).toBe(false);
+      });
+
+      it('should print the testset summary when --all is set', async () => {
+        await actions.remotePullProblemAction('123', './out', { all: true });
+        const lines = infoLines();
+        expect(lines.some(l => l.includes('Testsets downloaded'))).toBe(true);
+        expect(lines.some(l => l.includes('Other testsets'))).toBe(true);
+      });
+
+      it('should not print the testset summary when --all is set with -t', async () => {
+        await actions.remotePullProblemAction('123', './out', {
+          all: true,
+          tests: 'a',
+        });
+        const lines = infoLines();
+        expect(lines.some(l => l.includes('Testsets downloaded'))).toBe(false);
+        expect(lines.some(l => l.includes('Other testsets'))).toBe(false);
+      });
+
+      it('should treat an empty -t as the default testset', async () => {
+        await actions.remotePullProblemAction('123', './out', { tests: '' });
+        expect(steps.stepDownloadTests).toHaveBeenCalledTimes(1);
+        expect(steps.stepDownloadTests).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.anything(),
+          expect.anything(),
+          'tests',
+          expect.anything()
+        );
+        const lines = infoLines();
+        expect(lines.some(l => l.includes('Testsets downloaded'))).toBe(true);
+        expect(lines.some(l => l.includes('Other testsets'))).toBe(true);
       });
     });
 
