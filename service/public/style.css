@@ -660,6 +660,18 @@ button.dot:focus-visible { outline: 2px solid var(--primary); outline-offset: 2p
 .run-log .log-line:last-child { font-weight: 600; }
 .run-log .log-line:last-child::before { background: var(--brand-2); box-shadow: 0 0 0 3px rgba(53, 174, 238, 0.2); }
 
+/* the result card's edge: chamfered corners like the logo's frame, a gradient ring (red when the answer is bad, the same cut as the buttons).
+   The fill and the ring are pseudo-elements cut to the shape, so nothing inside the card (tooltips) is clipped. */
+.result { --cut: 22px; --rw: 2px; position: relative; isolation: isolate; border: 0; border-radius: 0; background: none; box-shadow: none; --ring: linear-gradient(120deg, var(--brand-2), var(--brand) 45%, var(--brand-2)); filter: drop-shadow(0 14px 24px rgba(31, 100, 150, 0.12)); }
+.result::before, .result::after { content: ''; position: absolute; inset: 0; z-index: -1; pointer-events: none; }
+.result::before { background: #fff; clip-path: polygon(var(--cut) 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, var(--cut) 100%, 0 calc(100% - var(--cut)), 0 var(--cut)); }
+.result::after { background: var(--ring);
+  clip-path: polygon(evenodd,
+    var(--cut) 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, var(--cut) 100%, 0 calc(100% - var(--cut)), 0 var(--cut), var(--cut) 0,
+    calc(var(--cut) + var(--rw) * 0.5) var(--rw), calc(100% - var(--cut) - var(--rw) * 0.5) var(--rw), calc(100% - var(--rw)) calc(var(--cut) + var(--rw) * 0.5), calc(100% - var(--rw)) calc(100% - var(--cut) - var(--rw) * 0.5), calc(100% - var(--cut) - var(--rw) * 0.5) calc(100% - var(--rw)), calc(var(--cut) + var(--rw) * 0.5) calc(100% - var(--rw)), var(--rw) calc(100% - var(--cut) - var(--rw) * 0.5), var(--rw) calc(var(--cut) + var(--rw) * 0.5), calc(var(--cut) + var(--rw) * 0.5) var(--rw)); }
+.result.is-bad:not(.has-found) { --ring: linear-gradient(120deg, #f87171, #fca5a5 50%, #f87171); }
+@media (max-width: 760px) { .result { --cut: 14px; } }
+
 /* daisyUI 5.7.50 Steps, MIT License, https://daisyui.com (base rules only, taken out of its cascade layer) */
 .steps{counter-reset:step;grid-auto-columns:1fr;grid-auto-flow:column;display:inline-grid;overflow:auto hidden}
 .steps .step{text-align:center;--step-bg:var(--color-base-300);--step-fg:var(--color-base-content);grid-template-rows:40px 1fr;grid-template-columns:auto;place-items:center;min-width:4rem;display:grid;&:before{width:100%;height:.5rem;color:var(--step-bg);background-color:var(--step-bg);content:"";border:1px solid;grid-row-start:1;grid-column-start:1;margin-inline-start:-100%;top:0}&>.step-icon,&:not(:has(.step-icon)):after{--tw-content:counter(step);content:var(--tw-content);counter-increment:step;z-index:1;color:var(--step-fg);background-color:var(--step-bg);border:1px solid var(--step-bg);border-radius:3.40282e38px;grid-row-start:1;grid-column-start:1;place-self:center;place-items:center;width:2rem;height:2rem;display:grid;position:relative}&:first-child:before{--tw-content:none;content:var(--tw-content)}&[data-content]:after{--tw-content:attr(data-content);content:var(--tw-content)}}
