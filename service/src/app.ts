@@ -128,7 +128,8 @@ export function buildApp(opts: AppOptions) {
   const assetOf = (file: string): Asset => {
     const path = join(opts.publicDir, file);
     const st = statSync(path);
-    const stamp = `${st.size}:${st.mtimeMs}`;
+    // (mtime alone is not enough: cp -p, rsync -t and tar put the old mtime back on a rewritten file; ctime and the inode move)
+    const stamp = `${st.size}:${st.mtimeMs}:${st.ctimeMs}:${st.ino}`;
     let asset = assets.get(file);
     if (!asset || asset.stamp !== stamp) {
       const raw = readFileSync(path);
@@ -143,23 +144,29 @@ export function buildApp(opts: AppOptions) {
     app.get(route, async (req, reply) => {
       const ext = file.split('.').pop()!;
       reply.type(TYPES[ext]);
-      // (a font file never changes under its name: the browser keeps it a week)
-      if (ext === 'woff2') return reply.header('cache-control', 'public, max-age=604800').send(readFileSync(join(opts.publicDir, file)));
-      // the page itself is always revalidated, but a revalidation of an unchanged file costs no body
-      const asset = assetOf(file);
-      reply.header('cache-control', 'no-cache').header('etag', asset.etag).header('vary', 'accept-encoding');
-      const seen = String(req.headers['if-none-match'] ?? '').split(',').map((t) => t.trim().replace(/^W\//, ''));
-      if (seen.includes(asset.etag.slice(2))) return reply.code(304).send();
-      const encoding = asset.raw.length >= COMPRESS_MIN_BYTES ? acceptedEncoding(req.headers['accept-encoding']) : undefined;
-      if (encoding === 'br') {
-        asset.br ??= brotliCompressSync(asset.raw, { params: { [zlibConstants.BROTLI_PARAM_QUALITY]: 9 } });
-        return reply.header('content-encoding', 'br').send(asset.br);
+      try {
+        // (a font file never changes under its name: the browser keeps it a week)
+        if (ext === 'woff2') return reply.header('cache-control', 'public, max-age=604800').send(readFileSync(join(opts.publicDir, file)));
+        // the page itself is always revalidated, but a revalidation of an unchanged file costs no body
+        const asset = assetOf(file);
+        reply.header('cache-control', 'no-cache').header('etag', asset.etag).header('vary', 'accept-encoding');
+        const seen = String(req.headers['if-none-match'] ?? '').split(',').map((t) => t.trim().replace(/^W\//, ''));
+        if (seen.includes(asset.etag.slice(2))) return reply.code(304).send();
+        const encoding = asset.raw.length >= COMPRESS_MIN_BYTES ? acceptedEncoding(req.headers['accept-encoding']) : undefined;
+        if (encoding === 'br') {
+          asset.br ??= brotliCompressSync(asset.raw, { params: { [zlibConstants.BROTLI_PARAM_QUALITY]: 9 } });
+          return reply.header('content-encoding', 'br').send(asset.br);
+        }
+        if (encoding === 'gzip') {
+          asset.gzip ??= gzipSync(asset.raw, { level: 9 });
+          return reply.header('content-encoding', 'gzip').send(asset.gzip);
+        }
+        return reply.send(asset.raw);
+      } catch (err) {
+        // a page file that is missing or unreadable: the log has the reason, the answer has no path
+        req.log.error({ err, file }, 'page file unavailable');
+        return reply.code(503).removeHeader('etag').removeHeader('content-encoding').header('cache-control', 'no-store').type('text/plain; charset=utf-8').send('page file unavailable');
       }
-      if (encoding === 'gzip') {
-        asset.gzip ??= gzipSync(asset.raw, { level: 9 });
-        return reply.header('content-encoding', 'gzip').send(asset.gzip);
-      }
-      return reply.send(asset.raw);
     });
   }
 

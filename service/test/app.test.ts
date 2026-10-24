@@ -1,10 +1,16 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readdirSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { brotliDecompressSync, gunzipSync } from 'node:zlib';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { brotliDecompressSync, gunzipSync, gzipSync } from 'node:zlib';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import yazl from 'yazl';
 import { acceptedEncoding, buildApp } from '../src/app.ts';
+
+// gzipSync runs for real; the spy only counts how often the service compresses
+vi.mock('node:zlib', async (importOriginal) => {
+  const real = await importOriginal<typeof import('node:zlib')>();
+  return { ...real, default: real, gzipSync: vi.fn(real.gzipSync) };
+});
 
 // A stand-in for polyman: prints two progress steps to stderr and a report
 // for the solutions in Config.json to stdout. It also records the environment
@@ -184,6 +190,10 @@ describe('read-only routes', () => {
         const again = await app.inject({ url, headers: { 'accept-encoding': accept, 'if-none-match': etag } });
         expect(again.statusCode).toBe(304);
         expect(again.rawPayload.length).toBe(0);
+        // a 304 carries the headers a cache needs to keep the file
+        expect(again.headers['etag']).toBe(etag);
+        expect(again.headers['vary']).toBe('accept-encoding');
+        expect(again.headers['cache-control']).toBe('no-cache');
       }
       expect((await app.inject({ url, headers: { 'if-none-match': `"other", ${etag}` } })).statusCode).toBe(304);
       expect((await app.inject({ url, headers: { 'if-none-match': '"other"' } })).statusCode).toBe(200);
@@ -193,6 +203,53 @@ describe('read-only routes', () => {
       expect(changed.statusCode).toBe(200);
       expect(changed.headers['etag']).not.toBe(etag);
       expect(gunzipSync(changed.rawPayload).toString()).toBe(css + '.late{margin:0}\n');
+    });
+
+    it('compresses a file once however often it is asked for, and again only after the file changed', async () => {
+      const file = join(base, 'public', 'app.js');
+      const ask = () => app.inject({ url: '/app.js', headers: { 'accept-encoding': 'gzip' } });
+      writeFileSync(file, 'const x = 1; '.repeat(300));
+      vi.mocked(gzipSync).mockClear();
+      for (let i = 0; i < 3; i++) expect((await ask()).statusCode).toBe(200);
+      expect(gzipSync).toHaveBeenCalledTimes(1);
+      writeFileSync(file, 'const y = 2; '.repeat(300));
+      expect(gunzipSync((await ask()).rawPayload).toString()).toBe('const y = 2; '.repeat(300));
+      expect(gzipSync).toHaveBeenCalledTimes(2);
+    });
+
+    it('notices a file rewritten with the same size and the old mtime (cp -p, rsync -t, tar)', async () => {
+      const file = join(base, 'public', 'app.js');
+      // both versions get exactly the same mtime, as cp -p or tar leave it
+      const same = new Date('2020-01-01T00:00:00Z');
+      writeFileSync(file, 'AAAA');
+      utimesSync(file, same, same);
+      const first = await app.inject('/app.js');
+      expect(first.body).toBe('AAAA');
+      writeFileSync(file, 'BBBB');
+      utimesSync(file, same, same);
+      expect(statSync(file).mtimeMs).toBe(same.getTime());
+      const second = await app.inject('/app.js');
+      expect(second.body).toBe('BBBB');
+      expect(second.headers['etag']).not.toBe(first.headers['etag']);
+    });
+
+    it('answers 503 without the file path when a page file is missing, also to a revalidation', async () => {
+      const file = join(base, 'public', 'style.css');
+      const before = await app.inject({ url, headers: { 'accept-encoding': 'gzip' } });
+      rmSync(file);
+      try {
+        for (const headers of [{}, { 'accept-encoding': 'gzip', 'if-none-match': String(before.headers['etag']) }]) {
+          const res = await app.inject({ url, headers });
+          expect(res.statusCode).toBe(503);
+          expect(res.body).toBe('page file unavailable');
+          expect(res.body).not.toContain(base);
+          expect(res.headers['cache-control']).toBe('no-store');
+          expect(res.headers['etag']).toBeUndefined();
+          expect(res.headers['content-encoding']).toBeUndefined();
+        }
+      } finally {
+        writeFileSync(file, css);
+      }
     });
   });
 
