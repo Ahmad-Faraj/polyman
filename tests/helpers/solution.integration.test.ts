@@ -343,7 +343,8 @@ async function standardBuiltWith(
 }
 
 describe('solution.ts integration: C++ standard from sourceType', () => {
-  const skip = process.platform === 'win32' || !hasGpp();
+  // These tests use process.chdir(), see the ONLINE_JUDGE test above.
+  const skip = process.platform === 'win32' || !hasGpp() || !isMainThread;
 
   it.skipIf(skip)(
     'builds a cpp.g++17 solution as C++17 when Config.json sets no standard',
