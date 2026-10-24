@@ -10,11 +10,12 @@ import { executor } from '../executor';
 import { fmt } from '../formatter';
 import { PolymanError } from '../errors';
 import { quoteShellArgument } from './shell';
-import { cachedCompile } from './compile-cache';
+import { cachedCompile, debugLog } from './compile-cache';
 import {
   findPrebuiltTestlib,
   markPrebuiltTestlibUnsupported,
 } from './prebuilt-testlib';
+import { findPch, markPchUnsupported } from './pch';
 import ConfigFile, {
   CompilerConfig,
   LocalChecker,
@@ -385,6 +386,10 @@ function isCacheSafeFlag(flag: string): boolean {
  * cache (see {@link CACHE_SAFE_FLAG_PATTERNS}: `-O`, `-std=`, `-D`, `-W`,
  * `-f`, `-g`, `-m` and a few more), neither the cache nor the prebuilt
  * testlib is used: the source is compiled in full every time.
+ * With g++ and a source that starts with `#include <bits/stdc++.h>`, the
+ * header comes precompiled, built once per compiler and flags (see
+ * `pch.ts`); any other case, or a compile that fails with it, compiles
+ * without it.
  *
  * @param {string} sourcePath - Path to the .cpp / .cc / .cxx source file
  * @param {Object} [options] - Compilation overrides
@@ -417,11 +422,16 @@ export async function compileCPP(
   const compiler = resolveCppCompiler(compilerConfig);
   const flags = resolveCppFlags(options, compilerConfig);
 
-  const command = (includeDirs: string[], objects: string[] = []) =>
+  const command = (
+    includeDirs: string[],
+    objects: string[] = [],
+    pchDirs: string[] = []
+  ) =>
     [
       quoteShellArgument(compiler),
       ...flags.map(quoteShellArgument),
       ...includeDirs.flatMap(dir => ['-iquote', quoteShellArgument(dir)]),
+      ...pchDirs.flatMap(dir => ['-I', quoteShellArgument(dir)]),
       '-o',
       quoteShellArgument(outputPath),
       // Objects first: testlib's globals are then initialized before the
@@ -436,6 +446,9 @@ export async function compileCPP(
     });
 
   if (!flags.every(isCacheSafeFlag)) {
+    debugLog(
+      `pch: flags not cache-safe, normal compile: ${path.basename(absolutePath)}`
+    );
     await run(command([process.cwd()]));
     return;
   }
@@ -455,19 +468,39 @@ export async function compileCPP(
         compiler,
         flags,
       });
-      if (prebuilt === null) return run(command([process.cwd()]));
+      const compileOnce = async (pchDirs: string[]) => {
+        if (prebuilt === null) {
+          return run(command([process.cwd()], [], pchDirs));
+        }
+        try {
+          return await run(
+            command(
+              [prebuilt.includeDir, process.cwd()],
+              [prebuilt.objectPath],
+              pchDirs
+            )
+          );
+        } catch {
+          // Either the source has an error or the split is wrong for it;
+          // compiling against the original header tells which, and reports
+          // the error exactly as a normal compile would.
+        }
+        const result = await run(command([process.cwd()], [], pchDirs));
+        markPrebuiltTestlibUnsupported(prebuilt);
+        return result;
+      };
 
+      const pch = await findPch({ sourcePath: absolutePath, compiler, flags });
+      if (pch === null) return compileOnce([]);
       try {
-        return await run(
-          command([prebuilt.includeDir, process.cwd()], [prebuilt.objectPath])
-        );
+        return await compileOnce([pch.includeDir]);
       } catch {
-        // Either the source has an error or the split is wrong for it;
-        // compiling against the original header tells which, and reports
-        // the error exactly as a normal compile would.
+        // Same idea: without the PCH either the error stays, and is reported
+        // exactly as a normal compile reports it, or the PCH was at fault.
+        debugLog(`pch: compile failed with the PCH, retrying without it`);
       }
-      const result = await run(command([process.cwd()]));
-      markPrebuiltTestlibUnsupported(prebuilt);
+      const result = await compileOnce([]);
+      markPchUnsupported(pch);
       return result;
     }
   );

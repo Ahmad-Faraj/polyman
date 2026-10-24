@@ -4,7 +4,8 @@
  * - The child gets only PATH, with HOME and TMPDIR set to the problem folder,
  *   LANG, a 60 s compile limit for polyman, and for a problem on polyman's
  *   default C++ flags the precompiled-header folder (`pchDir`, as
- *   CPLUS_INCLUDE_PATH); none of the service's other variables.
+ *   CPLUS_INCLUDE_PATH), and POLYMAN_PCH=0 so polyman builds no per-user
+ *   precompiled header of its own; none of the service's other variables.
  * - In the image it runs as a user of its own (`runAs`), with a cap on how
  *   many processes that user may have, so the code it runs can't signal,
  *   inspect or read the service, and can't fork without end. When the run
@@ -115,6 +116,8 @@ export function runVerify(dir: string, opts: RunOptions): Promise<RunResult> {
         LANG: 'C.UTF-8',
         // compiling in the sandbox, on a fresh or busy instance, can take longer than polyman's 10 s default
         POLYMAN_COMPILE_TIMEOUT_MS: String(COMPILE_TIMEOUT_MS),
+        // the service has its own precompiled header (below); polyman must never build a per-user one here
+        POLYMAN_PCH: '0',
         // g++ uses bits/stdc++.h.gch from here when it matches the compile, and the real header otherwise
         ...(opts.pchDir ? { CPLUS_INCLUDE_PATH: opts.pchDir } : {}),
       },
