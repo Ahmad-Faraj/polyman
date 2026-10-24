@@ -1135,6 +1135,31 @@ describe('steps.ts', () => {
       expect(warnings[0]).toContain('no validator set for problem 7');
     });
 
+    it('records a failed validator download when Polygon has none', async () => {
+      const addAction = vi.spyOn(report, 'addAction');
+      await pullWithChecker(
+        { name: 'wcmp', source: 'wcmp.cpp', isStandard: true },
+        {
+          count: 0,
+          data: { name: 'validator', source: 'val.cpp' },
+          missing: true,
+        }
+      );
+      const recorded = addAction.mock.calls.map(call => call[0]);
+      addAction.mockRestore();
+      expect(recorded).toEqual([
+        { component: 'checker', name: 'wcmp', action: 'download', ok: true },
+        {
+          component: 'validator',
+          name: 'validator',
+          action: 'download',
+          ok: false,
+          error: 'Polygon has no validator set for this problem',
+        },
+        { component: 'config', name: 'Config.json', action: 'write', ok: true },
+      ]);
+    });
+
     it('should not download a custom checker as a generator', async () => {
       await pullWithChecker({
         name: 'chk',

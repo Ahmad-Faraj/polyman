@@ -299,6 +299,39 @@ describe('remote commands with --json', () => {
       expect(saved.problemId).toBe(99);
     });
 
+    it('reports a failed problem creation with a null problemId', async () => {
+      sdk['createProblem'].mockRejectedValue(
+        new Error('Polygon API Error: cannot create')
+      );
+      const dir = writeProblem({ ...baseConfig, problemId: undefined });
+
+      const error = await failure(
+        actions.remotePushProblemAction(dir, {
+          solutions: true,
+          yes: true,
+          name: 'new-problem',
+          json: true,
+        })
+      );
+
+      const doc = written();
+      expect(doc.ok).toBe(false);
+      expect(doc.exitCode).toBe(exitCodeFor(error));
+      expect(doc.problemId).toBeNull();
+      expect(doc.errors).toEqual([
+        'Failed to create problem on Polygon: Polygon API Error: cannot create',
+      ]);
+      expect(doc.actions).toEqual([
+        {
+          component: 'problem',
+          name: 'new-problem',
+          action: 'create',
+          ok: false,
+          error: 'Polygon API Error: cannot create',
+        },
+      ]);
+    });
+
     it('does not prompt with --json and exits 2 without --yes', async () => {
       const dir = writeProblem({ ...baseConfig, problemId: undefined });
 
@@ -427,6 +460,34 @@ describe('remote commands with --json', () => {
     });
   });
 
+  describe('remote view failure', () => {
+    it('reports a failed info fetch', async () => {
+      sdk['getProblemInfo'].mockRejectedValue(
+        new Error('Polygon API Error: problem not found')
+      );
+
+      const error = await failure(
+        actions.remoteViewProblemAction('7', { json: true })
+      );
+
+      const doc = written();
+      expect(doc.command).toBe('remote view');
+      expect(doc.ok).toBe(false);
+      expect(doc.exitCode).toBe(exitCodeFor(error));
+      expect(doc.problemId).toBe(7);
+      expect(doc.errors).toEqual(['Polygon API Error: problem not found']);
+      expect(doc.actions).toEqual([
+        {
+          component: 'info',
+          name: 'problem info',
+          action: 'fetch',
+          ok: false,
+          error: 'Polygon API Error: problem not found',
+        },
+      ]);
+    });
+  });
+
   describe('remote commit', () => {
     it('reports the commit', async () => {
       await actions.remoteCommitProblemAction('7', 'msg', { json: true });
@@ -548,6 +609,40 @@ describe('remote commands with --json', () => {
           action: 'build',
           ok: false,
           error: message,
+        },
+      ]);
+    });
+
+    it('records a build that ends FAILED', async () => {
+      vi.useFakeTimers();
+      let error: unknown;
+      try {
+        sdk['listPackages']
+          .mockResolvedValueOnce([])
+          .mockResolvedValue([
+            { id: 5, state: 'FAILED', comment: 'bad tests' },
+          ]);
+
+        const run = failure(
+          actions.remotePackageProblemAction('7', 'standard', { json: true })
+        );
+        await vi.advanceTimersByTimeAsync(30000);
+        error = await run;
+      } finally {
+        vi.useRealTimers();
+      }
+
+      const doc = written();
+      expect(doc.ok).toBe(false);
+      expect(doc.exitCode).toBe(exitCodeFor(error));
+      expect(doc.errors).toEqual(['Package build failed: bad tests']);
+      expect(doc.actions).toEqual([
+        {
+          component: 'package',
+          name: 'standard',
+          action: 'build',
+          ok: false,
+          error: 'Package build failed: bad tests',
         },
       ]);
     });
