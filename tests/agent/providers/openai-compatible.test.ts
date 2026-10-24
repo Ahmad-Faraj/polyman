@@ -860,6 +860,23 @@ describe('OpenAICompatibleProvider: broken streams', () => {
     const error = await failure(collect(provider(fetchFn)));
     expect(error.kind).toBe('server');
   });
+
+  it.each([
+    { choices: [null] },
+    { choices: 'x' },
+    { choices: [{ delta: 'x' }] },
+    { choices: [{ delta: { tool_calls: 'x' } }] },
+    { choices: [{ delta: { tool_calls: [null] } }] },
+  ])(
+    'gives a non-retryable server error for a chunk with a bad shape: %j',
+    async chunk => {
+      const fetchFn = fakeFetch(sse([chunk]));
+      const error = await failure(collect(provider(fetchFn)));
+      expect(error.kind).toBe('server');
+      expect(error.retryable).toBe(false);
+      expect(error.message).toContain('bad shape');
+    }
+  );
 });
 
 describe('parseToolArgs', () => {

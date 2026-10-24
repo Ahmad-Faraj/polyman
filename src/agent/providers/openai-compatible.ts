@@ -5,7 +5,7 @@
  */
 
 import type { ContentPart, Message } from '../core/messages';
-import { parseSse } from './sse-parser';
+import { parseSse, type SseEvent } from './sse-parser';
 import {
   ProviderError,
   type ChatRequest,
@@ -124,24 +124,15 @@ export class OpenAICompatibleProvider implements Provider {
       return `call_${this.generatedIds}`;
     });
     let sawDone = false;
-    try {
-      for await (const sse of parseSse(response.body, signal)) {
-        if (sse.data === '[DONE]') {
-          sawDone = true;
-          break;
-        }
-        for (const event of turn.chunk(parseChunk(sse.data))) {
-          signal.throwIfAborted();
-          yield event;
-        }
+    for await (const sse of readStream(response.body, signal)) {
+      if (sse.data === '[DONE]') {
+        sawDone = true;
+        break;
       }
-    } catch (err) {
-      signal.throwIfAborted();
-      if (err instanceof ProviderError) throw err;
-      throw new ProviderError(
-        'network',
-        `the stream broke: ${err instanceof Error ? err.message : String(err)}`
-      );
+      for (const event of turn.chunk(parseChunk(sse.data))) {
+        signal.throwIfAborted();
+        yield event;
+      }
     }
     signal.throwIfAborted();
     if (!sawDone && turn.stopReason === undefined) {
@@ -425,7 +416,55 @@ function parseChunk(data: string): Chunk {
       `error in the stream: ${errorMessage(JSON.stringify(json))}`
     );
   }
+  checkChunkShape(json);
   return json as Chunk;
+}
+
+/**
+ * Checks the parts of a chunk that the adapter walks, so a well-formed JSON
+ * chunk with the wrong shape is a `server` error and not a crash. It is not
+ * retryable: the same server will likely send the same shape again.
+ */
+function checkChunkShape(json: Record<string, unknown>): void {
+  const bad = (what: string): ProviderError =>
+    new ProviderError('server', `a stream chunk has a bad shape: ${what}`, {
+      retryable: false,
+    });
+  const choices = json['choices'];
+  if (choices === undefined || choices === null) return;
+  if (!Array.isArray(choices)) throw bad('choices is not an array');
+  for (const choice of choices as unknown[]) {
+    if (!isRecord(choice)) throw bad('a choice is not an object');
+    const delta = choice['delta'];
+    if (delta === undefined || delta === null) continue;
+    if (!isRecord(delta)) throw bad('delta is not an object');
+    const calls = delta['tool_calls'];
+    if (calls === undefined || calls === null) continue;
+    if (!Array.isArray(calls)) throw bad('tool_calls is not an array');
+    if (!(calls as unknown[]).every(isRecord)) {
+      throw bad('a tool call is not an object');
+    }
+  }
+}
+
+/**
+ * The SSE events of a body. Only a failed read becomes a `network` error:
+ * errors of the caller's loop body never pass through here.
+ */
+async function* readStream(
+  body: ReadableStream<Uint8Array>,
+  signal: AbortSignal
+): AsyncGenerator<SseEvent> {
+  try {
+    for await (const sse of parseSse(body, signal)) yield sse;
+  } catch (err) {
+    signal.throwIfAborted();
+    if (err instanceof ProviderError) throw err;
+    throw new ProviderError(
+      'network',
+      `the stream broke: ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
 }
 
 /** The highest tool call `index` accepted from a server. */
