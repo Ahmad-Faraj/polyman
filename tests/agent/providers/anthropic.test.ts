@@ -432,6 +432,17 @@ describe('AnthropicProvider: request', () => {
     });
     expect(body['output_config']).toEqual({ effort: 'high' });
   });
+
+  it('sends temperature only without reasoningEffort', () => {
+    const both = requestBody(
+      request({ temperature: 0.2, reasoningEffort: 'high' })
+    );
+    expect(both['thinking']).toBeDefined();
+    expect(both).not.toHaveProperty('temperature');
+    const plain = requestBody(request({ temperature: 0.2 }));
+    expect(plain['temperature']).toBe(0.2);
+    expect(plain).not.toHaveProperty('thinking');
+  });
 });
 
 describe('toWireMessages', () => {

@@ -165,7 +165,10 @@ export function requestBody(
     body['tools'] = req.tools.map((tool, i) => toWireTool(tool, i === last));
   }
   body['stream'] = true;
-  if (req.temperature !== undefined) body['temperature'] = req.temperature;
+  // The API rejects `temperature` together with `thinking`.
+  if (req.temperature !== undefined && req.reasoningEffort === undefined) {
+    body['temperature'] = req.temperature;
+  }
   if (req.reasoningEffort !== undefined) {
     // Adaptive thinking with a readable summary, so the UI has something
     // to show. The effort sets how much the model thinks.
