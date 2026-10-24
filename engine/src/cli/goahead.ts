@@ -21,13 +21,9 @@
  * assumes high risk.
  */
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { loadConfig } from '../config.ts';
 import { GitLab, required } from '../gitlab.ts';
 import { type Note, type PushEvent, tierFrom } from '../goahead.ts';
-import { allPages, checkMr, eventsSince, gitRepo, notesOf, relatedIncident } from '../goahead-mr.ts';
+import { allPages, checkMr, eventsSince, gitRepo, notesOf, policyAt, relatedIncident } from '../goahead-mr.ts';
 
 const env = process.env;
 
@@ -49,26 +45,9 @@ async function main() {
   // the policy is the target branch's as it is now (CI fetches its head), not as
   // it was when the MR branched off
   const policyRef = env.AUTONOMY_POLICY_REF || base;
-  // The policy (who counts as a person, who may give a go-ahead, the protected
-  // paths) comes from the target branch, never from this MR: an MR could add
-  // its own author to the people list.
-  const file = env.AUTONOMY_CONFIG ?? '.autonomy.yml';
-  let policy: string | null = null;
-  try {
-    policy = execFileSync('git', ['show', `${policyRef}:${file}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
-  } catch {
-    // no policy on the target branch: without a people list a guard can't tell
-    // a person from an agent, so it fails rather than guess by name
-  }
-  if (policy === null) {
-    throw new Error(`the target branch has no ${file}, so nobody is listed in go_ahead.people`);
-  }
-  const configPath = join(mkdtempSync(join(tmpdir(), 'goahead-')), '.autonomy.yml');
-  writeFileSync(configPath, policy);
-  const config = loadConfig(configPath);
-  if (!config.goAhead.people.length) {
-    throw new Error(`the target branch's ${file} lists no go_ahead.people, so nobody can give a go-ahead`);
-  }
+  // The policy comes from the target branch, never from this MR: an MR could
+  // add its own author to the people list.
+  const config = policyAt(policyRef, env.AUTONOMY_CONFIG ?? '.autonomy.yml');
   const tier = tierFrom(env.AUTONOMY_TIER);
   const repo = gitRepo();
   const commits = execFileSync('git', ['rev-list', `${base}..HEAD`], { encoding: 'utf8' }).split('\n').filter(Boolean);
