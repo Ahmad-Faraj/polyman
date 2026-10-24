@@ -16,6 +16,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import * as actions from '../src/actions';
+import * as steps from '../src/steps';
 import { report } from '../src/report';
 import { exitCodeFor } from '../src/errors';
 import type { RemoteReport } from '../src/types';
@@ -37,6 +38,15 @@ vi.mock('../src/helpers/remote/utils', async importOriginal => {
   return {
     ...actual,
     readCredentials: vi.fn(() => ({ apiKey: API_KEY, secret: SECRET })),
+  };
+});
+
+// The real step, wrapped so one test can make the user cancel the prompt.
+vi.mock('../src/steps', async importOriginal => {
+  const actual = await importOriginal<typeof import('../src/steps')>();
+  return {
+    ...actual,
+    stepPromptCreateProblem: vi.fn(actual.stepPromptCreateProblem),
   };
 });
 
@@ -347,6 +357,24 @@ describe('remote commands with --json', () => {
       }
     );
 
+    it('reports a cancelled push as ok with exit code 0 and no problem', async () => {
+      vi.mocked(steps.stepPromptCreateProblem).mockResolvedValueOnce(false);
+      const dir = writeProblem({ ...baseConfig, problemId: undefined });
+
+      await actions.remotePushProblemAction(dir, { json: true });
+
+      const doc = written();
+      expect(doc).toMatchObject({
+        ok: true,
+        exitCode: 0,
+        problemId: null,
+        errors: [],
+        actions: [],
+      });
+      expect(sdk['createProblem']).not.toHaveBeenCalled();
+      expect(exitSpy).not.toHaveBeenCalled();
+    });
+
     it('does not prompt with --json and exits 2 without --yes', async () => {
       const dir = writeProblem({ ...baseConfig, problemId: undefined });
 
@@ -396,6 +424,17 @@ describe('remote commands with --json', () => {
           error: 'no tests',
         },
       ]);
+    });
+
+    it('records no solution download when Polygon has no solutions', async () => {
+      sdk['getSolutions'].mockResolvedValue([]);
+      const out = path.join(tmp, 'pulled');
+
+      await actions.remotePullProblemAction('7', out, { json: true });
+
+      const doc = written();
+      expect(doc.ok).toBe(true);
+      expect(doc.actions.filter(a => a.component === 'solution')).toEqual([]);
     });
 
     it('keeps problemId null when the ID cannot be resolved', async () => {

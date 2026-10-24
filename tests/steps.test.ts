@@ -884,6 +884,24 @@ describe('steps.ts', () => {
     });
   });
 
+  describe('stepFetchChecker and stepFetchValidator with no file', () => {
+    it('records no fetch action for an empty checker name', async () => {
+      const addAction = vi.spyOn(report, 'addAction');
+      vi.mocked(viewer.fetchChecker).mockResolvedValue('');
+      await steps.stepFetchChecker(1, {} as any, 5);
+      expect(addAction).not.toHaveBeenCalled();
+      addAction.mockRestore();
+    });
+
+    it('records no fetch action for an empty validator name', async () => {
+      const addAction = vi.spyOn(report, 'addAction');
+      vi.mocked(viewer.fetchValidator).mockResolvedValue('');
+      await steps.stepFetchValidator(1, {} as any, 5);
+      expect(addAction).not.toHaveBeenCalled();
+      addAction.mockRestore();
+    });
+  });
+
   describe('stepFetchGenerators', () => {
     it('should call identifyGenerators', () => {
       vi.mocked(viewer.identifyGenerators).mockReturnValue([
@@ -1218,6 +1236,26 @@ describe('steps.ts', () => {
       );
       expect(fs.writeFileSync).toHaveBeenCalled();
       expect(result).toBe(true);
+    });
+
+    it('records a successful testset download', async () => {
+      const addAction = vi.spyOn(report, 'addAction');
+      vi.mocked(fs.existsSync).mockReturnValue(true);
+      vi.mocked(fs.readFileSync).mockReturnValue(
+        JSON.stringify(baseConfig({ testsets: [] }))
+      );
+      vi.mocked(
+        pulling.downloadTestsetAndBuildGenerationScripts
+      ).mockResolvedValue({
+        testset: { name: 'tests', generatorScript: { commands: [] } },
+        manualCount: 0,
+      } as any);
+      vi.mocked(fs.writeFileSync).mockImplementation(() => undefined);
+      await steps.stepDownloadTests(1, {} as any, 7, 'tests', 'savePath');
+      expect(addAction.mock.calls.map(call => call[0])).toEqual([
+        { component: 'testset', name: 'tests', action: 'download', ok: true },
+      ]);
+      addAction.mockRestore();
     });
 
     it('should update existing testset in config', async () => {
@@ -1582,6 +1620,15 @@ describe('steps.ts', () => {
       );
     });
 
+    it('records no upload action when Config.json has no validator', async () => {
+      const addAction = vi.spyOn(report, 'addAction');
+      vi.mocked(pushing.uploadValidator).mockResolvedValue(0);
+      const config = baseConfig({ validator: undefined });
+      await steps.stepUploadValidator(1, {} as any, 7, '/dir', config);
+      expect(addAction).not.toHaveBeenCalled();
+      addAction.mockRestore();
+    });
+
     it('should report uploaded when count > 0', async () => {
       vi.mocked(pushing.uploadValidator).mockResolvedValue(1);
       const config = baseConfig();
@@ -1791,6 +1838,21 @@ describe('steps.ts', () => {
           error: 'boom',
         },
         { component: 'solution', name: 'ok', action: 'upload', ok: true },
+      ]);
+    });
+
+    it('tries the longest name first when one name prefixes another', () => {
+      expect(
+        steps.uploadActions('solution', ['a', 'a: b'], ['solution a: b: boom'])
+      ).toEqual([
+        { component: 'solution', name: 'a', action: 'upload', ok: true },
+        {
+          component: 'solution',
+          name: 'a: b',
+          action: 'upload',
+          ok: false,
+          error: 'boom',
+        },
       ]);
     });
 
