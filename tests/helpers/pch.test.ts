@@ -316,6 +316,24 @@ describe('pch.ts', () => {
       expect(await pch.findPch(request())).not.toBeNull();
       expect(fs.existsSync(markFile())).toBe(false);
     });
+
+    it('rebuilds the PCH after the mark of a failed compile expires', async () => {
+      const first = await pch.findPch(request());
+      expect(first).not.toBeNull();
+      pch.markPchUnsupported(first!);
+      writeMark(
+        JSON.stringify({
+          at: Date.now() - pch.UNSUPPORTED_RETRY_MS - 1000,
+          version: version(),
+        })
+      );
+      pch.resetPchState();
+
+      const again = await pch.findPch(request());
+
+      expect(again).not.toBeNull();
+      expect(pchBuilds()).toHaveLength(2);
+    });
   });
 
   describe('at most 2 keys', () => {

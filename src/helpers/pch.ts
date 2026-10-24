@@ -370,6 +370,9 @@ export async function findPch(request: PchRequest): Promise<Pch | null> {
 export function markPchUnsupported(pch: Pch): void {
   prepared.set(pch.key, Promise.resolve(null));
   try {
+    // Delete the bad .gch too: once the mark expires, a rebuild must happen
+    // instead of reusing it.
+    fs.rmSync(path.join(pch.includeDir, GCH), { force: true });
     markBad(pch.includeDir);
   } catch {
     // Only this process will skip it; that is still correct.
