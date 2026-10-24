@@ -10,7 +10,7 @@ import type ConfigFile from '../../types';
 import { fmt } from '../../formatter';
 import { insideProblem, isCppSource, logError, throwError } from '../utils';
 import { normalizeLineEndingsFromSystemToRemote } from './utils';
-import { LocalTestset, TestOptions } from '../../types';
+import { LocalManualTest, LocalTestset, TestOptions } from '../../types';
 import { readScriptText, toPolygonScript } from '../script-parser';
 import { getResolvedTests } from '../testset';
 import { renamePublicClass } from '../java-class';
@@ -640,20 +640,16 @@ export async function uploadTestsets(
         }
       }
 
-      // Upload manual test inputs (each takes its declared index).
-      const manualPromises = createManualTestsPromises(
+      // Upload manual test inputs (each takes its declared index). A missing
+      // file or a failed upload is recorded and the push goes on; every
+      // started upload is awaited so none of them rejects unhandled.
+      manualsCount += await uploadManualTests(
         sdk,
         problemId,
         manualPaths,
-        testset
+        testset,
+        failures
       );
-      try {
-        await Promise.all(manualPromises);
-        manualsCount += testset.manualTests?.length ?? 0;
-      } catch (error) {
-        logError(error);
-        recordFailure(failures, `testset ${testset.name} manual tests`, error);
-      }
 
       // Upload the generator script — Polygon parses it itself, but it
       // resolves generator tokens against source file names (without
@@ -763,31 +759,61 @@ async function clearTestset(
   }
 }
 
-function createManualTestsPromises(
+/**
+ * Uploads the manual tests of a testset. Every input is read before any
+ * upload starts, so a missing file cannot leave started uploads behind.
+ * Missing files and failed uploads are recorded in `failures`, and all
+ * uploads are awaited, so none of them rejects unhandled.
+ *
+ * @returns {Promise<number>} The number of manual tests uploaded
+ */
+async function uploadManualTests(
   sdk: PolygonSDK,
   problemId: number,
   manualPaths: string[],
-  testset: LocalTestset
-): Array<Promise<void>> {
-  const promises: Array<Promise<void>> = [];
+  testset: LocalTestset,
+  failures: string[]
+): Promise<number> {
+  const ready: Array<{ m: LocalManualTest; input: string }> = [];
   for (const [position, m] of (testset.manualTests ?? []).entries()) {
-    const testPath = manualPaths[position];
-    if (!fs.existsSync(testPath)) {
-      throw new Error(`Manual test file not found: ${m.input}`);
+    const label = `testset ${testset.name} manual test ${m.input}`;
+    try {
+      const testPath = manualPaths[position];
+      if (!fs.existsSync(testPath)) {
+        throw new Error(`Manual test file not found: ${m.input}`);
+      }
+      const input = normalizeLineEndingsFromSystemToRemote(
+        fs.readFileSync(testPath, 'utf-8')
+      );
+      ready.push({ m, input });
+    } catch (error) {
+      logError(error);
+      recordFailure(failures, label, error);
     }
+  }
 
-    const input = normalizeLineEndingsFromSystemToRemote(
-      fs.readFileSync(testPath, 'utf-8')
-    );
+  const results = await Promise.allSettled(
+    ready.map(({ m, input }) => {
+      const options: TestOptions = {};
+      if (m.group !== undefined) options.testGroup = m.group;
+      if (m.points !== undefined) options.testPoints = m.points;
+      if (m.useInStatements) options.testUseInStatements = true;
+      return sdk.saveTest(problemId, testset.name, m.index, input, options);
+    })
+  );
 
-    const options: TestOptions = {};
-    if (m.group !== undefined) options.testGroup = m.group;
-    if (m.points !== undefined) options.testPoints = m.points;
-    if (m.useInStatements) options.testUseInStatements = true;
-
-    promises.push(
-      sdk.saveTest(problemId, testset.name, m.index, input, options)
+  let uploaded = 0;
+  for (const [i, result] of results.entries()) {
+    if (result.status === 'fulfilled') {
+      uploaded++;
+      continue;
+    }
+    logError(result.reason);
+    recordFailure(
+      failures,
+      `testset ${testset.name} manual test ${ready[i].m.input}`,
+      result.reason
     );
   }
-  return promises;
+  return uploaded;
 }
