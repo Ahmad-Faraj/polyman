@@ -71,6 +71,30 @@ and `RTE`, and every solution's match with its tag, is right, Java and Python ti
 
 The verify service's sample problems (`service/samples/`, !8) are the other half: its golden set checks each solution against its tag through the service, including `wrong-tag` (a wrong solution tagged OK, which `verify` must reject). The corpus judges the CLI, test by test.
 
+## Precompiled header
+
+`pch-check.mjs` checks the precompiled `<bits/stdc++.h>` (#113) on one corpus solution: the
+first problem whose main solution starts with `#include <bits/stdc++.h>`. It runs
+`polyman run <main> --all` five times with `POLYMAN_DEBUG=1`, each on a fresh copy with the
+same tests: PCH off (`--no-cache`), PCH built on an empty folder, the same PCH used again,
+`compiler.flags: ["-O1"]` (a key of its own) and `POLYMAN_CXX=clang++` (skipped, not g++).
+Each run must take that path, by polyman's log, and give the same verdicts and output files.
+A compile that fails with the PCH (polyman retries without it, or marks the key unsupported)
+fails the run, even though the fallback compile works.
+
+```bash
+npm run build
+node corpus/pch-check.mjs                       # needs g++ and clang++
+node corpus/pch-check.mjs --problem sum-parity --clang clang++-17 --keep
+```
+
+In CI it runs as `corpus:pch`, on the same pipelines as `corpus`.
+
+Known limits: `main()` is tested on its pieces (path parsing, run folders, judging each
+result, exit codes) and on a bad argument, not end to end. A full run needs g++ and clang++,
+so the exit 0 and 1 outcomes, a missing compiler, a failing `generate` and `--keep` are
+proved by the `corpus:pch` job itself, not by a unit test.
+
 ## Polygon round trip
 
 `polygon-roundtrip.mjs` pushes a corpus problem to Polygon with `polyman remote push`, reads it
