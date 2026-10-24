@@ -481,6 +481,55 @@ describe('withRetries: context_too_long', () => {
     );
   });
 
+  it('does not count the compaction retry against maxRetries', async () => {
+    const mock = new MockProvider([
+      { error: err('context_too_long', 'HTTP 400: too many tokens') },
+      { error: err('server', 'HTTP 503: down') },
+      { error: err('server', 'HTTP 503: down') },
+      { error: err('server', 'HTTP 503: down') },
+      { error: err('server', 'HTTP 503: still down') },
+      { text: 'never' },
+    ]);
+    const onContextTooLong = vi.fn(() => request('short'));
+
+    const run = settle(
+      collect(withRetries(mock, { ...EXACT, onContextTooLong }))
+    );
+    await vi.advanceTimersByTimeAsync(7000);
+    await run.finished;
+
+    expect(mock.requests).toHaveLength(5);
+    expect(mock.remaining).toBe(1);
+    expect(onContextTooLong).toHaveBeenCalledTimes(1);
+    const error = run.state.error as ProviderError;
+    expect(error.kind).toBe('server');
+    expect(error.message).toBe(
+      'HTTP 503: still down (gave up after 3 retries)'
+    );
+  });
+
+  it('does not ask the hook again on a later context_too_long', async () => {
+    const mock = new MockProvider([
+      { error: err('context_too_long', 'HTTP 400: too many tokens') },
+      { error: err('server', 'HTTP 503: down') },
+      { error: err('context_too_long', 'HTTP 400: too many tokens') },
+      { text: 'never' },
+    ]);
+    const onContextTooLong = vi.fn(() => request('short'));
+
+    const run = settle(
+      collect(withRetries(mock, { ...EXACT, onContextTooLong }))
+    );
+    await vi.advanceTimersByTimeAsync(1000);
+    await run.finished;
+
+    expect(onContextTooLong).toHaveBeenCalledTimes(1);
+    expect(mock.requests).toHaveLength(3);
+    expect((run.state.error as ProviderError).message).toBe(
+      'HTTP 400: too many tokens (still too long after compacting)'
+    );
+  });
+
   it('gives up when the hook returns undefined, or there is no hook', async () => {
     const tooLong = err('context_too_long');
     const withHook = new MockProvider([{ error: tooLong }, { text: 'never' }]);
