@@ -912,6 +912,16 @@ describe('retryAfter', () => {
     ).toBe(3000);
   });
 
+  it('does not read a bare number as a date', () => {
+    for (const value of ['-5', '-0.5', 'Infinity', '-Infinity']) {
+      expect(
+        retryAfter(new Headers({ 'retry-after': value }), now)
+      ).toBeUndefined();
+    }
+    // Still a number of seconds. The cap belongs to a later change.
+    expect(retryAfter(new Headers({ 'retry-after': '1e12' }), now)).toBe(1e15);
+  });
+
   it('gives undefined when the header is missing or bad', () => {
     expect(retryAfter(new Headers(), now)).toBeUndefined();
     expect(

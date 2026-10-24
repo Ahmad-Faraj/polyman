@@ -367,7 +367,12 @@ export function retryAfter(
   const value = headers.get('retry-after');
   if (value === null || value.trim() === '') return undefined;
   const seconds = Number(value);
-  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
+  if (!Number.isNaN(seconds)) {
+    // A bare number is seconds, never a date: `-5` and `Infinity` are bad.
+    return Number.isFinite(seconds) && seconds >= 0
+      ? seconds * 1000
+      : undefined;
+  }
   const date = Date.parse(value);
   if (Number.isNaN(date)) return undefined;
   return Math.max(0, date - now);
