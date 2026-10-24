@@ -84,6 +84,61 @@ describe('KeyStore.read', () => {
     expect(settings.acceptedPrivacyNotice).toEqual(['deepseek']);
   });
 
+  it('keeps fields it does not know on every write', () => {
+    mkdirSync(store.dir);
+    writeFileSync(
+      store.path,
+      `{"version": 1, "note": "mine", "extra": {"a": [1, 2]},
+        "providers": {"openai": {"apiKey": "${KEY}", "organization": "org-1"}}}`
+    );
+    const read = () =>
+      JSON.parse(readFileSync(store.path, 'utf-8')) as {
+        note?: string;
+        extra?: unknown;
+        providers: Record<string, unknown>;
+      };
+
+    store.setDefault('deepseek', 'deepseek-flash');
+    expect(read().note).toBe('mine');
+    expect(read().extra).toEqual({ a: [1, 2] });
+    expect(read().providers['openai'].organization).toBe('org-1');
+
+    store.setKey('openai', 'sk-new-key-1234567890');
+    expect(read().note).toBe('mine');
+    expect(read().providers['openai']).toEqual({
+      apiKey: 'sk-new-key-1234567890',
+      organization: 'org-1',
+    });
+
+    expect(store.removeKey('openai')).toBe(true);
+    expect(read().note).toBe('mine');
+    expect(read().extra).toEqual({ a: [1, 2] });
+    expect(read().providers['openai']).toEqual({ organization: 'org-1' });
+  });
+
+  it('does not copy __proto__, constructor or prototype', () => {
+    mkdirSync(store.dir);
+    writeFileSync(
+      store.path,
+      `{"version": 1, "__proto__": {"polluted": true}, "constructor": 1,
+        "providers": {"openai": {"__proto__": {"polluted": true},
+        "prototype": 2, "keep": 3}}}`
+    );
+    const settings = store.read();
+    expect(Object.keys(settings)).not.toContain('__proto__');
+    expect(Object.keys(settings)).not.toContain('constructor');
+    expect(Object.keys(settings.providers['openai'] ?? {})).toEqual(['keep']);
+    expect(({} as Record<string, unknown>)['polluted']).toBeUndefined();
+
+    store.setDefault('deepseek', 'deepseek-flash');
+    const text = readFileSync(store.path, 'utf-8');
+    expect(text).not.toContain('__proto__');
+    expect(text).not.toContain('polluted');
+    expect(text).not.toContain('prototype');
+    expect(text).not.toContain('constructor');
+    expect(text).toContain('"keep": 3');
+  });
+
   it('throws on broken JSON without the file content in the message', () => {
     mkdirSync(store.dir);
     writeFileSync(store.path, `{"providers": {"x": {"apiKey": "${KEY}"`);

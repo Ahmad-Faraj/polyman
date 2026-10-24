@@ -35,6 +35,8 @@ export interface ProviderSettings {
   baseUrl?: string;
   /** Model ids, only for `custom`. */
   models?: string[];
+  /** Fields this version does not know, kept as they are. */
+  [extra: string]: unknown;
 }
 
 /** The content of `ai.json`. */
@@ -49,6 +51,8 @@ export interface AiSettings {
   overrides: Record<string, Partial<ModelCapabilities>>;
   /** Providers whose privacy notice the user accepted. */
   acceptedPrivacyNotice: string[];
+  /** Fields this version does not know, kept as they are. */
+  [extra: string]: unknown;
 }
 
 /** A key and where it came from. */
@@ -328,6 +332,16 @@ function safeOrigin(url: string): string {
 /** Keys that would change an object's prototype if we copied them. */
 const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
+/** Fields parseSettings reads itself. The rest is kept as it is. */
+const SETTINGS_KEYS = new Set([
+  'version',
+  'default',
+  'providers',
+  'overrides',
+  'acceptedPrivacyNotice',
+]);
+const PROVIDER_KEYS = new Set(['apiKey', 'baseUrl', 'models']);
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -339,6 +353,10 @@ function parseSettings(raw: unknown, path: string): AiSettings {
     throw new PolymanError(`${path} has an unknown version.`, 2, FIX_HINT);
   }
   const settings = emptySettings();
+  for (const [name, value] of Object.entries(raw)) {
+    if (UNSAFE_KEYS.has(name) || SETTINGS_KEYS.has(name)) continue;
+    settings[name] = value;
+  }
   const def = raw['default'];
   if (
     isRecord(def) &&
@@ -352,6 +370,10 @@ function parseSettings(raw: unknown, path: string): AiSettings {
     for (const [id, value] of Object.entries(providers)) {
       if (UNSAFE_KEYS.has(id) || !isRecord(value)) continue;
       const entry: ProviderSettings = {};
+      for (const [name, extra] of Object.entries(value)) {
+        if (UNSAFE_KEYS.has(name) || PROVIDER_KEYS.has(name)) continue;
+        entry[name] = extra;
+      }
       if (typeof value['apiKey'] === 'string') entry.apiKey = value['apiKey'];
       if (typeof value['baseUrl'] === 'string') {
         entry.baseUrl = value['baseUrl'];
