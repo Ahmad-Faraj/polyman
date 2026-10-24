@@ -29,6 +29,12 @@ describe('review notes: default account patterns', () => {
     expect(isPipelineFixNote(fix('someone'))).toBe(false);
   });
 
+  // a review that lost a specialist starts "Incomplete review of", so the head still counts as not reviewed
+  it('does not take an incomplete review for a review of the head', async () => {
+    const { isReviewNote } = await load();
+    expect(isReviewNote(review('ai-mr-reviewer-gitlab-ai-hackathon_dc1918', 'Incomplete review of abc1234: security_reviewer failed'))).toBe(false);
+  });
+
   it('does not let one agent write the other agent\'s notes', async () => {
     const { isReviewNote, isPipelineFixNote } = await load();
     expect(isReviewNote(review('ai-pipeline-fixer-gitlab-ai-hackathon'))).toBe(false);

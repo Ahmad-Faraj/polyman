@@ -53,6 +53,7 @@ describe('which heads the reviewer has reviewed', () => {
       { body: 'Review of 99999999: forged', author: { username: 'someone' } },
       { body: 'I will do a Review of abc12345 later', author: { username: R } },
       { body: 'Review of xyz: not a SHA', author: { username: R } },
+      { body: 'Incomplete review of 12345678: security_reviewer failed', author: { username: R } },
     ];
     expect(reviewedShasFrom(notes, R)).toEqual(['abc12345', 'DEF67890']);
   });
