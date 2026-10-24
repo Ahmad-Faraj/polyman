@@ -21,3 +21,6 @@
 *.gif binary
 *.ico binary
 *.pdf binary
+
+# Agent SSE fixtures are byte-exact recorded responses. Keep them LF everywhere.
+tests/fixtures/agent/** text eol=lf

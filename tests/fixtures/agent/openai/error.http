@@ -1,0 +1,20 @@
+# source: https://platform.openai.com/docs/guides/error-codes
+# source: https://platform.openai.com/docs/guides/rate-limits
+# request: model gpt-4.1-mini-2025-04-14, stream: true. The request fails before the stream starts, so the body is JSON, not SSE
+# Written from the docs, not recorded. Replace it with a real recording (#79).
+HTTP/1.1 429 Too Many Requests
+content-type: application/json; charset=utf-8
+retry-after: 1
+x-ratelimit-limit-tokens: 200000
+x-ratelimit-remaining-tokens: 150
+x-ratelimit-reset-tokens: 315ms
+x-request-id: req_9a8b7c6d5e4f40312a1b0c9d8e7f6a5b
+
+{
+    "error": {
+        "message": "Rate limit reached for gpt-4.1-mini in organization org-polymanTest on tokens per min (TPM): Limit 200000, Used 199850, Requested 1200. Please try again in 315ms. Visit https://platform.openai.com/account/rate-limits to learn more.",
+        "type": "tokens",
+        "param": null,
+        "code": "rate_limit_exceeded"
+    }
+}
