@@ -8,6 +8,7 @@ import fs from 'fs';
 import path from 'path';
 import { executor } from '../executor';
 import { fmt } from '../formatter';
+import { PolymanError } from '../errors';
 import { quoteShellArgument } from './shell';
 import { cachedCompile } from './compile-cache';
 import {
@@ -93,19 +94,21 @@ export function validateCompilerConfig(value: unknown): CompilerConfig {
   if (value === undefined) return {};
 
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new Error(
+    throw new PolymanError(
       `Invalid compiler in Config.json: ${JSON.stringify(value)} ` +
-        `(expected an object like { "cpp": "g++-15" })`
+        `(expected an object like { "cpp": "g++-15" })`,
+      2
     );
   }
 
   for (const [key, field] of Object.entries(value)) {
     if (key === 'cpp' || key === 'javac') {
       if (typeof field !== 'string' || field.trim() === '') {
-        throw new Error(
+        throw new PolymanError(
           `Invalid compiler.${key} in Config.json: ${JSON.stringify(field)} ` +
             `(expected an executable name or path, like ` +
-            `${key === 'cpp' ? '"g++-15"' : '"/usr/lib/jvm/java-21/bin/javac"'})`
+            `${key === 'cpp' ? '"g++-15"' : '"/usr/lib/jvm/java-21/bin/javac"'})`,
+          2
         );
       }
     } else if (key === 'flags') {
@@ -113,15 +116,17 @@ export function validateCompilerConfig(value: unknown): CompilerConfig {
         !Array.isArray(field) ||
         field.some(flag => typeof flag !== 'string' || flag.trim() === '')
       ) {
-        throw new Error(
+        throw new PolymanError(
           `Invalid compiler.flags in Config.json: ${JSON.stringify(field)} ` +
-            `(expected an array with one flag per item, like ["-Wall", "-std=c++20"])`
+            `(expected an array with one flag per item, like ["-Wall", "-std=c++20"])`,
+          2
         );
       }
     } else {
-      throw new Error(
+      throw new PolymanError(
         `Unknown key in compiler: ${JSON.stringify(key)} ` +
-          `(allowed keys: ${COMPILER_CONFIG_KEYS.join(', ')})`
+          `(allowed keys: ${COMPILER_CONFIG_KEYS.join(', ')})`,
+        2
       );
     }
   }
@@ -322,9 +327,10 @@ export function resolveCppStandard(): string {
     typeof configured !== 'string' ||
     !CPP_STANDARD_PATTERN.test(configured)
   ) {
-    throw new Error(
+    throw new PolymanError(
       `Invalid cppStandard in Config.json: ${JSON.stringify(configured)} ` +
-        `(expected something like "c++17", "c++20" or "c++23")`
+        `(expected something like "c++17", "c++20" or "c++23")`,
+      2
     );
   }
   return configured;
@@ -559,7 +565,8 @@ export function getTestFiles(testsDir: string): string[] {
  *
  * @returns {ConfigFile} Parsed configuration object
  *
- * @throws {Error} If Config.json doesn't exist or is invalid JSON
+ * @throws {PolymanError} With exit code 2 if Config.json doesn't exist or
+ *   is invalid JSON
  *
  * @example
  * const config = readConfigFile();
@@ -571,9 +578,14 @@ export function readConfigFile(): ConfigFile {
     const configData = fs.readFileSync(configFilePath, 'utf-8');
     return JSON.parse(configData) as ConfigFile;
   } catch (error) {
-    throw error instanceof Error
-      ? error
-      : new Error('Failed to read or parse Config.json file.');
+    throw new PolymanError(
+      error instanceof Error
+        ? error.message
+        : 'Failed to read or parse Config.json file.',
+      2,
+      'Run polyman inside a problem folder, or create one with: polyman new <dir>',
+      { cause: error }
+    );
   }
 }
 
@@ -615,10 +627,11 @@ export function ensureConfigSourcesExist(config: ConfigFile): void {
   }
 
   if (missing.length > 0) {
-    throw new Error(
+    throw new PolymanError(
       `Config.json names source files that do not exist:\n${missing
         .map(line => `  - ${line}`)
-        .join('\n')}`
+        .join('\n')}`,
+      2
     );
   }
 }
@@ -669,21 +682,6 @@ export function isNumeric(value: string): boolean {
 export function logError(error: unknown, indent: number = 1) {
   const message = error instanceof Error ? error.message : String(error);
   fmt.error(`${' '.repeat(indent)} ${fmt.cross()} ${message}`);
-}
-
-/**
- * Logs an error and exits the process with code 1.
- *
- * @param {unknown} error - Error to log
- *
- * @example
- * if (!fs.existsSync('Config.json')) {
- *   logErrorAndExit(new Error('Config.json not found'));
- * }
- */
-export function logErrorAndExit(error: unknown) {
-  logError(error);
-  process.exit(1);
 }
 
 /**
@@ -863,9 +861,10 @@ export function findPythonCommand(source?: string): string {
     }
   }
 
-  throw new Error(
+  throw new PolymanError(
     `Python 3 was not found (tried ${PYTHON_CANDIDATES.join(', ')}).` +
-      (source ? ` Install Python 3 to run ${source}` : ' Install Python 3')
+      (source ? ` Install Python 3 to run ${source}` : ' Install Python 3'),
+    3
   );
 }
 

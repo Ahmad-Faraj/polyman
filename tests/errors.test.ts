@@ -1,5 +1,15 @@
 import { describe, it, expect } from 'vitest';
-import { LimitExceededError, PolymanError, exitCodeFor } from '../src/errors';
+import {
+  EXIT_CANCELLED,
+  EXIT_TERMINATED,
+  LimitExceededError,
+  PolymanError,
+  exitCodeFor,
+} from '../src/errors';
+import {
+  EXIT_NON_INTERACTIVE,
+  NonInteractiveError,
+} from '../src/helpers/errors';
 
 describe('PolymanError', () => {
   it('carries the message, the exit code and the hint', () => {
@@ -13,6 +23,29 @@ describe('PolymanError', () => {
 
   it('has no hint when none is given', () => {
     expect(new PolymanError('failed', 1).hint).toBeUndefined();
+  });
+
+  it('keeps the cause when one is given', () => {
+    const cause = new Error('ECONNRESET');
+    const error = new PolymanError('Polygon failed', 4, undefined, { cause });
+    expect(error.cause).toBe(cause);
+  });
+});
+
+describe('NonInteractiveError', () => {
+  it('is a PolymanError with exit code 2', () => {
+    const error = new NonInteractiveError('pass --yes');
+    expect(error).toBeInstanceOf(PolymanError);
+    expect(error.exitCode).toBe(EXIT_NON_INTERACTIVE);
+    expect(exitCodeFor(error)).toBe(2);
+    expect(error.name).toBe('NonInteractiveError');
+  });
+});
+
+describe('signal exit codes', () => {
+  it('are 128 plus the signal number', () => {
+    expect(EXIT_CANCELLED).toBe(130);
+    expect(EXIT_TERMINATED).toBe(143);
   });
 });
 

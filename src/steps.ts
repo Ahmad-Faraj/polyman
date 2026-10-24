@@ -5,7 +5,7 @@
  */
 
 import { fmt } from './formatter';
-import { LimitExceededError } from './errors';
+import { LimitExceededError, PolymanError } from './errors';
 import { report } from './report';
 import type { Interface as ReadlineInterface } from 'readline';
 import type { PolygonSDK, Problem } from './polygon';
@@ -497,7 +497,7 @@ export function stepValidateConfigForSolutionTest(
   const targetSolution = config.solutions.find(s => s.name === what);
 
   if (!targetSolution) {
-    throw new Error(`No solution named "${what}" found.`);
+    throw new PolymanError(`No solution named "${what}" found.`, 2);
   }
 
   fmt.info(
@@ -938,9 +938,10 @@ export function stepValidatePackageType(stepNum: number, packageType: string) {
   fmt.step(stepNum, 'Validating Package Type');
 
   if (!isValidPackageType(packageType)) {
-    throw new Error(
+    throw new PolymanError(
       `Invalid package type: ${packageType}\n` +
-        'Valid types: standard, full, linux, windows'
+        'Valid types: standard, full, linux, windows',
+      2
     );
   }
 
@@ -1021,7 +1022,7 @@ export async function stepBuildPackage(
   }
 
   if (!latestPackage) {
-    throw new Error('Package build timed out after 30 minutes');
+    throw new PolymanError('Package build timed out after 30 minutes', 4);
   }
 
   if (latestPackage.state === 'READY') {
@@ -1180,7 +1181,7 @@ export async function stepDownloadTests(
   // Read current config to get generators
   if (!fs.existsSync(configPath)) {
     fmt.error('Config.json not found. Run download command first.');
-    throw new Error('Config.json not found');
+    throw new PolymanError('Config.json not found', 2);
   }
 
   const config = JSON.parse(fs.readFileSync(configPath, 'utf-8')) as ConfigFile;
@@ -1244,7 +1245,7 @@ export function stepReadConfig(
   const configPath = path.join(problemDir, 'Config.json');
 
   if (!fs.existsSync(configPath)) {
-    throw new Error(`Config.json not found in ${problemDir}`);
+    throw new PolymanError(`Config.json not found in ${problemDir}`, 2);
   }
 
   const config = JSON.parse(fs.readFileSync(configPath, 'utf-8')) as ConfigFile;
@@ -1693,7 +1694,14 @@ export async function stepCreateProblemOnPolygon(
     return problemId;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Failed to create problem on Polygon: ${message}`);
+    throw new PolymanError(
+      `Failed to create problem on Polygon: ${message}`,
+      4,
+      undefined,
+      {
+        cause: error,
+      }
+    );
   }
 }
 

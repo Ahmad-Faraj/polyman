@@ -7,6 +7,7 @@ import * as actions from '../src/actions';
 import * as steps from '../src/steps';
 import * as utils from '../src/helpers/utils';
 import { NonInteractiveError } from '../src/helpers/errors';
+import { PolymanError, exitCodeFor } from '../src/errors';
 import * as formatter from '../src/formatter';
 import * as testset from '../src/helpers/testset';
 import * as solution from '../src/helpers/solution';
@@ -43,6 +44,15 @@ interface ReportDoc {
   solutions?: unknown[];
   warnings?: string[];
 }
+
+/** Awaits an action that must fail and returns what it threw. */
+const failure = (promise: Promise<unknown>): Promise<unknown> =>
+  promise.then(
+    () => {
+      throw new Error('expected the action to fail');
+    },
+    (error: unknown) => error
+  );
 
 const writtenJson = (): ReportDoc => {
   const calls = vi.mocked(fs.writeSync).mock.calls;
@@ -88,9 +98,9 @@ describe('actions.ts', () => {
       vi.mocked(steps.stepCreateDirectoryStructure).mockImplementation(() => {
         throw new Error('fail');
       });
-      actions.createTemplateAction('prob');
+      expect(() => actions.createTemplateAction('prob')).toThrow('fail');
       expect(formatter.fmt.errorBox).toHaveBeenCalled();
-      expect(process.exit).toHaveBeenCalledWith(1);
+      expect(process.exit).not.toHaveBeenCalled();
     });
 
     it('should handle non-Error throws', () => {
@@ -98,9 +108,11 @@ describe('actions.ts', () => {
         // eslint-disable-next-line @typescript-eslint/only-throw-error
         throw 'string-error';
       });
-      actions.createTemplateAction('prob');
+      expect(() => actions.createTemplateAction('prob')).toThrow(
+        'string-error'
+      );
       expect(formatter.fmt.errorBox).toHaveBeenCalled();
-      expect(process.exit).toHaveBeenCalledWith(1);
+      expect(process.exit).not.toHaveBeenCalled();
     });
   });
 
@@ -138,9 +150,9 @@ describe('actions.ts', () => {
 
     it('should error when checkers directory missing', () => {
       vi.mocked(fs.existsSync).mockReturnValue(false);
-      actions.listAvailableCheckersAction();
+      expect(() => actions.listAvailableCheckersAction()).toThrow();
       expect(formatter.fmt.errorBox).toHaveBeenCalled();
-      expect(process.exit).toHaveBeenCalledWith(1);
+      expect(process.exit).not.toHaveBeenCalled();
     });
   });
 
@@ -169,9 +181,9 @@ describe('actions.ts', () => {
       vi.mocked(steps.stepDownloadTestlib).mockRejectedValue(
         new Error('network')
       );
-      await actions.downloadTestlibAction();
+      await expect(actions.downloadTestlibAction()).rejects.toThrow('network');
       expect(formatter.fmt.errorBox).toHaveBeenCalled();
-      expect(process.exit).toHaveBeenCalledWith(1);
+      expect(process.exit).not.toHaveBeenCalled();
     });
   });
 
@@ -213,9 +225,26 @@ describe('actions.ts', () => {
       vi.mocked(utils.readConfigFile).mockImplementation(() => {
         throw new Error('bad config');
       });
-      await actions.generateTestsAction('all');
+      await expect(actions.generateTestsAction('all')).rejects.toThrow(
+        'bad config'
+      );
       expect(formatter.fmt.errorBox).toHaveBeenCalled();
-      expect(process.exit).toHaveBeenCalledWith(1);
+      expect(process.exit).not.toHaveBeenCalled();
+    });
+
+    it('should rethrow a PolymanError with its code and leave the message to cli.ts', async () => {
+      const thrown = new PolymanError('No generator named "gen9"', 2);
+      vi.mocked(utils.readConfigFile).mockImplementation(() => {
+        throw thrown;
+      });
+      const error = await failure(actions.generateTestsAction('all'));
+      expect(error).toBe(thrown);
+      expect(exitCodeFor(error)).toBe(2);
+      expect(formatter.fmt.errorBox).toHaveBeenCalledWith(
+        'TEST GENERATION FAILED!'
+      );
+      // cli.ts prints the message once; the action must not print it again
+      expect(formatter.fmt.error).not.toHaveBeenCalled();
     });
   });
 
@@ -255,9 +284,9 @@ describe('actions.ts', () => {
       vi.mocked(utils.readConfigFile).mockImplementation(() => {
         throw new Error('bad');
       });
-      await actions.validateTestsAction('all');
+      await expect(actions.validateTestsAction('all')).rejects.toThrow('bad');
       expect(formatter.fmt.errorBox).toHaveBeenCalled();
-      expect(process.exit).toHaveBeenCalledWith(1);
+      expect(process.exit).not.toHaveBeenCalled();
     });
   });
 
@@ -295,9 +324,11 @@ describe('actions.ts', () => {
       vi.mocked(utils.readConfigFile).mockImplementation(() => {
         throw new Error('boom');
       });
-      await actions.runSolutionAction('main', 'all');
+      await expect(actions.runSolutionAction('main', 'all')).rejects.toThrow(
+        'boom'
+      );
       expect(formatter.fmt.errorBox).toHaveBeenCalled();
-      expect(process.exit).toHaveBeenCalledWith(1);
+      expect(process.exit).not.toHaveBeenCalled();
     });
 
     it('should not write a report without --json', async () => {
@@ -351,13 +382,15 @@ describe('actions.ts', () => {
       vi.mocked(steps.stepCompileSolutions).mockRejectedValueOnce(
         new Error('g++ exploded')
       );
-      await actions.runSolutionAction('main', 'ts1', '4', { json: true });
+      await expect(
+        actions.runSolutionAction('main', 'ts1', '4', { json: true })
+      ).rejects.toThrow('g++ exploded');
       const doc = writtenJson();
       expect(doc.ok).toBe(false);
       expect(doc.command).toBe('run');
       expect(doc.errors).toContain('g++ exploded');
       expect(doc.tests).toEqual([]);
-      expect(process.exit).toHaveBeenCalledWith(1);
+      expect(process.exit).not.toHaveBeenCalled();
     });
   });
 
@@ -393,9 +426,9 @@ describe('actions.ts', () => {
       vi.mocked(utils.readConfigFile).mockImplementation(() => {
         throw new Error('x');
       });
-      await actions.testWhatAction('validator');
+      await expect(actions.testWhatAction('validator')).rejects.toThrow('x');
       expect(formatter.fmt.errorBox).toHaveBeenCalled();
-      expect(process.exit).toHaveBeenCalledWith(1);
+      expect(process.exit).not.toHaveBeenCalled();
     });
   });
 
@@ -420,9 +453,9 @@ describe('actions.ts', () => {
       vi.mocked(utils.readConfigFile).mockImplementation(() => {
         throw new Error('z');
       });
-      await actions.fullVerificationAction();
+      await expect(actions.fullVerificationAction()).rejects.toThrow('z');
       expect(formatter.fmt.errorBox).toHaveBeenCalled();
-      expect(process.exit).toHaveBeenCalledWith(1);
+      expect(process.exit).not.toHaveBeenCalled();
     });
 
     it('should stop before running anything when timeLimitMultipliers is invalid', async () => {
@@ -435,7 +468,9 @@ describe('actions.ts', () => {
           );
         }
       );
-      await actions.fullVerificationAction();
+      await expect(actions.fullVerificationAction()).rejects.toThrow(
+        'Invalid timeLimitMultipliers.java in Config.json: 0'
+      );
       expect(solution.validateTimeLimitMultipliers).toHaveBeenCalledWith(
         config
       );
@@ -445,7 +480,7 @@ describe('actions.ts', () => {
       expect(formatter.fmt.errorBox).toHaveBeenCalledWith(
         'VERIFICATION FAILED!'
       );
-      expect(process.exit).toHaveBeenCalledWith(1);
+      expect(process.exit).not.toHaveBeenCalled();
     });
 
     it('should print the compile cache summary on success and failure', async () => {
@@ -456,7 +491,7 @@ describe('actions.ts', () => {
       vi.mocked(utils.readConfigFile).mockImplementation(() => {
         throw new Error('z');
       });
-      await actions.fullVerificationAction();
+      await expect(actions.fullVerificationAction()).rejects.toThrow('z');
       expect(compileCache.logCacheSummary).toHaveBeenCalledTimes(2);
     });
 
@@ -565,7 +600,9 @@ describe('actions.ts', () => {
         new Error('Some validator tests failed')
       );
 
-      await actions.fullVerificationAction({ json: true });
+      await expect(
+        actions.fullVerificationAction({ json: true })
+      ).rejects.toThrow('Some validator tests failed');
 
       const doc = writtenJson();
       expect(doc.ok).toBe(false);
@@ -584,7 +621,7 @@ describe('actions.ts', () => {
       });
       expect(doc.solutions).toEqual([]);
       expect(steps.stepValidateGeneratedTests).not.toHaveBeenCalled();
-      expect(process.exit).toHaveBeenCalledWith(1);
+      expect(process.exit).not.toHaveBeenCalled();
     });
 
     it('should warn, without failing, when the validator has no INVALID self-tests', async () => {
@@ -622,7 +659,9 @@ describe('actions.ts', () => {
         new Error('bad test')
       );
 
-      await actions.fullVerificationAction({ json: true });
+      await expect(
+        actions.fullVerificationAction({ json: true })
+      ).rejects.toThrow('bad test');
 
       const doc = writtenJson();
       expect(doc.ok).toBe(false);
@@ -643,7 +682,9 @@ describe('actions.ts', () => {
         new Error('Some validator tests failed')
       );
 
-      await actions.fullVerificationAction({ json: true });
+      await expect(
+        actions.fullVerificationAction({ json: true })
+      ).rejects.toThrow('Some validator tests failed');
 
       const doc = writtenJson();
       expect(doc.failedStep).toBe('test-validator');
@@ -679,7 +720,9 @@ describe('actions.ts', () => {
         throw new Error('validator file not found: val.cpp');
       });
 
-      await actions.fullVerificationAction({ json: true });
+      await expect(
+        actions.fullVerificationAction({ json: true })
+      ).rejects.toThrow('validator file not found: val.cpp');
 
       expect(utils.ensureConfigSourcesExist).toHaveBeenCalledWith(config);
       const doc = writtenJson();
@@ -693,14 +736,16 @@ describe('actions.ts', () => {
         },
       ]);
       expect(steps.stepCompileValidator).not.toHaveBeenCalled();
-      expect(process.exit).toHaveBeenCalledWith(1);
+      expect(process.exit).not.toHaveBeenCalled();
     });
 
     it('should attribute a Config.json read failure to read-config', async () => {
       vi.mocked(utils.readConfigFile).mockImplementationOnce(() => {
         throw new Error('ENOENT Config.json');
       });
-      await actions.fullVerificationAction({ json: true });
+      await expect(
+        actions.fullVerificationAction({ json: true })
+      ).rejects.toThrow('ENOENT Config.json');
       const doc = writtenJson();
       expect(doc.failedStep).toBe('read-config');
       expect(doc.steps).toEqual([
@@ -724,9 +769,9 @@ describe('actions.ts', () => {
       vi.mocked(utils.readConfigFile).mockImplementation(() => {
         throw new Error('q');
       });
-      actions.listTestsetsAction();
+      expect(() => actions.listTestsetsAction()).toThrow('q');
       expect(formatter.fmt.errorBox).toHaveBeenCalled();
-      expect(process.exit).toHaveBeenCalledWith(1);
+      expect(process.exit).not.toHaveBeenCalled();
     });
   });
 
@@ -758,9 +803,9 @@ describe('actions.ts', () => {
       vi.mocked(utils.readConfigFile).mockImplementation(() => {
         throw new Error('p');
       });
-      actions.listSolutionsAction();
+      expect(() => actions.listSolutionsAction()).toThrow('p');
       expect(formatter.fmt.errorBox).toHaveBeenCalled();
-      expect(process.exit).toHaveBeenCalledWith(1);
+      expect(process.exit).not.toHaveBeenCalled();
     });
   });
 
@@ -829,9 +874,9 @@ describe('actions.ts', () => {
       vi.mocked(compileCache.listCacheEntries).mockImplementation(() => {
         throw new Error('EACCES');
       });
-      actions.cacheStatusAction();
+      expect(() => actions.cacheStatusAction()).toThrow('EACCES');
       expect(formatter.fmt.errorBox).toHaveBeenCalled();
-      expect(process.exit).toHaveBeenCalledWith(1);
+      expect(process.exit).not.toHaveBeenCalled();
     });
   });
 
@@ -849,9 +894,9 @@ describe('actions.ts', () => {
       vi.mocked(compileCache.clearCache).mockImplementation(() => {
         throw new Error('EBUSY');
       });
-      actions.cacheClearAction();
+      expect(() => actions.cacheClearAction()).toThrow('EBUSY');
       expect(formatter.fmt.errorBox).toHaveBeenCalled();
-      expect(process.exit).toHaveBeenCalledWith(1);
+      expect(process.exit).not.toHaveBeenCalled();
     });
   });
 
@@ -885,9 +930,9 @@ describe('actions.ts', () => {
       vi.mocked(utils.readConfigFile).mockImplementation(() => {
         throw new Error('e');
       });
-      actions.listGeneratorsAction();
+      expect(() => actions.listGeneratorsAction()).toThrow('e');
       expect(formatter.fmt.errorBox).toHaveBeenCalled();
-      expect(process.exit).toHaveBeenCalledWith(1);
+      expect(process.exit).not.toHaveBeenCalled();
     });
   });
 
@@ -915,9 +960,11 @@ describe('actions.ts', () => {
       vi.mocked(fs.writeFileSync).mockImplementation(() => {
         throw new Error('write fail');
       });
-      actions.registerApiKeyAndSecretAction('apikey', 'secret');
+      expect(() =>
+        actions.registerApiKeyAndSecretAction('apikey', 'secret')
+      ).toThrow('write fail');
       expect(formatter.fmt.errorBox).toHaveBeenCalled();
-      expect(process.exit).toHaveBeenCalledWith(1);
+      expect(process.exit).not.toHaveBeenCalled();
     });
   });
 
@@ -963,9 +1010,11 @@ describe('actions.ts', () => {
       vi.mocked(steps.stepReadCredentials).mockImplementation(() => {
         throw new Error('no creds');
       });
-      await actions.remoteListProblemsAction();
+      await expect(actions.remoteListProblemsAction()).rejects.toThrow(
+        'no creds'
+      );
       expect(formatter.fmt.errorBox).toHaveBeenCalled();
-      expect(process.exit).toHaveBeenCalledWith(1);
+      expect(process.exit).not.toHaveBeenCalled();
     });
   });
 
@@ -1119,9 +1168,11 @@ describe('actions.ts', () => {
       vi.mocked(steps.stepReadCredentials).mockImplementation(() => {
         throw new Error('e');
       });
-      await actions.remotePullProblemAction('123', './out');
+      await expect(
+        actions.remotePullProblemAction('123', './out')
+      ).rejects.toThrow('e');
       expect(formatter.fmt.errorBox).toHaveBeenCalled();
-      expect(process.exit).toHaveBeenCalledWith(1);
+      expect(process.exit).not.toHaveBeenCalled();
     });
   });
 
@@ -1131,25 +1182,38 @@ describe('actions.ts', () => {
       vi.mocked(steps.stepInitializeSDK).mockReturnValue({} as any);
     });
 
-    it('should exit 2 when the push needs a prompt but stdin is not a terminal', async () => {
+    it('should fail with exit code 2 when the push needs a prompt but stdin is not a terminal', async () => {
       vi.mocked(steps.stepReadConfig).mockReturnValue({ name: 'p' } as any);
       vi.mocked(steps.stepPromptCreateProblem).mockRejectedValue(
         new NonInteractiveError('stdin is not a terminal; pass --yes')
       );
-      await actions.remotePushProblemAction('./prob');
-      expect(formatter.fmt.error).toHaveBeenCalledWith(
-        expect.stringContaining('pass --yes')
+      const error = await failure(actions.remotePushProblemAction('./prob'));
+      expect(error).toBeInstanceOf(NonInteractiveError);
+      expect((error as Error).message).toContain('pass --yes');
+      expect(exitCodeFor(error)).toBe(2);
+      expect(formatter.fmt.errorBox).toHaveBeenCalledWith(
+        'FAILED TO PUSH PROBLEM!'
       );
-      expect(process.exit).toHaveBeenCalledWith(2);
+      expect(process.exit).not.toHaveBeenCalled();
     });
 
-    it('should still exit 1 for other push errors', async () => {
+    it('should still fail with exit code 1 for other push errors', async () => {
       vi.mocked(steps.stepReadConfig).mockReturnValue({ name: 'p' } as any);
       vi.mocked(steps.stepPromptCreateProblem).mockRejectedValue(
         new Error('boom')
       );
-      await actions.remotePushProblemAction('./prob');
-      expect(process.exit).toHaveBeenCalledWith(1);
+      const error = await failure(actions.remotePushProblemAction('./prob'));
+      expect((error as Error).message).toBe('boom');
+      expect(exitCodeFor(error)).toBe(1);
+      expect(process.exit).not.toHaveBeenCalled();
+    });
+
+    it('should keep the exit code of a PolymanError from a step', async () => {
+      vi.mocked(steps.stepReadCredentials).mockImplementation(() => {
+        throw new PolymanError('API key not found', 3);
+      });
+      const error = await failure(actions.remotePushProblemAction('./prob'));
+      expect(exitCodeFor(error)).toBe(3);
     });
 
     it('should push existing problem with all sections', async () => {
@@ -1175,7 +1239,7 @@ describe('actions.ts', () => {
       expect(formatter.fmt.successBox).toHaveBeenCalled();
     });
 
-    it('should list failures, exit 1 and skip the success box when a step fails', async () => {
+    it('should list failures, fail with exit code 4 and skip the success box when a step fails', async () => {
       vi.mocked(steps.stepReadConfig).mockReturnValue({
         problemId: 42,
         name: 'p',
@@ -1188,16 +1252,24 @@ describe('actions.ts', () => {
         failures.push("solution java-sol: Unknown file type 'java.11'");
         return Promise.resolve();
       }) as any);
-      await actions.remotePushProblemAction('./prob');
+      const error = await failure(actions.remotePushProblemAction('./prob'));
+      expect(error).toBeInstanceOf(PolymanError);
+      expect((error as PolymanError).message).toBe(
+        'Some items were not uploaded to Polygon'
+      );
+      expect((error as PolymanError).exitCode).toBe(4);
       expect(formatter.fmt.errorBox).toHaveBeenCalledWith(
         'PUSH COMPLETED WITH ERRORS'
+      );
+      expect(formatter.fmt.errorBox).not.toHaveBeenCalledWith(
+        'FAILED TO PUSH PROBLEM!'
       );
       expect(formatter.fmt.error).toHaveBeenCalledWith(
         expect.stringContaining(
           "solution java-sol: Unknown file type 'java.11'"
         )
       );
-      expect(process.exit).toHaveBeenCalledWith(1);
+      expect(process.exit).not.toHaveBeenCalled();
       expect(formatter.fmt.successBox).not.toHaveBeenCalled();
     });
 
@@ -1235,21 +1307,22 @@ describe('actions.ts', () => {
     });
 
     it.each(uploadSteps.filter(name => name !== 'stepUploadSolutions'))(
-      'should list a failure from %s, exit 1 and skip the success box',
+      'should list a failure from %s, fail with exit code 4 and skip the success box',
       async name => {
         vi.mocked(steps.stepReadConfig).mockReturnValue(fullConfig());
         vi.mocked(steps[name]).mockImplementationOnce(((...args: unknown[]) => {
           (args[args.length - 1] as string[]).push(`${name}: boom`);
           return Promise.resolve(1);
         }) as any);
-        await actions.remotePushProblemAction('./prob');
+        const error = await failure(actions.remotePushProblemAction('./prob'));
+        expect(exitCodeFor(error)).toBe(4);
         expect(formatter.fmt.errorBox).toHaveBeenCalledWith(
           'PUSH COMPLETED WITH ERRORS'
         );
         expect(formatter.fmt.error).toHaveBeenCalledWith(
           expect.stringContaining(`${name}: boom`)
         );
-        expect(process.exit).toHaveBeenCalledWith(1);
+        expect(process.exit).not.toHaveBeenCalled();
         expect(formatter.fmt.successBox).not.toHaveBeenCalled();
       }
     );
@@ -1368,9 +1441,11 @@ describe('actions.ts', () => {
       vi.mocked(steps.stepReadCredentials).mockImplementation(() => {
         throw new Error('e');
       });
-      await actions.remotePushProblemAction('./prob');
+      await expect(actions.remotePushProblemAction('./prob')).rejects.toThrow(
+        'e'
+      );
       expect(formatter.fmt.errorBox).toHaveBeenCalled();
-      expect(process.exit).toHaveBeenCalledWith(1);
+      expect(process.exit).not.toHaveBeenCalled();
     });
   });
 
@@ -1400,9 +1475,11 @@ describe('actions.ts', () => {
       vi.mocked(steps.stepFetchProblemInfo).mockRejectedValue(
         new Error('not found')
       );
-      await actions.remoteViewProblemAction('7');
+      await expect(actions.remoteViewProblemAction('7')).rejects.toThrow(
+        'not found'
+      );
       expect(formatter.fmt.errorBox).toHaveBeenCalled();
-      expect(process.exit).toHaveBeenCalledWith(1);
+      expect(process.exit).not.toHaveBeenCalled();
     });
   });
 
@@ -1421,9 +1498,11 @@ describe('actions.ts', () => {
 
     it('should handle errors', async () => {
       vi.mocked(steps.stepCommitChanges).mockRejectedValue(new Error('fail'));
-      await actions.remoteCommitProblemAction('./p', 'msg');
+      await expect(
+        actions.remoteCommitProblemAction('./p', 'msg')
+      ).rejects.toThrow('fail');
       expect(formatter.fmt.errorBox).toHaveBeenCalled();
-      expect(process.exit).toHaveBeenCalledWith(1);
+      expect(process.exit).not.toHaveBeenCalled();
     });
   });
 
@@ -1458,9 +1537,11 @@ describe('actions.ts', () => {
       vi.mocked(steps.stepValidatePackageType).mockImplementation(() => {
         throw new Error('bad type');
       });
-      await actions.remotePackageProblemAction('./p', 'unknown');
+      await expect(
+        actions.remotePackageProblemAction('./p', 'unknown')
+      ).rejects.toThrow('bad type');
       expect(formatter.fmt.errorBox).toHaveBeenCalled();
-      expect(process.exit).toHaveBeenCalledWith(1);
+      expect(process.exit).not.toHaveBeenCalled();
     });
   });
 
@@ -1493,7 +1574,9 @@ describe('actions.ts', () => {
       vi.mocked(steps.stepCreateDirectoryStructure).mockImplementation(() => {
         throw new Error('EEXIST');
       });
-      actions.createTemplateAction('prob', { json: true });
+      expect(() =>
+        actions.createTemplateAction('prob', { json: true })
+      ).toThrow('EEXIST');
       report.finish(false);
       expect(doc()).toMatchObject({
         command: 'new',
@@ -1501,7 +1584,7 @@ describe('actions.ts', () => {
         exitCode: 1,
         errors: ['EEXIST'],
       });
-      expect(process.exit).toHaveBeenCalledWith(1);
+      expect(process.exit).not.toHaveBeenCalled();
     });
 
     it('new without --json writes no report', () => {
@@ -1524,7 +1607,9 @@ describe('actions.ts', () => {
       vi.mocked(steps.stepDownloadTestlib).mockRejectedValue(
         new Error('network')
       );
-      await actions.downloadTestlibAction({ json: true });
+      await expect(
+        actions.downloadTestlibAction({ json: true })
+      ).rejects.toThrow('network');
       expect(doc()).toMatchObject({
         command: 'download-testlib',
         ok: false,
@@ -1560,7 +1645,9 @@ describe('actions.ts', () => {
 
     it('list checkers --json reports a missing directory', () => {
       vi.mocked(fs.existsSync).mockReturnValue(false);
-      actions.listAvailableCheckersAction({ json: true });
+      expect(() =>
+        actions.listAvailableCheckersAction({ json: true })
+      ).toThrow();
       expect(doc()).toMatchObject({
         ok: false,
         exitCode: 1,
@@ -1588,7 +1675,9 @@ describe('actions.ts', () => {
       vi.mocked(utils.readConfigFile).mockImplementation(() => {
         throw new Error('no Config.json');
       });
-      actions.listTestsetsAction({ json: true });
+      expect(() => actions.listTestsetsAction({ json: true })).toThrow(
+        'no Config.json'
+      );
       expect(doc()).toMatchObject({
         command: 'list testsets',
         ok: false,
@@ -1619,7 +1708,9 @@ describe('actions.ts', () => {
       vi.mocked(utils.readConfigFile).mockImplementation(() => {
         throw new Error('no Config.json');
       });
-      actions.listSolutionsAction({ json: true });
+      expect(() => actions.listSolutionsAction({ json: true })).toThrow(
+        'no Config.json'
+      );
       expect(doc()).toMatchObject({ ok: false, exitCode: 1 });
       expect(doc()['errors']).toEqual(['no Config.json']);
     });
@@ -1646,9 +1737,32 @@ describe('actions.ts', () => {
       vi.mocked(utils.readConfigFile).mockImplementation(() => {
         throw new Error('no Config.json');
       });
-      actions.listGeneratorsAction({ json: true });
+      expect(() => actions.listGeneratorsAction({ json: true })).toThrow(
+        'no Config.json'
+      );
       expect(doc()).toMatchObject({ ok: false, exitCode: 1 });
       expect(doc()['errors']).toEqual(['no Config.json']);
+    });
+
+    it('list solutions --json reports the exit code of a PolymanError', () => {
+      vi.mocked(utils.readConfigFile).mockImplementation(() => {
+        throw new PolymanError('Unexpected token in Config.json', 2);
+      });
+      expect(() => actions.listSolutionsAction({ json: true })).toThrow(
+        'Unexpected token in Config.json'
+      );
+      expect(doc()).toMatchObject({ ok: false, exitCode: 2 });
+    });
+
+    it('download-testlib --json reports exit code 4 for a network failure', async () => {
+      vi.mocked(steps.stepDownloadTestlib).mockRejectedValue(
+        new PolymanError('Download failed: ECONNRESET', 4)
+      );
+      const error = await failure(
+        actions.downloadTestlibAction({ json: true })
+      );
+      expect(exitCodeFor(error)).toBe(4);
+      expect(doc()).toMatchObject({ ok: false, exitCode: 4 });
     });
 
     it('list without --json writes no report', () => {

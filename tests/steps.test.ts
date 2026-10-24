@@ -17,7 +17,7 @@ import * as solution from '../src/helpers/solution';
 import * as testset from '../src/helpers/testset';
 import * as utils from '../src/helpers/utils';
 import { NonInteractiveError } from '../src/helpers/errors';
-import { LimitExceededError } from '../src/errors';
+import { LimitExceededError, PolymanError } from '../src/errors';
 import * as remoteUtils from '../src/helpers/remote/utils';
 import * as pulling from '../src/helpers/remote/pulling';
 import * as pushing from '../src/helpers/remote/pushing';
@@ -587,6 +587,9 @@ describe('steps.ts', () => {
       expect(() =>
         steps.stepValidateConfigForSolutionTest(1, 'missing')
       ).toThrow('No solution named "missing" found.');
+      expect(() =>
+        steps.stepValidateConfigForSolutionTest(1, 'missing')
+      ).toThrow(expect.objectContaining({ exitCode: 2 }));
     });
 
     it('should fail when timeLimitMultipliers is invalid', () => {
@@ -942,6 +945,9 @@ describe('steps.ts', () => {
       expect(() => steps.stepValidatePackageType(1, 'bogus')).toThrow(
         'Invalid package type: bogus'
       );
+      expect(() => steps.stepValidatePackageType(1, 'bogus')).toThrow(
+        expect.objectContaining({ exitCode: 2 })
+      );
     });
   });
 
@@ -1000,6 +1006,24 @@ describe('steps.ts', () => {
       promise.catch(() => undefined);
       await vi.advanceTimersByTimeAsync(30000);
       await expect(promise).rejects.toThrow('Package build failed: oops');
+      // Polygon answered: the problem itself did not build, so code 1
+      await expect(promise).rejects.not.toBeInstanceOf(PolymanError);
+      vi.useRealTimers();
+    });
+
+    it('should fail with exit code 4 when no package shows up in time', async () => {
+      vi.useFakeTimers();
+      const sdk = {
+        listPackages: vi.fn().mockResolvedValue([]),
+        buildPackage: vi.fn().mockResolvedValue(undefined),
+      } as any;
+      const promise = steps.stepBuildPackage(1, sdk, 7, 'standard');
+      promise.catch(() => undefined);
+      await vi.advanceTimersByTimeAsync(30 * 30000);
+      await expect(promise).rejects.toThrow(
+        'Package build timed out after 30 minutes'
+      );
+      await expect(promise).rejects.toHaveProperty('exitCode', 4);
       vi.useRealTimers();
     });
   });
@@ -1131,6 +1155,9 @@ describe('steps.ts', () => {
       await expect(
         steps.stepDownloadTests(1, {} as any, 7, 'tests', 'savePath')
       ).rejects.toThrow('Config.json not found');
+      await expect(
+        steps.stepDownloadTests(1, {} as any, 7, 'tests', 'savePath')
+      ).rejects.toHaveProperty('exitCode', 2);
     });
 
     it('should add new testset to config when not present', async () => {
@@ -1260,6 +1287,9 @@ describe('steps.ts', () => {
       vi.mocked(fs.existsSync).mockReturnValue(false);
       expect(() => steps.stepReadConfig(1, '/dir')).toThrow(
         'Config.json not found'
+      );
+      expect(() => steps.stepReadConfig(1, '/dir')).toThrow(
+        expect.objectContaining({ exitCode: 2 })
       );
     });
   });
@@ -1574,6 +1604,9 @@ describe('steps.ts', () => {
       await expect(
         steps.stepCreateProblemOnPolygon(1, sdk, 'x')
       ).rejects.toThrow('Failed to create problem on Polygon: upstream');
+      await expect(
+        steps.stepCreateProblemOnPolygon(1, sdk, 'x')
+      ).rejects.toHaveProperty('exitCode', 4);
     });
 
     it('should wrap non-Error rejections', async () => {

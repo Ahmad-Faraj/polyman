@@ -586,11 +586,20 @@ describe('cli.ts', () => {
       expect(output.join('\n')).toContain('Add one to Config.json');
     });
 
-    it('should exit with the code of the PolymanError', async () => {
-      const { exitCalls } = await runFailing(
-        ({ PolymanError }) => new PolymanError('g++ is missing', 3)
-      );
-      expect(exitCalls).toEqual([3]);
+    it.each([1, 2, 3, 4] as const)(
+      'should exit with code %i when the PolymanError carries it',
+      async code => {
+        const { exitCalls } = await runFailing(
+          ({ PolymanError }) => new PolymanError('failed', code)
+        );
+        expect(exitCalls).toEqual([code]);
+      }
+    );
+
+    it('should print a thrown value that is not an Error and exit with 1', async () => {
+      const { exitCalls, output } = await runFailing(() => 'plain string');
+      expect(exitCalls).toEqual([1]);
+      expect(output.join('\n')).toContain('plain string');
     });
 
     it('should not print a hint line when the error has none', async () => {

@@ -329,11 +329,11 @@ Polyman provides comprehensive error handling with formatted output and proper e
 
 ### Error Flow
 
-1. **Catch Error:** In action or helper function
-2. **Log Error:** Via `logError`
-3. **Handle Error:**
-   - Exit: `logErrorAndExit`
-   - Throw: `logErrorAndThrow`
+1. **Throw:** Helpers and steps throw. When the kind of failure is known they throw a `PolymanError(message, exitCode, hint?)` from `src/errors.ts` (codes: `1` problem failed, `2` usage error, `3` environment error, `4` remote error).
+2. **Catch in the action:** The action prints its error box, finishes the `--json` report with the code, and throws the error again.
+3. **Exit in one place:** The `.catch` on `program.parseAsync` in `cli.ts` prints the message (and the hint) and exits with `exitCodeFor(error)`. Any error that is not a `PolymanError` exits with `1`.
+
+Only two places call `process.exit` on their own: the SIGINT/SIGTERM handler in `executor.ts` (exit `130`/`143`, a signal does not go through an action) and `node-version-check.ts` (exit `3`, it runs before anything else loads). See [GUIDE.md](GUIDE.md#exit-codes) for the full table.
 
 ### Error Types
 

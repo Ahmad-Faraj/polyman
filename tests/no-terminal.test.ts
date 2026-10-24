@@ -120,3 +120,35 @@ describe('commands without a terminal', () => {
     TIMEOUT_MS + 5_000
   );
 });
+
+describe('exit codes', () => {
+  it(
+    'exits 2 when there is no Config.json',
+    () => {
+      const result = polyman(['list', 'solutions'], work);
+      expect(result.status).toBe(2);
+      expect(result.out).toContain('polyman new');
+    },
+    TIMEOUT_MS + 5_000
+  );
+
+  it(
+    'exits 2 for an unknown solution name',
+    () => {
+      const result = polyman(['test', 'no-such-solution'], problem);
+      expect(result.status).toBe(2);
+      expect(result.out).toContain('No solution named "no-such-solution"');
+    },
+    TIMEOUT_MS + 5_000
+  );
+
+  it(
+    'exits 3 when Polygon credentials are not registered',
+    () => {
+      const result = polyman(['remote', 'list'], work, join(work, 'no-creds'));
+      expect(result.status).toBe(3);
+      expect(result.out).toContain('polyman remote register');
+    },
+    TIMEOUT_MS + 5_000
+  );
+});

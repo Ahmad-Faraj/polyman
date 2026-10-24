@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as crypto from 'crypto';
 import { PolygonSDK } from '../src/polygon';
+import { PolymanError } from '../src/errors';
 
 const mockConfig = {
   apiKey: 'key',
@@ -200,6 +201,15 @@ describe('PolygonSDK', () => {
       await expect(sdk.listProblems()).rejects.toThrow(
         'Polygon API Error: bad credentials'
       );
+    });
+
+    it('should fail with exit code 4 on FAILED status', async () => {
+      fetchMock.mockResolvedValue(
+        makeJsonResponse({ status: 'FAILED', comment: 'bad credentials' })
+      );
+      const error: unknown = await sdk.listProblems().catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(PolymanError);
+      expect((error as PolymanError).exitCode).toBe(4);
     });
 
     it('should throw with undefined comment on FAILED status without comment', async () => {
@@ -1047,6 +1057,25 @@ describe('PolygonSDK', () => {
       const message = messageOf(r);
       expect(message).toContain('problem.info');
       expect(message).toContain('ECONNRESET');
+    });
+
+    it('fails with exit code 4 and keeps the cause after a network error', async () => {
+      const cause = new Error('ECONNRESET');
+      fetchMock.mockRejectedValue(cause);
+      const r = await settle(sdk.getProblemInfo(5));
+      expect(r.status).toBe('rejected');
+      const reason: unknown = r.status === 'rejected' ? r.reason : undefined;
+      expect(reason).toBeInstanceOf(PolymanError);
+      expect((reason as PolymanError).exitCode).toBe(4);
+      expect((reason as PolymanError).cause).toBe(cause);
+    });
+
+    it('fails with exit code 4 after two 5xx answers', async () => {
+      fetchMock.mockResolvedValue(makeStatusResponse(502, 'bad gateway'));
+      const r = await settle(sdk.listProblems());
+      const reason: unknown = r.status === 'rejected' ? r.reason : undefined;
+      expect(reason).toBeInstanceOf(PolymanError);
+      expect((reason as PolymanError).exitCode).toBe(4);
     });
 
     it('fails after exactly one retry on two 5xx answers', async () => {

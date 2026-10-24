@@ -4,6 +4,7 @@
  */
 
 import https from 'https';
+import { PolymanError } from '../errors';
 
 /**
  * Downloads a file from a URL using HTTPS.
@@ -12,7 +13,8 @@ import https from 'https';
  * @param {string} url - The URL to download from
  * @returns {Promise<string>} The downloaded file content as a string
  *
- * @throws {Error} If download fails or HTTP status is not 200/301/302
+ * @throws {PolymanError} With exit code 4 if the download fails or the HTTP
+ *   status is not 200/301/302
  *
  * @example
  * const testlibContent = await downloadFile(
@@ -34,8 +36,9 @@ export function downloadFile(url: string): Promise<string> {
 
         if (response.statusCode !== 200) {
           reject(
-            new Error(
-              `Failed to download file. HTTP status: ${response.statusCode}`
+            new PolymanError(
+              `Failed to download file. HTTP status: ${response.statusCode}`,
+              4
             )
           );
           return;
@@ -51,7 +54,7 @@ export function downloadFile(url: string): Promise<string> {
         });
       })
       .on('error', err => {
-        reject(new Error(`Download failed: ${err.message}`));
+        reject(new PolymanError(`Download failed: ${err.message}`, 4));
       });
   });
 }

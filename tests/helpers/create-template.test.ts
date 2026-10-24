@@ -74,19 +74,4 @@ describe('create-template.ts', () => {
       });
     });
   });
-
-  describe('handleTemplateCreationError', () => {
-    it('should log error and exit', () => {
-      const mockExit = vi
-        .spyOn(process, 'exit')
-        .mockImplementation((_code?: string | number | null) => {
-          return undefined as never;
-        });
-      const errorSpy = vi.spyOn(fmt, 'error');
-      createTemplate.handleTemplateCreationError(new Error('fail'));
-      expect(errorSpy).toHaveBeenCalled();
-      expect(mockExit).toHaveBeenCalledWith(1);
-      mockExit.mockRestore();
-    });
-  });
 });

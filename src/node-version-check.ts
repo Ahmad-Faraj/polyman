@@ -28,5 +28,7 @@ if (!isSupportedNodeVersion(process.versions.node)) {
     `polyman requires Node.js ^20.19.0 || >=22.12.0 (found ${process.versions.node}).\n` +
       'Please upgrade Node.js: https://nodejs.org/'
   );
-  process.exit(1);
+  // An old Node.js is an environment error (code 3, as PolymanError uses).
+  // This file runs before anything else loads, so it exits on its own.
+  process.exit(3);
 }
