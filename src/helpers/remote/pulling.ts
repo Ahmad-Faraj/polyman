@@ -139,9 +139,10 @@ export async function downloadSolutions(
           name: solution.name.replace(/\.[^.]+$/, ''),
           source: './solutions/' + solution.name,
           tag: solution.tag,
-          ...(solution.sourceType && {
-            sourceType: solution.sourceType as SolutionSourceType,
-          }),
+          ...(typeof solution.sourceType === 'string' &&
+            solution.sourceType && {
+              sourceType: solution.sourceType as SolutionSourceType,
+            }),
         });
       } catch (error) {
         fmt.warning(
@@ -455,9 +456,10 @@ export async function downloadGenerators(
         generatorsData.push({
           name: file.name.replace(/\.[^.]+$/, ''),
           source: './generators/' + file.name,
-          ...(file.sourceType && {
-            sourceType: file.sourceType as TestlibSourceType,
-          }),
+          ...(typeof file.sourceType === 'string' &&
+            file.sourceType && {
+              sourceType: file.sourceType as TestlibSourceType,
+            }),
         });
       } catch (error) {
         fmt.warning(

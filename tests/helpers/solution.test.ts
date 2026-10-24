@@ -344,6 +344,24 @@ describe('solution.ts', () => {
       expect(mockedCompileJava).toHaveBeenCalledWith('s2.java');
     });
 
+    it('should use the default standard when sourceType is not a string', async () => {
+      const solutions = [
+        {
+          name: 's1',
+          source: 's1.cpp',
+          tag: 'MA',
+          sourceType: 17,
+        },
+      ] as unknown as LocalSolution[];
+      vi.spyOn(path, 'extname').mockReturnValue('.cpp');
+
+      await solution.compileAllSolutions(solutions);
+      expect(mockedCompileCPP).toHaveBeenCalledWith('s1.cpp', {
+        cppStandard: 'c++23',
+        onlineJudge: true,
+      });
+    });
+
     const makeSolutions = (n: number): LocalSolution[] =>
       Array.from({ length: n }, (_, i) => ({
         name: `s${i}`,

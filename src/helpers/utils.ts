@@ -333,7 +333,8 @@ export function stripCppExtension(filePath: string): string {
 export function cppStandardFromSourceType(
   sourceType?: string
 ): string | undefined {
-  const match = /^cpp\..*\+\+(\d{2})$/.exec(sourceType?.trim() ?? '');
+  if (typeof sourceType !== 'string') return undefined;
+  const match = /^cpp\..*\+\+(\d{2})$/.exec(sourceType.trim());
   return match ? `c++${match[1]}` : undefined;
 }
 

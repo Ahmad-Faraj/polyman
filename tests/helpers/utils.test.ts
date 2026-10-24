@@ -1126,6 +1126,15 @@ describe('utils.ts', () => {
         expect(utils.cppStandardFromSourceType(sourceType)).toBeUndefined();
       });
 
+      it.each([17, {}, true, ['a']])(
+        'cppStandardFromSourceType gives no standard for non-string %j',
+        sourceType => {
+          expect(
+            utils.cppStandardFromSourceType(sourceType as unknown as string)
+          ).toBeUndefined();
+        }
+      );
+
       it.each(['c++11', 'c++17', 'gnu++20', 'c++2b', 'c++26'])(
         'resolveCppStandard accepts %s',
         std => {
