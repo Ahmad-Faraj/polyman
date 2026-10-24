@@ -222,6 +222,7 @@ list
  * polyman generate --testset tests
  * polyman generate --testset tests --group samples
  * polyman generate --testset tests --index 5
+ * polyman generate --all --json   # machine-readable report on stdout
  */
 program
   .command('generate')
@@ -231,12 +232,17 @@ program
   .option('-g, --group <name>', 'Generate specific group within testset')
   .option('-i, --index <number>', 'Generate specific test by index')
   .option('--no-cache', NO_CACHE_DESCRIPTION)
+  .option(
+    '--json',
+    'Print a JSON report to stdout (human output goes to stderr)'
+  )
   .action(
     async (options: {
       all?: boolean;
       testset?: string;
       group?: string;
       index?: string;
+      json?: boolean;
     }) => {
       let target = 'all';
       let modifier: string | undefined;
@@ -252,7 +258,9 @@ program
         }
       }
 
-      await generateTestsAction(target, modifier);
+      await generateTestsAction(target, modifier, {
+        json: options.json === true,
+      });
     }
   );
 
@@ -275,6 +283,7 @@ program
  * polyman validate --testset tests
  * polyman validate --testset tests --group samples
  * polyman validate --testset tests --index 5
+ * polyman validate --all --json   # machine-readable report on stdout
  */
 program
   .command('validate')
@@ -284,12 +293,17 @@ program
   .option('-g, --group <name>', 'Validate specific group within testset')
   .option('-i, --index <number>', 'Validate specific test by index')
   .option('--no-cache', NO_CACHE_DESCRIPTION)
+  .option(
+    '--json',
+    'Print a JSON report to stdout (human output goes to stderr)'
+  )
   .action(
     async (options: {
       all?: boolean;
       testset?: string;
       group?: string;
       index?: string;
+      json?: boolean;
     }) => {
       let target = 'all';
       let modifier: string | undefined;
@@ -305,7 +319,9 @@ program
         }
       }
 
-      await validateTestsAction(target, modifier);
+      await validateTestsAction(target, modifier, {
+        json: options.json === true,
+      });
     }
   );
 
@@ -388,12 +404,19 @@ program
  * polyman test validator
  * polyman test checker
  * polyman test wa-solution
+ * polyman test checker --json   # machine-readable report on stdout
  */
 program
   .command('test <what>')
   .description('Test validator, checker, or a solution against main correct')
+  .option(
+    '--json',
+    'Print a JSON report to stdout (human output goes to stderr)'
+  )
   .option('--no-cache', NO_CACHE_DESCRIPTION)
-  .action(testWhatAction);
+  .action(async (what: string, options: { json?: boolean }) => {
+    await testWhatAction(what, { json: options.json === true });
+  });
 
 // ============================================================================
 // VERIFY COMMAND
@@ -644,6 +667,104 @@ remote
   .command('package <problem-id> <type>')
   .description('Build problem package on Polygon')
   .action(remotePackageProblemAction);
+
+// ============================================================================
+// AI COMMANDS
+// ============================================================================
+
+/**
+ * Loads the `ai` commands only when one of them runs, so other commands do
+ * not load the agent code and do not get slower to start.
+ */
+const loadAiCommands = () => import('./agent/ai-commands.js');
+
+const ai = program
+  .command('ai')
+  .description('Manage AI provider keys and the default model');
+
+/**
+ * Command: ai login <provider>
+ * Saves a provider key in ~/.polyman/ai.json. The key is read from a hidden
+ * prompt or from stdin, never from argv, so it stays out of shell history.
+ * @example
+ * polyman ai login deepseek
+ * polyman ai login openai --key-stdin < key.txt
+ * polyman ai login custom --base-url https://my-server/v1 --model my-model
+ */
+ai.command('login <provider>')
+  .description('Save an API key for a provider (hidden prompt or stdin)')
+  // A key typed after the provider must fail, not be silently ignored.
+  .allowExcessArguments(false)
+  .option('--key-stdin', 'Read the key from stdin instead of a prompt')
+  .option('--base-url <url>', 'Base URL of the server (custom only)')
+  .option(
+    '--model <id>',
+    'A model the server offers (custom only, can be repeated)',
+    (value: string, previous: string[]) => [...previous, value],
+    [] as string[]
+  )
+  .action(
+    async (
+      provider: string,
+      options: { keyStdin?: boolean; baseUrl?: string; model: string[] }
+    ) => {
+      const { aiLoginAction } = await loadAiCommands();
+      await aiLoginAction(provider, {
+        keyStdin: options.keyStdin === true,
+        ...(options.baseUrl !== undefined ? { baseUrl: options.baseUrl } : {}),
+        model: options.model,
+      });
+    }
+  );
+
+/**
+ * Command: ai logout <provider>
+ * @example
+ * polyman ai logout deepseek
+ */
+ai.command('logout <provider>')
+  .description('Remove the saved API key of a provider')
+  .action(async (provider: string) => {
+    const { aiLogoutAction } = await loadAiCommands();
+    await aiLogoutAction(provider);
+  });
+
+/**
+ * Command: ai list
+ * @example
+ * polyman ai list
+ */
+ai.command('list')
+  .description('List providers, which have keys (masked), and the default')
+  .action(async () => {
+    const { aiListAction } = await loadAiCommands();
+    await aiListAction();
+  });
+
+/**
+ * Command: ai models [provider]
+ * @example
+ * polyman ai models
+ * polyman ai models groq
+ */
+ai.command('models [provider]')
+  .description('List the known models of every provider, or of one')
+  .action(async (provider: string | undefined) => {
+    const { aiModelsAction } = await loadAiCommands();
+    await aiModelsAction(provider);
+  });
+
+/**
+ * Command: ai use <provider/model>
+ * @example
+ * polyman ai use deepseek/deepseek-flash
+ */
+ai.command('use <provider/model>')
+  .description('Set the default provider and model')
+  .action(async (spec: string) => {
+    const { aiUseAction } = await loadAiCommands();
+    await aiUseAction(spec);
+  });
 
 /**
  * The one place that turns a failed action into a message and an exit code.

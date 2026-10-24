@@ -71,6 +71,7 @@
    - [Testing Components](#testing-components)
    - [Full Verification](#full-verification)
    - [Running Without a Terminal](#running-without-a-terminal)
+   - [Exit Codes](#exit-codes)
 
 10. [Remote Operations (Polygon Integration)](#remote-operations-polygon-integration)
     - [Setup and Registration](#setup-and-registration)
@@ -1466,6 +1467,7 @@ polyman generate --all                                    # All testsets
 polyman generate --testset tests                          # One testset only
 polyman generate --testset tests --group samples          # Just one group
 polyman generate --testset tests --index 5                # Single test by command index
+polyman generate --all --json > generate.json             # JSON report on stdout
 ```
 
 **What Happens:**
@@ -1474,6 +1476,26 @@ polyman generate --testset tests --index 5                # Single test by comma
 2. Runs each `manual` (copy) or `generator` (execute over `range`) command and writes outputs to `testsets/<testset-name>/test<N>.txt`
 
 The `--testset`, `--group`, and `--index` flags successively narrow which commands are executed.
+
+**`--json`:** stdout carries exactly one JSON document and every human-readable line goes to stderr. Each test is listed with where its input came from and whether it was written:
+
+```json
+{
+  "schemaVersion": 1,
+  "polymanVersion": "3.0.3",
+  "ok": false,
+  "command": "generate",
+  "exitCode": 1,
+  "durationMs": 912,
+  "errors": ["Some tests failed to generate"],
+  "tests": [
+    { "testset": "tests", "index": 1, "source": "manual", "ok": true },
+    { "testset": "tests", "index": 2, "source": "generator", "generator": "gen-random", "args": ["10"], "ok": false, "error": "Generator execution failed" }
+  ]
+}
+```
+
+`generator` and `args` are present only for generated tests, and `error` only when `ok` is false. `exitCode` is the code the process exits with.
 
 ---
 
@@ -1490,6 +1512,7 @@ polyman validate --all                                    # All tests in all tes
 polyman validate --testset tests                          # One testset
 polyman validate --testset tests --group samples          # One group
 polyman validate --testset tests --index 5                # One test
+polyman validate --all --json > validate.json             # JSON report on stdout
 ```
 
 **What Happens:**
@@ -1498,6 +1521,26 @@ polyman validate --testset tests --index 5                # One test
 2. Runs `./val < test<N>.txt` for each selected test and reports VALID / INVALID with error details
 
 If tests fail: check validator constraints, fix the generator, or correct manual test files.
+
+**`--json`:** stdout carries exactly one JSON document and every human-readable line goes to stderr. Each test is listed as valid or not, with the validator message:
+
+```json
+{
+  "schemaVersion": 1,
+  "polymanVersion": "3.0.3",
+  "ok": false,
+  "command": "validate",
+  "exitCode": 1,
+  "durationMs": 140,
+  "errors": ["Some tests failed validation"],
+  "tests": [
+    { "testset": "tests", "index": 1, "valid": true, "message": "" },
+    { "testset": "tests", "index": 2, "valid": false, "message": "FAIL Integer parameter [name=n] equals to 0, violates the range [1, 1000] (test case 1, stdin, line 1)" }
+  ]
+}
+```
+
+`group` is present only with `--group`. `message` is empty for a valid test.
 
 ---
 
@@ -1598,6 +1641,53 @@ polyman test wa-solution
 2. Uses the checker to compare outputs and confirms the target solution behaves as its tag advertises (e.g., a `WA`-tagged solution passes when it gets WA or PE on at least one test, as on Polygon)
 
 **Use Case:** Verify that WA/TL/RE solutions actually fail as expected.
+
+---
+
+#### `polyman test ... --json`
+
+All three forms accept `--json`. Like `run --json`, stdout carries exactly one JSON document and the human output goes to stderr. `exitCode` in the report is the exit code of the process.
+
+`test validator --json` and `test checker --json` give one entry per self-test:
+
+```json
+{
+  "schemaVersion": 1,
+  "polymanVersion": "3.0.3",
+  "ok": false,
+  "command": "test checker",
+  "exitCode": 1,
+  "durationMs": 1591,
+  "errors": ["Some checker tests failed"],
+  "target": "checker",
+  "cases": [
+    { "index": 1, "expected": "OK", "actual": "OK", "ok": true, "message": "ok answer is YES" },
+    { "index": 2, "expected": "WRONG_ANSWER", "actual": "OK", "ok": false, "message": "Expected WA but got OK" }
+  ]
+}
+```
+
+`index` is the position of the case in the tests file. The checker short forms `WA` and `PE` are written as `WRONG_ANSWER` and `PRESENTATION_ERROR`. `actual` is `ERROR` when the program could not run at all. `cases` is empty when the self-tests are skipped (standard checker, or no `testsFilePath`).
+
+`test <solution> --json` gives the `run` report of that solution, with each verdict judged by the checker against the main solution, plus `mainSolution`, `matchesTag` and `reason`:
+
+```json
+{
+  "command": "test",
+  "ok": true,
+  "exitCode": 0,
+  "solution": "tle_solution",
+  "tag": "TL",
+  "mainSolution": "main",
+  "matchesTag": true,
+  "reason": "Behaves as expected",
+  "tests": [
+    { "testset": "tests", "index": 1, "verdict": "TLE", "timeMs": 1002, "message": "Time Limit Exceeded after 1000ms" }
+  ],
+  "summary": { "total": 1, "byVerdict": { "TLE": 1 } },
+  "errors": []
+}
+```
 
 ---
 
@@ -1802,6 +1892,13 @@ If any of these change, the source is recompiled; otherwise the cached binary is
 
 **testlib is compiled once.** Most of a generator's, validator's or checker's compile time is spent on `testlib.h` itself. The first compile that needs it splits a copy of the problem's `testlib.h` into declarations and definitions, compiles the definitions once into `.polyman/cache/testlib/<key>/testlib.o`, and every testlib program then only parses the declarations and links that object (about 1s instead of 5s per program). The problem's `testlib.h` is never modified. A source compiles against the original header as before when it defines a macro or uses a pragma before `#include "testlib.h"` (testlib reads settings such as `EJUDGE` that way), keeps its own `testlib.h` next to it, is compiled with `--no-cache`, or fails to build against the split while it builds against the original.
 
+**Precompiled `<bits/stdc++.h>`.** With g++, most of a solution's compile time is parsing `<bits/stdc++.h>`. When a source's first directive is `#include <bits/stdc++.h>`, polyman builds `bits/stdc++.h.gch` once and reuses it for every problem you compile with the same compiler and flags. It is stored in your user cache (`~/.cache/polyman/pch` on Linux, `~/Library/Caches/polyman/pch` on macOS, `%LOCALAPPDATA%\polyman\pch` on Windows; `POLYMAN_CACHE_DIR` moves it). Binaries and verdicts are the same with or without it. If a compile fails with the PCH, it is retried without it and reports the normal error.
+
+- **Disk use.** Each `.gch` is about 140 MB. At most 2 are kept (different compilers, `cppStandard` or `compiler.flags` each need their own); the least recently used is removed when a third is built.
+- **Not used** with clang or Apple's `g++`, with `--no-cache`, when `CPLUS_INCLUDE_PATH` is set, or for flags the compile cache does not accept.
+- **A failed build** is retried after a day and after a polyman upgrade; until then compiles go on normally.
+- **Turn it off** with `POLYMAN_PCH=0`, or delete the `pch` folder to free the space. `POLYMAN_DEBUG=1` logs which path each compile took.
+
 **Managing the cache.**
 
 ```bash
@@ -1886,7 +1983,34 @@ POLYMAN_AGENT=1 polyman remote push . --yes --name two-sum < /dev/null
 NO_COLOR=1 polyman verify > verify.log 2>&1
 ```
 
-Exit codes: `0` success, `1` failure, `2` the command needed input it could not ask for.
+The exit code tells a script what kind of failure happened, see [Exit Codes](#exit-codes).
+
+### Exit Codes
+
+Every command ends with one of these codes, so a script or an agent can decide what to do next without reading the output:
+
+| Code  | Meaning | Examples | What to do |
+| ----- | ------- | -------- | ---------- |
+| `0`   | The command did what was asked | `verify` passed | Continue |
+| `1`   | The command ran, but the problem is wrong | A test fails validation, a solution does not match its tag, a checker test fails, a compile error | Read the output (or the `--json` report) and fix the problem |
+| `2`   | Usage error | No `Config.json` here or it is not valid JSON, an invalid `compiler` or `cppStandard`, `Config.json` names a file that does not exist, an unknown solution name, an invalid package type, a prompt was needed but stdin is not a terminal | Fix the command or `Config.json` |
+| `3`   | Environment error | Polygon credentials are not registered, Python 3 is not installed, Node.js is too old | Fix the machine, retrying will not help |
+| `4`   | Remote error | A Polygon API call or the network failed, some items were not uploaded by `remote push`, `download-testlib` could not reach GitHub | Retry once, then look at the message |
+| `130` | Cancelled | Ctrl+C (SIGINT) | Nothing, the user stopped it |
+| `143` | Terminated | SIGTERM, for example a CI job that timed out | Nothing, the runner stopped it |
+
+Any other failure, for example an error polyman did not expect, ends with `1`. The error message is printed last, on its own line, with a `Hint:` line under it when polyman knows the fix. With `--json`, the `exitCode` field of the `new`, `download-testlib`, `list`, `generate`, `validate` and `test` reports is the same code.
+
+```bash
+polyman verify
+case $? in
+  0) echo "ready to push" ;;
+  1) echo "the problem needs a fix" ;;
+  2) echo "check the command or Config.json" ;;
+  3) echo "check the machine setup" ;;
+  4) echo "Polygon or the network failed, try again" ;;
+esac
+```
 
 ---
 

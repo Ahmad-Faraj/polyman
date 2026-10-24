@@ -11,8 +11,10 @@ import {
   findPrebuiltTestlib,
   markPrebuiltTestlibUnsupported,
 } from '../../src/helpers/prebuilt-testlib';
+import { findPch, markPchUnsupported } from '../../src/helpers/pch';
 import { quoteShellArgument } from '../../src/helpers/shell';
 import * as utils from '../../src/helpers/utils';
+import { PolymanError } from '../../src/errors';
 import type ConfigFile from '../../src/types';
 import type {
   LocalChecker,
@@ -49,6 +51,12 @@ vi.mock('../../src/helpers/compile-cache', () => ({
       await compile();
     }
   ),
+  debugLog: vi.fn(),
+}));
+// No PCH unless a test provides one; pch.test.ts covers building it.
+vi.mock('../../src/helpers/pch', () => ({
+  findPch: vi.fn(() => Promise.resolve(null)),
+  markPchUnsupported: vi.fn(),
 }));
 // No prebuilt testlib unless a test provides one; prebuilt-testlib.test.ts
 // covers building it.
@@ -57,12 +65,28 @@ vi.mock('../../src/helpers/prebuilt-testlib', () => ({
   markPrebuiltTestlibUnsupported: vi.fn(),
 }));
 
-// Mock specific console methods to avoid clutter
-const mockExit = vi
-  .spyOn(process, 'exit')
-  .mockImplementation((_code?: string | number | null) => {
+// Nothing in utils may exit the process: fail loudly if something does
+vi.spyOn(process, 'exit').mockImplementation(
+  (_code?: string | number | null) => {
     throw new Error('process.exit called');
-  });
+  }
+);
+
+/** Runs `fn`, which must throw, and returns what it threw. */
+const thrownBy = (fn: () => unknown): unknown => {
+  try {
+    fn();
+  } catch (error) {
+    return error;
+  }
+  throw new Error('expected a throw');
+};
+
+/** Asserts `error` is a PolymanError with the given exit code. */
+const expectExitCode = (error: unknown, code: number): void => {
+  expect(error).toBeInstanceOf(PolymanError);
+  expect((error as PolymanError).exitCode).toBe(code);
+};
 
 const executorMocked = vi.mocked(executor);
 const spawnSyncMocked = vi.mocked(spawnSync);
@@ -284,6 +308,10 @@ describe('utils.ts', () => {
         ['an unknown key', { cxx: 'g++-15' }, /Unknown key in compiler: "cxx"/],
       ])('rejects %s', (_label, value, message) => {
         expect(() => utils.validateCompilerConfig(value)).toThrow(message);
+        expectExitCode(
+          thrownBy(() => utils.validateCompilerConfig(value)),
+          2
+        );
       });
     });
 
@@ -398,6 +426,10 @@ describe('utils.ts', () => {
           compiler: { flags: ['-std=c++17'] },
         });
         expect(() => utils.resolveCppFlags()).toThrow(/Invalid cppStandard/);
+        expectExitCode(
+          thrownBy(() => utils.resolveCppFlags()),
+          2
+        );
       });
 
       it('rejects malformed compiler.flags', () => {
@@ -809,6 +841,157 @@ describe('utils.ts', () => {
           ).not.toHaveBeenCalled();
         });
       });
+
+      describe('with a precompiled header', () => {
+        const cwd = path.resolve('/p');
+        const pch = { key: 'pk', includeDir: path.join('/cache', 'pch', 'pk') };
+        const q = (value: string) => quoteShellArgument(value);
+        const source = path.join(cwd, 'solutions', 'main.cpp');
+        const output = path.join(cwd, 'solutions', 'main');
+        const base = `${q('g++')} ${q('-O2')} ${q('-std=c++23')} -iquote ${q(cwd)}`;
+        const pchCommand = `${base} -I ${q(pch.includeDir)} -o ${q(output)} ${q(source)}`;
+        const fullCommand = `${base} -o ${q(output)} ${q(source)}`;
+        let cwdSpy: MockInstance<() => string>;
+
+        beforeEach(() => {
+          cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(cwd);
+          vi.mocked(findPch).mockResolvedValueOnce(pch);
+        });
+
+        afterEach(() => {
+          cwdSpy.mockRestore();
+        });
+
+        it('puts the PCH folder on the include path', async () => {
+          await utils.compileCPP('solutions/main.cpp');
+
+          expect(executeMock()).toHaveBeenCalledTimes(1);
+          expect(executeMock()).toHaveBeenCalledWith(
+            pchCommand,
+            expect.anything()
+          );
+          expect(vi.mocked(findPch)).toHaveBeenCalledWith({
+            sourcePath: source,
+            compiler: 'g++',
+            flags: ['-O2', '-std=c++23'],
+          });
+        });
+
+        it('compiles without it and marks it unsupported when it fails', async () => {
+          executeMock()
+            .mockRejectedValueOnce(new Error('bad pch'))
+            .mockResolvedValueOnce({
+              stdout: '',
+              stderr: '',
+              exitCode: 0,
+              success: true,
+            });
+
+          await utils.compileCPP('solutions/main.cpp');
+
+          expect(executeMock()).toHaveBeenLastCalledWith(
+            fullCommand,
+            expect.anything()
+          );
+          expect(vi.mocked(markPchUnsupported)).toHaveBeenCalledWith(pch);
+        });
+
+        it('reports the normal compile error when the source is broken', async () => {
+          executeMock()
+            .mockRejectedValueOnce(new Error('with pch: expected ;'))
+            .mockRejectedValueOnce(new Error('main.cpp:3: expected ;'));
+
+          await expect(utils.compileCPP('solutions/main.cpp')).rejects.toThrow(
+            'main.cpp:3: expected ;'
+          );
+          expect(vi.mocked(markPchUnsupported)).not.toHaveBeenCalled();
+        });
+
+        describe('and a prebuilt testlib', () => {
+          const prebuilt = {
+            key: 'tk',
+            includeDir: path.join('/cache', 'testlib', 'tk'),
+            objectPath: path.join('/cache', 'testlib', 'tk', 'testlib.o'),
+          };
+          const both = `${base.replace(` -iquote ${q(cwd)}`, '')} -iquote ${q(prebuilt.includeDir)} -iquote ${q(cwd)} -I ${q(pch.includeDir)} -o ${q(output)} ${q(prebuilt.objectPath)} ${q(source)}`;
+          const prebuiltOnly = `${base.replace(` -iquote ${q(cwd)}`, '')} -iquote ${q(prebuilt.includeDir)} -iquote ${q(cwd)} -o ${q(output)} ${q(prebuilt.objectPath)} ${q(source)}`;
+          const pchOnly = pchCommand;
+          const plain = fullCommand;
+          const ok = {
+            stdout: '',
+            stderr: '',
+            exitCode: 0,
+            success: true,
+          };
+
+          beforeEach(() => {
+            vi.mocked(findPrebuiltTestlib).mockResolvedValueOnce(prebuilt);
+          });
+
+          it('uses both in one command', async () => {
+            await utils.compileCPP('solutions/main.cpp');
+
+            expect(executeMock()).toHaveBeenCalledTimes(1);
+            expect(executeMock()).toHaveBeenCalledWith(both, expect.anything());
+            expect(vi.mocked(markPchUnsupported)).not.toHaveBeenCalled();
+            expect(
+              vi.mocked(markPrebuiltTestlibUnsupported)
+            ).not.toHaveBeenCalled();
+          });
+
+          it('retries with the prebuilt only when the PCH is at fault', async () => {
+            executeMock()
+              .mockRejectedValueOnce(new Error('bad pch'))
+              .mockRejectedValueOnce(new Error('bad pch, original header'))
+              .mockResolvedValueOnce(ok);
+
+            await utils.compileCPP('solutions/main.cpp');
+
+            expect(
+              executeMock().mock.calls.map(([command]) => command)
+            ).toEqual([both, pchOnly, prebuiltOnly]);
+            expect(vi.mocked(markPchUnsupported)).toHaveBeenCalledWith(pch);
+            expect(
+              vi.mocked(markPrebuiltTestlibUnsupported)
+            ).not.toHaveBeenCalled();
+          });
+
+          it('compiles plain and marks both when neither works', async () => {
+            executeMock()
+              .mockRejectedValueOnce(new Error('both fail'))
+              .mockRejectedValueOnce(new Error('pch fails'))
+              .mockRejectedValueOnce(new Error('prebuilt fails'))
+              .mockResolvedValueOnce(ok);
+
+            await utils.compileCPP('solutions/main.cpp');
+
+            expect(
+              executeMock().mock.calls.map(([command]) => command)
+            ).toEqual([both, pchOnly, prebuiltOnly, plain]);
+            expect(vi.mocked(markPchUnsupported)).toHaveBeenCalledWith(pch);
+            expect(
+              vi.mocked(markPrebuiltTestlibUnsupported)
+            ).toHaveBeenCalledWith(prebuilt);
+          });
+
+          it('reports the plain compile error and marks nothing when the source is broken', async () => {
+            executeMock()
+              .mockRejectedValueOnce(new Error('with both: expected ;'))
+              .mockRejectedValueOnce(new Error('with pch: expected ;'))
+              .mockRejectedValueOnce(new Error('with prebuilt: expected ;'))
+              .mockRejectedValueOnce(new Error('main.cpp:3: expected ;'));
+
+            await expect(
+              utils.compileCPP('solutions/main.cpp')
+            ).rejects.toThrow('main.cpp:3: expected ;');
+            expect(executeMock()).toHaveBeenCalledTimes(4);
+            expect(vi.mocked(markPchUnsupported)).not.toHaveBeenCalled();
+            expect(
+              vi.mocked(markPrebuiltTestlibUnsupported)
+            ).not.toHaveBeenCalled();
+          });
+        });
+      });
     });
 
     describe('C++ source helpers', () => {
@@ -999,6 +1182,30 @@ describe('utils.ts', () => {
       });
       expect(() => utils.readConfigFile()).toThrow('Fail');
     });
+
+    it('should fail with exit code 2 and a hint when Config.json is missing', () => {
+      readFileSyncMock.mockImplementation(() => {
+        throw new Error(
+          "ENOENT: no such file or directory, open 'Config.json'"
+        );
+      });
+      const error = thrownBy(() => utils.readConfigFile());
+      expectExitCode(error, 2);
+      expect((error as PolymanError).message).toContain('ENOENT');
+      expect((error as PolymanError).hint).toContain('polyman new');
+    });
+
+    it('should fail with exit code 2 when Config.json is not valid JSON', () => {
+      (
+        readFileSyncMock as unknown as ReturnType<
+          typeof vi.fn<(...args: unknown[]) => string>
+        >
+      ).mockReturnValue('{ not json');
+      expectExitCode(
+        thrownBy(() => utils.readConfigFile()),
+        2
+      );
+    });
   });
 
   describe('ensureConfigSourcesExist', () => {
@@ -1030,6 +1237,14 @@ describe('utils.ts', () => {
       existing('checker/chk.cpp', 'generators/gen.cpp', 'solutions/main.cpp');
       expect(() => utils.ensureConfigSourcesExist(baseConfig())).toThrow(
         'validator file not found: validator/val.cpp'
+      );
+    });
+
+    it('fails with exit code 2, since Config.json is wrong', () => {
+      existing('checker/chk.cpp', 'generators/gen.cpp', 'solutions/main.cpp');
+      expectExitCode(
+        thrownBy(() => utils.ensureConfigSourcesExist(baseConfig())),
+        2
       );
     });
 
@@ -1274,6 +1489,14 @@ describe('utils.ts', () => {
         );
       });
 
+      it('should fail with exit code 3 when Python is missing', () => {
+        mockInterpreters({});
+        expectExitCode(
+          thrownBy(() => utils.getCompiledCommandToRun(pySolution)),
+          3
+        );
+      });
+
       it('should look the interpreter up once per process', () => {
         mockInterpreters({ python3: 'Python 3.11.2\n' });
         utils.getCompiledCommandToRun(pySolution);
@@ -1363,16 +1586,6 @@ describe('utils.ts', () => {
     it('logError should call fmt.error', () => {
       utils.logError('message');
       expect(fmtErrorMock()).toHaveBeenCalled();
-    });
-
-    it('logErrorAndExit should call process.exit', () => {
-      try {
-        utils.logErrorAndExit('fatal');
-      } catch (e) {
-        expect(e instanceof Error).toBe(true);
-        expect((e as Error).message).toBe('process.exit called');
-      }
-      expect(mockExit).toHaveBeenCalledWith(1);
     });
 
     it('logErrorAndThrow should throw', () => {

@@ -5,24 +5,32 @@
  * on the formatter prints human output to stderr, every `fmt.error` line is
  * captured against the current step, helpers record per-test verdicts, and
  * `report.finish()` writes exactly one JSON document to stdout. A process
- * `exit` hook guarantees the document is written even on code paths that call
- * `process.exit(1)` directly.
+ * `exit` hook guarantees the document is written even when the process exits
+ * before the action calls `finish()`, for example on SIGINT.
  */
 
 import fs from 'fs';
 import path from 'path';
 import { fmt } from './formatter';
 import type {
+  GeneratedTestResult,
+  GenerateReport,
   JsonReport,
   ListReport,
   LocalSolution,
   PathReport,
   RunReport,
+  SelfTestCase,
+  SelfTestReport,
+  SelfTestTarget,
   SolutionResult,
   SolutionTag,
+  SolutionTestReport,
   StepResult,
   TestResult,
   TestVerdict,
+  ValidatedTestResult,
+  ValidateReport,
   VerifyReport,
 } from './types';
 
@@ -52,6 +60,15 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** Counts tests per verdict for the `summary` of a run-like report. */
+function summarize(tests: TestResult[]): RunReport['summary'] {
+  const byVerdict: Partial<Record<TestVerdict, number>> = {};
+  for (const test of tests) {
+    byVerdict[test.verdict] = (byVerdict[test.verdict] ?? 0) + 1;
+  }
+  return { total: tests.length, byVerdict };
+}
+
 interface SolutionEntry {
   name: string;
   tag: SolutionTag;
@@ -60,13 +77,24 @@ interface SolutionEntry {
   tests: TestResult[];
 }
 
-type SimpleKind = 'path' | 'list';
+type SimpleKind =
+  | 'path'
+  | 'list'
+  | 'generate'
+  | 'validate'
+  | 'selftest'
+  | 'solution-test';
 
 interface SimpleOutput {
   kind: SimpleKind;
   startedAt: number;
   path: string;
   items: unknown[];
+  generated: GeneratedTestResult[];
+  validated: ValidatedTestResult[];
+  target: SelfTestTarget;
+  cases: SelfTestCase[];
+  mainSolution: string | null;
 }
 
 interface ActiveReport {
@@ -121,6 +149,84 @@ export class ReportCollector {
    */
   startList(command: string): void {
     this.start(command, '', 'list');
+  }
+
+  /**
+   * Begin collecting a `generate` report. Helpers add one entry per test
+   * with `recordGeneratedTest`.
+   */
+  startGenerate(): void {
+    this.start('generate', '', 'generate');
+  }
+
+  /**
+   * Begin collecting a `validate` report. Helpers add one entry per test
+   * with `recordValidatedTest`.
+   */
+  startValidate(): void {
+    this.start('validate', '', 'validate');
+  }
+
+  /**
+   * Records the result of generating one test. Ignored unless a `generate`
+   * report is active, so `verify` does not collect these.
+   */
+  recordGeneratedTest(result: GeneratedTestResult): void {
+    const simple = this.active?.simple;
+    if (simple?.kind !== 'generate') return;
+    const entry: GeneratedTestResult = { ...result };
+    if (entry.error !== undefined) {
+      entry.error = stripAnsi(entry.error).trim();
+    }
+    upsertTest(simple.generated, entry);
+  }
+
+  /**
+   * Records the validator result for one test. Ignored unless a `validate`
+   * report is active, so `verify` does not collect these.
+   */
+  recordValidatedTest(result: ValidatedTestResult): void {
+    const simple = this.active?.simple;
+    if (simple?.kind !== 'validate') return;
+    upsertTest(simple.validated, {
+      ...result,
+      message: stripAnsi(result.message).trim(),
+    });
+  }
+
+  /**
+   * Begin collecting a `test validator` / `test checker` report. Helpers add
+   * each case with `recordSelfTestCase`.
+   */
+  startSelfTest(target: SelfTestTarget): void {
+    this.start(`test ${target}`, '', 'selftest');
+    if (this.active?.simple) this.active.simple.target = target;
+  }
+
+  /**
+   * Begin collecting a `test <solution>` report. Attach the solutions with
+   * `setSolutionTest`; the target's tests are recorded like in `run`.
+   */
+  startSolutionTest(solutionName: string): void {
+    this.start('test', solutionName, 'solution-test');
+  }
+
+  /** Records one validator or checker self-test case. */
+  recordSelfTestCase(testCase: SelfTestCase): void {
+    if (this.active?.simple?.kind !== 'selftest') return;
+    this.active.simple.cases.push({
+      ...testCase,
+      message: stripAnsi(testCase.message).trim(),
+    });
+  }
+
+  /**
+   * Records the main and the target solution of a `test <solution>` report.
+   */
+  setSolutionTest(main: LocalSolution, target: LocalSolution): void {
+    if (this.active?.simple?.kind !== 'solution-test') return;
+    this.active.simple.mainSolution = main.name;
+    this.setRunSolutions([target]);
   }
 
   /** Sets the `path` of a path report. */
@@ -258,8 +364,13 @@ export class ReportCollector {
   /**
    * Writes the JSON document to stdout exactly once. Safe to call more than
    * once; later calls are ignored.
+   *
+   * @param ok - Whether the command succeeded
+   * @param exitCode - The code the process will exit with, shown as
+   *   `exitCode` in every report except `run` and `verify`.
+   *   Defaults to 0 when ok and 1 otherwise.
    */
-  finish(ok: boolean): void {
+  finish(ok: boolean, exitCode: number = ok ? 0 : 1): void {
     if (!this.active || this.finished) return;
     this.finished = true;
     if (!ok) {
@@ -269,7 +380,7 @@ export class ReportCollector {
         this.active.failedStep = step.name;
       }
     }
-    const document = this.render(ok);
+    const document = this.render(ok, exitCode);
     fs.writeSync(process.stdout.fd, `${JSON.stringify(document, null, 2)}\n`);
   }
 
@@ -291,7 +402,17 @@ export class ReportCollector {
       simple:
         simpleKind === null
           ? null
-          : { kind: simpleKind, startedAt: Date.now(), path: '', items: [] },
+          : {
+              kind: simpleKind,
+              startedAt: Date.now(),
+              path: '',
+              items: [],
+              generated: [],
+              validated: [],
+              target: 'validator',
+              cases: [],
+              mainSolution: null,
+            },
       requestedSolution,
       requestedTag: null,
       steps: [],
@@ -307,7 +428,7 @@ export class ReportCollector {
     if (!this.exitHookInstalled) {
       this.exitHookInstalled = true;
       process.on('exit', (code: number) => {
-        this.finish(code === 0);
+        this.finish(code === 0, code);
       });
     }
   }
@@ -328,7 +449,7 @@ export class ReportCollector {
     return entry;
   }
 
-  private render(ok: boolean): JsonReport {
+  private render(ok: boolean, exitCode: number): JsonReport {
     const active = this.active!;
     const base = {
       schemaVersion: 1 as const,
@@ -339,10 +460,53 @@ export class ReportCollector {
       const common = {
         ...base,
         command: active.command,
-        exitCode: ok ? 0 : 1,
+        exitCode,
         durationMs: Math.max(0, Date.now() - active.simple.startedAt),
         errors: ok ? [] : [...active.errors],
       };
+      if (active.simple.kind === 'generate') {
+        const generateReport: GenerateReport = {
+          ...common,
+          command: 'generate',
+          tests: active.simple.generated.map(t => ({ ...t })),
+        };
+        return generateReport;
+      }
+      if (active.simple.kind === 'validate') {
+        const validateReport: ValidateReport = {
+          ...common,
+          command: 'validate',
+          tests: active.simple.validated.map(t => ({ ...t })),
+        };
+        return validateReport;
+      }
+      if (active.simple.kind === 'selftest') {
+        const selfTest: SelfTestReport = {
+          ...common,
+          target: active.simple.target,
+          cases: active.simple.cases.map(c => ({ ...c })),
+        };
+        return selfTest;
+      }
+      if (active.simple.kind === 'solution-test') {
+        const entry = active.solutions.get(active.requestedSolution);
+        const tests = (entry?.tests ?? []).map(t => ({ ...t }));
+        const solutionTest: SolutionTestReport = {
+          ...common,
+          command: 'test',
+          solution: active.requestedSolution,
+          tag: active.requestedTag,
+          mainSolution: active.simple.mainSolution,
+          matchesTag: entry?.matchesTag === true,
+          reason:
+            entry === undefined || entry.matchesTag === null
+              ? 'Not evaluated: the test stopped before comparison'
+              : entry.reason,
+          tests,
+          summary: summarize(tests),
+        };
+        return solutionTest;
+      }
       if (active.simple.kind === 'path') {
         const pathReport: PathReport = {
           ...common,
@@ -365,17 +529,13 @@ export class ReportCollector {
           tests.push(multi ? { ...test, solution: entry.name } : { ...test });
         }
       }
-      const byVerdict: Partial<Record<TestVerdict, number>> = {};
-      for (const test of tests) {
-        byVerdict[test.verdict] = (byVerdict[test.verdict] ?? 0) + 1;
-      }
       const run: RunReport = {
         ...base,
         command: 'run',
         solution: active.requestedSolution,
         tag: active.requestedTag,
         tests,
-        summary: { total: tests.length, byVerdict },
+        summary: summarize(tests),
         errors: ok ? [] : [...active.errors],
       };
       return run;
@@ -407,6 +567,24 @@ export class ReportCollector {
       solutions,
     };
     return verify;
+  }
+}
+
+/**
+ * Adds a test to the list, or replaces the entry with the same testset and
+ * index (a test generated or validated twice is listed once).
+ */
+function upsertTest<T extends { testset: string; index: number }>(
+  tests: T[],
+  entry: T
+): void {
+  const at = tests.findIndex(
+    t => t.testset === entry.testset && t.index === entry.index
+  );
+  if (at === -1) {
+    tests.push(entry);
+  } else {
+    tests[at] = entry;
   }
 }
 

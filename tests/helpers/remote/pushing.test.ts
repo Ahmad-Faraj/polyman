@@ -671,7 +671,8 @@ describe('pushing.ts', () => {
       });
       await pushing.uploadTestsets(sdk, 1, 'dir', cfg, failures);
       expect(failures).toEqual([
-        'testset tests: Manual test file not found: missing.txt',
+        'testset tests manual test missing.txt: Manual test file not found: missing.txt',
+        'testset tests tests: Manual test input not found: missing.txt',
       ]);
     });
 
@@ -755,7 +756,129 @@ describe('pushing.ts', () => {
         ],
       });
       await pushing.uploadTestsets(sdk, 1, 'dir', cfg, failures);
-      expect(failures).toEqual(['testset tests manual tests: m']);
+      expect(failures).toEqual(['testset tests manual test m.txt: m']);
+    });
+
+    it('should await started manual uploads when a later manual file is missing (#115)', async () => {
+      const { sdk, mocks } = buildSdk();
+      mockedExistsSync.mockImplementation(
+        (p: PathLike) => !String(p).endsWith('m2.txt')
+      );
+      mockedReadFileSync.mockReturnValue('m');
+      // A plain function, not vi.fn: vitest attaches a .then to promises
+      // returned by its mocks, which would mark the rejection as handled
+      // and hide the bug.
+      (sdk as unknown as { saveTest: unknown }).saveTest = () =>
+        Promise.reject(new Error('saveTest m1'));
+      const unhandled: unknown[] = [];
+      const onUnhandled = (reason: unknown): void => {
+        unhandled.push(reason);
+      };
+      process.on('unhandledRejection', onUnhandled);
+      const failures: string[] = [];
+      const cfg = asConfig({
+        generators: [{ name: 'gen', source: './gen.cpp' }],
+        testsets: [
+          {
+            name: 'tests',
+            generatorScript: { script: 'gen 1 > $' },
+            manualTests: [
+              { input: 'm1.txt', index: 2 },
+              { input: 'm2.txt', index: 3 },
+            ],
+          },
+        ],
+      });
+      try {
+        const result = await pushing.uploadTestsets(
+          sdk,
+          1,
+          'dir',
+          cfg,
+          failures
+        );
+        await new Promise(resolve => setTimeout(resolve, 20));
+        expect(unhandled).toEqual([]);
+        expect(failures).toEqual([
+          'testset tests manual test m2.txt: Manual test file not found: m2.txt',
+          'testset tests manual test m1.txt: saveTest m1',
+          // The test list cannot be resolved without m2.txt either.
+          'testset tests tests: Manual test input not found: m2.txt',
+        ]);
+        expect(result.manualsCount).toBe(0);
+        // The push goes on with the generator script after the manual tests.
+        expect(mocks.saveScript).toHaveBeenCalledWith(
+          1,
+          'tests',
+          expect.stringContaining('gen 1 > $')
+        );
+      } finally {
+        process.off('unhandledRejection', onUnhandled);
+      }
+    });
+
+    it('should label each manual failure and count only fulfilled uploads when missing, failed and uploaded tests are mixed', async () => {
+      const { sdk, mocks } = buildSdk();
+      mockedExistsSync.mockImplementation(
+        (p: PathLike) => !String(p).endsWith('a.txt')
+      );
+      mockedReadFileSync.mockReturnValue('m');
+      mocks.saveTest.mockImplementation(
+        (_problemId: number, _testset: string, index: number) =>
+          index === 3
+            ? Promise.reject(new Error('saveTest c'))
+            : Promise.resolve()
+      );
+      const failures: string[] = [];
+      const cfg = asConfig({
+        testsets: [
+          {
+            name: 'tests',
+            manualTests: [
+              { input: 'a.txt', index: 1 },
+              { input: 'b.txt', index: 2 },
+              { input: 'c.txt', index: 3 },
+              { input: 'd.txt', index: 4 },
+            ],
+          },
+        ],
+      });
+      const result = await pushing.uploadTestsets(sdk, 1, 'dir', cfg, failures);
+      const savedIndexes = mocks.saveTest.mock.calls.map(
+        call => call[2] as number
+      );
+      expect(savedIndexes).toEqual([2, 3, 4]);
+      expect(result.manualsCount).toBe(2);
+      expect(failures).toEqual([
+        'testset tests manual test a.txt: Manual test file not found: a.txt',
+        'testset tests manual test c.txt: saveTest c',
+        'testset tests tests: Manual test input not found: a.txt',
+      ]);
+    });
+
+    it('should read every manual input before uploading and count only uploaded tests', async () => {
+      const { sdk, mocks } = buildSdk();
+      mockedExistsSync.mockReturnValue(true);
+      mockReadFileSyncWith(p => {
+        if (String(p).endsWith('m2.txt')) throw new Error('EACCES');
+        return 'm';
+      });
+      const failures: string[] = [];
+      const cfg = asConfig({
+        testsets: [
+          {
+            name: 'tests',
+            manualTests: [
+              { input: 'm1.txt', index: 1 },
+              { input: 'm2.txt', index: 2 },
+            ],
+          },
+        ],
+      });
+      const result = await pushing.uploadTestsets(sdk, 1, 'dir', cfg, failures);
+      expect(failures[0]).toBe('testset tests manual test m2.txt: EACCES');
+      expect(mocks.saveTest).toHaveBeenCalledTimes(1);
+      expect(result.manualsCount).toBe(1);
     });
 
     it('should record a failure when the tests cannot be resolved', async () => {
@@ -1831,7 +1954,7 @@ describe('pushing.ts', () => {
       expect(result.testsCount).toBe(4);
     });
 
-    it('should throw inside manual promise creation when manual file is missing', async () => {
+    it('should not count a manual test whose file is missing', async () => {
       const { sdk } = buildSdk();
       mockedExistsSync.mockReturnValue(false);
 

@@ -65,7 +65,9 @@ describe('cli.ts', () => {
 
   it('should register generate command', async () => {
     await loadCli(['generate', '--all']);
-    expect(actions.generateTestsAction).toHaveBeenCalledWith('all', undefined);
+    expect(actions.generateTestsAction).toHaveBeenCalledWith('all', undefined, {
+      json: false,
+    });
   });
 
   it('should register list checkers command', async () => {
@@ -97,44 +99,75 @@ describe('cli.ts', () => {
 
   it('should pass testset and group to generate', async () => {
     await loadCli(['generate', '--testset', 'main', '--group', 'samples']);
-    expect(actions.generateTestsAction).toHaveBeenCalledWith('main', 'samples');
+    expect(actions.generateTestsAction).toHaveBeenCalledWith(
+      'main',
+      'samples',
+      { json: false }
+    );
   });
 
   it('should pass testset and index to generate', async () => {
     await loadCli(['generate', '--testset', 'main', '--index', '5']);
-    expect(actions.generateTestsAction).toHaveBeenCalledWith('main', '5');
+    expect(actions.generateTestsAction).toHaveBeenCalledWith('main', '5', {
+      json: false,
+    });
   });
 
   it('should pass only testset to generate when no modifier', async () => {
     await loadCli(['generate', '--testset', 'main']);
-    expect(actions.generateTestsAction).toHaveBeenCalledWith('main', undefined);
+    expect(actions.generateTestsAction).toHaveBeenCalledWith(
+      'main',
+      undefined,
+      { json: false }
+    );
   });
 
   it('should default generate target to all when nothing provided', async () => {
     await loadCli(['generate']);
-    expect(actions.generateTestsAction).toHaveBeenCalledWith('all', undefined);
+    expect(actions.generateTestsAction).toHaveBeenCalledWith('all', undefined, {
+      json: false,
+    });
   });
+
+  it.each(['generate', 'validate'] as const)(
+    'should pass --json to %s',
+    async command => {
+      await loadCli([command, '--all', '--json']);
+      const action =
+        command === 'generate'
+          ? actions.generateTestsAction
+          : actions.validateTestsAction;
+      expect(action).toHaveBeenCalledWith('all', undefined, { json: true });
+    }
+  );
 
   it('should register validate --all command', async () => {
     await loadCli(['validate', '--all']);
-    expect(actions.validateTestsAction).toHaveBeenCalledWith('all', undefined);
+    expect(actions.validateTestsAction).toHaveBeenCalledWith('all', undefined, {
+      json: false,
+    });
   });
 
   it('should pass testset and group to validate', async () => {
     await loadCli(['validate', '--testset', 'pretest', '--group', 'g1']);
-    expect(actions.validateTestsAction).toHaveBeenCalledWith('pretest', 'g1');
+    expect(actions.validateTestsAction).toHaveBeenCalledWith('pretest', 'g1', {
+      json: false,
+    });
   });
 
   it('should pass testset and index to validate', async () => {
     await loadCli(['validate', '--testset', 'pretest', '--index', '3']);
-    expect(actions.validateTestsAction).toHaveBeenCalledWith('pretest', '3');
+    expect(actions.validateTestsAction).toHaveBeenCalledWith('pretest', '3', {
+      json: false,
+    });
   });
 
   it('should pass only testset to validate when no modifier', async () => {
     await loadCli(['validate', '--testset', 'pretest']);
     expect(actions.validateTestsAction).toHaveBeenCalledWith(
       'pretest',
-      undefined
+      undefined,
+      { json: false }
     );
   });
 
@@ -194,12 +227,20 @@ describe('cli.ts', () => {
 
   it('should register test command', async () => {
     await loadCli(['test', 'validator']);
-    expect(actions.testWhatAction).toHaveBeenCalledWith(
-      'validator',
-      expect.anything(),
-      expect.anything()
-    );
+    expect(actions.testWhatAction).toHaveBeenCalledWith('validator', {
+      json: false,
+    });
   });
+
+  it.each(['validator', 'checker', 'wa-solution'])(
+    'should pass --json through to test %s',
+    async what => {
+      await loadCli(['test', what, '--json']);
+      expect(actions.testWhatAction).toHaveBeenCalledWith(what, {
+        json: true,
+      });
+    }
+  );
 
   it('should register verify command', async () => {
     await loadCli(['verify']);
@@ -586,11 +627,20 @@ describe('cli.ts', () => {
       expect(output.join('\n')).toContain('Add one to Config.json');
     });
 
-    it('should exit with the code of the PolymanError', async () => {
-      const { exitCalls } = await runFailing(
-        ({ PolymanError }) => new PolymanError('g++ is missing', 3)
-      );
-      expect(exitCalls).toEqual([3]);
+    it.each([1, 2, 3, 4] as const)(
+      'should exit with code %i when the PolymanError carries it',
+      async code => {
+        const { exitCalls } = await runFailing(
+          ({ PolymanError }) => new PolymanError('failed', code)
+        );
+        expect(exitCalls).toEqual([code]);
+      }
+    );
+
+    it('should print a thrown value that is not an Error and exit with 1', async () => {
+      const { exitCalls, output } = await runFailing(() => 'plain string');
+      expect(exitCalls).toEqual([1]);
+      expect(output.join('\n')).toContain('plain string');
     });
 
     it('should not print a hint line when the error has none', async () => {

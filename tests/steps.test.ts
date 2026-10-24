@@ -17,7 +17,7 @@ import * as solution from '../src/helpers/solution';
 import * as testset from '../src/helpers/testset';
 import * as utils from '../src/helpers/utils';
 import { NonInteractiveError } from '../src/helpers/errors';
-import { LimitExceededError } from '../src/errors';
+import { LimitExceededError, PolymanError } from '../src/errors';
 import * as remoteUtils from '../src/helpers/remote/utils';
 import * as pulling from '../src/helpers/remote/pulling';
 import * as pushing from '../src/helpers/remote/pushing';
@@ -587,6 +587,9 @@ describe('steps.ts', () => {
       expect(() =>
         steps.stepValidateConfigForSolutionTest(1, 'missing')
       ).toThrow('No solution named "missing" found.');
+      expect(() =>
+        steps.stepValidateConfigForSolutionTest(1, 'missing')
+      ).toThrow(expect.objectContaining({ exitCode: 2 }));
     });
 
     it('should fail when timeLimitMultipliers is invalid', () => {
@@ -942,6 +945,9 @@ describe('steps.ts', () => {
       expect(() => steps.stepValidatePackageType(1, 'bogus')).toThrow(
         'Invalid package type: bogus'
       );
+      expect(() => steps.stepValidatePackageType(1, 'bogus')).toThrow(
+        expect.objectContaining({ exitCode: 2 })
+      );
     });
   });
 
@@ -1000,6 +1006,24 @@ describe('steps.ts', () => {
       promise.catch(() => undefined);
       await vi.advanceTimersByTimeAsync(30000);
       await expect(promise).rejects.toThrow('Package build failed: oops');
+      // Polygon answered: the problem itself did not build, so code 1
+      await expect(promise).rejects.not.toBeInstanceOf(PolymanError);
+      vi.useRealTimers();
+    });
+
+    it('should fail with exit code 4 when no package shows up in time', async () => {
+      vi.useFakeTimers();
+      const sdk = {
+        listPackages: vi.fn().mockResolvedValue([]),
+        buildPackage: vi.fn().mockResolvedValue(undefined),
+      } as any;
+      const promise = steps.stepBuildPackage(1, sdk, 7, 'standard');
+      promise.catch(() => undefined);
+      await vi.advanceTimersByTimeAsync(30 * 30000);
+      await expect(promise).rejects.toThrow(
+        'Package build timed out after 30 minutes'
+      );
+      await expect(promise).rejects.toHaveProperty('exitCode', 4);
       vi.useRealTimers();
     });
   });
@@ -1126,11 +1150,25 @@ describe('steps.ts', () => {
   });
 
   describe('stepDownloadTests', () => {
+    it('should fail with exit code 2 when Config.json is not valid JSON', async () => {
+      vi.mocked(fs.existsSync).mockReturnValue(true);
+      vi.mocked(fs.readFileSync).mockReturnValue('{ not json');
+      const error: unknown = await steps
+        .stepDownloadTests(1, {} as any, 7, 'tests', 'savePath')
+        .catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(PolymanError);
+      expect((error as PolymanError).exitCode).toBe(2);
+      expect((error as PolymanError).cause).toBeInstanceOf(SyntaxError);
+    });
+
     it('should throw when Config.json is missing', async () => {
       vi.mocked(fs.existsSync).mockReturnValue(false);
       await expect(
         steps.stepDownloadTests(1, {} as any, 7, 'tests', 'savePath')
       ).rejects.toThrow('Config.json not found');
+      await expect(
+        steps.stepDownloadTests(1, {} as any, 7, 'tests', 'savePath')
+      ).rejects.toHaveProperty('exitCode', 2);
     });
 
     it('should add new testset to config when not present', async () => {
@@ -1248,6 +1286,20 @@ describe('steps.ts', () => {
   });
 
   describe('stepReadConfig', () => {
+    it('should fail with exit code 2 when Config.json is not valid JSON', () => {
+      vi.mocked(fs.existsSync).mockReturnValue(true);
+      vi.mocked(fs.readFileSync).mockReturnValue('{ not json');
+      let error: unknown;
+      try {
+        steps.stepReadConfig(1, '/dir');
+      } catch (e) {
+        error = e;
+      }
+      expect(error).toBeInstanceOf(PolymanError);
+      expect((error as PolymanError).exitCode).toBe(2);
+      expect((error as PolymanError).cause).toBeInstanceOf(SyntaxError);
+    });
+
     it('should read and parse Config.json', () => {
       vi.mocked(fs.existsSync).mockReturnValue(true);
       const cfg = baseConfig();
@@ -1260,6 +1312,9 @@ describe('steps.ts', () => {
       vi.mocked(fs.existsSync).mockReturnValue(false);
       expect(() => steps.stepReadConfig(1, '/dir')).toThrow(
         'Config.json not found'
+      );
+      expect(() => steps.stepReadConfig(1, '/dir')).toThrow(
+        expect.objectContaining({ exitCode: 2 })
       );
     });
   });
@@ -1574,6 +1629,9 @@ describe('steps.ts', () => {
       await expect(
         steps.stepCreateProblemOnPolygon(1, sdk, 'x')
       ).rejects.toThrow('Failed to create problem on Polygon: upstream');
+      await expect(
+        steps.stepCreateProblemOnPolygon(1, sdk, 'x')
+      ).rejects.toHaveProperty('exitCode', 4);
     });
 
     it('should wrap non-Error rejections', async () => {
@@ -1677,6 +1735,28 @@ describe('steps.ts', () => {
       ).rejects.toThrow(
         'Invalid problem name "Two Sum". Name must be lowercase, no spaces, only dashes allowed.'
       );
+    });
+
+    it('fails with exit code 2 on an invalid --name', async () => {
+      vi.mocked(utils.stdinIsInteractive).mockReturnValue(false);
+      const error: unknown = await steps
+        .stepGetValidProblemName(1, sdkWith([]), undefined, {
+          explicitName: 'Two Sum',
+        })
+        .catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(PolymanError);
+      expect((error as PolymanError).exitCode).toBe(2);
+    });
+
+    it('keeps exit code 1 for a --name that already exists on Polygon', async () => {
+      vi.mocked(utils.stdinIsInteractive).mockReturnValue(false);
+      const error: unknown = await steps
+        .stepGetValidProblemName(1, sdkWith(['two-sum']), undefined, {
+          explicitName: 'two-sum',
+        })
+        .catch((e: unknown) => e);
+      expect((error as Error).message).toContain('already exists on Polygon');
+      expect((error as { exitCode?: number }).exitCode).not.toBe(2);
     });
 
     it('rejects a --name that already exists on Polygon', async () => {

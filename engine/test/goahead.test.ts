@@ -68,6 +68,8 @@ describe('what counts as a go-ahead comment', () => {
     }
     expect(isProposal('✅ mr-reviewer has started. You can view progress here.')).toBe(false);
     expect(isProposal('Pipeline fix: no fix from me')).toBe(false);
+    // a review that lost a specialist proposes nothing
+    expect(isProposal('Incomplete review of abc1234: security_reviewer failed')).toBe(false);
   });
 
   it("doesn't let a go-ahead to one agent count for another mentioned elsewhere", () => {

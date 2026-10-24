@@ -204,5 +204,7 @@ describe('the precompiled bits/stdc++.h', () => {
     expect(optimization && standard).toBeTruthy();
     expect(built).toEqual([optimization, `-std=${standard}`]);
     expect(dockerfile).toContain('PCH_DIR=/opt/pch');
+    // the CLI's own per-user PCH never builds in the service
+    expect(dockerfile).toMatch(/ENV[^\n]*(\\\n[^\n]*)*POLYMAN_PCH=0/);
   });
 });

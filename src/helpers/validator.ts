@@ -26,6 +26,11 @@ import { DEFAULT_TIMEOUT, DEFAULT_MEMORY_LIMIT } from './utils';
 import { fmt } from '../formatter';
 import { LimitExceededError, PolymanError } from '../errors';
 import { getTestIndicesForGroup } from './testset';
+import { report } from '../report';
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : 'Unknown error';
+}
 
 /**
  * Compiles the validator program.
@@ -66,6 +71,7 @@ export async function compileValidator(
  * @param {string} execCommand - Path to compiled validator executable
  * @param {string} testFilePath - Path to test file
  * @param {ValidatorVerdict} expectedVerdict - Expected verdict (VALID or INVALID)
+ * @param {Function} [observe] - Called with the verdict the validator gave and its stderr, before it is compared with `expectedVerdict`
  *
  * @throws {Error} If validator verdict doesn't match expected
  * @throws {Error} If validator exceeds time or memory limits (throws a LimitExceededError)
@@ -76,7 +82,8 @@ export async function compileValidator(
 async function runValidator(
   execCommand: string,
   testFilePath: string,
-  expectedVerdict: ValidatorVerdict
+  expectedVerdict: ValidatorVerdict,
+  observe?: (actual: ValidatorVerdict, message: string) => void
 ) {
   let didCatchInvalid = false;
   await executor.executeWithRedirect(
@@ -87,6 +94,7 @@ async function runValidator(
       silent: true,
       onError: result => {
         didCatchInvalid = true;
+        observe?.('INVALID', result.stderr.trim());
         if (expectedVerdict === 'VALID')
           throw new Error(result.stderr || 'Validator execution failed');
       },
@@ -112,6 +120,8 @@ async function runValidator(
     testFilePath,
     undefined
   );
+
+  if (!didCatchInvalid) observe?.('VALID', '');
 
   if (expectedVerdict === 'INVALID' && !didCatchInvalid) {
     throw new Error('Validator did not detect invalid test');
@@ -142,15 +152,34 @@ export async function validateSingleTest(
     const testFilePath = path.join(testsDir, `test${testIndex}.txt`);
 
     if (!fs.existsSync(testFilePath)) {
-      throw new Error(`Test file not found: ${testFilePath}`);
+      const message = `Test file not found: ${testFilePath}`;
+      report.recordValidatedTest({
+        testset: testsetName,
+        index: testIndex,
+        valid: false,
+        message,
+      });
+      throw new Error(message);
     }
 
     try {
       await runValidator(compiledPath, testFilePath, 'VALID');
+      report.recordValidatedTest({
+        testset: testsetName,
+        index: testIndex,
+        valid: true,
+        message: '',
+      });
     } catch (error) {
       if (error instanceof LimitExceededError) throw error;
+      report.recordValidatedTest({
+        testset: testsetName,
+        index: testIndex,
+        valid: false,
+        message: errorText(error),
+      });
       throw new Error(
-        `Test ${testIndex} failed validation:\n\t${error instanceof Error ? error.message : 'Unknown error'}`
+        `Test ${testIndex} failed validation:\n\t${errorText(error)}`
       );
     }
   } catch (error) {
@@ -183,22 +212,40 @@ export async function validateTestset(
       throw new Error(`Testset directory not found: ${testsDir}`);
     }
 
-    const testFiles = getTestFiles(testsDir);
+    // Only `test<N>.txt` (N a positive integer) is a test. Stray files such
+    // as `test2.txt.bak` or `test_notes.txt` are skipped, and a folder with
+    // only such files is reported like an empty one, not as a pass.
+    const tests = getTestFiles(testsDir).flatMap(testFile => {
+      const match = /^test([1-9]\d*)\.txt$/.exec(testFile);
+      return match ? [{ testFile, index: Number(match[1]) }] : [];
+    });
 
-    if (testFiles.length === 0) {
+    if (tests.length === 0) {
       throw new Error(`No test files found in testset: ${testsetName}`);
     }
 
-    for (const testFile of testFiles) {
+    for (const { testFile, index } of tests) {
       const testFilePath = path.join(testsDir, testFile);
       try {
         await runValidator(compiledPath, testFilePath, 'VALID');
+        report.recordValidatedTest({
+          testset: testsetName,
+          index,
+          valid: true,
+          message: '',
+        });
       } catch (error) {
         if (error instanceof LimitExceededError) throw error;
         someFailed = true;
+        report.recordValidatedTest({
+          testset: testsetName,
+          index,
+          valid: false,
+          message: errorText(error),
+        });
         logError(
           new Error(
-            `Test ${fmt.bold(`${testsetName}/${testFile}`)} failed validation:\n\t${error instanceof Error ? error.message : 'Unknown error'}`
+            `Test ${fmt.bold(`${testsetName}/${testFile}`)} failed validation:\n\t${errorText(error)}`
           )
         );
       }
@@ -249,12 +296,26 @@ export async function validateGroup(
       const testFilePath = path.join(testsDir, `test${testIndex}.txt`);
       try {
         await runValidator(compiledPath, testFilePath, 'VALID');
+        report.recordValidatedTest({
+          testset: testset.name,
+          group: groupName,
+          index: testIndex,
+          valid: true,
+          message: '',
+        });
       } catch (error) {
         if (error instanceof LimitExceededError) throw error;
         someFailed = true;
+        report.recordValidatedTest({
+          testset: testset.name,
+          group: groupName,
+          index: testIndex,
+          valid: false,
+          message: errorText(error),
+        });
         logError(
           new Error(
-            `Test ${testIndex} in group ${groupName} failed validation:\n\t${error instanceof Error ? error.message : 'Unknown error'}`
+            `Test ${testIndex} in group ${groupName} failed validation:\n\t${errorText(error)}`
           )
         );
       }
@@ -414,15 +475,35 @@ export async function runValidatorTests(validator: LocalValidator) {
 
     for (const [index, { expectedVerdict }] of validatorTests.entries()) {
       const testFileDir = path.join(testsDir, `test${index + 1}.txt`);
+      let actual = 'ERROR';
+      let detail = '';
       try {
         await runValidator(
           getCompiledCommandToRun(validator),
           testFileDir,
-          expectedVerdict
+          expectedVerdict,
+          (verdict, message) => {
+            actual = verdict;
+            detail = message;
+          }
         );
+        report.recordSelfTestCase({
+          index: index + 1,
+          expected: expectedVerdict,
+          actual,
+          ok: true,
+          message: detail,
+        });
       } catch (error) {
         if (error instanceof LimitExceededError) throw error;
         someFailed = true;
+        report.recordSelfTestCase({
+          index: index + 1,
+          expected: expectedVerdict,
+          actual,
+          ok: false,
+          message: (error as Error).message,
+        });
         fmt.error(
           `  ${fmt.cross()} Validator Test ${index + 1} failed:\n\t${(error as Error).message} expected to be ${expectedVerdict}`
         );

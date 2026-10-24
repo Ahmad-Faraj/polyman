@@ -909,7 +909,139 @@ interface ListReport extends ReportBase {
   items: unknown[];
 }
 
-type JsonReport = RunReport | VerifyReport | PathReport | ListReport;
+/**
+ * One test inside a generate report.
+ * @interface GeneratedTestResult
+ * @property {string} testset - Testset the test belongs to
+ * @property {number} index - Polygon test index (the N in test<N>.txt)
+ * @property {'manual' | 'generator'} source - Where the input came from
+ * @property {string} [generator] - Generator name, only for generated tests
+ * @property {string[]} [args] - Generator arguments, only for generated tests
+ * @property {boolean} ok - Whether the input file was written
+ * @property {string} [error] - Failure detail, only when ok is false
+ */
+interface GeneratedTestResult {
+  testset: string;
+  index: number;
+  source: 'manual' | 'generator';
+  generator?: string;
+  args?: string[];
+  ok: boolean;
+  error?: string;
+}
+
+/**
+ * Report emitted by `polyman generate --json`.
+ * @interface GenerateReport
+ */
+interface GenerateReport extends ReportBase {
+  command: 'generate';
+  exitCode: number;
+  durationMs: number;
+  errors: string[];
+  tests: GeneratedTestResult[];
+}
+
+/**
+ * One test inside a validate report.
+ * @interface ValidatedTestResult
+ * @property {string} testset - Testset the test belongs to
+ * @property {string} [group] - Group name, only when the run targeted a group
+ * @property {number} index - Polygon test index (the N in test<N>.txt)
+ * @property {boolean} valid - Whether the validator accepted the input
+ * @property {string} message - Validator message (empty when valid)
+ */
+interface ValidatedTestResult {
+  testset: string;
+  group?: string;
+  index: number;
+  valid: boolean;
+  message: string;
+}
+
+/**
+ * Report emitted by `polyman validate --json`.
+ * @interface ValidateReport
+ */
+interface ValidateReport extends ReportBase {
+  command: 'validate';
+  exitCode: number;
+  durationMs: number;
+  errors: string[];
+  tests: ValidatedTestResult[];
+}
+
+/**
+ * Which program a self-test report is about.
+ * @typedef SelfTestTarget
+ */
+type SelfTestTarget = 'validator' | 'checker';
+
+/**
+ * One validator or checker self-test inside a {@link SelfTestReport}.
+ * @interface SelfTestCase
+ * @property {number} index - 1-based position of the case in the tests file
+ * @property {string} expected - Verdict the tests file asks for (the checker
+ *   short forms `WA` / `PE` are written as `WRONG_ANSWER` /
+ *   `PRESENTATION_ERROR`)
+ * @property {string} actual - Verdict the program gave, or `ERROR` when it
+ *   could not run at all
+ * @property {boolean} ok - Whether polyman accepted the case
+ * @property {string} message - What the program printed to stderr, or why the
+ *   case failed
+ */
+interface SelfTestCase {
+  index: number;
+  expected: string;
+  actual: string;
+  ok: boolean;
+  message: string;
+}
+
+/**
+ * Report emitted by `polyman test validator --json` and
+ * `polyman test checker --json`.
+ * @interface SelfTestReport
+ * @property {SelfTestCase[]} cases - Empty when the self-tests were skipped
+ *   (standard checker, or no `testsFilePath`)
+ */
+interface SelfTestReport extends ReportBase {
+  command: string;
+  exitCode: number;
+  durationMs: number;
+  errors: string[];
+  target: SelfTestTarget;
+  cases: SelfTestCase[];
+}
+
+/**
+ * Report emitted by `polyman test <solution> --json`: the run report of the
+ * target solution, each test judged by the checker against the main
+ * solution's output, plus whether the verdicts match the solution's tag.
+ * @interface SolutionTestReport
+ * @property {string | null} mainSolution - Name of the MA solution, null when
+ *   the command stopped before finding it
+ * @property {boolean} matchesTag - Whether the verdicts satisfy the tag
+ * @property {string} reason - Human explanation of matchesTag
+ */
+interface SolutionTestReport extends Omit<RunReport, 'command'> {
+  command: 'test';
+  exitCode: number;
+  durationMs: number;
+  mainSolution: string | null;
+  matchesTag: boolean;
+  reason: string;
+}
+
+type JsonReport =
+  | RunReport
+  | VerifyReport
+  | PathReport
+  | ListReport
+  | GenerateReport
+  | ValidateReport
+  | SelfTestReport
+  | SolutionTestReport;
 
 // ==================== Exports ====================
 
@@ -976,6 +1108,14 @@ export {
   VerifyReport,
   PathReport,
   ListReport,
+  GeneratedTestResult,
+  GenerateReport,
+  ValidatedTestResult,
+  ValidateReport,
+  SelfTestTarget,
+  SelfTestCase,
+  SelfTestReport,
+  SolutionTestReport,
   JsonReport,
 };
 

@@ -34,6 +34,20 @@ describe('runVerify', () => {
     expect(env.HOME).toBe(dir);
   });
 
+  it('turns off the CLI per-user precompiled header, with or without the service one', async () => {
+    for (const pchDir of [undefined, '/opt/pch']) {
+      const dir = fresh();
+      await runVerify(dir, {
+        cli: cli(dir, `require('fs').writeFileSync('env.json', JSON.stringify(process.env)); process.stdout.write('{"schemaVersion":1,"ok":true,"steps":[],"solutions":[]}')`),
+        timeoutMs: 5000,
+        ...(pchDir ? { pchDir } : {}),
+      });
+      const env = JSON.parse(readFileSync(join(dir, 'env.json'), 'utf8'));
+      expect(env.POLYMAN_PCH).toBe('0');
+      expect(env.CPLUS_INCLUDE_PATH).toBe(pchDir);
+    }
+  });
+
   it('reads progress from the step lines, colours and all', async () => {
     const dir = fresh();
     const steps: string[] = [];

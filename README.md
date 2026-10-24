@@ -2,11 +2,15 @@
 
 **GitLab Transcend · Path B · Assisted.** polyman (`polyman-cli` on npm, MIT) is the command-line tool problem setters on Codeforces and Polygon run before a problem goes out: it compiles every solution, runs it on every test, and checks that each one gets the verdict it should. polyman judges solutions.
 
+**Check it yourself, no login:** [live verify service](https://polyman-verify-ncvkutguda-ue.a.run.app) · [go-ahead ledger](https://showcase-ce2cdc.gitlab.io/ledger/) · [agent carbon](https://showcase-ce2cdc.gitlab.io/sci/) · [Assisted in 60 seconds](JUDGES.md#assisted-in-60-seconds)
+
+**Why it matters:** a wrong verdict from polyman means a broken problem in a live contest round, with wrong expected answers or a bad test that reaches contestants. Real setters use it: contest problems for Repovive and for the ICPC Arab regional (ACPC) were prepared with polyman ([who uses it](#who-uses-it)).
+
+**[44 of 44 loops and 63 of 63 agent pushes](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17418251989) ran on a go-ahead from someone other than the requester · [3 people](https://showcase-ce2cdc.gitlab.io/ledger/), and the one who asks never gives the go-ahead · [719 Duo agent sessions](sustainability/agent-tokens.json) · the published 3.0.0 got the expected verdicts on [0 of 5 corpus problems, 3.0.1 on 5 of 5](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17267989872).** _Ledger job 23 Oct 13:59 UTC; sessions Oct 16 18:58 to Oct 23 12:59 UTC; release check Oct 18._
+
 **So what judges polyman?** Programs, not a model: real compilers on a corpus of real problems, and mutation testing that grades polyman's own tests. A new version reaches npm `latest` only if it judges that corpus at least as well as the last release. On Oct 18 the published 3.0.0 got the expected verdicts on 0 of 5 problems and 3.0.1 on 5 of 5 ([job](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17267989872)); only then did a person move `latest`.
 
 **A person approves every step.** Duo agents turn what the judges find into proposed fixes. A teammate who didn't ask for the work gives the go-ahead, and the CI guard `autonomy:goahead` fails any agent push without one.
-
-**Evaluating this entry?** [Assisted in 60 seconds](JUDGES.md#assisted-in-60-seconds): one real loop from an agent's proposal to a person's merge, plus a push the guard refused. No login needed.
 
 <!-- Video (under 3 minutes): put its link here, once it is published. -->
 
@@ -107,7 +111,7 @@ flowchart LR
   X -->|"failure wakes<br/>the incident agent"| J
 ```
 
-An agent proposes and waits. A person who didn't ask for the work replies `@<agent> go-ahead` (for high risk, governance paths and rollbacks only a maintainer, Hamza, Mazen or Ahmed, and never the one who asked), and the agent does that one step. The judges in the first three rows are programs, not an LLM. The CI job `autonomy:goahead` fails any agent push without a valid go-ahead. Full rules: [Assisted](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/wikis/Assisted).
+An agent proposes and waits. A person who didn't ask for the work replies `@<agent> go-ahead` (for high risk, governance paths and rollbacks only a maintainer, Hamza, Mazen or Ahmed, and never the one who asked), and the agent does that one step. The judges in the first three rows are programs, not an LLM. The CI job `autonomy:goahead` fails any agent push without a valid go-ahead. The risk tiers are fixed on purpose: an agent never raises its own level, only a person does. The risk score from `.autonomy.yml` decides how deep the review is, and the go-ahead guard `autonomy:goahead` decides who may let an agent act. Both are governance paths: a change to them is always high risk, so only a maintainer who did not ask for it can say go-ahead. Full rules: [Assisted](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/wikis/Assisted).
 
 | What is checked, and by what | Who may say go-ahead | A real run |
 |---|---|---|
@@ -188,7 +192,7 @@ Why some loops have two MRs: when an agent pushes without a go-ahead, the guard 
 - GitLab Code Review didn't start when the reviewer flow asked for it (DCR4008 on !26 and !50); on !26 a person asked again and it ran.
 - With the six judge bugs merged, `corpus` and the Polygon round trip (34/34) are green on `main` ([pipeline 2960439972](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/pipelines/2960439972)). 3.0.1 was `latest` on npm from 19:59 UTC on Oct 18 (3.0.2 replaced it on Oct 20 at 20:22), and the next nightly judged it green: 5/5 problems and the round trip 34/34 with push exit 0 ([`corpus:production`](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17271999969), Oct 19), so [#45][i45] is closed with its timeline. Not every job of that night was green: `corpus:polygon` on `main`'s build (allowed to fail) was 34/35, because `remote push` exited 1 ([log](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17271999967)).
 - We don't claim time or memory parity with Polygon.
-- The verify service runs in Google Cloud's us-east1, which Google's [region carbon page](https://cloud.google.com/sustainability/region-carbon) lists at 31% carbon-free energy and 579 gCO2e/kWh, not marked Low CO2 (read 21 Oct). It stays there by team decision, because the live URL is in every link here; us-central1 (88%) and us-west1 (83%) are the low-carbon options. Until the winners are announced one instance is kept warm (minimum instances 1, [!193](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/193)), so `/health` answers in about 0.3 s (5 requests, 0.28-0.31 s, 21 Oct 12:35 UTC); its grams and cost are in [SUSTAINABILITY.md](SUSTAINABILITY.md#the-warm-verify-instance-judging-window).
+- The verify service runs in Google Cloud's us-east1, which Google's [region carbon page](https://cloud.google.com/sustainability/region-carbon) lists at 31% carbon-free energy and 579 gCO2e/kWh, not marked Low CO2 (read 21 Oct). It stays there by team decision, because the live URL is in every link here; by grid intensity, which is what SCI counts, us-west1 (98 gCO2e/kWh) is the low-carbon option, while us-central1 (432) is only about 25% lower ([SUSTAINABILITY.md](SUSTAINABILITY.md)). Until the winners are announced one instance is kept warm (minimum instances 1, [!193](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/193)), so `/health` answers in about 0.3 s (5 requests, 0.28-0.31 s, 21 Oct 12:35 UTC); its grams and cost are in [SUSTAINABILITY.md](SUSTAINABILITY.md#the-warm-verify-instance-judging-window).
 
 [mr4]: https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/4
 [mr5]: https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/5
@@ -240,6 +244,14 @@ polyman was announced to problem setters on [Codeforces in November 2025](https:
 What we can say today, all public: 2,167 npm downloads from the first publish on Nov 7, 2025 to Oct 20, 2026 (api.npmjs.org, read Oct 21; downloads, not users: CI runs and mirrors count too), 14 versions, 42 stars and 6 forks on GitHub (Oct 20) with five outside reporters or contributors, and two independent open-source projects that build on polyman's problem format.
 
 Team: Hamza Hassanain (polyman's author), Mazen Ghanayem, Ahmed Faraj.
+
+### Who uses it
+
+- [Repovive](https://repovive.com), backed by Y Combinator, used polyman to prepare contest problems. For example, Graph Tiling, [problem F of Repovive Standard Round 3](https://repovive.com/contests/8/problems/F).
+- Hamza Hassanain also used it for problems he set outside Repovive.
+- Ahmed Faraj and Mazen Ghanayem used it to prepare problems for the ICPC Arab regional (ACPC).
+
+<!-- #42: name the two downstream projects here only after their maintainers agree, and add replies from the Codeforces post only when people confirm they used it. -->
 
 <div align="center">
 

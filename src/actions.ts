@@ -90,7 +90,7 @@ import {
   isCppSource,
   ensureConfigSourcesExist,
 } from './helpers/utils';
-import { EXIT_NON_INTERACTIVE, NonInteractiveError } from './helpers/errors';
+import { PolymanError, exitCodeFor } from './errors';
 import {
   clearCache,
   formatBytes,
@@ -152,11 +152,9 @@ export const createTemplateAction = (
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     fmt.errorBox('TEMPLATE CREATION FAILED!');
-    fmt.error(`${message}`);
-    fmt.newLine();
     report.fail(message);
-    report.finish(false);
-    process.exit(1);
+    report.finish(false, exitCodeFor(error));
+    throw error;
   }
 };
 
@@ -248,11 +246,9 @@ export const listAvailableCheckersAction = (
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     fmt.errorBox('FAILED TO LIST CHECKERS!');
-    fmt.error(`${message}`);
-    fmt.newLine();
     report.fail(message);
-    report.finish(false);
-    process.exit(1);
+    report.finish(false, exitCodeFor(error));
+    throw error;
   }
 };
 
@@ -332,11 +328,9 @@ export const downloadTestlibAction = async (
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     fmt.errorBox('TESTLIB DOWNLOAD FAILED!');
-    fmt.error(`${message}`);
-    fmt.newLine();
     report.fail(message);
-    report.finish(false);
-    process.exit(1);
+    report.finish(false, exitCodeFor(error));
+    throw error;
   }
 };
 
@@ -346,6 +340,9 @@ export const downloadTestlibAction = async (
  *
  * @param {string} target - Target specification (testset name, group, or test index)
  * @param {string} [modifier] - Optional modifier (group name or test index)
+ * @param {{ json?: boolean }} [options] - With `json`, print a JSON report
+ *   (every test with its source and result) to stdout and human output to
+ *   stderr.
  *
  * @throws {Error} If Config.json is invalid
  * @throws {Error} If testset/group/test not found
@@ -373,8 +370,12 @@ export const downloadTestlibAction = async (
  */
 export const generateTestsAction = async (
   target: string,
-  modifier?: string
+  modifier?: string,
+  options: { json?: boolean } = {}
 ) => {
+  if (options.json) {
+    report.startGenerate();
+  }
   try {
     const config = readConfigFile();
     let stepNum = 1;
@@ -464,12 +465,13 @@ export const generateTestsAction = async (
         fmt.successBox(`TESTSET ${target.toUpperCase()} GENERATED!`);
       }
     }
+    report.finish(true);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     fmt.errorBox('TEST GENERATION FAILED!');
-    fmt.error(`${message}`);
-    fmt.newLine();
-    process.exit(1);
+    report.fail(message);
+    report.finish(false, exitCodeFor(error));
+    throw error;
   }
 };
 
@@ -479,6 +481,9 @@ export const generateTestsAction = async (
  *
  * @param {string} target - Target specification (testset name or 'all')
  * @param {string} [modifier] - Optional modifier (group name or test index)
+ * @param {{ json?: boolean }} [options] - With `json`, print a JSON report
+ *   (every test with valid or invalid and the validator message) to stdout
+ *   and human output to stderr.
  *
  * @throws {Error} If Config.json is invalid or missing validator
  * @throws {Error} If validator compilation fails
@@ -506,8 +511,12 @@ export const generateTestsAction = async (
  */
 export const validateTestsAction = async (
   target: string,
-  modifier?: string
+  modifier?: string,
+  options: { json?: boolean } = {}
 ) => {
+  if (options.json) {
+    report.startValidate();
+  }
   try {
     const config = readConfigFile();
     let stepNum = 1;
@@ -588,12 +597,13 @@ export const validateTestsAction = async (
         fmt.successBox(`TESTSET ${target.toUpperCase()} PASSED VALIDATION!`);
       }
     }
+    report.finish(true);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     fmt.errorBox('VALIDATION FAILED!');
-    fmt.error(`${message}`);
-    fmt.newLine();
-    process.exit(1);
+    report.fail(message);
+    report.finish(false, exitCodeFor(error));
+    throw error;
   }
 };
 
@@ -763,11 +773,9 @@ export const runSolutionAction = async (
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     fmt.errorBox('SOLUTION EXECUTION FAILED!');
-    fmt.error(`${message}`);
-    fmt.newLine();
     report.fail(message);
-    report.finish(false);
-    process.exit(1);
+    report.finish(false, exitCodeFor(error));
+    throw error;
   }
 };
 
@@ -777,6 +785,9 @@ export const runSolutionAction = async (
  * For solutions: Tests against main-correct solution using checker.
  *
  * @param {string} what - 'validator', 'checker', or solution name to test
+ * @param {{ json?: boolean }} [options] - With `json`, print a JSON report
+ *   to stdout (a self-test report for validator/checker, a solution test
+ *   report otherwise) and move human output to stderr
  * @returns {Promise<void>} Resolves when testing completes
  *
  * @throws {Error} If Config.json is invalid
@@ -801,7 +812,17 @@ export const runSolutionAction = async (
  * // Runs wa-solution and main solution, compares with checker
  * // Validates that wa-solution gets WA on at least one test
  */
-export const testWhatAction = async (what: string) => {
+export const testWhatAction = async (
+  what: string,
+  options: { json?: boolean } = {}
+) => {
+  if (options.json) {
+    if (what === 'validator' || what === 'checker') {
+      report.startSelfTest(what);
+    } else {
+      report.startSolutionTest(what);
+    }
+  }
   fmt.section(`🔍 TESTING: ${what.toUpperCase()}`);
 
   try {
@@ -847,6 +868,7 @@ export const testWhatAction = async (what: string) => {
         // step 1: Validate configuration
         const { mainSolution, targetSolution } =
           stepValidateConfigForSolutionTest(stepNum++, what);
+        report.setSolutionTest(mainSolution, targetSolution);
 
         // step 2: Compile solutions
         await stepCompileSolutions(stepNum++, [mainSolution, targetSolution]);
@@ -858,19 +880,26 @@ export const testWhatAction = async (what: string) => {
         }
 
         // step 4: Test solution behavior
-        await stepTestSolutionBehavior(stepNum++, what);
+        try {
+          await stepTestSolutionBehavior(stepNum++, what);
+        } catch (error) {
+          report.setSolutionOutcome(targetSolution, false, error);
+          throw error;
+        }
+        report.setSolutionOutcome(targetSolution, true, 'Behaves as expected');
 
         // Final success message
         fmt.successBox(`${what.toUpperCase()} BEHAVES AS EXPECTED!`);
         break;
       }
     }
+    report.finish(true);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     fmt.errorBox('TESTING FAILED!');
-    fmt.error(`${message}`);
-    fmt.newLine();
-    process.exit(1);
+    report.fail(message);
+    report.finish(false, exitCodeFor(error));
+    throw error;
   }
 };
 
@@ -991,12 +1020,10 @@ export const fullVerificationAction = async (
     const message = error instanceof Error ? error.message : String(error);
     logCacheSummary();
     fmt.errorBox('VERIFICATION FAILED!');
-    fmt.error(`${message}`);
     logWarningsSummary();
-    fmt.newLine();
     report.fail(message);
-    report.finish(false);
-    process.exit(1);
+    report.finish(false, exitCodeFor(error));
+    throw error;
   }
 };
 
@@ -1044,11 +1071,9 @@ export const listTestsetsAction = (options: { json?: boolean } = {}) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     fmt.errorBox('FAILED TO LIST TESTSETS!');
-    fmt.error(`${message}`);
-    fmt.newLine();
     report.fail(message);
-    report.finish(false);
-    process.exit(1);
+    report.finish(false, exitCodeFor(error));
+    throw error;
   }
 };
 
@@ -1123,11 +1148,9 @@ export const listSolutionsAction = (options: { json?: boolean } = {}) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     fmt.errorBox('FAILED TO LIST SOLUTIONS!');
-    fmt.error(`${message}`);
-    fmt.newLine();
     report.fail(message);
-    report.finish(false);
-    process.exit(1);
+    report.finish(false, exitCodeFor(error));
+    throw error;
   }
 };
 
@@ -1186,11 +1209,9 @@ export const listGeneratorsAction = (options: { json?: boolean } = {}) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     fmt.errorBox('FAILED TO LIST GENERATORS!');
-    fmt.error(`${message}`);
-    fmt.newLine();
     report.fail(message);
-    report.finish(false);
-    process.exit(1);
+    report.finish(false, exitCodeFor(error));
+    throw error;
   }
 };
 
@@ -1247,11 +1268,8 @@ export const cacheStatusAction = () => {
     }
     fmt.newLine();
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
     fmt.errorBox('FAILED TO READ CACHE!');
-    fmt.error(`${message}`);
-    fmt.newLine();
-    process.exit(1);
+    throw error;
   }
 };
 
@@ -1272,11 +1290,8 @@ export const cacheClearAction = () => {
       `  ${fmt.checkmark()} Cleared compilation cache (${removed} entr${removed === 1 ? 'y' : 'ies'} removed)`
     );
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
     fmt.errorBox('FAILED TO CLEAR CACHE!');
-    fmt.error(`${message}`);
-    fmt.newLine();
-    process.exit(1);
+    throw error;
   }
 };
 
@@ -1329,11 +1344,8 @@ export const registerApiKeyAndSecretAction = (
     );
     fmt.newLine();
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
     fmt.errorBox('REGISTRATION FAILED!');
-    fmt.error(`${message}`);
-    fmt.newLine();
-    process.exit(1);
+    throw error;
   }
 };
 
@@ -1393,11 +1405,8 @@ export const remoteListProblemsAction = async (
     // Final success message
     fmt.successBox('PROBLEMS LISTED SUCCESSFULLY!');
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
     fmt.errorBox('FAILED TO LIST PROBLEMS!');
-    fmt.error(`${message}`);
-    fmt.newLine();
-    process.exit(1);
+    throw error;
   }
 };
 
@@ -1530,11 +1539,8 @@ export const remotePullProblemAction = async (
     }
     fmt.newLine();
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
     fmt.errorBox('FAILED TO PULL PROBLEM!');
-    fmt.error(`${message}`);
-    fmt.newLine();
-    process.exit(1);
+    throw error;
   }
 };
 
@@ -1574,9 +1580,11 @@ export const remotePushProblemAction = async (
 ): Promise<void> => {
   fmt.section('⬆️  PUSH PROBLEM TO POLYGON');
 
+  const failures: string[] = [];
+  let pushedProblemId: number;
+
   try {
     let stepNum = 1;
-    const failures: string[] = [];
 
     // Determine what to push
     const hasSpecificOptions =
@@ -1766,38 +1774,33 @@ export const remotePushProblemAction = async (
       }
     }
 
-    fmt.newLine();
-    if (failures.length > 0) {
-      fmt.errorBox('PUSH COMPLETED WITH ERRORS');
-      fmt.error(`  ${failures.length} item(s) failed to upload:`);
-      for (const failure of failures) {
-        fmt.error(`   ${fmt.cross()} ${failure}`);
-      }
-      fmt.info(
-        `  ${fmt.infoIcon()} Problem ID: ${fmt.highlight(problemId.toString())}`
-      );
-      fmt.newLine();
-      process.exit(1);
-      return;
-    }
-
-    fmt.successBox('PROBLEM PUSHED SUCCESSFULLY!');
-    fmt.info(
-      `  ${fmt.infoIcon()} Problem ID: ${fmt.highlight(problemId.toString())}`
-    );
-    fmt.info(
-      `  ${fmt.infoIcon()} Don't forget to commit your changes on Polygon using: ${fmt.highlight('polyman remote commit')}`
-    );
-    fmt.newLine();
+    pushedProblemId = problemId;
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
     fmt.errorBox('FAILED TO PUSH PROBLEM!');
-    fmt.error(`${message}`);
-    fmt.newLine();
-    process.exit(
-      error instanceof NonInteractiveError ? EXIT_NON_INTERACTIVE : 1
-    );
+    throw error;
   }
+
+  fmt.newLine();
+  if (failures.length > 0) {
+    fmt.errorBox('PUSH COMPLETED WITH ERRORS');
+    fmt.error(`  ${failures.length} item(s) failed to upload:`);
+    for (const failure of failures) {
+      fmt.error(`   ${fmt.cross()} ${failure}`);
+    }
+    fmt.info(
+      `  ${fmt.infoIcon()} Problem ID: ${fmt.highlight(pushedProblemId.toString())}`
+    );
+    throw new PolymanError('Some items were not uploaded to Polygon', 4);
+  }
+
+  fmt.successBox('PROBLEM PUSHED SUCCESSFULLY!');
+  fmt.info(
+    `  ${fmt.infoIcon()} Problem ID: ${fmt.highlight(pushedProblemId.toString())}`
+  );
+  fmt.info(
+    `  ${fmt.infoIcon()} Don't forget to commit your changes on Polygon using: ${fmt.highlight('polyman remote commit')}`
+  );
+  fmt.newLine();
 };
 
 /**
@@ -1887,11 +1890,8 @@ export const remoteViewProblemAction = async (
     // Final success message
     fmt.successBox('PROBLEM DETAILS RETRIEVED!');
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
     fmt.errorBox('FAILED TO VIEW PROBLEM!');
-    fmt.error(`${message}`);
-    fmt.newLine();
-    process.exit(1);
+    throw error;
   }
 };
 
@@ -1937,11 +1937,8 @@ export const remoteCommitProblemAction = async (
     // Final success message
     fmt.successBox('CHANGES COMMITTED SUCCESSFULLY!');
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
     fmt.errorBox('FAILED TO COMMIT CHANGES!');
-    fmt.error(`${message}`);
-    fmt.newLine();
-    process.exit(1);
+    throw error;
   }
 };
 
@@ -2014,10 +2011,7 @@ export const remotePackageProblemAction = async (
     // fmt.info(`  ${fmt.infoIcon()} You can download the package from Polygon`);
     fmt.newLine();
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
     fmt.errorBox('PACKAGE OPERATION FAILED!');
-    fmt.error(`${message}`);
-    fmt.newLine();
-    process.exit(1);
+    throw error;
   }
 };

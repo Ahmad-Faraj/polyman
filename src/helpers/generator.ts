@@ -20,6 +20,7 @@ import { DEFAULT_TIMEOUT, DEFAULT_MEMORY_LIMIT } from './utils';
 import { quoteShellArgument } from './shell';
 import { fmt } from '../formatter';
 import { LimitExceededError, PolymanError } from '../errors';
+import { report } from '../report';
 import {
   parseGeneratorScript,
   readScriptText,
@@ -198,11 +199,15 @@ export async function compileGeneratorsForTestsets(
  *
  * Multi-output lines run once per unique line (not once per produced file)
  * and are expected to write all listed test files themselves.
+ *
+ * Every test's result is recorded for `generate --json` under `testsetName`
+ * (defaults to the name of `testsDir`).
  */
 export async function executeResolvedTests(
   tests: ResolvedTest[],
   generators: LocalGenerator[],
-  testsDir: string
+  testsDir: string,
+  testsetName: string = path.basename(testsDir)
 ): Promise<void> {
   ensureDirectoryExists(testsDir);
 
@@ -213,22 +218,52 @@ export async function executeResolvedTests(
 
   let someFailed = false;
   // Group multi-output tests by (generator, args, multiOutputs key) so we
-  // only invoke the generator once per source line.
-  const handled = new Set<string>();
+  // only invoke the generator once per source line. The value is the line's
+  // error message (null when it worked), so every test of the line gets the
+  // same result in the report.
+  const handled = new Map<string, string | null>();
+  // For a multi-output line that failed: the error of each index on it, or
+  // null when `test<idx>.txt` was written before the failure.
+  const lineResults = new Map<string, Map<number, string | null>>();
 
   for (const t of tests) {
+    let key: string | null = null;
+    // True once the stale output files of this multi-output line are gone,
+    // so any `test<idx>.txt` that exists after that was written by this run.
+    let cleared = false;
     try {
       if (t.source.kind === 'manual') {
         const dest = path.join(testsDir, `test${t.index}.txt`);
         await copyManualInput(t.source.inputFile, dest);
+        recordGenerated(testsetName, t, null);
         continue;
       }
 
       const src = t.source;
       if (src.multiOutputs) {
-        const key = `${src.generator}|${src.args.join(' ')}|${src.multiOutputs.join(',')}`;
-        if (handled.has(key)) continue;
-        handled.add(key);
+        key = `${src.generator}|${src.args.join(' ')}|${src.multiOutputs.join(',')}`;
+        if (handled.has(key)) {
+          const lineError = handled.get(key) ?? null;
+          recordGenerated(
+            testsetName,
+            t,
+            lineError === null
+              ? null
+              : errorForIndex(lineResults.get(key), t.index, lineError)
+          );
+          continue;
+        }
+        handled.set(key, null);
+
+        // The testset folder is not cleaned between runs. Remove the files an
+        // earlier run left for these indices, so a file is only accepted (on
+        // success) or counted as written (on failure) if this run wrote it.
+        for (const idx of src.multiOutputs) {
+          for (const name of multiOutputNames(idx)) {
+            fs.rmSync(path.join(testsDir, name), { force: true });
+          }
+        }
+        cleared = true;
 
         const compiledPath = compiled.get(src.generator);
         if (!compiledPath) {
@@ -237,13 +272,7 @@ export async function executeResolvedTests(
         await runGeneratorMultiOutput(compiledPath, src.args, testsDir);
         // Verify each promised file exists and rename to test<N>.txt convention.
         for (const idx of src.multiOutputs) {
-          const expectedNames = [
-            String(idx),
-            `${idx}`,
-            `test${idx}`,
-            `${idx}.txt`,
-            `test${idx}.txt`,
-          ];
+          const expectedNames = multiOutputNames(idx);
           let found: string | undefined;
           for (const candidate of expectedNames) {
             const p = path.join(testsDir, candidate);
@@ -271,13 +300,34 @@ export async function executeResolvedTests(
         const dest = path.join(testsDir, `test${t.index}.txt`);
         await runGeneratorToFile(compiledPath, src.args, dest);
       }
+      recordGenerated(testsetName, t, null);
     } catch (error) {
       if (error instanceof LimitExceededError) throw error;
       someFailed = true;
+      const message = (error as Error).message;
+      let testError: string | null = message;
+      if (key !== null && t.source.kind === 'generator') {
+        handled.set(key, message);
+        // A failed multi-output line may still have written some files:
+        // `ok` means "the input file was written", so judge each index by
+        // whether its file exists. That is only safe once the stale files
+        // are gone; otherwise every index keeps the line's error.
+        const indices = t.source.multiOutputs;
+        if (indices && cleared) {
+          const perIndex = new Map<number, string | null>();
+          for (const idx of indices) {
+            const written = fs.existsSync(
+              path.join(testsDir, `test${idx}.txt`)
+            );
+            perIndex.set(idx, written ? null : message);
+          }
+          lineResults.set(key, perIndex);
+          testError = errorForIndex(perIndex, t.index, message);
+        }
+      }
+      recordGenerated(testsetName, t, testError);
       fmt.error(
-        `  ${fmt.cross()} Test ${t.index} generation failed:\n\t${
-          (error as Error).message
-        }`
+        `  ${fmt.cross()} Test ${t.index} generation failed:\n\t${message}`
       );
     }
   }
@@ -285,6 +335,50 @@ export async function executeResolvedTests(
   if (someFailed) {
     throw new PolymanError('Some tests failed to generate', 1);
   }
+}
+
+/**
+ * File names a multi-output generator may write for one index, in the order
+ * they are looked up. The one found is renamed to `test<idx>.txt`.
+ */
+function multiOutputNames(idx: number): string[] {
+  return [`${idx}`, `test${idx}`, `${idx}.txt`, `test${idx}.txt`];
+}
+
+/**
+ * Error of one index on a failed multi-output line: `null` when its file was
+ * written, otherwise the per-index error (or the line's error as a fallback).
+ */
+function errorForIndex(
+  perIndex: Map<number, string | null> | undefined,
+  index: number,
+  lineError: string
+): string | null {
+  return perIndex?.has(index) ? (perIndex.get(index) ?? null) : lineError;
+}
+
+/**
+ * Records one test's generation result for `generate --json`.
+ */
+function recordGenerated(
+  testsetName: string,
+  test: ResolvedTest,
+  error: string | null
+): void {
+  const source = test.source;
+  report.recordGeneratedTest({
+    testset: testsetName,
+    index: test.index,
+    ...(source.kind === 'manual'
+      ? { source: 'manual' as const }
+      : {
+          source: 'generator' as const,
+          generator: source.generator,
+          args: [...source.args],
+        }),
+    ok: error === null,
+    ...(error === null ? {} : { error }),
+  });
 }
 
 async function copyManualInput(

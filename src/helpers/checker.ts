@@ -25,6 +25,7 @@ import { DEFAULT_TIMEOUT, DEFAULT_MEMORY_LIMIT } from './utils';
 import { quoteShellArgument } from './shell';
 import { fmt } from '../formatter';
 import { LimitExceededError, PolymanError } from '../errors';
+import { report } from '../report';
 
 /** Exit code testlib's `quitf(_wa, ...)` uses for a wrong answer. */
 const TESTLIB_WA_EXIT_CODE = 1;
@@ -105,6 +106,29 @@ function describeCheckerFailure(exitCode: number): string {
 }
 
 /**
+ * Names the verdict a checker gave from its exit code: 0 is OK, testlib's
+ * WA and PE codes are WRONG_ANSWER and PRESENTATION_ERROR, anything else is
+ * CRASHED.
+ */
+export function checkerVerdictForExitCode(exitCode: number): CheckerVerdict {
+  if (exitCode === 0) return 'OK';
+  if (exitCode === TESTLIB_WA_EXIT_CODE) return 'WRONG_ANSWER';
+  if (exitCode === TESTLIB_PE_EXIT_CODE) return 'PRESENTATION_ERROR';
+  return 'CRASHED';
+}
+
+/**
+ * Writes an expected checker verdict with its full name, so the short forms
+ * `WA` and `PE` (any letter case) compare with what the checker gave.
+ */
+export function normalizeCheckerVerdict(verdict: CheckerVerdict): string {
+  const upper = String(verdict).toUpperCase();
+  if (upper === 'WA') return 'WRONG_ANSWER';
+  if (upper === 'PE') return 'PRESENTATION_ERROR';
+  return upper;
+}
+
+/**
  * Raised by {@link runChecker} when a checker that was expected to accept the
  * output exits with testlib's presentation-error code. Any other checker
  * failure stays a plain `Error` and is treated as a wrong answer.
@@ -125,6 +149,7 @@ export class PresentationError extends Error {
  * @param {string} outputFilePath - Path to participant's output file
  * @param {string} answerFilePath - Path to jury's answer file
  * @param {CheckerVerdict} expectedVerdict - Expected verdict: OK, WRONG_ANSWER (or WA), PRESENTATION_ERROR (or PE), CRASHED (exit code 3 or a code testlib does not define, see isCrashedExitCode)
+ * @param {Function} [observe] - Called with the verdict the checker gave and its stderr, before it is compared with `expectedVerdict`
  *
  * @throws {PresentationError} If the checker was expected to return OK and exited with testlib's presentation-error code (2)
  * @throws {Error} If checker verdict doesn't match expected verdict (WRONG_ANSWER expects exit code 1, PRESENTATION_ERROR expects exit code 2, CRASHED expects exit code 3 or an undefined code)
@@ -144,10 +169,13 @@ export async function runChecker(
   inputFilePath: string,
   outputFilePath: string,
   answerFilePath: string,
-  expectedVerdict: CheckerVerdict
+  expectedVerdict: CheckerVerdict,
+  observe?: (actual: CheckerVerdict, message: string) => void
 ) {
   let didCatchInvalid = false;
   let failureExitCode = 0;
+  let checkerFailed = false;
+  let successStderr = '';
   await executor.execute(
     [
       execCommand,
@@ -159,7 +187,15 @@ export async function runChecker(
       timeout: DEFAULT_TIMEOUT,
       memoryLimitMB: DEFAULT_MEMORY_LIMIT,
       silent: true,
+      onSuccess: result => {
+        successStderr = result.stderr.trim();
+      },
       onError: result => {
+        checkerFailed = true;
+        observe?.(
+          checkerVerdictForExitCode(result.exitCode),
+          result.stderr.trim()
+        );
         if (expectedVerdict.toUpperCase() === 'OK') {
           const message = result.stderr || 'Expected OK but got WA';
           if (result.exitCode === TESTLIB_PE_EXIT_CODE) {
@@ -190,6 +226,7 @@ export async function runChecker(
       },
     }
   );
+  if (!checkerFailed) observe?.('OK', successStderr);
 
   if (String(expectedVerdict).toUpperCase() === 'CRASHED') {
     if (!didCatchInvalid) {
@@ -352,6 +389,9 @@ export async function runCheckerTests(checker: LocalChecker) {
       const inputFilePath = path.join(testsDir, `test${index + 1}_input.txt`);
       const outputFilePath = path.join(testsDir, `test${index + 1}_output.txt`);
       const answerFilePath = path.join(testsDir, `test${index + 1}_answer.txt`);
+      const expected = normalizeCheckerVerdict(test.expectedVerdict);
+      let actual = 'ERROR';
+      let detail = '';
 
       try {
         await runChecker(
@@ -359,11 +399,29 @@ export async function runCheckerTests(checker: LocalChecker) {
           inputFilePath,
           outputFilePath,
           answerFilePath,
-          test.expectedVerdict
+          test.expectedVerdict,
+          (verdict, message) => {
+            actual = verdict;
+            detail = message;
+          }
         );
+        report.recordSelfTestCase({
+          index: index + 1,
+          expected,
+          actual,
+          ok: true,
+          message: detail,
+        });
       } catch (error) {
         if (error instanceof LimitExceededError) throw error;
         someFailed = true;
+        report.recordSelfTestCase({
+          index: index + 1,
+          expected,
+          actual,
+          ok: false,
+          message: (error as Error).message,
+        });
         fmt.error(
           `  ${fmt.cross()} Checker Test ${index + 1} failed:\n\t${(error as Error).message}, expected to be ${test.expectedVerdict}`
         );

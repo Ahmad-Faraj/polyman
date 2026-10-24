@@ -1,5 +1,8 @@
 import { execFileSync } from 'node:child_process';
-import type { AutonomyConfig } from './config.ts';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { type AutonomyConfig, loadConfig } from './config.ts';
 import { matchesAny } from './glob.ts';
 import { GitLab, GitLabError, RATE_LIMIT_RETRIES, backOff, required } from './gitlab.ts';
 import { type BranchPush, type Note, type PushEvent, type Step, type Tier, type Verdict, attribute, branchPushes, goAheadFor, isProjectPerson } from './goahead.ts';
@@ -155,19 +158,7 @@ export async function checkMr(
     .filter((p) => !isPerson(p.pusher))
     .sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
 
-  // Agents may not change the pipeline, the policy or the engine. autonomy:guard
-  // checks this by commit email, which an agent can set; this checks it by who
-  // pushed. Only the incident responder may add to the incidents file.
-  for (const [sha, p] of by) {
-    if (isPerson(p.pusher)) continue;
-    // a merge commit's diff hides what it brings in, so agents push none
-    if (repo.parents(sha) > 1) {
-      problems.push({ text: `commit ${sha.slice(0, 8)} pushed by @${p.pusher} is a merge commit; agents may not push merges (a person merges the default branch in)`, push: p });
-      continue;
-    }
-    const touched = repo.files(sha).filter((f) => matchesAny(f, config.governance) && !(f === config.incidentsFile && isRollback(p.pusher)));
-    if (touched.length) problems.push({ text: `commit ${sha.slice(0, 8)} pushed by @${p.pusher} changes files only people may change: ${touched.join(', ')}`, push: p });
-  }
+  problems.push(...agentCommitProblems(by, config, repo));
 
   let issueNotes: Note[] | null = null;
   const checks: PushCheck[] = [];
@@ -193,6 +184,51 @@ export async function checkMr(
     if (!verdict.ok) problems.push({ text: line, push });
   }
   return { requesters, pushes: new Set(by.values()).size, agentPushes: checks, problems };
+}
+
+/**
+ * Agents may not change the pipeline, the policy or the engine. autonomy:guard
+ * checks this by commit email, which an agent can set; this checks it by who
+ * pushed. Only the incident responder may add to the incidents file. A merge
+ * commit's diff hides what it brings in, so agents push none.
+ */
+export function agentCommitProblems(by: Map<string, BranchPush>, config: AutonomyConfig, repo: Repo): { text: string; push: BranchPush }[] {
+  const problems: { text: string; push: BranchPush }[] = [];
+  for (const [sha, p] of by) {
+    if (isProjectPerson(p.pusher, config)) continue;
+    if (repo.parents(sha) > 1) {
+      problems.push({ text: `commit ${sha.slice(0, 8)} pushed by @${p.pusher} is a merge commit; agents may not push merges (a person merges the default branch in)`, push: p });
+      continue;
+    }
+    const touched = repo.files(sha).filter((f) => matchesAny(f, config.governance) && !(f === config.incidentsFile && isRollback(p.pusher)));
+    if (touched.length) problems.push({ text: `commit ${sha.slice(0, 8)} pushed by @${p.pusher} changes files only people may change: ${touched.join(', ')}`, push: p });
+  }
+  return problems;
+}
+
+/**
+ * The policy (who counts as a person, who may give a go-ahead, the protected
+ * paths) as `ref` has it: the target branch's, never the judged branch's own,
+ * which could add its author to the people list. Without a people list a guard
+ * can't tell a person from an agent, so it fails rather than guess by name.
+ */
+export function policyAt(ref: string, file: string, where = 'the target branch'): AutonomyConfig {
+  let policy: string | null = null;
+  try {
+    policy = execFileSync('git', ['show', `${ref}:${file}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  } catch {
+    // no policy there
+  }
+  if (policy === null) {
+    throw new Error(`${where} has no ${file}, so nobody is listed in go_ahead.people`);
+  }
+  const configPath = join(mkdtempSync(join(tmpdir(), 'goahead-')), '.autonomy.yml');
+  writeFileSync(configPath, policy);
+  const config = loadConfig(configPath);
+  if (!config.goAhead.people.length) {
+    throw new Error(`${where}'s ${file} lists no go_ahead.people, so nobody can give a go-ahead`);
+  }
+  return config;
 }
 
 /**

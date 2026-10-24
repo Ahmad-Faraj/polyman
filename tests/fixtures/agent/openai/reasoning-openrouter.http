@@ -1,0 +1,46 @@
+# source: https://openrouter.ai/docs/api-reference/streaming
+# source: https://openrouter.ai/docs/use-cases/reasoning-tokens
+# request: OpenRouter, model deepseek/deepseek-r1, stream: true. Reasoning comes in delta.reasoning, and ": OPENROUTER PROCESSING" lines are SSE comments
+# Written from the docs, not recorded. Replace it with a real recording (#79).
+HTTP/1.1 200 OK
+content-type: text/event-stream
+x-generation-id: gen-1761300000-Kq8vT2mX9pLr4NcW
+
+: OPENROUTER PROCESSING
+
+data: {"id":"gen-1761300000-Kq8vT2mX9pLr4NcW","provider":"DeepInfra","model":"deepseek/deepseek-r1","object":"chat.completion.chunk","created":1761300000,"choices":[{"index":0,"delta":{"role":"assistant","content":"","reasoning":"The user","reasoning_details":[{"type":"reasoning.text","text":"The user","format":"unknown","index":0}]},"finish_reason":null,"native_finish_reason":null,"logprobs":null}]}
+
+data: {"id":"gen-1761300000-Kq8vT2mX9pLr4NcW","provider":"DeepInfra","model":"deepseek/deepseek-r1","object":"chat.completion.chunk","created":1761300000,"choices":[{"index":0,"delta":{"role":"assistant","content":"","reasoning":" wants","reasoning_details":[{"type":"reasoning.text","text":" wants","format":"unknown","index":0}]},"finish_reason":null,"native_finish_reason":null,"logprobs":null}]}
+
+data: {"id":"gen-1761300000-Kq8vT2mX9pLr4NcW","provider":"DeepInfra","model":"deepseek/deepseek-r1","object":"chat.completion.chunk","created":1761300000,"choices":[{"index":0,"delta":{"role":"assistant","content":"","reasoning":" a","reasoning_details":[{"type":"reasoning.text","text":" a","format":"unknown","index":0}]},"finish_reason":null,"native_finish_reason":null,"logprobs":null}]}
+
+: OPENROUTER PROCESSING
+
+data: {"id":"gen-1761300000-Kq8vT2mX9pLr4NcW","provider":"DeepInfra","model":"deepseek/deepseek-r1","object":"chat.completion.chunk","created":1761300000,"choices":[{"index":0,"delta":{"role":"assistant","content":"","reasoning":" generator","reasoning_details":[{"type":"reasoning.text","text":" generator","format":"unknown","index":0}]},"finish_reason":null,"native_finish_reason":null,"logprobs":null}]}
+
+data: {"id":"gen-1761300000-Kq8vT2mX9pLr4NcW","provider":"DeepInfra","model":"deepseek/deepseek-r1","object":"chat.completion.chunk","created":1761300000,"choices":[{"index":0,"delta":{"role":"assistant","content":"","reasoning":" for","reasoning_details":[{"type":"reasoning.text","text":" for","format":"unknown","index":0}]},"finish_reason":null,"native_finish_reason":null,"logprobs":null}]}
+
+data: {"id":"gen-1761300000-Kq8vT2mX9pLr4NcW","provider":"DeepInfra","model":"deepseek/deepseek-r1","object":"chat.completion.chunk","created":1761300000,"choices":[{"index":0,"delta":{"role":"assistant","content":"","reasoning":" random","reasoning_details":[{"type":"reasoning.text","text":" random","format":"unknown","index":0}]},"finish_reason":null,"native_finish_reason":null,"logprobs":null}]}
+
+data: {"id":"gen-1761300000-Kq8vT2mX9pLr4NcW","provider":"DeepInfra","model":"deepseek/deepseek-r1","object":"chat.completion.chunk","created":1761300000,"choices":[{"index":0,"delta":{"role":"assistant","content":"","reasoning":" arrays","reasoning_details":[{"type":"reasoning.text","text":" arrays","format":"unknown","index":0}]},"finish_reason":null,"native_finish_reason":null,"logprobs":null}]}
+
+data: {"id":"gen-1761300000-Kq8vT2mX9pLr4NcW","provider":"DeepInfra","model":"deepseek/deepseek-r1","object":"chat.completion.chunk","created":1761300000,"choices":[{"index":0,"delta":{"role":"assistant","content":"","reasoning":".","reasoning_details":[{"type":"reasoning.text","text":".","format":"unknown","index":0}]},"finish_reason":null,"native_finish_reason":null,"logprobs":null}]}
+
+data: {"id":"gen-1761300000-Kq8vT2mX9pLr4NcW","provider":"DeepInfra","model":"deepseek/deepseek-r1","object":"chat.completion.chunk","created":1761300000,"choices":[{"index":0,"delta":{"role":"assistant","content":"Use","reasoning":null},"finish_reason":null,"native_finish_reason":null,"logprobs":null}]}
+
+data: {"id":"gen-1761300000-Kq8vT2mX9pLr4NcW","provider":"DeepInfra","model":"deepseek/deepseek-r1","object":"chat.completion.chunk","created":1761300000,"choices":[{"index":0,"delta":{"role":"assistant","content":" rnd.next(1, n)","reasoning":null},"finish_reason":null,"native_finish_reason":null,"logprobs":null}]}
+
+data: {"id":"gen-1761300000-Kq8vT2mX9pLr4NcW","provider":"DeepInfra","model":"deepseek/deepseek-r1","object":"chat.completion.chunk","created":1761300000,"choices":[{"index":0,"delta":{"role":"assistant","content":" for","reasoning":null},"finish_reason":null,"native_finish_reason":null,"logprobs":null}]}
+
+data: {"id":"gen-1761300000-Kq8vT2mX9pLr4NcW","provider":"DeepInfra","model":"deepseek/deepseek-r1","object":"chat.completion.chunk","created":1761300000,"choices":[{"index":0,"delta":{"role":"assistant","content":" each","reasoning":null},"finish_reason":null,"native_finish_reason":null,"logprobs":null}]}
+
+data: {"id":"gen-1761300000-Kq8vT2mX9pLr4NcW","provider":"DeepInfra","model":"deepseek/deepseek-r1","object":"chat.completion.chunk","created":1761300000,"choices":[{"index":0,"delta":{"role":"assistant","content":" value","reasoning":null},"finish_reason":null,"native_finish_reason":null,"logprobs":null}]}
+
+data: {"id":"gen-1761300000-Kq8vT2mX9pLr4NcW","provider":"DeepInfra","model":"deepseek/deepseek-r1","object":"chat.completion.chunk","created":1761300000,"choices":[{"index":0,"delta":{"role":"assistant","content":".","reasoning":null},"finish_reason":null,"native_finish_reason":null,"logprobs":null}]}
+
+data: {"id":"gen-1761300000-Kq8vT2mX9pLr4NcW","provider":"DeepInfra","model":"deepseek/deepseek-r1","object":"chat.completion.chunk","created":1761300000,"choices":[{"index":0,"delta":{"role":"assistant","content":"","reasoning":null},"finish_reason":"stop","native_finish_reason":"stop","logprobs":null}]}
+
+data: {"id":"gen-1761300000-Kq8vT2mX9pLr4NcW","provider":"DeepInfra","model":"deepseek/deepseek-r1","object":"chat.completion.chunk","created":1761300000,"choices":[],"usage":{"prompt_tokens":280,"completion_tokens":14,"total_tokens":294,"cost":0.0001792,"prompt_tokens_details":{"cached_tokens":0},"completion_tokens_details":{"reasoning_tokens":8}}}
+
+data: [DONE]
+

@@ -3,6 +3,7 @@ import * as remoteUtils from '../../../src/helpers/remote/utils';
 import fs from 'fs';
 import path from 'path';
 import { PolygonSDK } from '../../../src/polygon';
+import { PolymanError } from '../../../src/errors';
 import type { Problem, ProblemInfo } from '../../../src/types';
 
 vi.mock('fs');
@@ -148,6 +149,35 @@ describe('remote/utils.ts', () => {
       });
       expect(() => remoteUtils.readCredentials()).toThrow(
         /API secret not found/
+      );
+    });
+
+    it.each([
+      ['no api_key file', () => false],
+      ['no secret_key file', (p: fs.PathLike) => String(p).includes('api_key')],
+    ])(
+      'should fail with exit code 3 and name the register command when there is %s',
+      (_label, exists) => {
+        vi.mocked(fs.existsSync).mockImplementation(exists);
+        let error: unknown;
+        try {
+          remoteUtils.readCredentials();
+        } catch (e) {
+          error = e;
+        }
+        expect(error).toBeInstanceOf(PolymanError);
+        expect((error as PolymanError).exitCode).toBe(3);
+        expect((error as PolymanError).message).toContain(
+          'polyman remote register'
+        );
+      }
+    );
+
+    it('should fail with exit code 3 if credentials are empty', () => {
+      vi.mocked(fs.existsSync).mockReturnValue(true);
+      vi.mocked(fs.readFileSync).mockReturnValue('   ');
+      expect(() => remoteUtils.readCredentials()).toThrow(
+        expect.objectContaining({ exitCode: 3 })
       );
     });
 
