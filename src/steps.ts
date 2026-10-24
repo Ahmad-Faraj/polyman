@@ -1658,7 +1658,7 @@ export async function stepGetValidProblemName(
         if (problemName) {
           const message = `Invalid problem name "${problemName}". ${PROBLEM_NAME_RULE}`;
           if (strict) {
-            throw new Error(message);
+            throw new PolymanError(message, 2);
           }
           fmt.error(`  ${message}`);
         }
@@ -1682,7 +1682,7 @@ export async function stepGetValidProblemName(
   }
 
   if (!problemName) {
-    throw new Error('Problem name is required');
+    throw new PolymanError('Problem name is required', 2);
   }
 
   fmt.info(`  ${fmt.infoIcon()} Problem name: ${fmt.highlight(problemName)}`);

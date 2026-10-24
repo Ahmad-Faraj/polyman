@@ -1737,6 +1737,28 @@ describe('steps.ts', () => {
       );
     });
 
+    it('fails with exit code 2 on an invalid --name', async () => {
+      vi.mocked(utils.stdinIsInteractive).mockReturnValue(false);
+      const error: unknown = await steps
+        .stepGetValidProblemName(1, sdkWith([]), undefined, {
+          explicitName: 'Two Sum',
+        })
+        .catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(PolymanError);
+      expect((error as PolymanError).exitCode).toBe(2);
+    });
+
+    it('keeps exit code 1 for a --name that already exists on Polygon', async () => {
+      vi.mocked(utils.stdinIsInteractive).mockReturnValue(false);
+      const error: unknown = await steps
+        .stepGetValidProblemName(1, sdkWith(['two-sum']), undefined, {
+          explicitName: 'two-sum',
+        })
+        .catch((e: unknown) => e);
+      expect((error as Error).message).toContain('already exists on Polygon');
+      expect((error as { exitCode?: number }).exitCode).not.toBe(2);
+    });
+
     it('rejects a --name that already exists on Polygon', async () => {
       vi.mocked(utils.stdinIsInteractive).mockReturnValue(true);
       await expect(
