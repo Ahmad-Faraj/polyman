@@ -317,11 +317,34 @@ export function stripCppExtension(filePath: string): string {
 }
 
 /**
+ * Reads the C++ standard named in a Polygon `sourceType`, for example
+ * `cpp.g++17` or `cpp.gcc14-64-msys2-g++23`. Types that name no standard
+ * (`cpp.ms2017`, `java21`, ...) give `undefined`.
+ *
+ * @param {string} [sourceType] - Polygon compiler identifier
+ * @returns {string | undefined} A value usable as `-std=<value>`, or
+ *   undefined when the type names no C++ standard
+ *
+ * @example
+ * cppStandardFromSourceType('cpp.g++17'); // 'c++17'
+ * cppStandardFromSourceType('cpp.clang++20'); // 'c++20'
+ * cppStandardFromSourceType('cpp.ms2019'); // undefined
+ */
+export function cppStandardFromSourceType(
+  sourceType?: string
+): string | undefined {
+  if (typeof sourceType !== 'string') return undefined;
+  const match = /^cpp\..*\+\+(\d{2})$/.exec(sourceType.trim());
+  return match ? `c++${match[1]}` : undefined;
+}
+
+/**
  * Resolves the C++ standard to compile with. Reads `cppStandard` from the
  * `Config.json` in the current directory when one exists and falls back to
- * {@link DEFAULT_CPP_STANDARD} when the file is missing, unreadable, or does
- * not set the field.
+ * `fallback` when the file is missing, unreadable, or does not set the field.
  *
+ * @param {string} [fallback=DEFAULT_CPP_STANDARD] - Standard used when
+ *   `Config.json` sets no `cppStandard`
  * @returns {string} A value usable as `-std=<value>`
  *
  * @throws {Error} If `cppStandard` is set but is not a recognised standard
@@ -330,16 +353,18 @@ export function stripCppExtension(filePath: string): string {
  * // Config.json: { "cppStandard": "c++20", ... }
  * resolveCppStandard(); // 'c++20'
  */
-export function resolveCppStandard(): string {
+export function resolveCppStandard(
+  fallback: string = DEFAULT_CPP_STANDARD
+): string {
   let configured: unknown;
   try {
     configured = readConfigFile().cppStandard;
   } catch {
-    return DEFAULT_CPP_STANDARD;
+    return fallback;
   }
 
   if (configured === undefined) {
-    return DEFAULT_CPP_STANDARD;
+    return fallback;
   }
   if (
     typeof configured !== 'string' ||

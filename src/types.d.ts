@@ -414,7 +414,7 @@ interface TimeLimitMultipliers {
  * @property {string} inputFile - Input file name
  * @property {string} outputFile - Output file name
  * @property {boolean} interactive - Whether problem is interactive
- * @property {string} [cppStandard] - C++ standard for local compilation, passed as `-std=` (default `c++23`)
+ * @property {string} [cppStandard] - C++ standard for local compilation, passed as `-std=` (default: the standard in a C++ solution's `sourceType`, else `c++23`)
  * @property {string[]} [tags] - Problem tags/categories
  * @property {string} [description] - General problem description
  * @property {string} [tutorial] - General tutorial text
@@ -508,7 +508,9 @@ interface CompilerConfig {
  * @property {string} name - Solution name/identifier
  * @property {string} source - Path to solution source file
  * @property {SolutionTag} tag - Expected behavior tag
- * @property {SolutionSourceType} [sourceType] - Language/compiler (C++, Java, or Python)
+ * @property {SolutionSourceType} [sourceType] - Language/compiler (C++, Java, or Python).
+ *   For C++, the standard in it (`cpp.g++17` gives `c++17`) is also used
+ *   locally when `Config.json` sets no `cppStandard`
  */
 interface LocalSolution {
   name: string;

@@ -19,6 +19,7 @@ import type {
   Test,
   File,
   RemoteAction,
+  TestlibSourceType,
 } from './types';
 import {
   readCredentials,
@@ -1216,6 +1217,15 @@ export async function stepDownloadProblemFilesAndSetUpConfig(
       : [validatorResult.data.name, checkerResult.data.name]
   );
   downloadCount += generatorsResult.count;
+
+  // Keep the Polygon compiler of the checker and the validator
+  for (const result of [checkerResult, validatorResult]) {
+    const sourceType =
+      generatorsResult.sourceTypes[path.basename(result.data.source)];
+    if (result.count > 0 && typeof sourceType === 'string' && sourceType) {
+      result.data.sourceType = sourceType as TestlibSourceType;
+    }
+  }
 
   // Download statements
   const statementsResult = await downloadStatements(sdk, problemId, problemDir);

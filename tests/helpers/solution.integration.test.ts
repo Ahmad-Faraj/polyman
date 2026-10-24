@@ -11,6 +11,7 @@ import {
   resetCompileCacheState,
 } from '../../src/helpers/compile-cache';
 import {
+  compileAllSolutions,
   compileSolution,
   runSolutionOnAllTestsets,
   startTheComparisonProcess,
@@ -275,4 +276,110 @@ describe('solution.ts integration: blank output scan', () => {
       /Main solution "main" printed nothing/
     );
   });
+});
+
+/** Prints the C++ standard it was built with, from `__cplusplus`. */
+const STANDARD_PROBE = `#include <cstdio>
+int main() {
+#if __cplusplus > 202002L
+  std::puts("c++23");
+#elif __cplusplus > 201703L
+  std::puts("c++20");
+#elif __cplusplus > 201402L
+  std::puts("c++17");
+#else
+  std::puts("c++14 or older");
+#endif
+#ifdef ONLINE_JUDGE
+  std::puts("ONLINE_JUDGE");
+#endif
+}
+`;
+
+/**
+ * Builds an `OK` solution with `sourceType: cpp.g++17` in a fresh problem
+ * directory with the given Config.json fields, runs it and returns the
+ * lines it prints.
+ */
+async function runStandardProbe(
+  config: Record<string, unknown>
+): Promise<string[]> {
+  const originalCwd = process.cwd();
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'polyman-std-'));
+  const solution: LocalSolution = {
+    name: 'second',
+    source: 'solutions/second.cpp',
+    tag: 'OK',
+    sourceType: 'cpp.g++17',
+  };
+
+  try {
+    process.chdir(tmpDir);
+    resetCompileCacheState();
+    fs.writeFileSync(
+      path.join(tmpDir, 'Config.json'),
+      JSON.stringify({ solutions: [solution], ...config })
+    );
+    fs.mkdirSync(path.join(tmpDir, 'solutions'));
+    fs.writeFileSync(path.join(tmpDir, solution.source), STANDARD_PROBE);
+
+    await compileAllSolutions([solution]);
+    const result = await executor.execute(getCompiledCommandToRun(solution), {
+      timeout: 1000,
+      silent: true,
+    });
+    return result.stdout.trim().split('\n');
+  } finally {
+    process.chdir(originalCwd);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+}
+
+/** The C++ standard the probe solution was built with. */
+async function standardBuiltWith(
+  config: Record<string, unknown>
+): Promise<string | undefined> {
+  return (await runStandardProbe(config))[0];
+}
+
+describe('solution.ts integration: C++ standard from sourceType', () => {
+  // These tests use process.chdir(), see the ONLINE_JUDGE test above.
+  const skip = process.platform === 'win32' || !hasGpp() || !isMainThread;
+
+  it.skipIf(skip)(
+    'builds a cpp.g++17 solution as C++17 when Config.json sets no standard',
+    async () => {
+      expect(await standardBuiltWith({})).toBe('c++17');
+    },
+    30_000
+  );
+
+  it.skipIf(skip)(
+    'lets cppStandard in Config.json win over sourceType',
+    async () => {
+      expect(await standardBuiltWith({ cppStandard: 'c++20' })).toBe('c++20');
+    },
+    30_000
+  );
+
+  it.skipIf(skip)(
+    'lets a -std= item in compiler.flags win over cppStandard and sourceType',
+    async () => {
+      expect(
+        await standardBuiltWith({
+          cppStandard: 'c++20',
+          compiler: { flags: ['-std=c++14'] },
+        })
+      ).toBe('c++14 or older');
+    },
+    30_000
+  );
+
+  it.skipIf(skip)(
+    'builds a cpp.g++17 solution with both C++17 and ONLINE_JUDGE',
+    async () => {
+      expect(await runStandardProbe({})).toEqual(['c++17', 'ONLINE_JUDGE']);
+    },
+    30_000
+  );
 });

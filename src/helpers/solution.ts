@@ -19,7 +19,9 @@ import { logError, throwError } from './utils';
 import {
   compileCPP,
   compileJava,
+  cppStandardFromSourceType,
   isCppSource,
+  resolveCppStandard,
   readConfigFile,
   readFirstLine,
   getTestFiles,
@@ -124,7 +126,8 @@ export interface SolutionTimeLimit {
  * Works out which language a solution runs as locally. Only the file
  * extension decides, with the same checks `getCompiledCommandToRun` uses to
  * pick the program, so the factor always matches how the file is really run.
- * `sourceType` is ignored here: it only picks the compiler on Polygon.
+ * `sourceType` is ignored here: it does not change the language, it can only
+ * pick the C++ standard (see {@link compileSolution}).
  *
  * @param {LocalSolution} solution - Solution configuration
  * @returns {SolutionLanguage | undefined} The language, or undefined if polyman cannot tell
@@ -448,7 +451,13 @@ function ensureOutputDirectory(
  * C++ is compiled with `-DONLINE_JUDGE`, like Codeforces does.
  * For interpreted languages, returns the interpreter command.
  *
+ * The C++ standard comes from, in order: a `-std=` item in
+ * `compiler.flags`, `cppStandard` in `Config.json`, the standard named in
+ * the solution's `sourceType` (`cpp.g++17` gives `c++17`), then
+ * the default `c++23`.
+ *
  * @param {string} sourcePath - Path to solution source file
+ * @param {string} [sourceType] - The solution's Polygon `sourceType`
  * @returns {Promise<void>} Resolves when compilation completes
  *
  * @throws {Error} If compilation fails
@@ -462,9 +471,15 @@ function ensureOutputDirectory(
  * await compileSolution('Solution.py')
  * // No compilation needed (interpreted)
  */
-export async function compileSolution(sourcePath: string): Promise<void> {
+export async function compileSolution(
+  sourcePath: string,
+  sourceType?: string
+): Promise<void> {
   if (isCppSource(sourcePath)) {
-    await compileCPP(sourcePath, { onlineJudge: true });
+    await compileCPP(sourcePath, {
+      cppStandard: resolveCppStandard(cppStandardFromSourceType(sourceType)),
+      onlineJudge: true,
+    });
     return;
   }
 
@@ -513,7 +528,7 @@ export async function compileAllSolutions(
     while (!failed && next < solutions.length) {
       const solution = solutions[next++];
       try {
-        await compileSolution(solution.source);
+        await compileSolution(solution.source, solution.sourceType);
       } catch (err) {
         failed = true;
         throw err;
