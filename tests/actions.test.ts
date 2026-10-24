@@ -636,6 +636,223 @@ describe('actions.ts', () => {
       expect(formatter.fmt.errorBox).toHaveBeenCalled();
       expect(process.exit).not.toHaveBeenCalled();
     });
+
+    it('should rethrow a PolymanError with its code and leave the exit to cli.ts', async () => {
+      const thrown = new PolymanError('No checker defined', 2);
+      vi.mocked(utils.readConfigFile).mockReturnValue({} as any);
+      vi.mocked(steps.stepValidateConfigForChecker).mockImplementationOnce(
+        () => {
+          throw thrown;
+        }
+      );
+      const error = await failure(actions.testWhatAction('checker'));
+      expect(error).toBe(thrown);
+      expect(exitCodeFor(error)).toBe(2);
+      expect(formatter.fmt.error).not.toHaveBeenCalled();
+      expect(process.exit).not.toHaveBeenCalled();
+    });
+
+    it('should not write a report without --json', async () => {
+      vi.mocked(utils.readConfigFile).mockReturnValue({} as any);
+      await actions.testWhatAction('validator');
+      expect(fs.writeSync).not.toHaveBeenCalled();
+      expect(formatter.fmt.setOutput).not.toHaveBeenCalled();
+    });
+
+    it('should emit a self-test report for test validator --json', async () => {
+      vi.mocked(utils.readConfigFile).mockReturnValue({} as any);
+      vi.mocked(steps.stepTestValidator).mockImplementationOnce(async () => {
+        report.recordSelfTestCase({
+          index: 1,
+          expected: 'INVALID',
+          actual: 'INVALID',
+          ok: true,
+          message: 'FAIL Expected integer',
+        });
+        await Promise.resolve();
+      });
+      await actions.testWhatAction('validator', { json: true });
+      expect(formatter.fmt.setOutput).toHaveBeenCalledWith('stderr');
+      const doc = writtenJson();
+      expect(doc).toMatchObject({
+        schemaVersion: 1,
+        command: 'test validator',
+        ok: true,
+        exitCode: 0,
+        errors: [],
+        target: 'validator',
+        cases: [
+          {
+            index: 1,
+            expected: 'INVALID',
+            actual: 'INVALID',
+            ok: true,
+            message: 'FAIL Expected integer',
+          },
+        ],
+      });
+      expect(process.exit).not.toHaveBeenCalled();
+    });
+
+    it('should emit a failed self-test report with the exit code for test checker --json', async () => {
+      vi.mocked(utils.readConfigFile).mockReturnValue({} as any);
+      vi.mocked(steps.stepTestChecker).mockImplementationOnce(async () => {
+        report.recordSelfTestCase({
+          index: 2,
+          expected: 'WRONG_ANSWER',
+          actual: 'OK',
+          ok: false,
+          message: 'Expected WRONG_ANSWER but got OK',
+        });
+        await Promise.resolve();
+        throw new PolymanError('Some checker tests failed', 1);
+      });
+      await expect(
+        actions.testWhatAction('checker', { json: true })
+      ).rejects.toThrow('Some checker tests failed');
+      const doc = writtenJson();
+      expect(doc).toMatchObject({
+        command: 'test checker',
+        ok: false,
+        exitCode: 1,
+        target: 'checker',
+        cases: [
+          { index: 2, expected: 'WRONG_ANSWER', actual: 'OK', ok: false },
+        ],
+      });
+      expect(doc.errors).toContain('Some checker tests failed');
+      expect(process.exit).not.toHaveBeenCalled();
+    });
+
+    it('should report exit code 2 in the JSON for a usage error', async () => {
+      vi.mocked(utils.readConfigFile).mockReturnValue({} as any);
+      vi.mocked(steps.stepValidateConfigForValidator).mockImplementationOnce(
+        () => {
+          throw new PolymanError('No validator defined', 2);
+        }
+      );
+      await expect(
+        actions.testWhatAction('validator', { json: true })
+      ).rejects.toThrow('No validator defined');
+      expect(writtenJson()).toMatchObject({
+        ok: false,
+        exitCode: 2,
+        cases: [],
+        errors: ['No validator defined'],
+      });
+      expect(process.exit).not.toHaveBeenCalled();
+    });
+
+    describe('test <solution> --json', () => {
+      const mainSol: LocalSolution = {
+        name: 'main',
+        source: 'main.cpp',
+        tag: 'MA',
+        sourceType: 'cpp.g++17',
+      };
+      const waSol: LocalSolution = {
+        name: 'wa',
+        source: 'wa.cpp',
+        tag: 'WA',
+        sourceType: 'cpp.g++17',
+      };
+
+      beforeEach(() => {
+        vi.mocked(utils.readConfigFile).mockReturnValue({} as any);
+        vi.mocked(steps.stepValidateConfigForSolutionTest).mockReturnValue({
+          mainSolution: mainSol,
+          targetSolution: waSol,
+        });
+      });
+
+      it('should report the target tests compared with the main solution', async () => {
+        vi.mocked(steps.stepTestSolutionBehavior).mockImplementationOnce(
+          async () => {
+            report.recordTest(mainSol, {
+              testset: 'tests',
+              index: 1,
+              verdict: 'OK',
+              timeMs: 2,
+              message: '',
+            });
+            report.recordTest(waSol, {
+              testset: 'tests',
+              index: 1,
+              verdict: 'OK',
+              timeMs: 3,
+              message: '',
+            });
+            report.updateTestVerdict(waSol, 'tests', 1, 'WA', 'wrong 1st');
+            await Promise.resolve();
+          }
+        );
+        await actions.testWhatAction('wa', { json: true });
+        const doc = writtenJson();
+        expect(doc).toMatchObject({
+          command: 'test',
+          ok: true,
+          exitCode: 0,
+          solution: 'wa',
+          tag: 'WA',
+          mainSolution: 'main',
+          matchesTag: true,
+          reason: 'Behaves as expected',
+          tests: [
+            {
+              testset: 'tests',
+              index: 1,
+              verdict: 'WA',
+              timeMs: 3,
+              message: 'wrong 1st',
+            },
+          ],
+          summary: { total: 1, byVerdict: { WA: 1 } },
+          errors: [],
+        });
+        expect(process.exit).not.toHaveBeenCalled();
+      });
+
+      it('should report a tag mismatch as matchesTag false and exit 1', async () => {
+        vi.mocked(steps.stepTestSolutionBehavior).mockRejectedValueOnce(
+          new Error('Solution wa marked as WA but did not get Wrong Answer')
+        );
+        await expect(
+          actions.testWhatAction('wa', { json: true })
+        ).rejects.toThrow('did not get Wrong Answer');
+        const doc = writtenJson();
+        expect(doc).toMatchObject({
+          command: 'test',
+          ok: false,
+          exitCode: 1,
+          matchesTag: false,
+          reason: 'Solution wa marked as WA but did not get Wrong Answer',
+        });
+        expect(doc.errors).toContain(
+          'Solution wa marked as WA but did not get Wrong Answer'
+        );
+        expect(process.exit).not.toHaveBeenCalled();
+      });
+
+      it('should report an unknown solution before any comparison', async () => {
+        vi.mocked(
+          steps.stepValidateConfigForSolutionTest
+        ).mockImplementationOnce(() => {
+          throw new Error('No solution named "nope" found.');
+        });
+        await expect(
+          actions.testWhatAction('nope', { json: true })
+        ).rejects.toThrow('No solution named "nope" found.');
+        expect(writtenJson()).toMatchObject({
+          command: 'test',
+          ok: false,
+          solution: 'nope',
+          mainSolution: null,
+          matchesTag: false,
+          tests: [],
+          errors: ['No solution named "nope" found.'],
+        });
+      });
+    });
   });
 
   describe('fullVerificationAction', () => {

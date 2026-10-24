@@ -20,8 +20,12 @@ import type {
   LocalSolution,
   PathReport,
   RunReport,
+  SelfTestCase,
+  SelfTestReport,
+  SelfTestTarget,
   SolutionResult,
   SolutionTag,
+  SolutionTestReport,
   StepResult,
   TestResult,
   TestVerdict,
@@ -56,6 +60,15 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** Counts tests per verdict for the `summary` of a run-like report. */
+function summarize(tests: TestResult[]): RunReport['summary'] {
+  const byVerdict: Partial<Record<TestVerdict, number>> = {};
+  for (const test of tests) {
+    byVerdict[test.verdict] = (byVerdict[test.verdict] ?? 0) + 1;
+  }
+  return { total: tests.length, byVerdict };
+}
+
 interface SolutionEntry {
   name: string;
   tag: SolutionTag;
@@ -64,7 +77,13 @@ interface SolutionEntry {
   tests: TestResult[];
 }
 
-type SimpleKind = 'path' | 'list' | 'generate' | 'validate';
+type SimpleKind =
+  | 'path'
+  | 'list'
+  | 'generate'
+  | 'validate'
+  | 'selftest'
+  | 'solution-test';
 
 interface SimpleOutput {
   kind: SimpleKind;
@@ -73,6 +92,9 @@ interface SimpleOutput {
   items: unknown[];
   generated: GeneratedTestResult[];
   validated: ValidatedTestResult[];
+  target: SelfTestTarget;
+  cases: SelfTestCase[];
+  mainSolution: string | null;
 }
 
 interface ActiveReport {
@@ -170,6 +192,41 @@ export class ReportCollector {
       ...result,
       message: stripAnsi(result.message).trim(),
     });
+  }
+
+  /**
+   * Begin collecting a `test validator` / `test checker` report. Helpers add
+   * each case with `recordSelfTestCase`.
+   */
+  startSelfTest(target: SelfTestTarget): void {
+    this.start(`test ${target}`, '', 'selftest');
+    if (this.active?.simple) this.active.simple.target = target;
+  }
+
+  /**
+   * Begin collecting a `test <solution>` report. Attach the solutions with
+   * `setSolutionTest`; the target's tests are recorded like in `run`.
+   */
+  startSolutionTest(solutionName: string): void {
+    this.start('test', solutionName, 'solution-test');
+  }
+
+  /** Records one validator or checker self-test case. */
+  recordSelfTestCase(testCase: SelfTestCase): void {
+    if (this.active?.simple?.kind !== 'selftest') return;
+    this.active.simple.cases.push({
+      ...testCase,
+      message: stripAnsi(testCase.message).trim(),
+    });
+  }
+
+  /**
+   * Records the main and the target solution of a `test <solution>` report.
+   */
+  setSolutionTest(main: LocalSolution, target: LocalSolution): void {
+    if (this.active?.simple?.kind !== 'solution-test') return;
+    this.active.simple.mainSolution = main.name;
+    this.setRunSolutions([target]);
   }
 
   /** Sets the `path` of a path report. */
@@ -310,8 +367,7 @@ export class ReportCollector {
    *
    * @param ok - Whether the command succeeded
    * @param exitCode - The code the process will exit with, shown as
-   *   `exitCode` in the `new`, `download-testlib`, `list`, `generate` and
-   *   `validate` reports.
+   *   `exitCode` in every report except `run` and `verify`.
    *   Defaults to 0 when ok and 1 otherwise.
    */
   finish(ok: boolean, exitCode: number = ok ? 0 : 1): void {
@@ -353,6 +409,9 @@ export class ReportCollector {
               items: [],
               generated: [],
               validated: [],
+              target: 'validator',
+              cases: [],
+              mainSolution: null,
             },
       requestedSolution,
       requestedTag: null,
@@ -421,6 +480,33 @@ export class ReportCollector {
         };
         return validateReport;
       }
+      if (active.simple.kind === 'selftest') {
+        const selfTest: SelfTestReport = {
+          ...common,
+          target: active.simple.target,
+          cases: active.simple.cases.map(c => ({ ...c })),
+        };
+        return selfTest;
+      }
+      if (active.simple.kind === 'solution-test') {
+        const entry = active.solutions.get(active.requestedSolution);
+        const tests = (entry?.tests ?? []).map(t => ({ ...t }));
+        const solutionTest: SolutionTestReport = {
+          ...common,
+          command: 'test',
+          solution: active.requestedSolution,
+          tag: active.requestedTag,
+          mainSolution: active.simple.mainSolution,
+          matchesTag: entry?.matchesTag === true,
+          reason:
+            entry === undefined || entry.matchesTag === null
+              ? 'Not evaluated: the test stopped before comparison'
+              : entry.reason,
+          tests,
+          summary: summarize(tests),
+        };
+        return solutionTest;
+      }
       if (active.simple.kind === 'path') {
         const pathReport: PathReport = {
           ...common,
@@ -443,17 +529,13 @@ export class ReportCollector {
           tests.push(multi ? { ...test, solution: entry.name } : { ...test });
         }
       }
-      const byVerdict: Partial<Record<TestVerdict, number>> = {};
-      for (const test of tests) {
-        byVerdict[test.verdict] = (byVerdict[test.verdict] ?? 0) + 1;
-      }
       const run: RunReport = {
         ...base,
         command: 'run',
         solution: active.requestedSolution,
         tag: active.requestedTag,
         tests,
-        summary: { total: tests.length, byVerdict },
+        summary: summarize(tests),
         errors: ok ? [] : [...active.errors],
       };
       return run;

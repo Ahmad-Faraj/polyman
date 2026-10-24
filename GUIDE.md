@@ -1644,6 +1644,53 @@ polyman test wa-solution
 
 ---
 
+#### `polyman test ... --json`
+
+All three forms accept `--json`. Like `run --json`, stdout carries exactly one JSON document and the human output goes to stderr. `exitCode` in the report is the exit code of the process.
+
+`test validator --json` and `test checker --json` give one entry per self-test:
+
+```json
+{
+  "schemaVersion": 1,
+  "polymanVersion": "3.0.3",
+  "ok": false,
+  "command": "test checker",
+  "exitCode": 1,
+  "durationMs": 1591,
+  "errors": ["Some checker tests failed"],
+  "target": "checker",
+  "cases": [
+    { "index": 1, "expected": "OK", "actual": "OK", "ok": true, "message": "ok answer is YES" },
+    { "index": 2, "expected": "WRONG_ANSWER", "actual": "OK", "ok": false, "message": "Expected WA but got OK" }
+  ]
+}
+```
+
+`index` is the position of the case in the tests file. The checker short forms `WA` and `PE` are written as `WRONG_ANSWER` and `PRESENTATION_ERROR`. `actual` is `ERROR` when the program could not run at all. `cases` is empty when the self-tests are skipped (standard checker, or no `testsFilePath`).
+
+`test <solution> --json` gives the `run` report of that solution, with each verdict judged by the checker against the main solution, plus `mainSolution`, `matchesTag` and `reason`:
+
+```json
+{
+  "command": "test",
+  "ok": true,
+  "exitCode": 0,
+  "solution": "tle_solution",
+  "tag": "TL",
+  "mainSolution": "main",
+  "matchesTag": true,
+  "reason": "Behaves as expected",
+  "tests": [
+    { "testset": "tests", "index": 1, "verdict": "TLE", "timeMs": 1002, "message": "Time Limit Exceeded after 1000ms" }
+  ],
+  "summary": { "total": 1, "byVerdict": { "TLE": 1 } },
+  "errors": []
+}
+```
+
+---
+
 ### Full Verification
 
 #### `polyman verify`
@@ -1945,7 +1992,7 @@ Every command ends with one of these codes, so a script or an agent can decide w
 | `130` | Cancelled | Ctrl+C (SIGINT) | Nothing, the user stopped it |
 | `143` | Terminated | SIGTERM, for example a CI job that timed out | Nothing, the runner stopped it |
 
-Any other failure, for example an error polyman did not expect, ends with `1`. The error message is printed last, on its own line, with a `Hint:` line under it when polyman knows the fix. With `--json`, the `exitCode` field of the `new`, `download-testlib`, `list`, `generate` and `validate` reports is the same code.
+Any other failure, for example an error polyman did not expect, ends with `1`. The error message is printed last, on its own line, with a `Hint:` line under it when polyman knows the fix. With `--json`, the `exitCode` field of the `new`, `download-testlib`, `list`, `generate`, `validate` and `test` reports is the same code.
 
 ```bash
 polyman verify
