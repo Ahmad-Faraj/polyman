@@ -19,6 +19,7 @@ import * as actions from '../src/actions';
 import * as steps from '../src/steps';
 import { report } from '../src/report';
 import { exitCodeFor } from '../src/errors';
+import type ConfigFile from '../src/types';
 import type { RemoteReport } from '../src/types';
 
 const API_KEY = 'key0123456789abcdef';
@@ -499,6 +500,150 @@ describe('remote commands with --json', () => {
         expect(human).toContain(warning);
       }
     );
+
+    const pulledConfig = (): ConfigFile =>
+      JSON.parse(
+        fs.readFileSync(path.join(tmp, 'pulled', 'Config.json'), 'utf-8')
+      ) as ConfigFile;
+    const refusedFor =
+      (bad: string, value: unknown) =>
+      (...args: unknown[]): Promise<unknown> =>
+        args.includes(bad) ? refused() : Promise.resolve(value);
+
+    it.each([
+      {
+        kind: 'one solution',
+        setUp: () => {
+          sdk['getSolutions'].mockResolvedValue([
+            { name: 'main.cpp', tag: 'MA' },
+            { name: 'wa.cpp', tag: 'WA' },
+          ]);
+          sdk['viewSolution'].mockImplementation(
+            refusedFor('wa.cpp', 'int main() {}\n')
+          );
+        },
+        warning:
+          'Could not download the solution wa.cpp (Polygon API Error: no access): Config.json does not list it',
+        config: (config: ConfigFile) =>
+          expect(config.solutions).toEqual([
+            { name: 'main', source: './solutions/main.cpp', tag: 'MA' },
+          ]),
+      },
+      {
+        kind: 'one generator',
+        setUp: () => {
+          sdk['getFiles'].mockResolvedValue({
+            resourceFiles: [],
+            sourceFiles: [
+              { name: 'gen.cpp', sourceType: 'cpp.g++17' },
+              { name: 'gen2.cpp', sourceType: 'cpp.g++17' },
+            ],
+            auxFiles: [],
+          });
+          sdk['viewFile'].mockImplementation(
+            refusedFor('gen2.cpp', 'int main() {}\n')
+          );
+        },
+        warning:
+          'Could not download the generator gen2.cpp (Polygon API Error: no access): Config.json does not list it',
+        config: (config: ConfigFile) =>
+          expect(config.generators).toEqual([
+            { name: 'gen', source: './generators/gen.cpp' },
+          ]),
+      },
+      {
+        kind: 'the checker tests',
+        setUp: () => {
+          sdk['getChecker'].mockResolvedValue('chk.cpp');
+          sdk['getCheckerTests'] = vi.fn().mockImplementation(refused);
+        },
+        warning:
+          'Could not download the checker tests (Polygon API Error: no access): Config.json has no testsFilePath for the checker, so its self-tests are skipped',
+        config: (config: ConfigFile) => {
+          expect(config.checker).toEqual({
+            name: 'chk',
+            source: './checker/chk.cpp',
+            isStandard: false,
+          });
+          expect(
+            fs.existsSync(
+              path.join(tmp, 'pulled', 'checker', 'checker_tests.json')
+            )
+          ).toBe(false);
+        },
+      },
+      {
+        kind: 'the validator tests',
+        setUp: () => sdk['getValidatorTests'].mockImplementation(refused),
+        warning:
+          'Could not download the validator tests (Polygon API Error: no access): Config.json has no testsFilePath for the validator, so its self-tests are skipped',
+        config: (config: ConfigFile) => {
+          expect(config.validator).toEqual({
+            name: 'val',
+            source: './validator/val.cpp',
+          });
+          expect(
+            fs.existsSync(
+              path.join(tmp, 'pulled', 'validator', 'validator_tests.json')
+            )
+          ).toBe(false);
+        },
+      },
+      {
+        kind: 'one statement',
+        setUp: () =>
+          sdk['getStatements'].mockResolvedValue({
+            english: { name: 'Two Sum', legend: 'L' },
+            '../x': { name: 'Bad', legend: 'L' },
+          }),
+        warning:
+          'Could not download the statement "../x" (Refusing unsafe name from Polygon: "../x"): Config.json does not list it',
+        config: (config: ConfigFile) =>
+          expect(Object.keys(config.statements)).toEqual(['english']),
+      },
+      {
+        kind: 'the statements',
+        setUp: () => sdk['getStatements'].mockImplementation(refused),
+        warning:
+          'Could not download the statements (Polygon API Error: no access): Config.json lists no statements',
+        config: (config: ConfigFile) => expect(config.statements).toEqual({}),
+      },
+    ])(
+      'lists a failed download of $kind as a warning and still exits 0',
+      async ({ setUp, warning, config }) => {
+        setUp();
+        const out = path.join(tmp, 'pulled');
+
+        await actions.remotePullProblemAction('7', out, { json: true });
+
+        const doc = written();
+        expect(doc).toMatchObject({ ok: true, exitCode: 0, errors: [] });
+        expect(doc.warnings).toEqual([warning]);
+        expect(exitSpy).not.toHaveBeenCalled();
+        config(pulledConfig());
+        const human = vi
+          .mocked(console.error)
+          .mock.calls.map(call => call.join(' '))
+          .join('\n');
+        expect(human).toContain(warning);
+      }
+    );
+
+    it('redacts the credentials in a failed download warning', async () => {
+      sdk['viewSolution'].mockRejectedValue(
+        new Error(`Polygon API Error: bad key ${API_KEY}`)
+      );
+      const out = path.join(tmp, 'pulled');
+
+      await actions.remotePullProblemAction('7', out, { json: true });
+
+      const doc = written();
+      expect(doc.ok).toBe(true);
+      expect(doc.warnings[0]).toBe(
+        'Could not download the solution main.cpp (Polygon API Error: bad key [REDACTED]): Config.json does not list it'
+      );
+      expect(JSON.stringify(doc)).not.toContain(API_KEY);
+    });
 
     it('still fails when Polygon refuses a download', async () => {
       sdk['getProblemInfo'].mockImplementation(refused);

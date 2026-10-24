@@ -67,9 +67,11 @@ function reason(error: unknown): string {
  * @param {PolygonSDK} sdk - Polygon SDK instance
  * @param {number} problemId - Problem ID
  * @param {string} problemDir - Target directory for solutions
- * @returns {Promise<{ data: Array<LocalSolution>; count: number; placeholder?: string }>}
- *   `placeholder` is a warning, set when no solution was downloaded and
- *   Config.json lists the acc.cpp placeholder instead
+ * @returns {Promise<{ data: Array<LocalSolution>; count: number; failures: string[]; placeholder?: string }>}
+ *   `failures` has one warning per solution that could not be downloaded
+ *   (Config.json does not list it). `placeholder` is a warning, set when no
+ *   solution was downloaded and Config.json lists the acc.cpp placeholder
+ *   instead
  */
 export async function downloadSolutions(
   sdk: PolygonSDK,
@@ -78,9 +80,11 @@ export async function downloadSolutions(
 ): Promise<{
   data: Array<{ name: string; source: string; tag: SolutionTag }>;
   count: number;
+  failures: string[];
   placeholder?: string;
 }> {
   const solutionsData: Array<LocalSolution> = [];
+  const failures: string[] = [];
   let count = 0;
   let listError = '';
 
@@ -115,6 +119,9 @@ export async function downloadSolutions(
         fmt.warning(
           `  ⚠️  Failed to download solution: ${printable(solution.name)} (${reason(error)})`
         );
+        failures.push(
+          `Could not download the solution ${printable(solution.name)} (${reason(error)}): Config.json does not list it`
+        );
       }
     }
   } catch (error) {
@@ -132,11 +139,12 @@ export async function downloadSolutions(
     return {
       data: solutionsData,
       count,
+      failures,
       placeholder: `${why}: acc.cpp is listed in Config.json as the main solution but not created`,
     };
   }
 
-  return { data: solutionsData, count };
+  return { data: solutionsData, count, failures };
 }
 
 /**
@@ -145,7 +153,9 @@ export async function downloadSolutions(
  * @param {PolygonSDK} sdk - Polygon SDK instance
  * @param {number} problemId - Problem ID
  * @param {string} problemDir - Target directory for checker
- * @returns {Promise<{ data: LocalChecker; count: number; placeholder?: string }>}
+ * @returns {Promise<{ data: LocalChecker; count: number; failures: string[]; placeholder?: string }>}
+ *   `failures` has a warning when the checker tests could not be downloaded
+ *   (Config.json then has no `testsFilePath` for the checker).
  *   `placeholder` is a warning, set when the download failed and Config.json
  *   uses the standard ncmp checker instead
  */
@@ -156,8 +166,10 @@ export async function downloadChecker(
 ): Promise<{
   data: LocalChecker;
   count: number;
+  failures: string[];
   placeholder?: string;
 }> {
+  const failures: string[] = [];
   let count = 0;
 
   try {
@@ -203,8 +215,11 @@ export async function downloadChecker(
           'utf-8'
         );
         count++;
-      } catch {
+      } catch (error) {
         fmt.warning('  ⚠️  Could not fetch checker tests');
+        failures.push(
+          `Could not download the checker tests (${reason(error)}): Config.json has no testsFilePath for the checker, so its self-tests are skipped`
+        );
       }
     }
 
@@ -213,11 +228,13 @@ export async function downloadChecker(
         name: checkerName.replace(/\.[^.]+$/, ''),
         source: isStandard ? checkerName : './checker/' + checkerName,
         isStandard,
-        ...(!isStandard && {
-          testsFilePath: './checker/' + 'checker_tests.json',
-        }),
+        ...(!isStandard &&
+          failures.length === 0 && {
+            testsFilePath: './checker/' + 'checker_tests.json',
+          }),
       },
       count,
+      failures,
     };
   } catch (error) {
     fmt.error(
@@ -226,6 +243,7 @@ export async function downloadChecker(
     return {
       data: { name: 'ncmp', source: 'ncmp.cpp', isStandard: true },
       count: 0,
+      failures,
       placeholder: `Could not download the checker (${reason(error)}): Config.json uses the standard checker ncmp.cpp instead`,
     };
   }
@@ -237,7 +255,9 @@ export async function downloadChecker(
  * @param {PolygonSDK} sdk - Polygon SDK instance
  * @param {number} problemId - Problem ID
  * @param {string} problemDir - Target directory for validator
- * @returns {Promise<{ data: LocalValidator; count: number; missing?: boolean; placeholder?: string }>}
+ * @returns {Promise<{ data: LocalValidator; count: number; failures: string[]; missing?: boolean; placeholder?: string }>}
+ *   `failures` has a warning when the validator tests could not be
+ *   downloaded (Config.json then has no `testsFilePath` for the validator).
  *   `missing` is true when Polygon has no validator set for the problem.
  *   `placeholder` is a warning, set when the download failed and Config.json
  *   lists the val.cpp placeholder instead
@@ -249,9 +269,11 @@ export async function downloadValidator(
 ): Promise<{
   data: LocalValidator;
   count: number;
+  failures: string[];
   missing?: boolean;
   placeholder?: string;
 }> {
+  const failures: string[] = [];
   let count = 0;
 
   try {
@@ -263,6 +285,7 @@ export async function downloadValidator(
       return {
         data: { name: 'validator', source: 'val.cpp' },
         count: 0,
+        failures,
         missing: true,
       };
     }
@@ -301,17 +324,23 @@ export async function downloadValidator(
         'utf-8'
       );
       count++;
-    } catch {
+    } catch (error) {
       fmt.warning('  ⚠️  Could not fetch validator tests');
+      failures.push(
+        `Could not download the validator tests (${reason(error)}): Config.json has no testsFilePath for the validator, so its self-tests are skipped`
+      );
     }
 
     return {
       data: {
         name: validatorName.replace(/\.[^.]+$/, ''),
         source: './validator/' + validatorName,
-        testsFilePath: './validator/validator_tests.json',
+        ...(failures.length === 0 && {
+          testsFilePath: './validator/validator_tests.json',
+        }),
       },
       count,
+      failures,
     };
   } catch (error) {
     fmt.error(
@@ -320,6 +349,7 @@ export async function downloadValidator(
     return {
       data: { name: 'validator', source: 'val.cpp' },
       count: 0,
+      failures,
       placeholder: `Could not download the validator (${reason(error)}): val.cpp is listed in Config.json but not created, so verify will fail until you add it`,
     };
   }
@@ -332,9 +362,10 @@ export async function downloadValidator(
  * @param {number} problemId - Problem ID
  * @param {string} problemDir - Target directory
  * @param {string[]} skipNames - Checker and validator names (without extension) to skip
- * @returns {Promise<{ data: Array<LocalGenerator>; count: number; placeholder?: string }>}
- *   `placeholder` is a warning, set when the file list could not be fetched
- *   and Config.json lists no generators
+ * @returns {Promise<{ data: Array<LocalGenerator>; count: number; failures: string[]; placeholder?: string }>}
+ *   `failures` has one warning per file that could not be downloaded
+ *   (Config.json does not list it). `placeholder` is a warning, set when the
+ *   file list could not be fetched and Config.json lists no generators
  */
 export async function downloadGenerators(
   sdk: PolygonSDK,
@@ -344,9 +375,11 @@ export async function downloadGenerators(
 ): Promise<{
   data: Array<LocalGenerator>;
   count: number;
+  failures: string[];
   placeholder?: string;
 }> {
   const generatorsData: Array<LocalGenerator> = [];
+  const failures: string[] = [];
   let count = 0;
 
   try {
@@ -383,6 +416,9 @@ export async function downloadGenerators(
         fmt.warning(
           `  ⚠️  Failed to download: ${printable(file.name)} (${reason(error)})`
         );
+        failures.push(
+          `Could not download the generator ${printable(file.name)} (${reason(error)}): Config.json does not list it`
+        );
       }
     }
   } catch (error) {
@@ -390,11 +426,12 @@ export async function downloadGenerators(
     return {
       data: generatorsData,
       count,
+      failures,
       placeholder: `Could not fetch the problem files (${reason(error)}): Config.json lists no generators`,
     };
   }
 
-  return { data: generatorsData, count };
+  return { data: generatorsData, count, failures };
 }
 
 /**
@@ -403,7 +440,9 @@ export async function downloadGenerators(
  * @param {PolygonSDK} sdk - Polygon SDK instance
  * @param {number} problemId - Problem ID
  * @param {string} problemDir - Target directory
- * @returns {Promise<{ config: Record<string, StatementConfig>; count: number; problemName: string }>}
+ * @returns {Promise<{ config: Record<string, StatementConfig>; count: number; problemName: string; failures: string[] }>}
+ *   `failures` has one warning per statement language that was skipped, and
+ *   one when the statements could not be downloaded
  */
 export async function downloadStatements(
   sdk: PolygonSDK,
@@ -413,8 +452,10 @@ export async function downloadStatements(
   config: Record<string, StatementConfig>;
   count: number;
   problemName: string;
+  failures: string[];
 }> {
   const statementsConfig: Record<string, StatementConfig> = {};
+  const failures: string[] = [];
   let count = 0;
   let problemName = 'problem';
 
@@ -427,6 +468,9 @@ export async function downloadStatements(
       } catch (error) {
         fmt.warning(
           `  ⚠️  Skipping statement language ${printable(JSON.stringify(lang))} (${reason(error)})`
+        );
+        failures.push(
+          `Could not download the statement ${printable(JSON.stringify(lang))} (${reason(error)}): Config.json does not list it`
         );
         continue;
       }
@@ -520,11 +564,15 @@ export async function downloadStatements(
 
       statementsConfig[lang] = langConfig as unknown as StatementConfig;
     }
-  } catch {
+  } catch (error) {
     fmt.warning('  ⚠️  Could not fetch statements');
+    const listed = Object.keys(statementsConfig);
+    failures.push(
+      `Could not download the statements (${reason(error)}): Config.json lists ${listed.length > 0 ? 'only ' + listed.join(', ') : 'no statements'}`
+    );
   }
 
-  return { config: statementsConfig, count, problemName };
+  return { config: statementsConfig, count, problemName, failures };
 }
 
 /**

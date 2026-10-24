@@ -1170,9 +1170,11 @@ export function stepCreatePulledProblemDirectory(
  * Step: Download all problem files from Polygon and create Config.json
  *
  * @returns {Promise<string[]>} Warnings about the pulled problem that the
- *   caller should repeat in its summary: no validator on Polygon, and each
+ *   caller should repeat in its summary: no validator on Polygon, each
  *   placeholder (solution, checker, validator, generators) put in
- *   Config.json instead of a downloaded file. They are also added to the
+ *   Config.json instead of a downloaded file, and each file (solution,
+ *   generator, checker or validator tests, statement) that could not be
+ *   downloaded and is left out of Config.json. They are also added to the
  *   `--json` report's `warnings`; they do not fail the pull.
  */
 export async function stepDownloadProblemFilesAndSetUpConfig(
@@ -1288,9 +1290,11 @@ export async function stepDownloadProblemFilesAndSetUpConfig(
   );
   fmt.stepComplete('Files downloaded & Config.json created');
 
-  const warnings: string[] = [];
+  const warnings: string[] = [...solutionsResult.failures];
   if (solutionsResult.placeholder) warnings.push(solutionsResult.placeholder);
+  warnings.push(...checkerResult.failures);
   if (checkerResult.placeholder) warnings.push(checkerResult.placeholder);
+  warnings.push(...validatorResult.failures);
   if (validatorResult.missing) {
     warnings.push(
       `Polygon has no validator set for problem ${problemId}: val.cpp is listed in Config.json but not created, so verify will fail until you add it`
@@ -1298,9 +1302,11 @@ export async function stepDownloadProblemFilesAndSetUpConfig(
   } else if (validatorResult.placeholder) {
     warnings.push(validatorResult.placeholder);
   }
+  warnings.push(...generatorsResult.failures);
   if (generatorsResult.placeholder) {
     warnings.push(generatorsResult.placeholder);
   }
+  warnings.push(...statementsResult.failures);
   for (const warning of warnings) report.addWarning(warning);
   return warnings;
 }

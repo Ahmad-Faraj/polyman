@@ -140,6 +140,10 @@ describe('pulling.ts', () => {
       expect(result.count).toBe(2);
       expect(result.data).toHaveLength(2);
       expect(result.data.map(s => s.name)).toEqual(['a', 'c']);
+      expect(result.failures).toEqual([
+        'Could not download the solution b.cpp (boom): Config.json does not list it',
+      ]);
+      expect(result.placeholder).toBeUndefined();
     });
 
     it('should return default acc.cpp when getSolutions fails', async () => {
@@ -332,6 +336,11 @@ describe('pulling.ts', () => {
 
       expect(result.count).toBe(1);
       expect(result.data.isStandard).toBe(false);
+      // The tests file was not written, so Config.json must not point at it.
+      expect(result.data.testsFilePath).toBeUndefined();
+      expect(result.failures).toEqual([
+        'Could not download the checker tests (no tests): Config.json has no testsFilePath for the checker, so its self-tests are skipped',
+      ]);
     });
 
     it('should normalize tests with missing fields', async () => {
@@ -399,9 +408,11 @@ describe('pulling.ts', () => {
       const result = await pulling.downloadValidator(asSdk(mockSdk), 1, 'dir');
 
       expect(result.count).toBe(1);
-      expect(result.data.testsFilePath).toBe(
-        './validator/validator_tests.json'
-      );
+      // The tests file was not written, so Config.json must not point at it.
+      expect(result.data.testsFilePath).toBeUndefined();
+      expect(result.failures).toEqual([
+        'Could not download the validator tests (no tests): Config.json has no testsFilePath for the validator, so its self-tests are skipped',
+      ]);
     });
 
     it('should normalize validator tests with missing input', async () => {
@@ -581,6 +592,9 @@ describe('pulling.ts', () => {
 
       expect(result.count).toBe(2);
       expect(result.data.map(g => g.name)).toEqual(['gen1', 'gen3']);
+      expect(result.failures).toEqual([
+        'Could not download the generator gen2.cpp (fail): Config.json does not list it',
+      ]);
     });
 
     it('should return empty data when getFiles fails', async () => {
@@ -758,6 +772,9 @@ describe('pulling.ts', () => {
       expect(result.config).toEqual({});
       expect(result.count).toBe(0);
       expect(result.problemName).toBe('problem');
+      expect(result.failures).toEqual([
+        'Could not download the statements (boom): Config.json lists no statements',
+      ]);
     });
   });
 
@@ -1216,6 +1233,9 @@ describe('pulling.ts', () => {
       expect(Object.keys(result.config)).toEqual(['english']);
       expect(written().some(p => p.includes('evil'))).toBe(false);
       expect(written().some(p => p.includes('legend.tex'))).toBe(true);
+      expect(result.failures).toEqual([
+        'Could not download the statement "../../evil" (Refusing unsafe name from Polygon: "../../evil"): Config.json does not list it',
+      ]);
     });
 
     it('does not write a solution whose name climbs out of the directory', async () => {

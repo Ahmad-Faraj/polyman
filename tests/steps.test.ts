@@ -1082,21 +1082,26 @@ describe('steps.ts', () => {
       vi.mocked(pulling.downloadSolutions).mockResolvedValue({
         count: 1,
         data: [],
+        failures: [],
       } as any);
       vi.mocked(pulling.downloadChecker).mockResolvedValue({
         count: 1,
         data: checker,
+        failures: [],
       } as any);
-      vi.mocked(pulling.downloadValidator).mockResolvedValue(
-        validatorResult as any
-      );
+      vi.mocked(pulling.downloadValidator).mockResolvedValue({
+        failures: [],
+        ...validatorResult,
+      } as any);
       vi.mocked(pulling.downloadGenerators).mockResolvedValue({
         count: 2,
         data: [],
+        failures: [],
       } as any);
       vi.mocked(pulling.downloadStatements).mockResolvedValue({
         count: 0,
         config: {},
+        failures: [],
       } as any);
       vi.mocked(pulling.fetchProblemMetadata).mockResolvedValue({
         description: 'd',
