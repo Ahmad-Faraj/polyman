@@ -155,6 +155,25 @@ describe('KeyStore.read', () => {
     expect(`${err.message} ${err.hint ?? ''}`).not.toContain(KEY);
   });
 
+  it('says it cannot read the file when ai.json is a folder', () => {
+    mkdirSync(store.path, { recursive: true });
+    writeFileSync(join(store.path, 'secret.txt'), KEY);
+    let caught: unknown;
+    try {
+      store.read();
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(PolymanError);
+    const err = caught as PolymanError;
+    expect(err.exitCode).toBe(2);
+    expect(err.message).not.toContain('valid JSON');
+    expect(err.message).toContain(store.path);
+    expect(err.message).toContain('EISDIR');
+    expect(`${err.message} ${err.hint ?? ''}`).not.toContain(KEY);
+    expect(err.hint ?? '').not.toMatch(/delete/i);
+  });
+
   it.each([
     ['an array', '[]', /JSON object/],
     ['another version', '{"version": 2}', /unknown version/],

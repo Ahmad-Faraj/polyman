@@ -182,9 +182,22 @@ export class KeyStore {
    */
   read(): AiSettings {
     if (!existsSync(this.path)) return emptySettings();
+    let text: string;
+    try {
+      text = readFileSync(this.path, 'utf-8');
+    } catch (error) {
+      // Only the error code: the message of an fs error holds the path, and
+      // nothing from the file.
+      const code = (error as NodeJS.ErrnoException).code ?? 'unknown error';
+      throw new PolymanError(
+        `cannot read ${this.path} (${code})`,
+        2,
+        'Check that it is a file you can read.'
+      );
+    }
     let raw: unknown;
     try {
-      raw = JSON.parse(readFileSync(this.path, 'utf-8'));
+      raw = JSON.parse(text);
     } catch {
       // The parser error can quote the file, and the file holds keys.
       throw new PolymanError(`${this.path} is not valid JSON.`, 2, FIX_HINT);
