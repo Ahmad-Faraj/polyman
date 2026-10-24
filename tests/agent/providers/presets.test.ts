@@ -168,6 +168,11 @@ describe('validatePreset', () => {
       { baseUrl: 'http://api.demo.test/v1' },
       /localhost/,
     ],
+    [
+      'plain http written in capitals',
+      { baseUrl: 'HTTP://api.demo.test/v1' },
+      /localhost/,
+    ],
     ['a trailing slash', { baseUrl: 'https://api.demo.test/v1/' }, /end with/],
     ['a key without an env var', { envVar: '' }, /needs an env var/],
     [

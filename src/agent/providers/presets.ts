@@ -363,7 +363,7 @@ export function validatePreset(preset: Preset): string[] {
     if (!isHttpUrl(preset.baseUrl)) {
       problems.push(`${where}: baseUrl is not an http(s) URL`);
     } else if (
-      preset.baseUrl.startsWith('http:') &&
+      new URL(preset.baseUrl).protocol === 'http:' &&
       new URL(preset.baseUrl).hostname !== 'localhost'
     ) {
       problems.push(`${where}: only a localhost server may use http`);
