@@ -1,9 +1,10 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { brotliDecompressSync, gunzipSync } from 'node:zlib';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import yazl from 'yazl';
-import { buildApp } from '../src/app.ts';
+import { acceptedEncoding, buildApp } from '../src/app.ts';
 
 // A stand-in for polyman: prints two progress steps to stderr and a report
 // for the solutions in Config.json to stdout. It also records the environment
@@ -134,6 +135,77 @@ describe('read-only routes', () => {
     }
     // the page itself is always revalidated
     expect((await app.inject('/')).headers['cache-control']).toBe('no-cache');
+  });
+
+  describe('page files over 1 KB: compressed for a browser that accepts it, revalidated without a body', () => {
+    const css = '.card{color:red;padding:4px}\n'.repeat(200);
+    const url = '/style.css';
+    beforeAll(() => writeFileSync(join(base, 'public', 'style.css'), css));
+
+    it('sends gzip, or brotli when both are accepted, and says the answer varies by encoding', async () => {
+      const gz = await app.inject({ url, headers: { 'accept-encoding': 'gzip, deflate' } });
+      expect(gz.statusCode).toBe(200);
+      expect(gz.headers['content-encoding']).toBe('gzip');
+      expect(gz.headers['vary']).toBe('accept-encoding');
+      expect(gz.headers['content-type']).toContain('text/css');
+      expect(gz.rawPayload.length).toBeLessThan(css.length / 5);
+      expect(gunzipSync(gz.rawPayload).toString()).toBe(css);
+
+      const br = await app.inject({ url, headers: { 'accept-encoding': 'gzip, deflate, br, zstd' } });
+      expect(br.headers['content-encoding']).toBe('br');
+      expect(brotliDecompressSync(br.rawPayload).toString()).toBe(css);
+    });
+
+    it('sends the file as it is when no encoding is accepted, or the one that is offered is refused with q=0', async () => {
+      for (const accept of [undefined, 'identity', 'gzip;q=0, br;q=0']) {
+        const res = await app.inject({ url, headers: accept === undefined ? {} : { 'accept-encoding': accept } });
+        expect(res.headers['content-encoding']).toBeUndefined();
+        expect(res.headers['vary']).toBe('accept-encoding');
+        expect(res.body).toBe(css);
+      }
+    });
+
+    it('keeps a small file, a font and the no-cache rule as they were', async () => {
+      const small = await app.inject({ url: '/', headers: { 'accept-encoding': 'gzip, br' } });
+      expect(small.headers['content-encoding']).toBeUndefined();
+      expect(small.body).toBe('<h1>verify</h1>');
+      const font = await app.inject({ url: '/fonts/oxanium.woff2', headers: { 'accept-encoding': 'gzip, br' } });
+      expect(font.headers['content-encoding']).toBeUndefined();
+      expect(font.headers['etag']).toBeUndefined();
+      expect(font.headers['cache-control']).toBe('public, max-age=604800');
+      expect((await app.inject({ url, headers: { 'accept-encoding': 'gzip' } })).headers['cache-control']).toBe('no-cache');
+    });
+
+    it('answers a revalidation of an unchanged file with 304 and no body, in any encoding, and sends a changed file in full', async () => {
+      const first = await app.inject({ url, headers: { 'accept-encoding': 'gzip' } });
+      const etag = String(first.headers['etag']);
+      expect(etag).toMatch(/^W\/"[\w-]{22}"$/);
+      for (const accept of ['gzip', 'br', 'identity']) {
+        const again = await app.inject({ url, headers: { 'accept-encoding': accept, 'if-none-match': etag } });
+        expect(again.statusCode).toBe(304);
+        expect(again.rawPayload.length).toBe(0);
+      }
+      expect((await app.inject({ url, headers: { 'if-none-match': `"other", ${etag}` } })).statusCode).toBe(304);
+      expect((await app.inject({ url, headers: { 'if-none-match': '"other"' } })).statusCode).toBe(200);
+
+      writeFileSync(join(base, 'public', 'style.css'), css + '.late{margin:0}\n');
+      const changed = await app.inject({ url, headers: { 'accept-encoding': 'gzip', 'if-none-match': etag } });
+      expect(changed.statusCode).toBe(200);
+      expect(changed.headers['etag']).not.toBe(etag);
+      expect(gunzipSync(changed.rawPayload).toString()).toBe(css + '.late{margin:0}\n');
+    });
+  });
+
+  it('reads the accepted encodings: brotli before gzip, nothing for q=0 or an unknown one', () => {
+    expect(acceptedEncoding(undefined)).toBeUndefined();
+    expect(acceptedEncoding('')).toBeUndefined();
+    expect(acceptedEncoding('identity')).toBeUndefined();
+    expect(acceptedEncoding('gzip')).toBe('gzip');
+    expect(acceptedEncoding('GZIP, Deflate')).toBe('gzip');
+    expect(acceptedEncoding('gzip, deflate, br, zstd')).toBe('br');
+    expect(acceptedEncoding('br;q=0, gzip;q=0.5')).toBe('gzip');
+    expect(acceptedEncoding('gzip;q=0, br;q=0')).toBeUndefined();
+    expect(acceptedEncoding('zstd')).toBeUndefined();
   });
 
   it('serves the vendored component styles', async () => {
