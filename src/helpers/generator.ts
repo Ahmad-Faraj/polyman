@@ -222,6 +222,9 @@ export async function executeResolvedTests(
   // error message (null when it worked), so every test of the line gets the
   // same result in the report.
   const handled = new Map<string, string | null>();
+  // For a multi-output line that failed: the error of each index on it, or
+  // null when `test<idx>.txt` was written before the failure.
+  const lineResults = new Map<string, Map<number, string | null>>();
 
   for (const t of tests) {
     let key: string | null = null;
@@ -237,7 +240,14 @@ export async function executeResolvedTests(
       if (src.multiOutputs) {
         key = `${src.generator}|${src.args.join(' ')}|${src.multiOutputs.join(',')}`;
         if (handled.has(key)) {
-          recordGenerated(testsetName, t, handled.get(key) ?? null);
+          const lineError = handled.get(key) ?? null;
+          recordGenerated(
+            testsetName,
+            t,
+            lineError === null
+              ? null
+              : errorForIndex(lineResults.get(key), t.index, lineError)
+          );
           continue;
         }
         handled.set(key, null);
@@ -288,8 +298,26 @@ export async function executeResolvedTests(
       if (error instanceof LimitExceededError) throw error;
       someFailed = true;
       const message = (error as Error).message;
-      if (key !== null) handled.set(key, message);
-      recordGenerated(testsetName, t, message);
+      let testError: string | null = message;
+      if (key !== null && t.source.kind === 'generator') {
+        handled.set(key, message);
+        // A failed multi-output line may still have written some files:
+        // `ok` means "the input file was written", so judge each index by
+        // whether its file exists.
+        const indices = t.source.multiOutputs;
+        if (indices) {
+          const perIndex = new Map<number, string | null>();
+          for (const idx of indices) {
+            const written = fs.existsSync(
+              path.join(testsDir, `test${idx}.txt`)
+            );
+            perIndex.set(idx, written ? null : message);
+          }
+          lineResults.set(key, perIndex);
+          testError = errorForIndex(perIndex, t.index, message);
+        }
+      }
+      recordGenerated(testsetName, t, testError);
       fmt.error(
         `  ${fmt.cross()} Test ${t.index} generation failed:\n\t${message}`
       );
@@ -299,6 +327,18 @@ export async function executeResolvedTests(
   if (someFailed) {
     throw new PolymanError('Some tests failed to generate', 1);
   }
+}
+
+/**
+ * Error of one index on a failed multi-output line: `null` when its file was
+ * written, otherwise the per-index error (or the line's error as a fallback).
+ */
+function errorForIndex(
+  perIndex: Map<number, string | null> | undefined,
+  index: number,
+  lineError: string
+): string | null {
+  return perIndex?.has(index) ? (perIndex.get(index) ?? null) : lineError;
 }
 
 /**

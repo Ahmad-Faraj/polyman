@@ -563,7 +563,32 @@ describe('executeResolvedTests records each test for generate --json', () => {
     ]);
   });
 
+  it('marks only the tests of a failed multi-output line whose file was not written', async () => {
+    const written = path.join('/out', 'test1.txt');
+    vi.mocked(fs.existsSync).mockImplementation(p => p === written);
+    execute().mockResolvedValueOnce(okResult);
+
+    await expect(
+      generator.executeResolvedTests(
+        [genTest(1, [1, 2]), genTest(2, [1, 2])],
+        gens,
+        '/out',
+        'main'
+      )
+    ).rejects.toThrow(/Some tests failed/);
+
+    expect(execute()).toHaveBeenCalledTimes(1);
+    const results = recorded();
+    expect(results.map(t => [t.index, t.ok])).toEqual([
+      [1, true],
+      [2, false],
+    ]);
+    expect(results[0].error).toBeUndefined();
+    expect(results[1].error).toMatch(/did not produce a file for index 2/);
+  });
+
   it('gives every test of a failed multi-output line the same error', async () => {
+    vi.mocked(fs.existsSync).mockReturnValue(false);
     execute().mockRejectedValueOnce(new Error('bad line'));
 
     await expect(
