@@ -13,8 +13,9 @@
  *
  * Each run gets a fresh copy of the problem (so polyman's compile cache never
  * skips the compile) with the same tests, generated once without the PCH. It
- * fails when a run took another path, or when the verdicts or any output file
- * differ from the no-pch run.
+ * fails when a run took another path, when a compile failed with the PCH (and
+ * polyman retried without it), or when the verdicts or any output file differ
+ * from the no-pch run.
  *
  * Usage:
  *   node corpus/pch-check.mjs [--polyman dist/cli.js] [--problem <name>]
@@ -82,7 +83,9 @@ export function mainSolution(config) {
 /**
  * The paths the PCH took for `source` in one polyman run, from its
  * POLYMAN_DEBUG lines (debugLog in src/helpers/compile-cache.ts and pch.ts).
- * Keys are the 12-character prefixes polyman logs.
+ * Keys are the 12-character prefixes polyman logs. The retry (utils.ts) and
+ * "marked unsupported" (pch.ts) lines name no source, so any of them counts:
+ * the fallback compile works, so without them a broken PCH would pass.
  */
 export function pchPathOf(stderr, source) {
   const lines = String(stderr ?? '')
@@ -97,6 +100,8 @@ export function pchPathOf(stderr, source) {
     notGxx: false,
     cacheHit: false,
     noneKey: null,
+    retried: false,
+    markedUnsupported: null,
     lines: lines.filter(l => l.startsWith('pch:') || l.startsWith('cache:')),
   };
   for (const line of lines) {
@@ -118,6 +123,10 @@ export function pchPathOf(stderr, source) {
       result.notGxx = true;
     else if (line === `cache: hit, no compile: ${source}`)
       result.cacheHit = true;
+    else if (line === 'pch: compile failed with the PCH, retrying without it')
+      result.retried = true;
+    else if ((m = /^pch: key (\w+) marked unsupported/.exec(line)))
+      result.markedUnsupported = m[1];
   }
   return result;
 }
@@ -125,6 +134,9 @@ export function pchPathOf(stderr, source) {
 /** One line saying which path a run took, for the log. */
 export function describePath(p) {
   if (p.cacheHit) return 'compile cache hit, not compiled';
+  if (p.retried) return 'compile failed with the PCH, retried without it';
+  if (p.markedUnsupported)
+    return `key ${p.markedUnsupported} marked unsupported`;
   if (p.off) return 'PCH off, normal compile';
   if (p.notGxx) return 'skipped: not g++, normal compile';
   if (p.builtKey && p.usedKey)
@@ -190,11 +202,20 @@ export const RUNS = [
   },
 ];
 
-/** Every run must compile the solution: a compile cache hit proves nothing. */
+/**
+ * Every run must compile the solution: a compile cache hit proves nothing.
+ * And no compile may fail with the PCH, whatever the run expects.
+ */
 export function pathProblems(run, p, keys) {
-  const problems = p.cacheHit
-    ? ['the compile cache restored the binary, nothing was compiled']
-    : [];
+  const problems = [];
+  if (p.cacheHit)
+    problems.push(
+      'the compile cache restored the binary, nothing was compiled'
+    );
+  if (p.retried)
+    problems.push('a compile failed with the PCH and was retried without it');
+  if (p.markedUnsupported)
+    problems.push(`the PCH key ${p.markedUnsupported} was marked unsupported`);
   return [...problems, ...run.expect(p, keys)];
 }
 
@@ -207,6 +228,25 @@ export function outcomeOf(report, outputs) {
     .map(t => `${t.testset}#${t.index}:${t.verdict}`)
     .sort();
   return { ok: report?.ok === true, tests, outputs };
+}
+
+/**
+ * A `polyman run --json` result judged on its own: its outcome, and what is
+ * wrong with it. Stdout that is not JSON counts as a failed run with no tests.
+ */
+export function judgeResult(result, outputs) {
+  let report = null;
+  try {
+    report = JSON.parse(result.stdout);
+  } catch {
+    // judged below as a failed run
+  }
+  const outcome = outcomeOf(report, outputs);
+  const problems = [];
+  if (!outcome.ok || result.status !== 0)
+    problems.push(`polyman run exited ${result.status}`);
+  if (outcome.tests.length === 0) problems.push('no test ran');
+  return { outcome, problems };
 }
 
 /** Differences between a run's outcome and the no-pch one. */
@@ -231,7 +271,7 @@ export function compareOutcomes(reference, actual) {
 }
 
 /** sha256 of every file under dir, by path relative to it. */
-function hashTree(dir) {
+export function hashTree(dir) {
   const hashes = {};
   if (!fs.existsSync(dir)) return hashes;
   for (const entry of fs.readdirSync(dir, { recursive: true })) {
@@ -252,10 +292,14 @@ function toolVersion(command) {
   return `${result.stdout}${result.stderr}`.trim().split('\n')[0];
 }
 
-function pickProblem(only) {
-  const names = only ? [only] : fs.readdirSync(PROBLEMS).sort();
+/**
+ * The problem to check: `only`, or the first one by name whose main solution
+ * starts with `#include <bits/stdc++.h>`.
+ */
+export function pickProblem(only, problems = PROBLEMS) {
+  const names = only ? [only] : fs.readdirSync(problems).sort();
   for (const name of names) {
-    const dir = path.join(PROBLEMS, name);
+    const dir = path.join(problems, name);
     const configFile = path.join(dir, 'Config.json');
     if (!fs.existsSync(configFile)) {
       if (only) throw new Error(`no corpus problem ${only}`);
@@ -276,6 +320,35 @@ function pickProblem(only) {
   );
 }
 
+/**
+ * The Config.json of a run: other compiler flags and C++ standard when the
+ * run sets them, or null when it keeps the problem's.
+ */
+export function rewriteConfig(config, run) {
+  if (!run.flags && !run.cppStandard) return null;
+  const rewritten = { ...config };
+  if (run.flags) rewritten.compiler = { ...config.compiler, flags: run.flags };
+  if (run.cppStandard) rewritten.cppStandard = run.cppStandard;
+  return rewritten;
+}
+
+/** A fresh copy of base at dir, with the run's Config.json. */
+export function prepareRunDir(base, dir, run) {
+  fs.cpSync(base, dir, { recursive: true });
+  const configFile = path.join(dir, 'Config.json');
+  const config = rewriteConfig(
+    JSON.parse(fs.readFileSync(configFile, 'utf8')),
+    run
+  );
+  if (config) fs.writeFileSync(configFile, JSON.stringify(config, null, 2));
+}
+
+/** 0 when every run passed, 1 when some did not, 2 on a setup error. */
+export function exitCodeOf(failures, setupFailed = false) {
+  if (setupFailed) return 2;
+  return failures.length ? 1 : 0;
+}
+
 function polyman(args, cwd, env, argv) {
   return spawnSync(process.execPath, [args.polyman, ...argv], {
     cwd,
@@ -286,8 +359,9 @@ function polyman(args, cwd, env, argv) {
   });
 }
 
-function main() {
-  const args = parseArgs(process.argv.slice(2));
+/** The failures of every run; throws on a setup error. */
+function main(argv) {
+  const args = parseArgs(argv);
   const gxx = toolVersion('g++');
   const clang = toolVersion(args.clang);
   console.log(`g++: ${gxx ?? 'missing'}`);
@@ -333,15 +407,7 @@ function main() {
     let reference = null;
     for (const run of RUNS) {
       const dir = path.join(work, run.name);
-      fs.cpSync(base, dir, { recursive: true });
-      if (run.flags || run.cppStandard) {
-        const configFile = path.join(dir, 'Config.json');
-        const config = JSON.parse(fs.readFileSync(configFile, 'utf8'));
-        if (run.flags)
-          config.compiler = { ...config.compiler, flags: run.flags };
-        if (run.cppStandard) config.cppStandard = run.cppStandard;
-        fs.writeFileSync(configFile, JSON.stringify(config, null, 2));
-      }
+      prepareRunDir(base, dir, run);
       const runEnv = run.clang ? { ...env, POLYMAN_CXX: args.clang } : env;
       const started = Date.now();
       const result = polyman(args, dir, runEnv, [
@@ -354,22 +420,15 @@ function main() {
       const seconds = ((Date.now() - started) / 1000).toFixed(1);
 
       const taken = pchPathOf(result.stderr, source);
-      let report = null;
-      try {
-        report = JSON.parse(result.stdout);
-      } catch {
-        // judged below as a failed run
-      }
-      const outcome = outcomeOf(
-        report,
+      const judged = judgeResult(
+        result,
         hashTree(path.join(dir, 'solutions-outputs', problem.main.name))
       );
+      const outcome = judged.outcome;
       const problems = pathProblems(run, taken, keys);
       if (!reference) reference = outcome;
       else problems.push(...compareOutcomes(reference, outcome));
-      if (!outcome.ok || result.status !== 0)
-        problems.push(`polyman run exited ${result.status}`);
-      if (outcome.tests.length === 0) problems.push('no test ran');
+      problems.push(...judged.problems);
 
       console.log(
         `\n${problems.length ? 'FAIL' : 'ok  '} ${run.name} (${seconds} s): ${describePath(taken)}`
@@ -395,17 +454,23 @@ function main() {
       `\nFAIL: the PCH check on ${problem.name} has ${failures.length} problem(s):`
     );
     for (const failure of failures) console.error(`  ${failure}`);
-    process.exit(1);
+    return failures;
   }
   console.log(
     `\nok: ${RUNS.length} runs of ${problem.name}/${source} took the expected paths and gave identical verdicts and outputs`
   );
+  return failures;
+}
+
+/** Runs the check on argv and gives its exit code. */
+export function runMain(argv) {
+  try {
+    return exitCodeOf(main(argv));
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : error);
+    return exitCodeOf([], true);
+  }
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url))
-  try {
-    main();
-  } catch (error) {
-    console.error(error instanceof Error ? error.message : error);
-    process.exit(2);
-  }
+  process.exitCode = runMain(process.argv.slice(2));

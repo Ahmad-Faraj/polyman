@@ -79,6 +79,8 @@ first problem whose main solution starts with `#include <bits/stdc++.h>`. It run
 same tests: PCH off (`--no-cache`), PCH built on an empty folder, the same PCH used again,
 `compiler.flags: ["-O1"]` (a key of its own) and `POLYMAN_CXX=clang++` (skipped, not g++).
 Each run must take that path, by polyman's log, and give the same verdicts and output files.
+A compile that fails with the PCH (polyman retries without it, or marks the key unsupported)
+fails the run, even though the fallback compile works.
 
 ```bash
 npm run build
