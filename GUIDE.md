@@ -2407,13 +2407,13 @@ Shape:
 - `errors` is plain text. The API key and secret are replaced with `[REDACTED]` everywhere in the report.
 - With `--json`, `push` never prompts. To create a new problem, pass `--yes` (and `--name <slug>` if needed), or it exits 2.
 - `pull` lists the files it saved and each testset it tried.
-- `warnings` lists what did not fail the command but needs a look. For `pull`, every replaced, skipped or failed download has one line here, with the reason from Polygon:
-  - each placeholder put in `Config.json` instead of a file: the `acc.cpp` main solution (no solution downloaded), the standard `ncmp` checker, the `val.cpp` validator (none on Polygon, or the download failed) and an empty generator list (the file list could not be fetched);
-  - each file that could not be downloaded and is left out of `Config.json`: a solution, a generator, a statement language, or all statements;
-  - checker or validator tests that could not be downloaded. `Config.json` then has no `testsFilePath` for it, so its self-tests are skipped instead of pointing at a missing file;
-  - the description or the tags, when they could not be downloaded. `Config.json` then has no `description` (or `tags`) key, not an empty value, so a later `remote push` leaves the one on Polygon as it is.
+- `warnings` lists what did not fail the command but needs a look. For `pull`, it has one line for each placeholder put in `Config.json` instead of a file: the `acc.cpp` main solution (no solution downloaded), the standard `ncmp` checker, the `val.cpp` validator (none on Polygon, or the download failed) and an empty generator list (the file list could not be fetched). Placeholders alone keep `ok: true` and exit 0.
+- A file that `pull` could not download fails it, like a failed upload fails `push`. The pull still writes every other file and `Config.json`, then ends with `ok: false` and exit 4. Each such file is an `ok: false` `download` entry in `actions`, and one line in `errors` with the reason:
+  - a solution, a generator, a statement language, or all statements. `Config.json` does not list it;
+  - checker or validator tests. `Config.json` then has no `testsFilePath` for it, so its self-tests are skipped instead of pointing at a missing file;
+  - the description or the tags. `Config.json` then has no `description` (or `tags`) key, not an empty value, so a later `remote push` leaves the one on Polygon as it is.
 
-  For all of these, the pull still ends with `ok: true` and exit 0. The same lines are repeated at the end of the human output. A testset Polygon refused is an `ok: false` entry in `actions`, and a refused problem fetch fails the pull.
+  The human output lists the same files under "PULL COMPLETED WITH ERRORS" and repeats the warnings at the end. A testset Polygon refused is an `ok: false` entry in `actions`, and a refused problem fetch fails the pull.
 
 ---
 

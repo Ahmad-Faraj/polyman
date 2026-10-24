@@ -35,6 +35,7 @@ import {
   downloadStatements,
   fetchProblemMetadata,
   downloadTestsetAndBuildGenerationScripts,
+  type PullFailure,
 } from './helpers/remote/pulling';
 import {
   updateProblemInfo,
@@ -1169,20 +1170,23 @@ export function stepCreatePulledProblemDirectory(
 /**
  * Step: Download all problem files from Polygon and create Config.json
  *
- * @returns {Promise<string[]>} Warnings about the pulled problem that the
- *   caller should repeat in its summary: no validator on Polygon, each
- *   placeholder (solution, checker, validator, generators) put in
- *   Config.json instead of a downloaded file, and each file (solution,
- *   generator, checker or validator tests, statement, description, tags)
- *   that could not be downloaded and is left out of Config.json. They are also added to the
- *   `--json` report's `warnings`; they do not fail the pull.
+ * @returns {Promise<{ warnings: string[]; failures: PullFailure[] }>}
+ *   `warnings` are the placeholders the caller should repeat in its summary:
+ *   no validator on Polygon, and each placeholder (solution, checker,
+ *   validator, generators) put in Config.json instead of a downloaded file.
+ *   They are also added to the `--json` report's `warnings`; they do not fail
+ *   the pull. `failures` has each file (solution, generator, checker or
+ *   validator tests, statement, description, tags) that could not be
+ *   downloaded and is left out of Config.json. Each one is recorded as a
+ *   failed `download` action; the caller fails the pull for them after the
+ *   other files are written.
  */
 export async function stepDownloadProblemFilesAndSetUpConfig(
   stepNum: number,
   sdk: PolygonSDK,
   problemId: number,
   savePath: string
-): Promise<string[]> {
+): Promise<{ warnings: string[]; failures: PullFailure[] }> {
   fmt.step(stepNum, 'Downloading Problem Files & Creating Config');
   const problemDir = path.resolve(process.cwd(), savePath);
   let downloadCount = 0;
@@ -1246,22 +1250,39 @@ export async function stepDownloadProblemFilesAndSetUpConfig(
 
   const downloaded = (component: string, name: string): void =>
     report.addAction({ component, name, action: 'download', ok: true });
+  const failed = (failures: PullFailure[]): void => {
+    for (const failure of failures) {
+      report.addAction({
+        component: failure.component,
+        name: failure.name,
+        action: 'download',
+        ok: false,
+        error: failure.error,
+      });
+    }
+  };
   // With no solution downloaded, `data` holds only a placeholder entry.
   if (solutionsResult.count > 0) {
     for (const solution of solutionsResult.data) {
       downloaded('solution', solution.name);
     }
   }
+  failed(solutionsResult.failures);
   if (checkerResult.count > 0) downloaded('checker', checkerResult.data.name);
+  failed(checkerResult.failures);
   if (validatorResult.count > 0) {
     downloaded('validator', validatorResult.data.name);
   }
+  failed(validatorResult.failures);
   for (const generator of generatorsResult.data) {
     downloaded('generator', generator.name);
   }
+  failed(generatorsResult.failures);
   for (const language of Object.keys(statementsResult.config)) {
     downloaded('statement', language);
   }
+  failed(statementsResult.failures);
+  failed(metadata.failures);
   if (validatorResult.missing) {
     report.addAction({
       component: 'validator',
@@ -1292,11 +1313,9 @@ export async function stepDownloadProblemFilesAndSetUpConfig(
   );
   fmt.stepComplete('Files downloaded & Config.json created');
 
-  const warnings: string[] = [...solutionsResult.failures];
+  const warnings: string[] = [];
   if (solutionsResult.placeholder) warnings.push(solutionsResult.placeholder);
-  warnings.push(...checkerResult.failures);
   if (checkerResult.placeholder) warnings.push(checkerResult.placeholder);
-  warnings.push(...validatorResult.failures);
   if (validatorResult.missing) {
     warnings.push(
       `Polygon has no validator set for problem ${problemId}: val.cpp is listed in Config.json but not created, so verify will fail until you add it`
@@ -1304,14 +1323,21 @@ export async function stepDownloadProblemFilesAndSetUpConfig(
   } else if (validatorResult.placeholder) {
     warnings.push(validatorResult.placeholder);
   }
-  warnings.push(...generatorsResult.failures);
   if (generatorsResult.placeholder) {
     warnings.push(generatorsResult.placeholder);
   }
-  warnings.push(...statementsResult.failures);
-  warnings.push(...metadata.failures);
   for (const warning of warnings) report.addWarning(warning);
-  return warnings;
+  return {
+    warnings,
+    failures: [
+      ...solutionsResult.failures,
+      ...checkerResult.failures,
+      ...validatorResult.failures,
+      ...generatorsResult.failures,
+      ...statementsResult.failures,
+      ...metadata.failures,
+    ],
+  };
 }
 
 /**

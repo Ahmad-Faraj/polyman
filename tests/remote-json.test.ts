@@ -510,6 +510,13 @@ describe('remote commands with --json', () => {
       (...args: unknown[]): Promise<unknown> =>
         args.includes(bad) ? refused() : Promise.resolve(value);
 
+    const noAccess = 'Polygon API Error: no access';
+    const human = (): string =>
+      vi
+        .mocked(console.error)
+        .mock.calls.map(call => call.join(' '))
+        .join('\n');
+
     it.each([
       {
         kind: 'one solution',
@@ -522,8 +529,9 @@ describe('remote commands with --json', () => {
             refusedFor('wa.cpp', 'int main() {}\n')
           );
         },
-        warning:
+        error:
           'Could not download the solution wa.cpp (Polygon API Error: no access): Config.json does not list it',
+        action: { component: 'solution', name: 'wa', error: noAccess },
         config: (config: ConfigFile) =>
           expect(config.solutions).toEqual([
             { name: 'main', source: './solutions/main.cpp', tag: 'MA' },
@@ -544,8 +552,9 @@ describe('remote commands with --json', () => {
             refusedFor('gen2.cpp', 'int main() {}\n')
           );
         },
-        warning:
+        error:
           'Could not download the generator gen2.cpp (Polygon API Error: no access): Config.json does not list it',
+        action: { component: 'generator', name: 'gen2', error: noAccess },
         config: (config: ConfigFile) =>
           expect(config.generators).toEqual([
             { name: 'gen', source: './generators/gen.cpp' },
@@ -557,8 +566,13 @@ describe('remote commands with --json', () => {
           sdk['getChecker'].mockResolvedValue('chk.cpp');
           sdk['getCheckerTests'] = vi.fn().mockImplementation(refused);
         },
-        warning:
+        error:
           'Could not download the checker tests (Polygon API Error: no access): Config.json has no testsFilePath for the checker, so its self-tests are skipped',
+        action: {
+          component: 'checker',
+          name: 'checker tests',
+          error: noAccess,
+        },
         config: (config: ConfigFile) => {
           expect(config.checker).toEqual({
             name: 'chk',
@@ -575,8 +589,13 @@ describe('remote commands with --json', () => {
       {
         kind: 'the validator tests',
         setUp: () => sdk['getValidatorTests'].mockImplementation(refused),
-        warning:
+        error:
           'Could not download the validator tests (Polygon API Error: no access): Config.json has no testsFilePath for the validator, so its self-tests are skipped',
+        action: {
+          component: 'validator',
+          name: 'validator tests',
+          error: noAccess,
+        },
         config: (config: ConfigFile) => {
           expect(config.validator).toEqual({
             name: 'val',
@@ -596,36 +615,60 @@ describe('remote commands with --json', () => {
             english: { name: 'Two Sum', legend: 'L' },
             '../x': { name: 'Bad', legend: 'L' },
           }),
-        warning:
+        error:
           'Could not download the statement "../x" (Refusing unsafe name from Polygon: "../x"): Config.json does not list it',
+        action: {
+          component: 'statement',
+          name: '../x',
+          error: 'Refusing unsafe name from Polygon: "../x"',
+        },
         config: (config: ConfigFile) =>
           expect(Object.keys(config.statements)).toEqual(['english']),
       },
       {
         kind: 'the statements',
         setUp: () => sdk['getStatements'].mockImplementation(refused),
-        warning:
+        error:
           'Could not download the statements (Polygon API Error: no access): Config.json lists no statements',
+        action: { component: 'statement', name: 'statements', error: noAccess },
         config: (config: ConfigFile) => expect(config.statements).toEqual({}),
       },
     ])(
-      'lists a failed download of $kind as a warning and still exits 0',
-      async ({ setUp, warning, config }) => {
+      'fails the pull with exit 4 for a failed download of $kind but writes the other files',
+      async ({ setUp, error, action, config }) => {
         setUp();
         const out = path.join(tmp, 'pulled');
 
-        await actions.remotePullProblemAction('7', out, { json: true });
+        const thrown = await failure(
+          actions.remotePullProblemAction('7', out, { json: true })
+        );
 
         const doc = written();
-        expect(doc).toMatchObject({ ok: true, exitCode: 0, errors: [] });
-        expect(doc.warnings).toEqual([warning]);
+        expect(exitCodeFor(thrown)).toBe(4);
+        expect(doc).toMatchObject({
+          ok: false,
+          exitCode: 4,
+          errors: [error],
+          warnings: [],
+        });
+        expect(doc.actions).toContainEqual({
+          ...action,
+          action: 'download',
+          ok: false,
+        });
+        // Config.json and the testsets are still written.
+        expect(doc.actions).toContainEqual({
+          component: 'config',
+          name: 'Config.json',
+          action: 'write',
+          ok: true,
+        });
+        expect(doc.actions.some(a => a.component === 'testset')).toBe(true);
         expect(exitSpy).not.toHaveBeenCalled();
         config(pulledConfig());
-        const human = vi
-          .mocked(console.error)
-          .mock.calls.map(call => call.join(' '))
-          .join('\n');
-        expect(human).toContain(warning);
+        expect(human()).toContain('PULL COMPLETED WITH ERRORS');
+        expect(human()).toContain(error);
+        expect(human()).not.toContain('PROBLEM PULLED SUCCESSFULLY');
       }
     );
 
@@ -638,13 +681,13 @@ describe('remote commands with --json', () => {
       {
         kind: 'the description',
         setUp: () => sdk['viewGeneralDescription'].mockImplementation(refused),
-        warnings: [noDescription],
+        errors: [noDescription],
         missing: ['description'],
       },
       {
         kind: 'the tags',
         setUp: () => sdk['viewTags'].mockImplementation(refused),
-        warnings: [noTags],
+        errors: [noTags],
         missing: ['tags'],
       },
       {
@@ -653,22 +696,34 @@ describe('remote commands with --json', () => {
           sdk['viewGeneralDescription'].mockImplementation(refused);
           sdk['viewTags'].mockImplementation(refused);
         },
-        warnings: [noDescription, noTags],
+        errors: [noDescription, noTags],
         missing: ['description', 'tags'],
       },
     ])(
-      'lists a failed download of $kind as a warning and leaves it out of Config.json',
-      async ({ setUp, warnings, missing }) => {
+      'fails the pull with exit 4 for a failed download of $kind and leaves it out of Config.json',
+      async ({ setUp, errors, missing }) => {
         sdk['viewGeneralDescription'].mockResolvedValue('Add two numbers');
         sdk['viewTags'].mockResolvedValue(['math']);
         setUp();
         const out = path.join(tmp, 'pulled');
 
-        await actions.remotePullProblemAction('7', out, { json: true });
+        const thrown = await failure(
+          actions.remotePullProblemAction('7', out, { json: true })
+        );
 
         const doc = written();
-        expect(doc).toMatchObject({ ok: true, exitCode: 0, errors: [] });
-        expect(doc.warnings).toEqual(warnings);
+        expect(exitCodeFor(thrown)).toBe(4);
+        expect(doc).toMatchObject({ ok: false, exitCode: 4, warnings: [] });
+        expect(doc.errors).toEqual(errors);
+        expect(doc.actions.filter(a => a.component === 'metadata')).toEqual(
+          missing.map(name => ({
+            component: 'metadata',
+            name,
+            action: 'download',
+            ok: false,
+            error: noAccess,
+          }))
+        );
         expect(exitSpy).not.toHaveBeenCalled();
         const config = pulledConfig();
         for (const key of missing)
@@ -677,24 +732,20 @@ describe('remote commands with --json', () => {
           expect(config.description).toBe('Add two numbers');
         }
         if (!missing.includes('tags')) expect(config.tags).toEqual(['math']);
-        const human = vi
-          .mocked(console.error)
-          .mock.calls.map(call => call.join(' '))
-          .join('\n');
-        for (const warning of warnings) expect(human).toContain(warning);
+        for (const error of errors) expect(human()).toContain(error);
       }
     );
 
-    it('redacts the credentials in a failed description warning', async () => {
+    it('redacts the credentials in a failed description download', async () => {
       sdk['viewGeneralDescription'].mockRejectedValue(
         new Error(`Polygon API Error: bad key ${API_KEY}`)
       );
       const out = path.join(tmp, 'pulled');
 
-      await actions.remotePullProblemAction('7', out, { json: true });
+      await failure(actions.remotePullProblemAction('7', out, { json: true }));
 
       const doc = written();
-      expect(doc.warnings).toEqual([
+      expect(doc.errors).toEqual([
         'Could not download the description (Polygon API Error: bad key [REDACTED]): Config.json has no description, so push will not change it on Polygon',
       ]);
       expect(JSON.stringify(doc)).not.toContain(API_KEY);
@@ -704,7 +755,7 @@ describe('remote commands with --json', () => {
       sdk['viewGeneralDescription'].mockImplementation(refused);
       sdk['viewTags'].mockImplementation(refused);
       const out = path.join(tmp, 'pulled');
-      await actions.remotePullProblemAction('7', out, { json: true });
+      await failure(actions.remotePullProblemAction('7', out, { json: true }));
       report.reset();
       writeSpy.mockClear();
 
@@ -720,19 +771,71 @@ describe('remote commands with --json', () => {
       expect(doc.actions.filter(a => a.component === 'metadata')).toEqual([]);
     });
 
-    it('redacts the credentials in a failed download warning', async () => {
-      sdk['viewSolution'].mockRejectedValue(
-        new Error(`Polygon API Error: bad key ${API_KEY}`)
+    it('fails the pull and keeps the placeholders in warnings when a download fails next to them', async () => {
+      // The only solution is refused, so acc.cpp is also put in as a
+      // placeholder; the validator is missing on Polygon too.
+      sdk['viewSolution'].mockImplementation(refused);
+      sdk['getValidator'].mockResolvedValue('');
+      const out = path.join(tmp, 'pulled');
+
+      const thrown = await failure(
+        actions.remotePullProblemAction('7', out, { json: true })
       );
+
+      const doc = written();
+      expect(exitCodeFor(thrown)).toBe(4);
+      expect(doc).toMatchObject({ ok: false, exitCode: 4 });
+      expect(doc.errors).toEqual([
+        'Could not download the solution main.cpp (Polygon API Error: no access): Config.json does not list it',
+      ]);
+      expect(doc.warnings).toEqual([
+        'No solution was downloaded from Polygon: acc.cpp is listed in Config.json as the main solution but not created',
+        `Polygon has no validator set for problem 7: ${notCreated}`,
+      ]);
+      expect(human()).toContain('PULL COMPLETED WITH ERRORS');
+      for (const warning of doc.warnings) expect(human()).toContain(warning);
+    });
+
+    it('gives ok true and exit 0 for placeholders alone', async () => {
+      sdk['getSolutions'].mockResolvedValue([]);
+      sdk['getChecker'].mockImplementation(refused);
+      sdk['getValidator'].mockResolvedValue('');
+      sdk['getFiles'].mockImplementation(refused);
       const out = path.join(tmp, 'pulled');
 
       await actions.remotePullProblemAction('7', out, { json: true });
 
       const doc = written();
-      expect(doc.ok).toBe(true);
-      expect(doc.warnings[0]).toBe(
-        'Could not download the solution main.cpp (Polygon API Error: bad key [REDACTED]): Config.json does not list it'
+      expect(doc).toMatchObject({ ok: true, exitCode: 0, errors: [] });
+      expect(doc.warnings).toHaveLength(4);
+      expect(doc.actions.filter(a => !a.ok).map(a => a.component)).toEqual([
+        'validator',
+        'testset',
+      ]);
+      expect(exitSpy).not.toHaveBeenCalled();
+      expect(human()).toContain('PROBLEM PULLED SUCCESSFULLY');
+    });
+
+    it('redacts the credentials in a failed file download', async () => {
+      sdk['viewSolution'].mockRejectedValue(
+        new Error(`Polygon API Error: bad key ${API_KEY}`)
       );
+      const out = path.join(tmp, 'pulled');
+
+      await failure(actions.remotePullProblemAction('7', out, { json: true }));
+
+      const doc = written();
+      expect(doc.ok).toBe(false);
+      expect(doc.errors).toEqual([
+        'Could not download the solution main.cpp (Polygon API Error: bad key [REDACTED]): Config.json does not list it',
+      ]);
+      expect(doc.actions).toContainEqual({
+        component: 'solution',
+        name: 'main',
+        action: 'download',
+        ok: false,
+        error: 'Polygon API Error: bad key [REDACTED]',
+      });
       expect(JSON.stringify(doc)).not.toContain(API_KEY);
     });
 

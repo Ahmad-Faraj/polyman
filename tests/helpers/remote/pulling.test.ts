@@ -141,7 +141,13 @@ describe('pulling.ts', () => {
       expect(result.data).toHaveLength(2);
       expect(result.data.map(s => s.name)).toEqual(['a', 'c']);
       expect(result.failures).toEqual([
-        'Could not download the solution b.cpp (boom): Config.json does not list it',
+        {
+          component: 'solution',
+          name: 'b',
+          error: 'boom',
+          message:
+            'Could not download the solution b.cpp (boom): Config.json does not list it',
+        },
       ]);
       expect(result.placeholder).toBeUndefined();
     });
@@ -339,7 +345,13 @@ describe('pulling.ts', () => {
       // The tests file was not written, so Config.json must not point at it.
       expect(result.data.testsFilePath).toBeUndefined();
       expect(result.failures).toEqual([
-        'Could not download the checker tests (no tests): Config.json has no testsFilePath for the checker, so its self-tests are skipped',
+        {
+          component: 'checker',
+          name: 'checker tests',
+          error: 'no tests',
+          message:
+            'Could not download the checker tests (no tests): Config.json has no testsFilePath for the checker, so its self-tests are skipped',
+        },
       ]);
     });
 
@@ -411,7 +423,13 @@ describe('pulling.ts', () => {
       // The tests file was not written, so Config.json must not point at it.
       expect(result.data.testsFilePath).toBeUndefined();
       expect(result.failures).toEqual([
-        'Could not download the validator tests (no tests): Config.json has no testsFilePath for the validator, so its self-tests are skipped',
+        {
+          component: 'validator',
+          name: 'validator tests',
+          error: 'no tests',
+          message:
+            'Could not download the validator tests (no tests): Config.json has no testsFilePath for the validator, so its self-tests are skipped',
+        },
       ]);
     });
 
@@ -593,7 +611,13 @@ describe('pulling.ts', () => {
       expect(result.count).toBe(2);
       expect(result.data.map(g => g.name)).toEqual(['gen1', 'gen3']);
       expect(result.failures).toEqual([
-        'Could not download the generator gen2.cpp (fail): Config.json does not list it',
+        {
+          component: 'generator',
+          name: 'gen2',
+          error: 'fail',
+          message:
+            'Could not download the generator gen2.cpp (fail): Config.json does not list it',
+        },
       ]);
     });
 
@@ -773,7 +797,13 @@ describe('pulling.ts', () => {
       expect(result.count).toBe(0);
       expect(result.problemName).toBe('problem');
       expect(result.failures).toEqual([
-        'Could not download the statements (boom): Config.json lists no statements',
+        {
+          component: 'statement',
+          name: 'statements',
+          error: 'boom',
+          message:
+            'Could not download the statements (boom): Config.json lists no statements',
+        },
       ]);
     });
   });
@@ -798,7 +828,13 @@ describe('pulling.ts', () => {
       expect(result).toEqual({
         tags: ['x'],
         failures: [
-          'Could not download the description (boom): Config.json has no description, so push will not change it on Polygon',
+          {
+            component: 'metadata',
+            name: 'description',
+            error: 'boom',
+            message:
+              'Could not download the description (boom): Config.json has no description, so push will not change it on Polygon',
+          },
         ],
       });
       expect('description' in result).toBe(false);
@@ -813,7 +849,13 @@ describe('pulling.ts', () => {
       expect(result).toEqual({
         description: 'desc',
         failures: [
-          'Could not download the tags (boom): Config.json has no tags, so push will not change them on Polygon',
+          {
+            component: 'metadata',
+            name: 'tags',
+            error: 'boom',
+            message:
+              'Could not download the tags (boom): Config.json has no tags, so push will not change them on Polygon',
+          },
         ],
       });
       expect('tags' in result).toBe(false);
@@ -827,8 +869,20 @@ describe('pulling.ts', () => {
 
       expect(result).toEqual({
         failures: [
-          'Could not download the description (a): Config.json has no description, so push will not change it on Polygon',
-          'Could not download the tags (b): Config.json has no tags, so push will not change them on Polygon',
+          {
+            component: 'metadata',
+            name: 'description',
+            error: 'a',
+            message:
+              'Could not download the description (a): Config.json has no description, so push will not change it on Polygon',
+          },
+          {
+            component: 'metadata',
+            name: 'tags',
+            error: 'b',
+            message:
+              'Could not download the tags (b): Config.json has no tags, so push will not change them on Polygon',
+          },
         ],
       });
     });
@@ -1258,7 +1312,13 @@ describe('pulling.ts', () => {
       expect(written().some(p => p.includes('evil'))).toBe(false);
       expect(written().some(p => p.includes('legend.tex'))).toBe(true);
       expect(result.failures).toEqual([
-        'Could not download the statement "../../evil" (Refusing unsafe name from Polygon: "../../evil"): Config.json does not list it',
+        {
+          component: 'statement',
+          name: '../../evil',
+          error: 'Refusing unsafe name from Polygon: "../../evil"',
+          message:
+            'Could not download the statement "../../evil" (Refusing unsafe name from Polygon: "../../evil"): Config.json does not list it',
+        },
       ]);
     });
 

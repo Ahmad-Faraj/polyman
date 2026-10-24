@@ -1138,16 +1138,16 @@ describe('steps.ts', () => {
     });
 
     it('should return no warnings when the validator was pulled', async () => {
-      const warnings = await pullWithChecker({
+      const result = await pullWithChecker({
         name: 'wcmp',
         source: 'wcmp.cpp',
         isStandard: true,
       });
-      expect(warnings).toEqual([]);
+      expect(result).toEqual({ warnings: [], failures: [] });
     });
 
     it('should return a warning when Polygon has no validator', async () => {
-      const warnings = await pullWithChecker(
+      const { warnings, failures } = await pullWithChecker(
         { name: 'wcmp', source: 'wcmp.cpp', isStandard: true },
         {
           count: 0,
@@ -1157,6 +1157,155 @@ describe('steps.ts', () => {
       );
       expect(warnings).toHaveLength(1);
       expect(warnings[0]).toContain('no validator set for problem 7');
+      expect(failures).toEqual([]);
+    });
+
+    const failure = (component: string, name: string, error: string) => ({
+      component,
+      name,
+      error,
+      message: `Could not download ${component} ${name} (${error})`,
+    });
+
+    it('returns each failed file download as a failure, not a warning, and records it as a failed action', async () => {
+      const addAction = vi.spyOn(report, 'addAction');
+      const addWarning = vi.spyOn(report, 'addWarning');
+      vi.mocked(remoteUtils.fetchProblemInfo).mockResolvedValue({
+        name: 'p',
+        owner: 'o',
+        timeLimit: 1000,
+        memoryLimit: 256,
+        inputFile: 'stdin',
+        outputFile: 'stdout',
+        interactive: false,
+      } as any);
+      vi.mocked(pulling.downloadSolutions).mockResolvedValue({
+        count: 1,
+        data: [{ name: 'main', source: './solutions/main.cpp', tag: 'MA' }],
+        failures: [failure('solution', 'wa', 'no access')],
+      } as any);
+      vi.mocked(pulling.downloadChecker).mockResolvedValue({
+        count: 1,
+        data: { name: 'chk', source: './checker/chk.cpp', isStandard: false },
+        failures: [failure('checker', 'checker tests', 'boom')],
+      } as any);
+      vi.mocked(pulling.downloadValidator).mockResolvedValue({
+        count: 1,
+        data: { name: 'val', source: './validator/val.cpp' },
+        failures: [failure('validator', 'validator tests', 'boom')],
+      } as any);
+      vi.mocked(pulling.downloadGenerators).mockResolvedValue({
+        count: 0,
+        data: [],
+        failures: [failure('generator', 'gen', 'boom')],
+      } as any);
+      vi.mocked(pulling.downloadStatements).mockResolvedValue({
+        count: 0,
+        config: {},
+        failures: [failure('statement', 'statements', 'boom')],
+      } as any);
+      vi.mocked(pulling.fetchProblemMetadata).mockResolvedValue({
+        failures: [failure('metadata', 'tags', 'boom')],
+      } as any);
+      vi.mocked(fs.writeFileSync).mockImplementation(() => undefined);
+
+      const result = await steps.stepDownloadProblemFilesAndSetUpConfig(
+        1,
+        {} as any,
+        7,
+        'savePath'
+      );
+
+      const recorded = addAction.mock.calls.map(call => call[0]);
+      addAction.mockRestore();
+      addWarning.mockRestore();
+      expect(result.warnings).toEqual([]);
+      expect(addWarning).not.toHaveBeenCalled();
+      expect(result.failures.map(f => f.name)).toEqual([
+        'wa',
+        'checker tests',
+        'validator tests',
+        'gen',
+        'statements',
+        'tags',
+      ]);
+      const failedAction = (
+        component: string,
+        name: string,
+        error: string
+      ) => ({
+        component,
+        name,
+        action: 'download',
+        ok: false,
+        error,
+      });
+      expect(recorded).toEqual([
+        { component: 'solution', name: 'main', action: 'download', ok: true },
+        failedAction('solution', 'wa', 'no access'),
+        { component: 'checker', name: 'chk', action: 'download', ok: true },
+        failedAction('checker', 'checker tests', 'boom'),
+        { component: 'validator', name: 'val', action: 'download', ok: true },
+        failedAction('validator', 'validator tests', 'boom'),
+        failedAction('generator', 'gen', 'boom'),
+        failedAction('statement', 'statements', 'boom'),
+        failedAction('metadata', 'tags', 'boom'),
+        { component: 'config', name: 'Config.json', action: 'write', ok: true },
+      ]);
+    });
+
+    it('keeps a placeholder in warnings next to a failed file download', async () => {
+      vi.mocked(remoteUtils.fetchProblemInfo).mockResolvedValue({
+        name: 'p',
+        owner: 'o',
+        timeLimit: 1000,
+        memoryLimit: 256,
+        inputFile: 'stdin',
+        outputFile: 'stdout',
+        interactive: false,
+      } as any);
+      vi.mocked(pulling.downloadSolutions).mockResolvedValue({
+        count: 0,
+        data: [{ name: 'acc', source: './solutions/acc.cpp', tag: 'MA' }],
+        failures: [failure('solution', 'wa', 'no access')],
+        placeholder: 'acc.cpp placeholder',
+      } as any);
+      vi.mocked(pulling.downloadChecker).mockResolvedValue({
+        count: 0,
+        data: { name: 'wcmp', source: 'wcmp.cpp', isStandard: true },
+        failures: [],
+      } as any);
+      vi.mocked(pulling.downloadValidator).mockResolvedValue({
+        count: 1,
+        data: { name: 'val', source: './validator/val.cpp' },
+        failures: [],
+      } as any);
+      vi.mocked(pulling.downloadGenerators).mockResolvedValue({
+        count: 0,
+        data: [],
+        failures: [],
+      } as any);
+      vi.mocked(pulling.downloadStatements).mockResolvedValue({
+        count: 0,
+        config: {},
+        failures: [],
+      } as any);
+      vi.mocked(pulling.fetchProblemMetadata).mockResolvedValue({
+        failures: [],
+      } as any);
+      vi.mocked(fs.writeFileSync).mockImplementation(() => undefined);
+
+      const result = await steps.stepDownloadProblemFilesAndSetUpConfig(
+        1,
+        {} as any,
+        7,
+        'savePath'
+      );
+
+      expect(result.warnings).toEqual(['acc.cpp placeholder']);
+      expect(result.failures.map(f => f.message)).toEqual([
+        'Could not download solution wa (no access)',
+      ]);
     });
 
     it('records a failed validator download when Polygon has none', async () => {
