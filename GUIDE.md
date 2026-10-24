@@ -1467,6 +1467,7 @@ polyman generate --all                                    # All testsets
 polyman generate --testset tests                          # One testset only
 polyman generate --testset tests --group samples          # Just one group
 polyman generate --testset tests --index 5                # Single test by command index
+polyman generate --all --json > generate.json             # JSON report on stdout
 ```
 
 **What Happens:**
@@ -1475,6 +1476,26 @@ polyman generate --testset tests --index 5                # Single test by comma
 2. Runs each `manual` (copy) or `generator` (execute over `range`) command and writes outputs to `testsets/<testset-name>/test<N>.txt`
 
 The `--testset`, `--group`, and `--index` flags successively narrow which commands are executed.
+
+**`--json`:** stdout carries exactly one JSON document and every human-readable line goes to stderr. Each test is listed with where its input came from and whether it was written:
+
+```json
+{
+  "schemaVersion": 1,
+  "polymanVersion": "3.0.3",
+  "ok": false,
+  "command": "generate",
+  "exitCode": 1,
+  "durationMs": 912,
+  "errors": ["Some tests failed to generate"],
+  "tests": [
+    { "testset": "tests", "index": 1, "source": "manual", "ok": true },
+    { "testset": "tests", "index": 2, "source": "generator", "generator": "gen-random", "args": ["10"], "ok": false, "error": "Generator execution failed" }
+  ]
+}
+```
+
+`generator` and `args` are present only for generated tests, and `error` only when `ok` is false. `exitCode` is the code the process exits with.
 
 ---
 
@@ -1491,6 +1512,7 @@ polyman validate --all                                    # All tests in all tes
 polyman validate --testset tests                          # One testset
 polyman validate --testset tests --group samples          # One group
 polyman validate --testset tests --index 5                # One test
+polyman validate --all --json > validate.json             # JSON report on stdout
 ```
 
 **What Happens:**
@@ -1499,6 +1521,26 @@ polyman validate --testset tests --index 5                # One test
 2. Runs `./val < test<N>.txt` for each selected test and reports VALID / INVALID with error details
 
 If tests fail: check validator constraints, fix the generator, or correct manual test files.
+
+**`--json`:** stdout carries exactly one JSON document and every human-readable line goes to stderr. Each test is listed as valid or not, with the validator message:
+
+```json
+{
+  "schemaVersion": 1,
+  "polymanVersion": "3.0.3",
+  "ok": false,
+  "command": "validate",
+  "exitCode": 1,
+  "durationMs": 140,
+  "errors": ["Some tests failed validation"],
+  "tests": [
+    { "testset": "tests", "index": 1, "valid": true, "message": "" },
+    { "testset": "tests", "index": 2, "valid": false, "message": "FAIL Integer parameter [name=n] equals to 0, violates the range [1, 1000] (test case 1, stdin, line 1)" }
+  ]
+}
+```
+
+`group` is present only with `--group`. `message` is empty for a valid test.
 
 ---
 
@@ -1903,7 +1945,7 @@ Every command ends with one of these codes, so a script or an agent can decide w
 | `130` | Cancelled | Ctrl+C (SIGINT) | Nothing, the user stopped it |
 | `143` | Terminated | SIGTERM, for example a CI job that timed out | Nothing, the runner stopped it |
 
-Any other failure, for example an error polyman did not expect, ends with `1`. The error message is printed last, on its own line, with a `Hint:` line under it when polyman knows the fix. With `--json`, the `exitCode` field of the `new`, `download-testlib` and `list` reports is the same code.
+Any other failure, for example an error polyman did not expect, ends with `1`. The error message is printed last, on its own line, with a `Hint:` line under it when polyman knows the fix. With `--json`, the `exitCode` field of the `new`, `download-testlib`, `list`, `generate` and `validate` reports is the same code.
 
 ```bash
 polyman verify

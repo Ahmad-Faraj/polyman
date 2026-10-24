@@ -222,6 +222,7 @@ list
  * polyman generate --testset tests
  * polyman generate --testset tests --group samples
  * polyman generate --testset tests --index 5
+ * polyman generate --all --json   # machine-readable report on stdout
  */
 program
   .command('generate')
@@ -231,12 +232,17 @@ program
   .option('-g, --group <name>', 'Generate specific group within testset')
   .option('-i, --index <number>', 'Generate specific test by index')
   .option('--no-cache', NO_CACHE_DESCRIPTION)
+  .option(
+    '--json',
+    'Print a JSON report to stdout (human output goes to stderr)'
+  )
   .action(
     async (options: {
       all?: boolean;
       testset?: string;
       group?: string;
       index?: string;
+      json?: boolean;
     }) => {
       let target = 'all';
       let modifier: string | undefined;
@@ -252,7 +258,9 @@ program
         }
       }
 
-      await generateTestsAction(target, modifier);
+      await generateTestsAction(target, modifier, {
+        json: options.json === true,
+      });
     }
   );
 
@@ -275,6 +283,7 @@ program
  * polyman validate --testset tests
  * polyman validate --testset tests --group samples
  * polyman validate --testset tests --index 5
+ * polyman validate --all --json   # machine-readable report on stdout
  */
 program
   .command('validate')
@@ -284,12 +293,17 @@ program
   .option('-g, --group <name>', 'Validate specific group within testset')
   .option('-i, --index <number>', 'Validate specific test by index')
   .option('--no-cache', NO_CACHE_DESCRIPTION)
+  .option(
+    '--json',
+    'Print a JSON report to stdout (human output goes to stderr)'
+  )
   .action(
     async (options: {
       all?: boolean;
       testset?: string;
       group?: string;
       index?: string;
+      json?: boolean;
     }) => {
       let target = 'all';
       let modifier: string | undefined;
@@ -305,7 +319,9 @@ program
         }
       }
 
-      await validateTestsAction(target, modifier);
+      await validateTestsAction(target, modifier, {
+        json: options.json === true,
+      });
     }
   );
 

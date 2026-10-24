@@ -909,7 +909,75 @@ interface ListReport extends ReportBase {
   items: unknown[];
 }
 
-type JsonReport = RunReport | VerifyReport | PathReport | ListReport;
+/**
+ * One test inside a generate report.
+ * @interface GeneratedTestResult
+ * @property {string} testset - Testset the test belongs to
+ * @property {number} index - Polygon test index (the N in test<N>.txt)
+ * @property {'manual' | 'generator'} source - Where the input came from
+ * @property {string} [generator] - Generator name, only for generated tests
+ * @property {string[]} [args] - Generator arguments, only for generated tests
+ * @property {boolean} ok - Whether the input file was written
+ * @property {string} [error] - Failure detail, only when ok is false
+ */
+interface GeneratedTestResult {
+  testset: string;
+  index: number;
+  source: 'manual' | 'generator';
+  generator?: string;
+  args?: string[];
+  ok: boolean;
+  error?: string;
+}
+
+/**
+ * Report emitted by `polyman generate --json`.
+ * @interface GenerateReport
+ */
+interface GenerateReport extends ReportBase {
+  command: 'generate';
+  exitCode: number;
+  durationMs: number;
+  errors: string[];
+  tests: GeneratedTestResult[];
+}
+
+/**
+ * One test inside a validate report.
+ * @interface ValidatedTestResult
+ * @property {string} testset - Testset the test belongs to
+ * @property {string} [group] - Group name, only when the run targeted a group
+ * @property {number} index - Polygon test index (the N in test<N>.txt)
+ * @property {boolean} valid - Whether the validator accepted the input
+ * @property {string} message - Validator message (empty when valid)
+ */
+interface ValidatedTestResult {
+  testset: string;
+  group?: string;
+  index: number;
+  valid: boolean;
+  message: string;
+}
+
+/**
+ * Report emitted by `polyman validate --json`.
+ * @interface ValidateReport
+ */
+interface ValidateReport extends ReportBase {
+  command: 'validate';
+  exitCode: number;
+  durationMs: number;
+  errors: string[];
+  tests: ValidatedTestResult[];
+}
+
+type JsonReport =
+  | RunReport
+  | VerifyReport
+  | PathReport
+  | ListReport
+  | GenerateReport
+  | ValidateReport;
 
 // ==================== Exports ====================
 
@@ -976,6 +1044,10 @@ export {
   VerifyReport,
   PathReport,
   ListReport,
+  GeneratedTestResult,
+  GenerateReport,
+  ValidatedTestResult,
+  ValidateReport,
   JsonReport,
 };
 

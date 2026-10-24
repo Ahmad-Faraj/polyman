@@ -5,6 +5,7 @@ import type { ExecutionOptions, ExecutionResult } from '../../src/executor';
 import * as utils from '../../src/helpers/utils';
 import * as testsetHelper from '../../src/helpers/testset';
 import { fmt } from '../../src/formatter';
+import { report } from '../../src/report';
 import fs from 'fs';
 import path from 'path';
 import { LimitExceededError, PolymanError } from '../../src/errors';
@@ -453,6 +454,159 @@ describe('validator.ts', () => {
 
       expect(mockedLogError).toHaveBeenCalled();
       expect(mockedCleanup).toHaveBeenCalled();
+    });
+  });
+
+  describe('records each test for validate --json', () => {
+    const mockValidator: LocalValidator = { name: 'val', source: 'val.cpp' };
+    let recordSpy: ReturnType<
+      typeof vi.spyOn<typeof report, 'recordValidatedTest'>
+    >;
+    const recorded = () => recordSpy.mock.calls.map(call => call[0]);
+
+    beforeEach(() => {
+      recordSpy = vi
+        .spyOn(report, 'recordValidatedTest')
+        .mockImplementation(() => {});
+      mockedGetCompiledCommandToRun.mockReturnValue('./val');
+      mockedExistsSync.mockReturnValue(true);
+      mockedCleanup.mockResolvedValue();
+      mockedLogError.mockImplementation(() => {});
+      mockedThrowError.mockImplementation(rethrowImpl);
+    });
+
+    it('validateTestset records valid and invalid tests by index', async () => {
+      mockedGetTestFiles.mockReturnValue(['test1.txt', 'test10.txt']);
+      mockedExecuteWithRedirect
+        .mockResolvedValueOnce(SUCCESS_RESULT)
+        .mockImplementationOnce(
+          executeOnErrorResolve('FAIL Integer 0 violates the range [1, 10]')
+        );
+
+      await expect(
+        validator.validateTestset(mockValidator, 'tests')
+      ).rejects.toThrow('Some tests failed validation');
+
+      expect(recorded()).toEqual([
+        { testset: 'tests', index: 1, valid: true, message: '' },
+        {
+          testset: 'tests',
+          index: 10,
+          valid: false,
+          message: 'FAIL Integer 0 violates the range [1, 10]',
+        },
+      ]);
+    });
+
+    it('validateTestset ignores files that are not test<N>.txt', async () => {
+      mockedGetTestFiles.mockReturnValue([
+        'test2.txt',
+        'test2.txt.bak',
+        'test_notes.txt',
+      ]);
+      mockedExecuteWithRedirect
+        .mockImplementationOnce(executeOnErrorResolve('FAIL bad'))
+        .mockResolvedValue(SUCCESS_RESULT);
+
+      await expect(
+        validator.validateTestset(mockValidator, 'tests')
+      ).rejects.toThrow('Some tests failed validation');
+
+      expect(mockedExecuteWithRedirect).toHaveBeenCalledTimes(1);
+      expect(recorded()).toEqual([
+        { testset: 'tests', index: 2, valid: false, message: 'FAIL bad' },
+      ]);
+      expect(recorded().every(entry => Number.isInteger(entry.index))).toBe(
+        true
+      );
+    });
+
+    it.each([
+      [['test_notes.txt']],
+      [['test1.txt.bak']],
+      [['test0.txt', 'test01.txt', 'test_notes.txt', 'test1.txt.bak']],
+    ])(
+      'validateTestset fails like an empty folder when no file is test<N>.txt (%j)',
+      async files => {
+        mockedGetTestFiles.mockReturnValue(files);
+        mockedExecuteWithRedirect.mockResolvedValue(SUCCESS_RESULT);
+
+        await expect(
+          validator.validateTestset(mockValidator, 'tests')
+        ).rejects.toThrow('No test files found in testset: tests');
+
+        expect(mockedExecuteWithRedirect).not.toHaveBeenCalled();
+        expect(recorded()).toEqual([]);
+      }
+    );
+
+    it('validateGroup records the group of each test', async () => {
+      const mockTestset: LocalTestset = { name: 'tests', groups: [] };
+      mockedGetTestIndicesForGroup.mockReturnValue([2, 3]);
+      mockedExecuteWithRedirect
+        .mockImplementationOnce(executeOnErrorResolve('FAIL bad'))
+        .mockResolvedValueOnce(SUCCESS_RESULT);
+
+      await expect(
+        validator.validateGroup(mockValidator, mockTestset, 'samples')
+      ).rejects.toThrow('Some tests in group samples failed validation');
+
+      expect(recorded()).toEqual([
+        {
+          testset: 'tests',
+          group: 'samples',
+          index: 2,
+          valid: false,
+          message: 'FAIL bad',
+        },
+        {
+          testset: 'tests',
+          group: 'samples',
+          index: 3,
+          valid: true,
+          message: '',
+        },
+      ]);
+    });
+
+    it('validateSingleTest records a valid test', async () => {
+      mockedExecuteWithRedirect.mockResolvedValue(SUCCESS_RESULT);
+      await validator.validateSingleTest(mockValidator, 'tests', 4);
+      expect(recorded()).toEqual([
+        { testset: 'tests', index: 4, valid: true, message: '' },
+      ]);
+    });
+
+    it('validateSingleTest records an invalid test with the message', async () => {
+      mockedExecuteWithRedirect.mockImplementation(
+        executeOnErrorResolve('FAIL Expected EOLN')
+      );
+      await expect(
+        validator.validateSingleTest(mockValidator, 'tests', 4)
+      ).rejects.toThrow('Test 4 failed validation');
+      expect(recorded()).toEqual([
+        {
+          testset: 'tests',
+          index: 4,
+          valid: false,
+          message: 'FAIL Expected EOLN',
+        },
+      ]);
+    });
+
+    it('validateSingleTest records a missing test file as invalid', async () => {
+      mockedExistsSync.mockReturnValue(false);
+      await expect(
+        validator.validateSingleTest(mockValidator, 'tests', 4)
+      ).rejects.toThrow('Test file not found');
+      expect(recorded()).toEqual([
+        {
+          testset: 'tests',
+          index: 4,
+          valid: false,
+          message: expect.stringContaining('Test file not found') as unknown,
+        },
+      ]);
     });
   });
 

@@ -13,6 +13,8 @@ import fs from 'fs';
 import path from 'path';
 import { fmt } from './formatter';
 import type {
+  GeneratedTestResult,
+  GenerateReport,
   JsonReport,
   ListReport,
   LocalSolution,
@@ -23,6 +25,8 @@ import type {
   StepResult,
   TestResult,
   TestVerdict,
+  ValidatedTestResult,
+  ValidateReport,
   VerifyReport,
 } from './types';
 
@@ -60,13 +64,15 @@ interface SolutionEntry {
   tests: TestResult[];
 }
 
-type SimpleKind = 'path' | 'list';
+type SimpleKind = 'path' | 'list' | 'generate' | 'validate';
 
 interface SimpleOutput {
   kind: SimpleKind;
   startedAt: number;
   path: string;
   items: unknown[];
+  generated: GeneratedTestResult[];
+  validated: ValidatedTestResult[];
 }
 
 interface ActiveReport {
@@ -121,6 +127,49 @@ export class ReportCollector {
    */
   startList(command: string): void {
     this.start(command, '', 'list');
+  }
+
+  /**
+   * Begin collecting a `generate` report. Helpers add one entry per test
+   * with `recordGeneratedTest`.
+   */
+  startGenerate(): void {
+    this.start('generate', '', 'generate');
+  }
+
+  /**
+   * Begin collecting a `validate` report. Helpers add one entry per test
+   * with `recordValidatedTest`.
+   */
+  startValidate(): void {
+    this.start('validate', '', 'validate');
+  }
+
+  /**
+   * Records the result of generating one test. Ignored unless a `generate`
+   * report is active, so `verify` does not collect these.
+   */
+  recordGeneratedTest(result: GeneratedTestResult): void {
+    const simple = this.active?.simple;
+    if (simple?.kind !== 'generate') return;
+    const entry: GeneratedTestResult = { ...result };
+    if (entry.error !== undefined) {
+      entry.error = stripAnsi(entry.error).trim();
+    }
+    upsertTest(simple.generated, entry);
+  }
+
+  /**
+   * Records the validator result for one test. Ignored unless a `validate`
+   * report is active, so `verify` does not collect these.
+   */
+  recordValidatedTest(result: ValidatedTestResult): void {
+    const simple = this.active?.simple;
+    if (simple?.kind !== 'validate') return;
+    upsertTest(simple.validated, {
+      ...result,
+      message: stripAnsi(result.message).trim(),
+    });
   }
 
   /** Sets the `path` of a path report. */
@@ -261,7 +310,8 @@ export class ReportCollector {
    *
    * @param ok - Whether the command succeeded
    * @param exitCode - The code the process will exit with, shown as
-   *   `exitCode` in the `new`, `download-testlib` and `list` reports.
+   *   `exitCode` in the `new`, `download-testlib`, `list`, `generate` and
+   *   `validate` reports.
    *   Defaults to 0 when ok and 1 otherwise.
    */
   finish(ok: boolean, exitCode: number = ok ? 0 : 1): void {
@@ -296,7 +346,14 @@ export class ReportCollector {
       simple:
         simpleKind === null
           ? null
-          : { kind: simpleKind, startedAt: Date.now(), path: '', items: [] },
+          : {
+              kind: simpleKind,
+              startedAt: Date.now(),
+              path: '',
+              items: [],
+              generated: [],
+              validated: [],
+            },
       requestedSolution,
       requestedTag: null,
       steps: [],
@@ -348,6 +405,22 @@ export class ReportCollector {
         durationMs: Math.max(0, Date.now() - active.simple.startedAt),
         errors: ok ? [] : [...active.errors],
       };
+      if (active.simple.kind === 'generate') {
+        const generateReport: GenerateReport = {
+          ...common,
+          command: 'generate',
+          tests: active.simple.generated.map(t => ({ ...t })),
+        };
+        return generateReport;
+      }
+      if (active.simple.kind === 'validate') {
+        const validateReport: ValidateReport = {
+          ...common,
+          command: 'validate',
+          tests: active.simple.validated.map(t => ({ ...t })),
+        };
+        return validateReport;
+      }
       if (active.simple.kind === 'path') {
         const pathReport: PathReport = {
           ...common,
@@ -412,6 +485,24 @@ export class ReportCollector {
       solutions,
     };
     return verify;
+  }
+}
+
+/**
+ * Adds a test to the list, or replaces the entry with the same testset and
+ * index (a test generated or validated twice is listed once).
+ */
+function upsertTest<T extends { testset: string; index: number }>(
+  tests: T[],
+  entry: T
+): void {
+  const at = tests.findIndex(
+    t => t.testset === entry.testset && t.index === entry.index
+  );
+  if (at === -1) {
+    tests.push(entry);
+  } else {
+    tests[at] = entry;
   }
 }
 
