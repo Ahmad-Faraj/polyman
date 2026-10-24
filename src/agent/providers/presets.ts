@@ -359,7 +359,14 @@ export function validatePreset(preset: Preset): string[] {
   if (preset.adapter !== 'openai' && preset.adapter !== 'anthropic') {
     problems.push(`${where}: unknown adapter`);
   }
-  if (preset.id !== 'custom') {
+  if (preset.id === 'custom') {
+    // The user gives the URL and the key, so the preset must stay empty.
+    if (preset.baseUrl !== '' || preset.envVar !== '' || preset.keyRequired) {
+      problems.push(
+        `${where}: custom must have an empty baseUrl and envVar, and no key`
+      );
+    }
+  } else {
     if (!isHttpUrl(preset.baseUrl)) {
       problems.push(`${where}: baseUrl is not an http(s) URL`);
     } else if (

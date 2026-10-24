@@ -159,6 +159,21 @@ describe('validatePreset', () => {
     expect(validatePreset(good)).toEqual([]);
   });
 
+  it('reports a custom preset that carries a URL or a key', () => {
+    const custom = getPreset('custom') as Preset;
+    expect(validatePreset(custom)).toEqual([]);
+    for (const change of [
+      { baseUrl: 'http://evil.com' },
+      { envVar: 'EVIL_KEY' },
+      { keyRequired: true },
+      { baseUrl: 'http://evil.com', keyRequired: true },
+    ]) {
+      expect(validatePreset({ ...custom, ...change }).join('\n')).toMatch(
+        /custom must have/
+      );
+    }
+  });
+
   it.each<[string, Partial<Preset>, RegExp]>([
     ['a bad id', { id: 'Demo' }, /id must be/],
     ['an empty label', { label: ' ' }, /label is empty/],
