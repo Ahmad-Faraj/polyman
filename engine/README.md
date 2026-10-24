@@ -36,10 +36,11 @@ guards every merge request.
   go-ahead has to be on the issue the branch is named after (`<iid>-...`),
   and a push to any branch named after that issue uses it up. With no risk
   score the push is judged as high risk, so only `go_ahead.maintainers`
-  count. A push an MR's own guard judged (made while an
-  MR from the branch was open, or before one opened) is left to it. Like
-  `autonomy:goahead`, it runs the guard and reads the policy from the default
-  branch's head.
+  count. A push an MR's own guard judged (made while an MR from the branch
+  was open, or before one opened) is left to it, if that MR is still open or
+  merged. A closed MR may have been closed with its guard failing, so the
+  pushes it held are judged here. Like `autonomy:goahead`, it runs the guard
+  and reads the policy from the default branch's head.
 - `autonomy:ledger` (on `main`, and on MRs that change the engine or the
   pipeline) rebuilds the go-ahead ledger from the GitLab API: one record per
   agent push `autonomy:goahead` judged on a merged MR since the guard reached

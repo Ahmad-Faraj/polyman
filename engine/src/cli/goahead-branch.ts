@@ -9,9 +9,11 @@
  * MR, the go-ahead has to be on the issue the branch is named after
  * ("<iid>-..."), after the agent's proposal there. A push an MR's own guard
  * judged (one made while an MR from this branch was open, or before one
- * opened) is left to it. With no MR there is no risk score either, so unless
- * AUTONOMY_TIER says otherwise the push is judged as high risk: only a
- * maintainer's go-ahead counts.
+ * opened) is left to it if that MR is still open or merged; a closed MR may
+ * have been closed with its guard failing, so its pushes are judged here.
+ * With no MR there is no risk score either, so unless AUTONOMY_TIER says
+ * otherwise the push is judged as high risk: only a maintainer's go-ahead
+ * counts.
  *
  * CI runs this file and reads the policy from the default branch, not from the
  * branch being judged, so a push can't change the check it is checked by.

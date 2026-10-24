@@ -59,15 +59,17 @@ const isOpen = (mr: BranchMr) => mr.state !== 'merged' && mr.state !== 'closed';
 /**
  * The MR whose guard judged this push: one from the branch that was still
  * open when the push came, or opened after it (its guard judges a push from
- * before it on the issue it closes). An MR that ended with no end time on
+ * before it on the issue it closes). Once it ended, only a merged MR counts:
+ * it merged with that guard passing, while a closed one may have been closed
+ * with the guard failing on this very push. A merged MR with no merge time on
  * record covers only the pushes before it opened.
  */
 export function coveringMr(push: BranchPush, mrs: BranchMr[]): BranchMr | undefined {
   const at = Date.parse(push.at);
   return mrs.find((mr) => {
     if (isOpen(mr)) return true;
-    const end = (mr.state === 'merged' ? mr.merged_at : mr.closed_at) ?? mr.created_at;
-    return Date.parse(end) > at;
+    if (mr.state !== 'merged') return false;
+    return Date.parse(mr.merged_at ?? mr.created_at) > at;
   });
 }
 

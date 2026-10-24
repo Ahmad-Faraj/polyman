@@ -81,6 +81,16 @@ describe('the go-ahead guard on a branch with no open MR (#64)', () => {
     expect(result.problems).toHaveLength(1);
   });
 
+  it('judges a push made while an MR was open that was then closed unmerged: its guard may have failed on it', async () => {
+    const closed: BranchMr = { iid: 86, state: 'closed', created_at: at('14:10:58'), closed_at: at('14:30:00') };
+    const events = [event('14:10:44', 'Ahmad-Faraj', null, MERGED), event('14:15:00', REVIEWER, MERGED, AGENT)];
+    const result = await check({ mrs: [closed], events });
+    expect(result.covered).toEqual([]);
+    expect(result.problems.map((p) => p.text)).toEqual([
+      `push at ${at('14:15:00')} by @${REVIEWER} (561d61ce) on #24: @${REVIEWER} wrote no proposal before the push at ${at('14:15:00')}, so there was nothing to give a go-ahead to`,
+    ]);
+  });
+
   it("passes the issue-builder's push before its MR, with a maintainer's go-ahead on the issue after the proposal", async () => {
     const notes = [note(1, '14:00:00', BUILDER, 'Proposal for #24: the change'), note(2, '14:05:00', 'Mazen-Ghanaym', `@${BUILDER} go-ahead`)];
     const result = await check({ mrs: [], events: [event('14:22:28', BUILDER, null, AGENT)] }, notes);
@@ -188,11 +198,16 @@ describe('coveringMr', () => {
 
   it('an MR that ended before the push does not', () => {
     expect(coveringMr(push, [merged86])).toBeUndefined();
-    expect(coveringMr(push, [{ iid: 3, state: 'closed', created_at: at('10:00:00'), closed_at: at('14:22:27') }])).toBeUndefined();
   });
 
-  it('an ended MR with no end time on record covers only pushes before it opened', () => {
+  it('a closed MR never does, whenever it opened', () => {
+    expect(coveringMr(push, [{ iid: 3, state: 'closed', created_at: at('10:00:00'), closed_at: at('16:00:00') }])).toBeUndefined();
+    expect(coveringMr(push, [{ iid: 5, state: 'closed', created_at: at('15:00:00'), closed_at: at('16:00:00') }])).toBeUndefined();
+    expect(coveringMr(push, [{ iid: 7, state: 'closed', created_at: at('15:00:00') }])).toBeUndefined();
+  });
+
+  it('a merged MR with no merge time on record covers only pushes before it opened', () => {
     expect(coveringMr(push, [{ iid: 4, state: 'merged', created_at: at('10:00:00'), merged_at: null }])).toBeUndefined();
-    expect(coveringMr(push, [{ iid: 5, state: 'closed', created_at: at('15:00:00') }])?.iid).toBe(5);
+    expect(coveringMr(push, [{ iid: 6, state: 'merged', created_at: at('15:00:00'), merged_at: null }])?.iid).toBe(6);
   });
 });

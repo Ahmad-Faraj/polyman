@@ -113,9 +113,10 @@ autonomy:goahead:
 # gets a branch pipeline, not an MR pipeline (the workflow rules). With no MR,
 # the go-ahead has to be on the issue the branch is named after ("<iid>-..."),
 # and with no risk score it is judged as high risk. A push an MR's own guard
-# judged is left to it. The guard's code and the policy come from the default
-# branch's head, as for autonomy:goahead. It doesn't run when the default
-# branch has no guard yet: the push that adds it is a person's.
+# judged is left to it if that MR is open or merged, not if it was closed.
+# The guard's code and the policy come from the default branch's head, as for
+# autonomy:goahead. It doesn't run when the default branch has no guard yet:
+# the push that adds it is a person's.
 autonomy:goahead:branch:
   extends: .autonomy:node
   stage: assess
