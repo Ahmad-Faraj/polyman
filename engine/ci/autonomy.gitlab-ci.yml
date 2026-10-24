@@ -127,11 +127,19 @@ autonomy:goahead:branch:
     - if: $CI_COMMIT_BRANCH && $CI_COMMIT_BRANCH != $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"
   before_script:
     - git fetch -q origin "+refs/heads/$CI_DEFAULT_BRANCH:refs/goahead/default"
-    - export AUTONOMY_POLICY_REF=$(git rev-parse refs/goahead/default)
+    # not "export X=$(...)": export would hide a failing rev-parse and the job would go on
+    - AUTONOMY_POLICY_REF=$(git rev-parse --verify "refs/goahead/default^{commit}")
+    - export AUTONOMY_POLICY_REF
     - GUARD=$(mktemp -d)
   script:
+    # cat-file -e fails the same way for a missing file and for a git failure,
+    # so the head is read first: past that, a failure means the file is missing
     - |
-      if [ -z "$(git ls-tree --name-only "$AUTONOMY_POLICY_REF" -- engine/src/cli/goahead-branch.ts)" ]; then
+      if ! git cat-file -e "$AUTONOMY_POLICY_REF^{commit}"; then
+        echo "can't read the default branch's head ($AUTONOMY_POLICY_REF), so this push can't be judged" >&2
+        exit 1
+      fi
+      if ! git cat-file -e "$AUTONOMY_POLICY_REF:engine/src/cli/goahead-branch.ts" 2>/dev/null; then
         echo "the default branch has no engine/src/cli/goahead-branch.ts yet, so nothing judges this push here"
         exit 0
       fi

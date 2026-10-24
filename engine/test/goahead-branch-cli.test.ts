@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { execFileSync, spawn } from 'node:child_process';
-import { copyFileSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { parse } from 'yaml';
 
 const CLI = resolve('src/cli/goahead-branch.ts');
 const CONFIG = resolve('../.autonomy.yml');
@@ -184,5 +185,62 @@ describe('the autonomy:goahead:branch job', () => {
     expect(job).toContain('node "$GUARD/engine/src/cli/goahead-branch.ts"');
     // its own before_script, so the pushed branch's engine is never installed or run
     expect(job).toContain('  before_script:\n');
+  });
+
+  describe('its shell, run up to where the guard would start', () => {
+    const steps = (parse(ci) as Record<string, { before_script: string[]; script: string[] }>)['autonomy:goahead:branch'];
+    const realGit = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
+
+    /** A default branch in "origin" (with the guard or not), a clone of it, and the job run in the clone as GitLab runs it (set -eo pipefail). */
+    function job(o: { guard: boolean; gitFailsOn?: string[] }) {
+      const dir = mkdtempSync(join(tmpdir(), 'goahead-branch-job-'));
+      const origin = join(dir, 'origin');
+      const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: 'pipe' });
+      mkdirSync(join(origin, 'engine/src/cli'), { recursive: true });
+      git(origin, 'init', '-q', '-b', 'main');
+      writeFileSync(join(origin, o.guard ? 'engine/src/cli/goahead-branch.ts' : 'engine/src/cli/other.ts'), '');
+      git(origin, 'add', '.');
+      git(origin, '-c', 'user.name=Mazen', '-c', 'user.email=mazen@example.com', 'commit', '-qm', 'base');
+      git(dir, 'clone', '-q', 'origin', 'work');
+      // a git that fails on the given subcommands, as a broken checkout would
+      const bin = join(dir, 'bin');
+      mkdirSync(bin);
+      const fails = (o.gitFailsOn ?? []).map((c) => `${c}) echo "fatal: broken" >&2; exit 128;;`).join(' ');
+      writeFileSync(join(bin, 'git'), `#!/bin/sh\ncase "$1" in ${fails} esac\nexec "${realGit}" "$@"\n`);
+      chmodSync(join(bin, 'git'), 0o755);
+      const shell = ['set -eo pipefail', ...steps.before_script, steps.script[0], 'echo "the guard runs on $AUTONOMY_POLICY_REF"'].join('\n');
+      return spawnSync('bash', ['-c', shell], {
+        cwd: join(dir, 'work'),
+        encoding: 'utf8',
+        env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, CI_DEFAULT_BRANCH: 'main' },
+      });
+    }
+
+    it('goes on to the guard when the default branch has it', () => {
+      const r = job({ guard: true });
+      expect(r.stdout).toMatch(/the guard runs on [0-9a-f]{40}/);
+      expect(r.status).toBe(0);
+    });
+
+    it('passes with nothing to judge when the default branch has no guard yet', () => {
+      const r = job({ guard: false });
+      expect(r.stdout).toContain('the default branch has no engine/src/cli/goahead-branch.ts yet, so nothing judges this push here');
+      expect(r.stdout).not.toContain('the guard runs');
+      expect(r.status).toBe(0);
+    });
+
+    it("stops when the default branch's head can't be read, not passes", () => {
+      const r = job({ guard: true, gitFailsOn: ['rev-parse'] });
+      expect(r.stdout).not.toContain('nothing judges');
+      expect(r.stdout).not.toContain('the guard runs');
+      expect(r.status).not.toBe(0);
+    });
+
+    it("fails when git can't read the default branch's tree, rather than taking the guard as missing", () => {
+      const r = job({ guard: true, gitFailsOn: ['cat-file', 'ls-tree'] });
+      expect(r.stderr).toContain("can't read the default branch's head");
+      expect(r.stdout).not.toContain('nothing judges');
+      expect(r.status).toBe(1);
+    });
   });
 });
