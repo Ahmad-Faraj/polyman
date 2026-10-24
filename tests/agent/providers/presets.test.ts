@@ -143,6 +143,12 @@ describe('urlBelongsTo', () => {
   });
 });
 
+function urlWith(change: Partial<URL>): string {
+  const url = new URL('https://api.demo.test/v1');
+  Object.assign(url, change);
+  return url.href.replace(/\/$/, '');
+}
+
 describe('validatePreset', () => {
   const good: Preset = {
     id: 'demo',
@@ -187,6 +193,26 @@ describe('validatePreset', () => {
       'plain http written in capitals',
       { baseUrl: 'HTTP://api.demo.test/v1' },
       /localhost/,
+    ],
+    [
+      'a user name in the base URL',
+      { baseUrl: urlWith({ username: 'user' }) },
+      /user info/,
+    ],
+    [
+      'a password in the base URL',
+      { baseUrl: urlWith({ username: 'user', password: 'pw' }) },
+      /user info/,
+    ],
+    [
+      'a query in the base URL',
+      { baseUrl: 'https://api.demo.test/v1?x=1' },
+      /query/,
+    ],
+    [
+      'a hash in the base URL',
+      { baseUrl: 'https://api.demo.test/v1#f' },
+      /hash/,
     ],
     ['a trailing slash', { baseUrl: 'https://api.demo.test/v1/' }, /end with/],
     ['a key without an env var', { envVar: '' }, /needs an env var/],

@@ -374,6 +374,10 @@ export function validatePreset(preset: Preset): string[] {
       new URL(preset.baseUrl).hostname !== 'localhost'
     ) {
       problems.push(`${where}: only a localhost server may use http`);
+    } else if (hasUserInfoQueryOrHash(new URL(preset.baseUrl))) {
+      problems.push(
+        `${where}: baseUrl must not have user info, a query or a hash`
+      );
     } else if (preset.baseUrl.endsWith('/')) {
       problems.push(`${where}: baseUrl must not end with /`);
     }
@@ -409,6 +413,10 @@ export function validatePreset(preset: Preset): string[] {
     }
   }
   return problems;
+}
+
+function hasUserInfoQueryOrHash(url: URL): boolean {
+  return Boolean(url.username || url.password || url.search || url.hash);
 }
 
 function isHttpUrl(value: string): boolean {
