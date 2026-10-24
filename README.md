@@ -2,11 +2,15 @@
 
 **GitLab Transcend · Path B · Assisted.** polyman (`polyman-cli` on npm, MIT) is the command-line tool problem setters on Codeforces and Polygon run before a problem goes out: it compiles every solution, runs it on every test, and checks that each one gets the verdict it should. polyman judges solutions.
 
+**Check it yourself, no login:** [live verify service](https://polyman-verify-ncvkutguda-ue.a.run.app) · [go-ahead ledger](https://showcase-ce2cdc.gitlab.io/ledger/) · [agent carbon](https://showcase-ce2cdc.gitlab.io/sci/) · [Assisted in 60 seconds](JUDGES.md#assisted-in-60-seconds)
+
+**Why it matters:** a wrong verdict from polyman means a broken problem in a live contest round, with wrong expected answers or a bad test that reaches contestants. Real setters use it: contest problems for Repovive and for the ICPC Arab regional (ACPC) were prepared with polyman ([who uses it](#who-uses-it)).
+
+**[44 of 44 loops and 63 of 63 agent pushes](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17418251989) ran on a go-ahead from someone other than the requester · [3 people](https://showcase-ce2cdc.gitlab.io/ledger/), and the one who asks never gives the go-ahead · [719 Duo agent sessions](sustainability/agent-tokens.json) · the published 3.0.0 got the expected verdicts on [0 of 5 corpus problems, 3.0.1 on 5 of 5](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17267989872).** _Ledger job 23 Oct 13:59 UTC; sessions Oct 16 18:58 to Oct 23 12:59 UTC; release check Oct 18._
+
 **So what judges polyman?** Programs, not a model: real compilers on a corpus of real problems, and mutation testing that grades polyman's own tests. A new version reaches npm `latest` only if it judges that corpus at least as well as the last release. On Oct 18 the published 3.0.0 got the expected verdicts on 0 of 5 problems and 3.0.1 on 5 of 5 ([job](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17267989872)); only then did a person move `latest`.
 
 **A person approves every step.** Duo agents turn what the judges find into proposed fixes. A teammate who didn't ask for the work gives the go-ahead, and the CI guard `autonomy:goahead` fails any agent push without one.
-
-**Evaluating this entry?** [Assisted in 60 seconds](JUDGES.md#assisted-in-60-seconds): one real loop from an agent's proposal to a person's merge, plus a push the guard refused. No login needed.
 
 <!-- Video (under 3 minutes): put its link here, once it is published. -->
 
@@ -107,7 +111,7 @@ flowchart LR
   X -->|"failure wakes<br/>the incident agent"| J
 ```
 
-An agent proposes and waits. A person who didn't ask for the work replies `@<agent> go-ahead` (for high risk, governance paths and rollbacks only a maintainer, Hamza, Mazen or Ahmed, and never the one who asked), and the agent does that one step. The judges in the first three rows are programs, not an LLM. The CI job `autonomy:goahead` fails any agent push without a valid go-ahead. Full rules: [Assisted](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/wikis/Assisted).
+An agent proposes and waits. A person who didn't ask for the work replies `@<agent> go-ahead` (for high risk, governance paths and rollbacks only a maintainer, Hamza, Mazen or Ahmed, and never the one who asked), and the agent does that one step. The judges in the first three rows are programs, not an LLM. The CI job `autonomy:goahead` fails any agent push without a valid go-ahead. The risk tiers are fixed on purpose: an agent never raises its own level, only a person does. The risk score from `.autonomy.yml` decides how deep the review is, the go-ahead guard `autonomy:goahead` decides who may let an agent act, and an agent push that changes either one fails CI. Full rules: [Assisted](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/wikis/Assisted).
 
 | What is checked, and by what | Who may say go-ahead | A real run |
 |---|---|---|
