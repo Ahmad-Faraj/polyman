@@ -1070,6 +1070,53 @@ describe('PolygonSDK', () => {
       expect((reason as PolymanError).cause).toBe(cause);
     });
 
+    it.each([
+      {
+        name: 'an unreadable body on a raw call',
+        cause: new Error('socket hang up'),
+        response: (cause: Error) => ({
+          status: 200,
+          json: () => Promise.reject(cause),
+          text: () => Promise.reject(cause),
+        }),
+        call: () => sdk.viewFile(1, 'source', 'a.cpp'),
+        hasCause: true,
+      },
+      {
+        name: 'an HTML page on a raw call',
+        cause: undefined,
+        response: () => makeHtmlResponse(200),
+        call: () => sdk.viewFile(1, 'source', 'a.cpp'),
+        hasCause: false,
+      },
+      {
+        name: 'a body that is not JSON',
+        cause: new SyntaxError('Unexpected token <'),
+        response: (cause: Error) => ({
+          status: 200,
+          json: () => Promise.reject(cause),
+          text: () => Promise.resolve('not json'),
+        }),
+        call: () => sdk.listProblems(),
+        hasCause: true,
+      },
+    ])(
+      'fails with exit code 4 and keeps the cause on $name',
+      async ({ cause, response, call, hasCause }) => {
+        fetchMock.mockResolvedValue(response(cause as Error));
+        const r = await settle(call());
+        expect(r.status).toBe('rejected');
+        const reason: unknown = r.status === 'rejected' ? r.reason : undefined;
+        expect(reason).toBeInstanceOf(PolymanError);
+        expect((reason as PolymanError).exitCode).toBe(4);
+        if (hasCause) {
+          expect((reason as PolymanError).cause).toBe(cause);
+        } else {
+          expect((reason as PolymanError).cause).toBeUndefined();
+        }
+      }
+    );
+
     it('fails with exit code 4 after two 5xx answers', async () => {
       fetchMock.mockResolvedValue(makeStatusResponse(502, 'bad gateway'));
       const r = await settle(sdk.listProblems());
