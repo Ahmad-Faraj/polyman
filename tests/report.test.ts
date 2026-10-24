@@ -2,7 +2,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import { ReportCollector, report, stripAnsi } from '../src/report';
 import { fmt } from '../src/formatter';
-import type { LocalSolution, RunReport, VerifyReport } from '../src/types';
+import type {
+  GenerateReport,
+  LocalSolution,
+  RunReport,
+  ValidateReport,
+  VerifyReport,
+} from '../src/types';
 
 const main: LocalSolution = {
   name: 'main',
@@ -430,6 +436,195 @@ describe('report.ts', () => {
     });
   });
 
+  describe('generate report', () => {
+    it('lists every test with its source and result', () => {
+      collector.startGenerate();
+      expect(fmt.getOutput()).toBe('stderr');
+      collector.recordGeneratedTest({
+        testset: 'tests',
+        index: 1,
+        source: 'manual',
+        ok: true,
+      });
+      collector.recordGeneratedTest({
+        testset: 'tests',
+        index: 2,
+        source: 'generator',
+        generator: 'gen',
+        args: ['5'],
+        ok: true,
+      });
+      collector.finish(true);
+      const doc = written() as GenerateReport;
+      expect(doc).toMatchObject({
+        schemaVersion: 1,
+        command: 'generate',
+        ok: true,
+        exitCode: 0,
+        errors: [],
+        tests: [
+          { testset: 'tests', index: 1, source: 'manual', ok: true },
+          {
+            testset: 'tests',
+            index: 2,
+            source: 'generator',
+            generator: 'gen',
+            args: ['5'],
+            ok: true,
+          },
+        ],
+      });
+      expect(typeof doc.durationMs).toBe('number');
+      expect(doc.tests[0]).not.toHaveProperty('error');
+    });
+
+    it('keeps a failed test with a plain-text error and the exit code', () => {
+      collector.startGenerate();
+      collector.recordGeneratedTest({
+        testset: 'tests',
+        index: 3,
+        source: 'generator',
+        generator: 'gen',
+        args: [],
+        ok: false,
+        error: '\u001b[31mcrashed\u001b[39m',
+      });
+      collector.fail('Some tests failed to generate');
+      collector.finish(false, 1);
+      expect(written()).toMatchObject({
+        ok: false,
+        exitCode: 1,
+        errors: ['Some tests failed to generate'],
+        tests: [{ index: 3, ok: false, error: 'crashed' }],
+      });
+    });
+
+    it('lists a test generated twice once, with its last result', () => {
+      collector.startGenerate();
+      collector.recordGeneratedTest({
+        testset: 'tests',
+        index: 1,
+        source: 'manual',
+        ok: false,
+        error: 'missing',
+      });
+      collector.recordGeneratedTest({
+        testset: 'tests',
+        index: 1,
+        source: 'manual',
+        ok: true,
+      });
+      collector.finish(true);
+      expect((written() as GenerateReport).tests).toEqual([
+        { testset: 'tests', index: 1, source: 'manual', ok: true },
+      ]);
+    });
+  });
+
+  describe('validate report', () => {
+    it('lists every test with valid or invalid and the message', () => {
+      collector.startValidate();
+      collector.recordValidatedTest({
+        testset: 'tests',
+        group: 'samples',
+        index: 1,
+        valid: true,
+        message: '',
+      });
+      collector.recordValidatedTest({
+        testset: 'tests',
+        group: 'samples',
+        index: 2,
+        valid: false,
+        message: 'FAIL Integer 0 violates the range [1, 10]\n',
+      });
+      collector.fail('Some tests in group samples failed validation');
+      collector.finish(false);
+      const doc = written() as ValidateReport;
+      expect(doc).toMatchObject({
+        command: 'validate',
+        ok: false,
+        exitCode: 1,
+        tests: [
+          {
+            testset: 'tests',
+            group: 'samples',
+            index: 1,
+            valid: true,
+            message: '',
+          },
+          {
+            testset: 'tests',
+            group: 'samples',
+            index: 2,
+            valid: false,
+            message: 'FAIL Integer 0 violates the range [1, 10]',
+          },
+        ],
+      });
+    });
+
+    it('uses the exit code passed to finish', () => {
+      collector.startValidate();
+      collector.fail('No validator defined in the configuration file.');
+      collector.finish(false, 2);
+      expect(written()).toMatchObject({
+        ok: false,
+        exitCode: 2,
+        tests: [],
+      });
+    });
+  });
+
+  describe('per-test records for generate and validate', () => {
+    it('are ignored by other reports, so verify does not collect them', () => {
+      collector.startVerify();
+      collector.recordGeneratedTest({
+        testset: 'tests',
+        index: 1,
+        source: 'manual',
+        ok: true,
+      });
+      collector.recordValidatedTest({
+        testset: 'tests',
+        index: 1,
+        valid: true,
+        message: '',
+      });
+      collector.finish(true);
+      expect(written()).not.toHaveProperty('tests');
+    });
+
+    it('are ignored by a validate report when they are generate records', () => {
+      collector.startValidate();
+      collector.recordGeneratedTest({
+        testset: 'tests',
+        index: 1,
+        source: 'manual',
+        ok: true,
+      });
+      collector.finish(true);
+      expect((written() as ValidateReport).tests).toEqual([]);
+    });
+
+    it('are ignored when no report is active', () => {
+      collector.recordGeneratedTest({
+        testset: 'tests',
+        index: 1,
+        source: 'manual',
+        ok: true,
+      });
+      collector.recordValidatedTest({
+        testset: 'tests',
+        index: 1,
+        valid: true,
+        message: '',
+      });
+      collector.finish(true);
+      expect(writeSpy).not.toHaveBeenCalled();
+    });
+  });
+
   describe('finish', () => {
     it('writes exactly once even if called twice', () => {
       collector.startVerify();
@@ -457,6 +652,15 @@ describe('report.ts', () => {
       const handler = exitCall![1] as (code: number) => void;
       handler(130);
       expect(written()).toMatchObject({ ok: false, exitCode: 130 });
+    });
+
+    it('reports the real exit code from the process exit hook', () => {
+      const onSpy = vi.spyOn(process, 'on');
+      collector.startGenerate();
+      const exitCall = onSpy.mock.calls.find(call => call[0] === 'exit');
+      const handler = exitCall![1] as (code: number) => void;
+      handler(3);
+      expect(written()).toMatchObject({ ok: false, exitCode: 3 });
     });
 
     it('restores the formatter on reset', () => {

@@ -340,6 +340,9 @@ export const downloadTestlibAction = async (
  *
  * @param {string} target - Target specification (testset name, group, or test index)
  * @param {string} [modifier] - Optional modifier (group name or test index)
+ * @param {{ json?: boolean }} [options] - With `json`, print a JSON report
+ *   (every test with its source and result) to stdout and human output to
+ *   stderr.
  *
  * @throws {Error} If Config.json is invalid
  * @throws {Error} If testset/group/test not found
@@ -367,8 +370,12 @@ export const downloadTestlibAction = async (
  */
 export const generateTestsAction = async (
   target: string,
-  modifier?: string
+  modifier?: string,
+  options: { json?: boolean } = {}
 ) => {
+  if (options.json) {
+    report.startGenerate();
+  }
   try {
     const config = readConfigFile();
     let stepNum = 1;
@@ -458,8 +465,12 @@ export const generateTestsAction = async (
         fmt.successBox(`TESTSET ${target.toUpperCase()} GENERATED!`);
       }
     }
+    report.finish(true);
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     fmt.errorBox('TEST GENERATION FAILED!');
+    report.fail(message);
+    report.finish(false, exitCodeFor(error));
     throw error;
   }
 };
@@ -470,6 +481,9 @@ export const generateTestsAction = async (
  *
  * @param {string} target - Target specification (testset name or 'all')
  * @param {string} [modifier] - Optional modifier (group name or test index)
+ * @param {{ json?: boolean }} [options] - With `json`, print a JSON report
+ *   (every test with valid or invalid and the validator message) to stdout
+ *   and human output to stderr.
  *
  * @throws {Error} If Config.json is invalid or missing validator
  * @throws {Error} If validator compilation fails
@@ -497,8 +511,12 @@ export const generateTestsAction = async (
  */
 export const validateTestsAction = async (
   target: string,
-  modifier?: string
+  modifier?: string,
+  options: { json?: boolean } = {}
 ) => {
+  if (options.json) {
+    report.startValidate();
+  }
   try {
     const config = readConfigFile();
     let stepNum = 1;
@@ -579,8 +597,12 @@ export const validateTestsAction = async (
         fmt.successBox(`TESTSET ${target.toUpperCase()} PASSED VALIDATION!`);
       }
     }
+    report.finish(true);
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     fmt.errorBox('VALIDATION FAILED!');
+    report.fail(message);
+    report.finish(false, exitCodeFor(error));
     throw error;
   }
 };

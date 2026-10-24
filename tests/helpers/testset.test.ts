@@ -147,7 +147,8 @@ describe('testset.ts', () => {
       expect(generator.executeResolvedTests).toHaveBeenCalledWith(
         [expect.objectContaining({ index: 2 })],
         [],
-        expect.anything()
+        expect.anything(),
+        'main'
       );
     });
 

@@ -20,6 +20,7 @@ import { DEFAULT_TIMEOUT, DEFAULT_MEMORY_LIMIT } from './utils';
 import { quoteShellArgument } from './shell';
 import { fmt } from '../formatter';
 import { LimitExceededError, PolymanError } from '../errors';
+import { report } from '../report';
 import {
   parseGeneratorScript,
   readScriptText,
@@ -198,11 +199,15 @@ export async function compileGeneratorsForTestsets(
  *
  * Multi-output lines run once per unique line (not once per produced file)
  * and are expected to write all listed test files themselves.
+ *
+ * Every test's result is recorded for `generate --json` under `testsetName`
+ * (defaults to the name of `testsDir`).
  */
 export async function executeResolvedTests(
   tests: ResolvedTest[],
   generators: LocalGenerator[],
-  testsDir: string
+  testsDir: string,
+  testsetName: string = path.basename(testsDir)
 ): Promise<void> {
   ensureDirectoryExists(testsDir);
 
@@ -213,22 +218,29 @@ export async function executeResolvedTests(
 
   let someFailed = false;
   // Group multi-output tests by (generator, args, multiOutputs key) so we
-  // only invoke the generator once per source line.
-  const handled = new Set<string>();
+  // only invoke the generator once per source line. The value is the line's
+  // error message (null when it worked), so every test of the line gets the
+  // same result in the report.
+  const handled = new Map<string, string | null>();
 
   for (const t of tests) {
+    let key: string | null = null;
     try {
       if (t.source.kind === 'manual') {
         const dest = path.join(testsDir, `test${t.index}.txt`);
         await copyManualInput(t.source.inputFile, dest);
+        recordGenerated(testsetName, t, null);
         continue;
       }
 
       const src = t.source;
       if (src.multiOutputs) {
-        const key = `${src.generator}|${src.args.join(' ')}|${src.multiOutputs.join(',')}`;
-        if (handled.has(key)) continue;
-        handled.add(key);
+        key = `${src.generator}|${src.args.join(' ')}|${src.multiOutputs.join(',')}`;
+        if (handled.has(key)) {
+          recordGenerated(testsetName, t, handled.get(key) ?? null);
+          continue;
+        }
+        handled.set(key, null);
 
         const compiledPath = compiled.get(src.generator);
         if (!compiledPath) {
@@ -271,13 +283,15 @@ export async function executeResolvedTests(
         const dest = path.join(testsDir, `test${t.index}.txt`);
         await runGeneratorToFile(compiledPath, src.args, dest);
       }
+      recordGenerated(testsetName, t, null);
     } catch (error) {
       if (error instanceof LimitExceededError) throw error;
       someFailed = true;
+      const message = (error as Error).message;
+      if (key !== null) handled.set(key, message);
+      recordGenerated(testsetName, t, message);
       fmt.error(
-        `  ${fmt.cross()} Test ${t.index} generation failed:\n\t${
-          (error as Error).message
-        }`
+        `  ${fmt.cross()} Test ${t.index} generation failed:\n\t${message}`
       );
     }
   }
@@ -285,6 +299,30 @@ export async function executeResolvedTests(
   if (someFailed) {
     throw new PolymanError('Some tests failed to generate', 1);
   }
+}
+
+/**
+ * Records one test's generation result for `generate --json`.
+ */
+function recordGenerated(
+  testsetName: string,
+  test: ResolvedTest,
+  error: string | null
+): void {
+  const source = test.source;
+  report.recordGeneratedTest({
+    testset: testsetName,
+    index: test.index,
+    ...(source.kind === 'manual'
+      ? { source: 'manual' as const }
+      : {
+          source: 'generator' as const,
+          generator: source.generator,
+          args: [...source.args],
+        }),
+    ok: error === null,
+    ...(error === null ? {} : { error }),
+  });
 }
 
 async function copyManualInput(

@@ -94,7 +94,7 @@ export async function generateTestsForTestset(
   const tests = getResolvedTests(testset, generators);
   const dir = testsetOutputDir(testset.name, outputDir);
   ensureDirectoryExists(dir);
-  await executeResolvedTests(tests, generators, dir);
+  await executeResolvedTests(tests, generators, dir, testset.name);
 }
 
 /**
@@ -134,7 +134,7 @@ export async function generateSingleTest(
       return arraysEqual(t.source.multiOutputs, multi);
     });
   }
-  await executeResolvedTests(toRun, generators, dir);
+  await executeResolvedTests(toRun, generators, dir, testset.name);
 }
 
 /**
@@ -163,7 +163,7 @@ export async function generateTestsForGroup(
   }
   const dir = testsetOutputDir(testset.name, outputDir);
   ensureDirectoryExists(dir);
-  await executeResolvedTests(filtered, generators, dir);
+  await executeResolvedTests(filtered, generators, dir, testset.name);
 }
 
 export async function generateAllTestsets(

@@ -65,7 +65,9 @@ describe('cli.ts', () => {
 
   it('should register generate command', async () => {
     await loadCli(['generate', '--all']);
-    expect(actions.generateTestsAction).toHaveBeenCalledWith('all', undefined);
+    expect(actions.generateTestsAction).toHaveBeenCalledWith('all', undefined, {
+      json: false,
+    });
   });
 
   it('should register list checkers command', async () => {
@@ -97,44 +99,75 @@ describe('cli.ts', () => {
 
   it('should pass testset and group to generate', async () => {
     await loadCli(['generate', '--testset', 'main', '--group', 'samples']);
-    expect(actions.generateTestsAction).toHaveBeenCalledWith('main', 'samples');
+    expect(actions.generateTestsAction).toHaveBeenCalledWith(
+      'main',
+      'samples',
+      { json: false }
+    );
   });
 
   it('should pass testset and index to generate', async () => {
     await loadCli(['generate', '--testset', 'main', '--index', '5']);
-    expect(actions.generateTestsAction).toHaveBeenCalledWith('main', '5');
+    expect(actions.generateTestsAction).toHaveBeenCalledWith('main', '5', {
+      json: false,
+    });
   });
 
   it('should pass only testset to generate when no modifier', async () => {
     await loadCli(['generate', '--testset', 'main']);
-    expect(actions.generateTestsAction).toHaveBeenCalledWith('main', undefined);
+    expect(actions.generateTestsAction).toHaveBeenCalledWith(
+      'main',
+      undefined,
+      { json: false }
+    );
   });
 
   it('should default generate target to all when nothing provided', async () => {
     await loadCli(['generate']);
-    expect(actions.generateTestsAction).toHaveBeenCalledWith('all', undefined);
+    expect(actions.generateTestsAction).toHaveBeenCalledWith('all', undefined, {
+      json: false,
+    });
   });
+
+  it.each(['generate', 'validate'] as const)(
+    'should pass --json to %s',
+    async command => {
+      await loadCli([command, '--all', '--json']);
+      const action =
+        command === 'generate'
+          ? actions.generateTestsAction
+          : actions.validateTestsAction;
+      expect(action).toHaveBeenCalledWith('all', undefined, { json: true });
+    }
+  );
 
   it('should register validate --all command', async () => {
     await loadCli(['validate', '--all']);
-    expect(actions.validateTestsAction).toHaveBeenCalledWith('all', undefined);
+    expect(actions.validateTestsAction).toHaveBeenCalledWith('all', undefined, {
+      json: false,
+    });
   });
 
   it('should pass testset and group to validate', async () => {
     await loadCli(['validate', '--testset', 'pretest', '--group', 'g1']);
-    expect(actions.validateTestsAction).toHaveBeenCalledWith('pretest', 'g1');
+    expect(actions.validateTestsAction).toHaveBeenCalledWith('pretest', 'g1', {
+      json: false,
+    });
   });
 
   it('should pass testset and index to validate', async () => {
     await loadCli(['validate', '--testset', 'pretest', '--index', '3']);
-    expect(actions.validateTestsAction).toHaveBeenCalledWith('pretest', '3');
+    expect(actions.validateTestsAction).toHaveBeenCalledWith('pretest', '3', {
+      json: false,
+    });
   });
 
   it('should pass only testset to validate when no modifier', async () => {
     await loadCli(['validate', '--testset', 'pretest']);
     expect(actions.validateTestsAction).toHaveBeenCalledWith(
       'pretest',
-      undefined
+      undefined,
+      { json: false }
     );
   });
 

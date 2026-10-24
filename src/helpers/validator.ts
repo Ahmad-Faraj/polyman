@@ -26,6 +26,11 @@ import { DEFAULT_TIMEOUT, DEFAULT_MEMORY_LIMIT } from './utils';
 import { fmt } from '../formatter';
 import { LimitExceededError, PolymanError } from '../errors';
 import { getTestIndicesForGroup } from './testset';
+import { report } from '../report';
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : 'Unknown error';
+}
 
 /**
  * Compiles the validator program.
@@ -142,15 +147,34 @@ export async function validateSingleTest(
     const testFilePath = path.join(testsDir, `test${testIndex}.txt`);
 
     if (!fs.existsSync(testFilePath)) {
-      throw new Error(`Test file not found: ${testFilePath}`);
+      const message = `Test file not found: ${testFilePath}`;
+      report.recordValidatedTest({
+        testset: testsetName,
+        index: testIndex,
+        valid: false,
+        message,
+      });
+      throw new Error(message);
     }
 
     try {
       await runValidator(compiledPath, testFilePath, 'VALID');
+      report.recordValidatedTest({
+        testset: testsetName,
+        index: testIndex,
+        valid: true,
+        message: '',
+      });
     } catch (error) {
       if (error instanceof LimitExceededError) throw error;
+      report.recordValidatedTest({
+        testset: testsetName,
+        index: testIndex,
+        valid: false,
+        message: errorText(error),
+      });
       throw new Error(
-        `Test ${testIndex} failed validation:\n\t${error instanceof Error ? error.message : 'Unknown error'}`
+        `Test ${testIndex} failed validation:\n\t${errorText(error)}`
       );
     }
   } catch (error) {
@@ -191,14 +215,27 @@ export async function validateTestset(
 
     for (const testFile of testFiles) {
       const testFilePath = path.join(testsDir, testFile);
+      const index = parseInt(testFile.replace('test', '').replace('.txt', ''));
       try {
         await runValidator(compiledPath, testFilePath, 'VALID');
+        report.recordValidatedTest({
+          testset: testsetName,
+          index,
+          valid: true,
+          message: '',
+        });
       } catch (error) {
         if (error instanceof LimitExceededError) throw error;
         someFailed = true;
+        report.recordValidatedTest({
+          testset: testsetName,
+          index,
+          valid: false,
+          message: errorText(error),
+        });
         logError(
           new Error(
-            `Test ${fmt.bold(`${testsetName}/${testFile}`)} failed validation:\n\t${error instanceof Error ? error.message : 'Unknown error'}`
+            `Test ${fmt.bold(`${testsetName}/${testFile}`)} failed validation:\n\t${errorText(error)}`
           )
         );
       }
@@ -249,12 +286,26 @@ export async function validateGroup(
       const testFilePath = path.join(testsDir, `test${testIndex}.txt`);
       try {
         await runValidator(compiledPath, testFilePath, 'VALID');
+        report.recordValidatedTest({
+          testset: testset.name,
+          group: groupName,
+          index: testIndex,
+          valid: true,
+          message: '',
+        });
       } catch (error) {
         if (error instanceof LimitExceededError) throw error;
         someFailed = true;
+        report.recordValidatedTest({
+          testset: testset.name,
+          group: groupName,
+          index: testIndex,
+          valid: false,
+          message: errorText(error),
+        });
         logError(
           new Error(
-            `Test ${testIndex} in group ${groupName} failed validation:\n\t${error instanceof Error ? error.message : 'Unknown error'}`
+            `Test ${testIndex} in group ${groupName} failed validation:\n\t${errorText(error)}`
           )
         );
       }

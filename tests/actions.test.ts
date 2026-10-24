@@ -246,6 +246,106 @@ describe('actions.ts', () => {
       // cli.ts prints the message once; the action must not print it again
       expect(formatter.fmt.error).not.toHaveBeenCalled();
     });
+
+    it('should not write a report without --json', async () => {
+      vi.mocked(utils.readConfigFile).mockReturnValue({} as any);
+      await actions.generateTestsAction('all');
+      expect(fs.writeSync).not.toHaveBeenCalled();
+      expect(formatter.fmt.setOutput).not.toHaveBeenCalled();
+    });
+
+    it('should emit a generate JSON report listing every test with --json', async () => {
+      vi.mocked(utils.readConfigFile).mockReturnValue({
+        testsets: [{ name: 'ts1' }],
+      } as any);
+      vi.mocked(steps.stepGenerateTestsForTestset).mockImplementationOnce(
+        async () => {
+          report.recordGeneratedTest({
+            testset: 'ts1',
+            index: 1,
+            source: 'manual',
+            ok: true,
+          });
+          report.recordGeneratedTest({
+            testset: 'ts1',
+            index: 2,
+            source: 'generator',
+            generator: 'gen',
+            args: ['10'],
+            ok: true,
+          });
+          await Promise.resolve();
+        }
+      );
+      await actions.generateTestsAction('ts1', undefined, { json: true });
+      expect(formatter.fmt.setOutput).toHaveBeenCalledWith('stderr');
+      expect(writtenJson()).toMatchObject({
+        schemaVersion: 1,
+        command: 'generate',
+        ok: true,
+        exitCode: 0,
+        errors: [],
+        tests: [
+          { testset: 'ts1', index: 1, source: 'manual', ok: true },
+          {
+            testset: 'ts1',
+            index: 2,
+            source: 'generator',
+            generator: 'gen',
+            args: ['10'],
+            ok: true,
+          },
+        ],
+      });
+      expect(process.exit).not.toHaveBeenCalled();
+    });
+
+    it('should emit a failed generate JSON report with the failed test', async () => {
+      vi.mocked(utils.readConfigFile).mockReturnValue({} as any);
+      vi.mocked(steps.stepGenerateAllTestsets).mockImplementationOnce(
+        async () => {
+          report.recordGeneratedTest({
+            testset: 'ts1',
+            index: 3,
+            source: 'generator',
+            generator: 'gen',
+            args: [],
+            ok: false,
+            error: 'generator crashed',
+          });
+          await Promise.resolve();
+          throw new PolymanError('Some tests failed to generate', 1);
+        }
+      );
+      await expect(
+        actions.generateTestsAction('all', undefined, { json: true })
+      ).rejects.toThrow('Some tests failed to generate');
+      expect(writtenJson()).toMatchObject({
+        command: 'generate',
+        ok: false,
+        exitCode: 1,
+        errors: ['Some tests failed to generate'],
+        tests: [{ index: 3, ok: false, error: 'generator crashed' }],
+      });
+      expect(process.exit).not.toHaveBeenCalled();
+    });
+
+    it('should put the PolymanError exit code in the generate JSON report', async () => {
+      vi.mocked(utils.readConfigFile).mockReturnValue({} as any);
+      vi.mocked(steps.stepCompileGeneratorsForTestsets).mockRejectedValueOnce(
+        new PolymanError('No test generators defined', 2)
+      );
+      await expect(
+        actions.generateTestsAction('all', undefined, { json: true })
+      ).rejects.toThrow('No test generators defined');
+      expect(writtenJson()).toMatchObject({
+        ok: false,
+        exitCode: 2,
+        errors: ['No test generators defined'],
+        tests: [],
+      });
+      expect(process.exit).not.toHaveBeenCalled();
+    });
   });
 
   describe('validateTestsAction', () => {
@@ -286,6 +386,112 @@ describe('actions.ts', () => {
       });
       await expect(actions.validateTestsAction('all')).rejects.toThrow('bad');
       expect(formatter.fmt.errorBox).toHaveBeenCalled();
+      expect(process.exit).not.toHaveBeenCalled();
+    });
+
+    it('should not write a report without --json', async () => {
+      vi.mocked(utils.readConfigFile).mockReturnValue({} as any);
+      await actions.validateTestsAction('all');
+      expect(fs.writeSync).not.toHaveBeenCalled();
+    });
+
+    it('should emit a validate JSON report with valid and invalid tests', async () => {
+      vi.mocked(utils.readConfigFile).mockReturnValue({
+        testsets: [{ name: 'ts1' }],
+      } as any);
+      vi.mocked(steps.stepValidateGroup).mockImplementationOnce(async () => {
+        report.recordValidatedTest({
+          testset: 'ts1',
+          group: 'samples',
+          index: 1,
+          valid: true,
+          message: '',
+        });
+        report.recordValidatedTest({
+          testset: 'ts1',
+          group: 'samples',
+          index: 2,
+          valid: false,
+          message: 'FAIL Integer 0 violates the range [1, 10]',
+        });
+        await Promise.resolve();
+        throw new PolymanError(
+          'Some tests in group samples failed validation',
+          1
+        );
+      });
+      await expect(
+        actions.validateTestsAction('ts1', 'samples', { json: true })
+      ).rejects.toThrow('Some tests in group samples failed validation');
+      expect(formatter.fmt.setOutput).toHaveBeenCalledWith('stderr');
+      expect(writtenJson()).toMatchObject({
+        schemaVersion: 1,
+        command: 'validate',
+        ok: false,
+        exitCode: 1,
+        errors: ['Some tests in group samples failed validation'],
+        tests: [
+          {
+            testset: 'ts1',
+            group: 'samples',
+            index: 1,
+            valid: true,
+            message: '',
+          },
+          {
+            testset: 'ts1',
+            group: 'samples',
+            index: 2,
+            valid: false,
+            message: 'FAIL Integer 0 violates the range [1, 10]',
+          },
+        ],
+      });
+      expect(process.exit).not.toHaveBeenCalled();
+    });
+
+    it('should emit an ok validate JSON report on success', async () => {
+      vi.mocked(utils.readConfigFile).mockReturnValue({} as any);
+      vi.mocked(steps.stepValidateAllTestsets).mockImplementationOnce(
+        async () => {
+          report.recordValidatedTest({
+            testset: 'ts1',
+            index: 1,
+            valid: true,
+            message: '',
+          });
+          await Promise.resolve();
+        }
+      );
+      await actions.validateTestsAction('all', undefined, { json: true });
+      expect(writtenJson()).toMatchObject({
+        command: 'validate',
+        ok: true,
+        exitCode: 0,
+        errors: [],
+        tests: [{ testset: 'ts1', index: 1, valid: true, message: '' }],
+      });
+      expect(process.exit).not.toHaveBeenCalled();
+    });
+
+    it('should exit with 2 and say so in the report when there is no validator', async () => {
+      vi.mocked(utils.readConfigFile).mockReturnValue({} as any);
+      vi.mocked(steps.stepValidateConfigForValidator).mockImplementationOnce(
+        () => {
+          throw new PolymanError(
+            'No validator defined in the configuration file.',
+            2
+          );
+        }
+      );
+      await expect(
+        actions.validateTestsAction('all', undefined, { json: true })
+      ).rejects.toThrow('No validator defined in the configuration file.');
+      expect(writtenJson()).toMatchObject({
+        ok: false,
+        exitCode: 2,
+        errors: ['No validator defined in the configuration file.'],
+      });
       expect(process.exit).not.toHaveBeenCalled();
     });
   });
