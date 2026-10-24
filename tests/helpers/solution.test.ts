@@ -1568,6 +1568,75 @@ describe('solution.ts', () => {
         await expect(compare()).resolves.toBeUndefined();
         expect(mockedRunChecker).not.toHaveBeenCalled();
       });
+
+      it('leaves a missing main output to the per-test check instead of calling it nothing printed', async () => {
+        // test1: main blank, test2: main output file is missing. The other
+        // solution prints 42 on both.
+        const isMissingMain = (file: unknown) =>
+          isMainOutput(file) && String(file).endsWith('/output_test2.txt');
+        mockedGetTestFiles.mockReturnValue(['test1.txt', 'test2.txt']);
+        mockedFsExistsSync.mockImplementation(file => !isMissingMain(file));
+        // Like the real readFirstLine, reading a missing file rejects.
+        mockedReadFirstLine.mockImplementation(file =>
+          isMissingMain(file)
+            ? Promise.reject(
+                new Error(`ENOENT: no such file or directory, open '${file}'`)
+              )
+            : Promise.resolve(isMainOutput(file) ? '' : '42')
+        );
+        mockFileContents(file => (isMainOutput(file) ? '' : '42\n'));
+        mockedRunChecker.mockResolvedValue(undefined);
+
+        const rejection = compare();
+        await expect(rejection).rejects.toThrow(
+          /^Error during solution comparison process: ENOENT: no such file or directory, open '.*\/main\/tests\/output_test2\.txt'$/
+        );
+        await expect(rejection).rejects.not.toThrow(/printed nothing/);
+        // test1 went to the checker before the per-test check hit test2.
+        expect(mockedRunChecker).toHaveBeenCalledTimes(1);
+      });
+
+      describe('several testsets', () => {
+        const testsets: LocalTestset[] = [{ name: 'ts1' }, { name: 'ts2' }];
+        const compareTestsets = () =>
+          solution.startTheComparisonProcess(
+            checkerConfig,
+            mainSol,
+            otherSol,
+            testsets
+          );
+
+        beforeEach(() => {
+          mockedGetTestFiles.mockImplementation(dir =>
+            String(dir).endsWith('/ts1')
+              ? ['test1.txt', 'test2.txt']
+              : ['test3.txt']
+          );
+        });
+
+        it('counts the tests of every testset and names the testset where the other printed output', async () => {
+          mockOutputs({
+            main: { 'test1.txt': '', 'test2.txt': '', 'test3.txt': '' },
+            other: { 'test1.txt': '', 'test2.txt': '', 'test3.txt': '42\n' },
+          });
+
+          await expect(compareTestsets()).rejects.toThrow(
+            'Main solution "main" printed nothing on every test (3 in total), but "other" printed output (first on test test3.txt in testset ts2).'
+          );
+          expect(mockedRunChecker).not.toHaveBeenCalled();
+        });
+
+        it('does not fail when the main is blank in one testset and prints output in another', async () => {
+          mockOutputs({
+            main: { 'test1.txt': '', 'test2.txt': '', 'test3.txt': '7\n' },
+            other: { 'test1.txt': '42\n', 'test2.txt': '', 'test3.txt': '7\n' },
+          });
+          mockedRunChecker.mockResolvedValue(undefined);
+
+          await expect(compareTestsets()).resolves.toBeUndefined();
+          expect(mockedRunChecker).toHaveBeenCalledTimes(3);
+        });
+      });
     });
 
     it('should handle skip logic via checkIfShouldSkipRest interception', () => {
