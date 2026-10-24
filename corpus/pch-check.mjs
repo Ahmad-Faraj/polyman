@@ -9,7 +9,7 @@
  *   pch-build    PCH on, empty PCH folder         expects "built key K" and "using key K"
  *   pch-reuse    PCH on, the same folder          expects "using key K", nothing built
  *   other-flags  compiler.flags ["-O1"]           expects a new key built and used, not K
- *   clang        POLYMAN_CXX=clang++              expects "skipped, ... is not g++"
+ *   clang        POLYMAN_CXX=clang++, c++20       expects "skipped, ... is not g++"
  *
  * Each run gets a fresh copy of the problem (so polyman's compile cache never
  * skips the compile) with the same tests, generated once without the PCH. It
@@ -179,6 +179,8 @@ export const RUNS = [
   {
     name: 'clang',
     clang: true,
+    // clang 14 on the node:20 image does not know c++23, the default
+    cppStandard: 'c++20',
     expect: p => {
       const problems = [];
       if (!p.notGxx) problems.push('expected "skipped, ... is not g++"');
@@ -332,10 +334,12 @@ function main() {
     for (const run of RUNS) {
       const dir = path.join(work, run.name);
       fs.cpSync(base, dir, { recursive: true });
-      if (run.flags) {
+      if (run.flags || run.cppStandard) {
         const configFile = path.join(dir, 'Config.json');
         const config = JSON.parse(fs.readFileSync(configFile, 'utf8'));
-        config.compiler = { ...config.compiler, flags: run.flags };
+        if (run.flags)
+          config.compiler = { ...config.compiler, flags: run.flags };
+        if (run.cppStandard) config.cppStandard = run.cppStandard;
         fs.writeFileSync(configFile, JSON.stringify(config, null, 2));
       }
       const runEnv = run.clang ? { ...env, POLYMAN_CXX: args.clang } : env;

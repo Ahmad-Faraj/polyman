@@ -123,6 +123,9 @@ describe('the expected path of each run', () => {
     expect(run('no-pch').args).toEqual(['--no-cache']);
     expect(run('other-flags').flags).toEqual(['-O1']);
     expect(run('clang').clang).toBe(true);
+    // the runner's clang 14 does not know the c++23 default
+    expect(run('clang').cppStandard).toBe('c++20');
+    expect(RUNS.filter(r => r.cppStandard).map(r => r.name)).toEqual(['clang']);
   });
 });
 
