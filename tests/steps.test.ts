@@ -1735,6 +1735,40 @@ describe('steps.ts', () => {
       ]);
     });
 
+    it('does not blame an item whose name is a prefix of the failed one', () => {
+      expect(
+        steps.uploadActions(
+          'solution',
+          ['main', 'main 2'],
+          ['solution main 2: boom']
+        )
+      ).toEqual([
+        { component: 'solution', name: 'main', action: 'upload', ok: true },
+        {
+          component: 'solution',
+          name: 'main 2',
+          action: 'upload',
+          ok: false,
+          error: 'boom',
+        },
+      ]);
+    });
+
+    it('blames the real item when its name contains ": "', () => {
+      expect(
+        steps.uploadActions('solution', ['a: b', 'ok'], ['solution a: b: boom'])
+      ).toEqual([
+        {
+          component: 'solution',
+          name: 'a: b',
+          action: 'upload',
+          ok: false,
+          error: 'boom',
+        },
+        { component: 'solution', name: 'ok', action: 'upload', ok: true },
+      ]);
+    });
+
     it('adds failures that belong to no item as their own entries', () => {
       expect(
         steps.uploadActions('checker', ['chk'], ['checker test #2: rejected'])

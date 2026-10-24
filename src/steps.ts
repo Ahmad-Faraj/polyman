@@ -1446,8 +1446,10 @@ export async function stepUpdateProblemInfo(
  * Turns the failures one upload step added into `--json` report actions.
  *
  * Each failure line has the form `<label>: <message>`. A failure belongs to
- * an item when its label is the component (`validator`), the item name
- * (`tags`), `<component> <name>`, or starts with `<component> <name> `.
+ * exactly one item: the longest item name for which the line starts with
+ * `<component> <name>: `; for testsets, `<component> <name> ` followed by a
+ * sub-label (`script`, `group g1`); else `<name>: `; else `<component>: `
+ * (given to the first item).
  * Every item gets one `upload` entry, failed when a failure belongs to it.
  * Failures that belong to no item (e.g. `checker test #2`) get their own
  * entry, named by their label.
@@ -1462,39 +1464,67 @@ export function uploadActions(
   names: string[],
   newFailures: string[]
 ): RemoteAction[] {
-  const parsed = newFailures.map(line => {
-    const split = line.indexOf(': ');
-    return split < 0
-      ? { label: line, message: line, line }
-      : { label: line.slice(0, split), message: line.slice(split + 2), line };
-  });
-  const used = new Set<number>();
-  const actions: RemoteAction[] = [];
-  for (const name of names) {
-    const own = `${component} ${name}`;
-    const errors: string[] = [];
-    for (const [index, failure] of parsed.entries()) {
-      const { label } = failure;
-      if (label === component || label === name || label === own) {
-        errors.push(failure.message);
-      } else if (label.startsWith(`${own} `)) {
-        errors.push(failure.line);
-      } else {
-        continue;
+  // Longest name first, so `main 2` is tried before `main`.
+  const byLength = names
+    .map((name, index) => ({ name, index }))
+    .sort((a, b) => b.name.length - a.name.length);
+  const errors: string[][] = names.map(() => []);
+  const unmatched: { label: string; message: string }[] = [];
+  for (const line of newFailures) {
+    // Each failure goes to exactly one item, tried from the most specific
+    // form to the least specific one.
+    let owner: { index: number; message: string } | undefined;
+    for (const { name, index } of byLength) {
+      const prefix = `${component} ${name}: `;
+      if (line.startsWith(prefix)) {
+        owner = { index, message: line.slice(prefix.length) };
+        break;
       }
-      used.add(index);
     }
+    // Only testsets have sub-labels (`testset tests script: ...`).
+    if (!owner && component === 'testset') {
+      for (const { name, index } of byLength) {
+        if (line.startsWith(`${component} ${name} `)) {
+          owner = { index, message: line };
+          break;
+        }
+      }
+    }
+    if (!owner) {
+      for (const { name, index } of byLength) {
+        const prefix = `${name}: `;
+        if (line.startsWith(prefix)) {
+          owner = { index, message: line.slice(prefix.length) };
+          break;
+        }
+      }
+    }
+    if (!owner && line.startsWith(`${component}: `) && names.length > 0) {
+      owner = { index: 0, message: line.slice(component.length + 2) };
+    }
+    if (owner) {
+      errors[owner.index]?.push(owner.message);
+      continue;
+    }
+    const split = line.indexOf(': ');
+    unmatched.push(
+      split < 0
+        ? { label: line, message: line }
+        : { label: line.slice(0, split), message: line.slice(split + 2) }
+    );
+  }
+  const actions: RemoteAction[] = names.map((name, index) => {
+    const own = errors[index] ?? [];
     const action: RemoteAction = {
       component,
       name,
       action: 'upload',
-      ok: errors.length === 0,
+      ok: own.length === 0,
     };
-    if (errors.length > 0) action.error = errors.join('; ');
-    actions.push(action);
-  }
-  for (const [index, failure] of parsed.entries()) {
-    if (used.has(index)) continue;
+    if (own.length > 0) action.error = own.join('; ');
+    return action;
+  });
+  for (const failure of unmatched) {
     actions.push({
       component,
       name: failure.label,
