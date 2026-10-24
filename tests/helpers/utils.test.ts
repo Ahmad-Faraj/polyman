@@ -392,6 +392,43 @@ describe('utils.ts', () => {
         }
       );
 
+      it('does not define ONLINE_JUDGE by default', () => {
+        mockConfig({ compiler: { flags: ['-Wall'] } });
+        expect(utils.resolveCppFlags()).not.toContain('-DONLINE_JUDGE');
+      });
+
+      it('adds -DONLINE_JUDGE after the standard with onlineJudge', () => {
+        mockConfig({ compiler: { flags: ['-Wall'] } });
+        expect(utils.resolveCppFlags({ onlineJudge: true })).toEqual([
+          '-O2',
+          '-std=c++23',
+          '-DONLINE_JUDGE',
+          '-Wall',
+        ]);
+      });
+
+      it.each(['-DONLINE_JUDGE', '-DONLINE_JUDGE=1'])(
+        'does not add -DONLINE_JUDGE twice when compiler.flags has %s',
+        flag => {
+          mockConfig({ compiler: { flags: [flag] } });
+          expect(utils.resolveCppFlags({ onlineJudge: true })).toEqual([
+            '-O2',
+            '-std=c++23',
+            flag,
+          ]);
+        }
+      );
+
+      it('still adds -DONLINE_JUDGE when compiler.flags has a longer macro name', () => {
+        mockConfig({ compiler: { flags: ['-DONLINE_JUDGE_X'] } });
+        expect(utils.resolveCppFlags({ onlineJudge: true })).toEqual([
+          '-O2',
+          '-std=c++23',
+          '-DONLINE_JUDGE',
+          '-DONLINE_JUDGE_X',
+        ]);
+      });
+
       it('still rejects an invalid cppStandard', () => {
         mockConfig({
           cppStandard: 'c++23; rm -rf /',
@@ -437,6 +474,17 @@ describe('utils.ts', () => {
         expect(executeMock()).toHaveBeenCalledWith(
           expect.stringContaining(
             `${q('g++')} ${q('-O2')} ${q('-std=c++23')} -iquote `
+          ),
+          expect.anything()
+        );
+      });
+
+      it('passes -DONLINE_JUDGE with the onlineJudge option', async () => {
+        await utils.compileCPP('main.cpp', { onlineJudge: true });
+
+        expect(executeMock()).toHaveBeenCalledWith(
+          expect.stringContaining(
+            `${q('g++')} ${q('-O2')} ${q('-std=c++23')} ${q('-DONLINE_JUDGE')} -iquote `
           ),
           expect.anything()
         );

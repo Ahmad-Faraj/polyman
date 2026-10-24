@@ -122,6 +122,7 @@ const mockedFsExistsSync = vi.mocked(fs.existsSync);
 const mockedFsMkdirSync = vi.mocked(fs.mkdirSync);
 const mockedFsUnlinkSync = vi.mocked(fs.unlinkSync);
 const mockedFsWriteFileSync = vi.mocked(fs.writeFileSync);
+const mockedFsReadFileSync = vi.mocked(fs.readFileSync);
 
 // Same indirection as the executor proxy: `fmt` is the mocked formatter object,
 // and reading `log` through a function-typed local keeps `vi.mocked` lint-clean.
@@ -167,6 +168,7 @@ describe('solution.ts', () => {
     mockedReadConfigFile.mockReturnValue(makeConfig());
     mockedGetCompiledCommandToRun.mockReturnValue('./solution');
     mockedReadFirstLine.mockResolvedValue('');
+    mockedFsReadFileSync.mockReturnValue('');
   });
 
   afterEach(() => {
@@ -223,7 +225,9 @@ describe('solution.ts', () => {
     it('should compile cpp solution', async () => {
       vi.spyOn(path, 'extname').mockReturnValue('.cpp');
       await solution.compileSolution('sol.cpp');
-      expect(mockedCompileCPP).toHaveBeenCalledWith('sol.cpp');
+      expect(mockedCompileCPP).toHaveBeenCalledWith('sol.cpp', {
+        onlineJudge: true,
+      });
     });
 
     it.each(['.cc', '.cxx'])(
@@ -231,7 +235,9 @@ describe('solution.ts', () => {
       async ext => {
         vi.spyOn(path, 'extname').mockReturnValue(ext);
         await solution.compileSolution(`sol${ext}`);
-        expect(mockedCompileCPP).toHaveBeenCalledWith(`sol${ext}`);
+        expect(mockedCompileCPP).toHaveBeenCalledWith(`sol${ext}`, {
+          onlineJudge: true,
+        });
         expect(mockedCompileJava).not.toHaveBeenCalled();
       }
     );
@@ -268,7 +274,9 @@ describe('solution.ts', () => {
       );
 
       await solution.compileAllSolutions(solutions);
-      expect(mockedCompileCPP).toHaveBeenCalledWith('s1.cpp');
+      expect(mockedCompileCPP).toHaveBeenCalledWith('s1.cpp', {
+        onlineJudge: true,
+      });
       expect(mockedCompileJava).toHaveBeenCalledWith('s2.java');
     });
 
@@ -1408,6 +1416,81 @@ describe('solution.ts', () => {
         expect(mockedRunChecker).toHaveBeenCalledTimes(1);
         expect(spy).not.toHaveBeenCalled();
         spy.mockRestore();
+      });
+    });
+
+    describe('empty main output', () => {
+      const mainSol: LocalSolution = { name: 'main', source: '', tag: 'MA' };
+      const otherSol: LocalSolution = { name: 'other', source: '', tag: 'OK' };
+      const checkerConfig: LocalChecker = { name: 'chk', source: 'chk.cpp' };
+      const isMainOutput = (file: unknown) => String(file).includes('/main/');
+
+      it('fails and names the main when it prints nothing and the other solution prints output', async () => {
+        mockedGetTestFiles.mockReturnValue(['test1.txt']);
+        mockedReadFirstLine.mockImplementation(file =>
+          Promise.resolve(isMainOutput(file) ? '' : '42')
+        );
+        mockedFsReadFileSync.mockImplementation(file =>
+          isMainOutput(file) ? '' : '42\n'
+        );
+
+        const rejection = solution.startTheComparisonProcess(
+          checkerConfig,
+          mainSol,
+          otherSol,
+          [{ name: 'tests' }]
+        );
+        await expect(rejection).rejects.toThrow(
+          'Main solution "main" printed nothing on test test1.txt in testset tests, but "other" printed output.'
+        );
+        await expect(rejection).rejects.toThrow(/ONLINE_JUDGE/);
+        expect(mockedRunChecker).not.toHaveBeenCalled();
+      });
+
+      it('treats a main output of only whitespace as nothing', async () => {
+        mockedGetTestFiles.mockReturnValue(['test1.txt']);
+        mockedReadFirstLine.mockImplementation(file =>
+          Promise.resolve(isMainOutput(file) ? '' : '42')
+        );
+        mockedFsReadFileSync.mockImplementation(file =>
+          isMainOutput(file) ? '\n  \n' : '42\n'
+        );
+
+        await expect(
+          solution.startTheComparisonProcess(checkerConfig, mainSol, otherSol, [
+            { name: 'tests' },
+          ])
+        ).rejects.toThrow(/Main solution "main" printed nothing/);
+      });
+
+      it('accepts a main output that starts with an empty line', async () => {
+        mockedGetTestFiles.mockReturnValue(['test1.txt']);
+        mockedReadFirstLine.mockImplementation(file =>
+          Promise.resolve(isMainOutput(file) ? '' : '42')
+        );
+        mockedFsReadFileSync.mockImplementation(file =>
+          isMainOutput(file) ? '\n42\n' : '42\n'
+        );
+        mockedRunChecker.mockResolvedValue(undefined);
+
+        await expect(
+          solution.startTheComparisonProcess(checkerConfig, mainSol, otherSol, [
+            { name: 'tests' },
+          ])
+        ).resolves.not.toThrow();
+        expect(mockedRunChecker).toHaveBeenCalledTimes(1);
+      });
+
+      it('does not fail when both the main and the other solution print nothing', async () => {
+        mockedGetTestFiles.mockReturnValue(['test1.txt']);
+        mockedRunChecker.mockResolvedValue(undefined);
+
+        await expect(
+          solution.startTheComparisonProcess(checkerConfig, mainSol, otherSol, [
+            { name: 'tests' },
+          ])
+        ).resolves.not.toThrow();
+        expect(mockedRunChecker).toHaveBeenCalledTimes(1);
       });
     });
 

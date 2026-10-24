@@ -443,6 +443,7 @@ function ensureOutputDirectory(
 /**
  * Compiles a solution based on file extension.
  * Supports C++ (.cpp), Python (.py), and Java (.java).
+ * C++ is compiled with `-DONLINE_JUDGE`, like Codeforces does.
  * For interpreted languages, returns the interpreter command.
  *
  * @param {string} sourcePath - Path to solution source file
@@ -461,7 +462,7 @@ function ensureOutputDirectory(
  */
 export async function compileSolution(sourcePath: string): Promise<void> {
   if (isCppSource(sourcePath)) {
-    await compileCPP(sourcePath);
+    await compileCPP(sourcePath, { onlineJudge: true });
     return;
   }
 
@@ -1001,6 +1002,14 @@ export async function startTheComparisonProcess(
         ) {
           break;
         }
+        await ensureMainPrintedOutput(
+          mainSolution,
+          targetSolution,
+          testset.name,
+          testFile,
+          mainOutputDir,
+          targetOutputDir
+        );
 
         const inputFilePath = path.join(testsDir, testFile);
         const outputFilePath = path.join(targetOutputDir, `output_${testFile}`);
@@ -1206,6 +1215,62 @@ function validateMainSolutionOutput(firstLine: string, testFile: string) {
   if (isRTE(firstLine)) {
     throw new Error(`Main Solution had runtime error on test ${testFile}`);
   }
+}
+
+/**
+ * Whether an output file holds nothing but whitespace. Reads the first line
+ * first, so a normal output is not read in full.
+ *
+ * @private
+ * @param {string} filePath - Output file to check
+ * @returns {Promise<boolean>} True if the file is empty or only whitespace
+ */
+async function isBlankOutput(filePath: string): Promise<boolean> {
+  if ((await readFirstLine(filePath)).trim() !== '') return false;
+  return fs.readFileSync(filePath, 'utf-8').trim() === '';
+}
+
+/**
+ * Fails when the main solution printed nothing on a test where the target
+ * solution printed output. The main output is the answer file for the
+ * checker, so an empty main output (for example a main that writes to a
+ * file under `#ifndef ONLINE_JUDGE`) would show up as a wrong verdict on
+ * every other solution instead.
+ *
+ * @private
+ * @param {LocalSolution} mainSolution - Main correct solution
+ * @param {LocalSolution} targetSolution - Solution being checked
+ * @param {string} testsetName - Testset of the test
+ * @param {string} testFile - Test filename
+ * @param {string} mainOutputDir - Main solution output directory
+ * @param {string} targetOutputDir - Target solution output directory
+ *
+ * @throws {Error} If the main output is blank and the target output is not
+ *
+ * @example
+ * await ensureMainPrintedOutput(main, other, 'tests', 'test1.txt', mainDir, otherDir);
+ */
+async function ensureMainPrintedOutput(
+  mainSolution: LocalSolution,
+  targetSolution: LocalSolution,
+  testsetName: string,
+  testFile: string,
+  mainOutputDir: string,
+  targetOutputDir: string
+): Promise<void> {
+  const mainOutputPath = path.join(mainOutputDir, `output_${testFile}`);
+  const targetOutputPath = path.join(targetOutputDir, `output_${testFile}`);
+
+  if (!(await isBlankOutput(mainOutputPath))) return;
+  if (await isBlankOutput(targetOutputPath)) return;
+
+  throw new Error(
+    `Main solution "${mainSolution.name}" printed nothing on test ${testFile} ` +
+      `in testset ${testsetName}, but "${targetSolution.name}" printed output. ` +
+      'The main output is the answer for the checker, so the main must write ' +
+      'its answer to stdout. Check that it does not write to a file ' +
+      '(for example freopen under #ifndef ONLINE_JUDGE).'
+  );
 }
 
 /**

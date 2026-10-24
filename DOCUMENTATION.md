@@ -224,7 +224,7 @@ The on-disk `Config.json` schema is described in [GUIDE.md - Configuration File 
 g++ -O2 -std=<cppStandard> <compiler.flags...> -iquote <problem-root> -o output source.cpp
 ```
 
-The executable comes from `POLYMAN_CXX`, then `compiler.cpp` in `Config.json`, then `g++` (`resolveCppCompiler` in `src/helpers/utils.ts`). The flags come from `resolveCppFlags`: a `-std=` item in `compiler.flags` replaces `-std=<cppStandard>` and an `-O` item replaces `-O2`. The resolved executable and flags are part of the compile-cache key.
+The executable comes from `POLYMAN_CXX`, then `compiler.cpp` in `Config.json`, then `g++` (`resolveCppCompiler` in `src/helpers/utils.ts`). The flags come from `resolveCppFlags`: a `-std=` item in `compiler.flags` replaces `-std=<cppStandard>` and an `-O` item replaces `-O2`. Solutions are compiled with `{ onlineJudge: true }`, which adds `-DONLINE_JUDGE` after the standard (like Codeforces), unless `compiler.flags` already defines it. Checkers, validators and generators do not get it. The resolved executable and flags are part of the compile-cache key.
 
 The problem root (the current working directory) is passed via `-iquote` so sources in subdirectories such as `generators/` can `#include "testlib.h"` from the root-level copy without a system-wide install. Every path and argument that reaches the shell is quoted with `quoteShellArgument` (`src/helpers/shell.ts`), so problem directories containing spaces or shell metacharacters work.
 

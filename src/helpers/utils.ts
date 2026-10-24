@@ -75,6 +75,13 @@ const COMPILER_CONFIG_KEYS = ['cpp', 'javac', 'flags'] as const;
 const DEFAULT_OPTIMIZATION_FLAG = '-O2';
 
 /**
+ * Macro defined for solutions, like Codeforces does. Without it a solution
+ * with `#ifndef ONLINE_JUDGE freopen(...) #endif` writes to a file instead
+ * of stdout.
+ */
+export const ONLINE_JUDGE_FLAG = '-DONLINE_JUDGE';
+
+/**
  * Checks the optional `compiler` block of `Config.json`. A missing block is
  * fine; anything else must be an object with only `cpp`, `javac` and `flags`,
  * where `cpp` and `javac` are non-blank strings and `flags` is an array of
@@ -188,10 +195,13 @@ export function resolveCppCompiler(
  *   - a `-std=` (or `--std=`) flag replaces `-std=<cppStandard>`,
  *   - an `-O` flag (`-O0`, `-O3`, `-Ofast`, ...) replaces `-O2`.
  * So the command never has two different `-std=` or `-O` flags.
+ * With `onlineJudge` (solutions only), `-DONLINE_JUDGE` is added after the
+ * standard, unless `compiler.flags` already defines `ONLINE_JUDGE`.
  *
  * @param {Object} [options] - Compilation overrides
  * @param {string} [options.cppStandard] - Standard to use instead of the one
  *   from `Config.json`
+ * @param {boolean} [options.onlineJudge] - Define `ONLINE_JUDGE`
  * @param {CompilerConfig} [config] - Checked `compiler` block; read from
  *   `Config.json` when omitted
  * @returns {string[]} Flags in order (not shell-quoted)
@@ -205,9 +215,12 @@ export function resolveCppCompiler(
  * @example
  * // Config.json: { "compiler": { "flags": ["-O0", "-std=gnu++17"] } }
  * resolveCppFlags(); // ['-O0', '-std=gnu++17']
+ *
+ * @example
+ * resolveCppFlags({ onlineJudge: true }); // ['-O2', '-std=c++23', '-DONLINE_JUDGE']
  */
 export function resolveCppFlags(
-  options: { cppStandard?: string } = {},
+  options: { cppStandard?: string; onlineJudge?: boolean } = {},
   config: CompilerConfig = readCompilerConfig()
 ): string[] {
   const cppStandard = options.cppStandard ?? resolveCppStandard();
@@ -216,10 +229,14 @@ export function resolveCppFlags(
     flag => flag.startsWith('-std=') || flag.startsWith('--std=')
   );
   const hasOptimization = extra.some(flag => flag.startsWith('-O'));
+  const addOnlineJudge =
+    options.onlineJudge === true &&
+    !extra.some(flag => /^-D\s*ONLINE_JUDGE(=|$)/.test(flag));
 
   return [
     ...(hasOptimization ? [] : [DEFAULT_OPTIMIZATION_FLAG]),
     ...(hasStandard ? [] : [`-std=${cppStandard}`]),
+    ...(addOnlineJudge ? [ONLINE_JUDGE_FLAG] : []),
     ...extra,
   ];
 }
@@ -367,7 +384,9 @@ function isCacheSafeFlag(flag: string): boolean {
  * Compiles a C++ source file.
  * The compiler executable comes from {@link resolveCppCompiler} (`POLYMAN_CXX`,
  * then `compiler.cpp`, then g++) and the flags from {@link resolveCppFlags}
- * (`-O2`, `-std=<cppStandard>` and `compiler.flags`).
+ * (`-O2`, `-std=<cppStandard>`, `-DONLINE_JUDGE` for solutions and
+ * `compiler.flags`). The flags are part of the cache key, so a solution
+ * built before `-DONLINE_JUDGE` was added is compiled again.
  * The problem root (current working directory) is added as a quoted-include
  * search path so sources in subdirectories can `#include "testlib.h"`.
  * Goes through the compilation cache: when the source, its local headers,
@@ -384,6 +403,8 @@ function isCacheSafeFlag(flag: string): boolean {
  * @param {Object} [options] - Compilation overrides
  * @param {string} [options.cppStandard] - Standard to pass as `-std=`; when
  *   omitted it is resolved from `Config.json`
+ * @param {boolean} [options.onlineJudge] - Define `ONLINE_JUDGE`; set for
+ *   solutions, not for checkers, validators and generators
  * @returns {Promise<void>} Resolves once the executable is written next to
  *   the source (same path, extension stripped)
  *
@@ -396,7 +417,7 @@ function isCacheSafeFlag(flag: string): boolean {
  */
 export async function compileCPP(
   sourcePath: string,
-  options: { cppStandard?: string } = {}
+  options: { cppStandard?: string; onlineJudge?: boolean } = {}
 ): Promise<void> {
   const absolutePath = path.resolve(process.cwd(), sourcePath);
 
