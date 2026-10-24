@@ -31,6 +31,14 @@ guards every merge request.
   `go_ahead.people` counts as an agent. The tier comes from `autonomy:assess`, not from a label. A
   branch an agent pushed before the MR existed needs the go-ahead on the
   issue GitLab says the MR closes.
+- `autonomy:goahead:branch` applies the same rules to a push to a branch with
+  no open MR, which gets a branch pipeline instead of an MR pipeline (#64). The
+  go-ahead has to be on the issue the branch is named after (`<iid>-...`),
+  and with no risk score the push is judged as high risk, so only
+  `go_ahead.maintainers` count. A push an MR's own guard judged (made while an
+  MR from the branch was open, or before one opened) is left to it. Like
+  `autonomy:goahead`, it runs the guard and reads the policy from the default
+  branch's head.
 - `autonomy:ledger` (on `main`, and on MRs that change the engine or the
   pipeline) rebuilds the go-ahead ledger from the GitLab API: one record per
   agent push `autonomy:goahead` judged on a merged MR since the guard reached

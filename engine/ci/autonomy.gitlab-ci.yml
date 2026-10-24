@@ -5,8 +5,9 @@
 #
 # These are the merge request jobs: risk score, guard, flow lint, the
 # republish warning and the engine's own tests, plus the go-ahead ledger, which
-# also runs on the default branch, and the session audit, which runs on the
-# schedule. The release jobs are in autonomy-release.gitlab-ci.yml.
+# also runs on the default branch, the go-ahead guard for branches with no MR,
+# and the session audit, which runs on the schedule. The release jobs are in
+# autonomy-release.gitlab-ci.yml.
 #
 # The project needs to define:
 #   - stages: test, assess
@@ -107,6 +108,35 @@ autonomy:goahead:
     - git archive "$AUTONOMY_POLICY_REF" engine | tar -x -C "$GUARD"
     - npm ci --prefix "$GUARD/engine" --no-audit --no-fund --loglevel=error
     - node "$GUARD/engine/src/cli/goahead.ts"
+
+# The same go-ahead rules for a push to a branch with no open MR (#64), which
+# gets a branch pipeline, not an MR pipeline (the workflow rules). With no MR,
+# the go-ahead has to be on the issue the branch is named after ("<iid>-..."),
+# and with no risk score it is judged as high risk. A push an MR's own guard
+# judged is left to it. The guard's code and the policy come from the default
+# branch's head, as for autonomy:goahead. It doesn't run when the default
+# branch has no guard yet: the push that adds it is a person's.
+autonomy:goahead:branch:
+  extends: .autonomy:node
+  stage: assess
+  needs: []
+  variables:
+    GIT_DEPTH: 0
+  rules:
+    - if: $CI_COMMIT_BRANCH && $CI_COMMIT_BRANCH != $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"
+  before_script:
+    - git fetch -q origin "+refs/heads/$CI_DEFAULT_BRANCH:refs/goahead/default"
+    - export AUTONOMY_POLICY_REF=$(git rev-parse refs/goahead/default)
+    - GUARD=$(mktemp -d)
+  script:
+    - |
+      if [ -z "$(git ls-tree --name-only "$AUTONOMY_POLICY_REF" -- engine/src/cli/goahead-branch.ts)" ]; then
+        echo "the default branch has no engine/src/cli/goahead-branch.ts yet, so nothing judges this push here"
+        exit 0
+      fi
+    - git archive "$AUTONOMY_POLICY_REF" engine | tar -x -C "$GUARD"
+    - npm ci --prefix "$GUARD/engine" --no-audit --no-fund --loglevel=error
+    - node "$GUARD/engine/src/cli/goahead-branch.ts"
 
 # The same rule on the default branch. This only reports after the fact: until
 # main is protected (no direct pushes) and "Pipelines must succeed" is on (#14),
