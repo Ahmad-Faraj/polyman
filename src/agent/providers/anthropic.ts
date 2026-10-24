@@ -410,6 +410,13 @@ class TurnState {
 
   /** The events after the last stream event: usage, then done. */
   *end(): Generator<StreamEvent> {
+    // Tool blocks that never got `content_block_stop` (a cut stream): give
+    // their calls too, in block order, so the turn does not lose them.
+    const open = [...this.blocks.entries()].sort(([a], [b]) => a - b);
+    this.blocks.clear();
+    for (const [, block] of open) {
+      if (block.type === 'tool_use') yield toolCall(block);
+    }
     if (this.usage) {
       const { input, output, cacheRead, cacheWrite } = this.usage;
       // Anthropic counts cached tokens apart from `input_tokens`. We give
@@ -478,31 +485,7 @@ class TurnState {
     if (!block) return;
 
     if (block.type === 'tool_use') {
-      if (block.json.trim() === '') {
-        // No pieces came: the start event had the whole input.
-        const args = isRecord(block.input) ? block.input : {};
-        yield { type: 'tool_call', id: block.id, name: block.name, args };
-        return;
-      }
-      const parsed = parseToolArgs(block.json, false);
-      if (parsed.ok && isRecord(parsed.value)) {
-        yield {
-          type: 'tool_call',
-          id: block.id,
-          name: block.name,
-          args: parsed.value,
-        };
-      } else {
-        yield {
-          type: 'tool_call',
-          id: block.id,
-          name: block.name,
-          args: block.json,
-          argsError: parsed.ok
-            ? 'tool arguments are not a JSON object'
-            : parsed.error,
-        };
-      }
+      yield toolCall(block);
     } else if (block.type === 'thinking' && block.signature !== '') {
       yield { type: 'reasoning_delta', text: '', signature: block.signature };
     } else if (block.type === 'redacted_thinking' && block.data !== '') {
@@ -522,6 +505,33 @@ class TurnState {
     if (typeof cacheRead === 'number') usage.cacheRead = cacheRead;
     if (typeof cacheWrite === 'number') usage.cacheWrite = cacheWrite;
   }
+}
+
+/** The `tool_call` of a `tool_use` block, with `argsError` for bad input. */
+function toolCall(block: Block): StreamEvent {
+  if (block.json.trim() === '') {
+    // No pieces came: the start event had the whole input.
+    const args = isRecord(block.input) ? block.input : {};
+    return { type: 'tool_call', id: block.id, name: block.name, args };
+  }
+  const parsed = parseToolArgs(block.json, false);
+  if (parsed.ok && isRecord(parsed.value)) {
+    return {
+      type: 'tool_call',
+      id: block.id,
+      name: block.name,
+      args: parsed.value,
+    };
+  }
+  return {
+    type: 'tool_call',
+    id: block.id,
+    name: block.name,
+    args: block.json,
+    argsError: parsed.ok
+      ? 'tool arguments are not a JSON object'
+      : parsed.error,
+  };
 }
 
 function toStopReason(reason: string): StopReason {

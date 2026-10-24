@@ -801,6 +801,44 @@ describe('AnthropicProvider: stream details', () => {
     }
   );
 
+  it('flushes a tool_use block that has no content_block_stop', async () => {
+    const fetchFn = fakeFetch(
+      sse([
+        MESSAGE_START,
+        blockStart(1, {
+          type: 'tool_use',
+          id: 't2',
+          name: 'verify',
+          input: {},
+        }),
+        blockStart(0, {
+          type: 'tool_use',
+          id: 't1',
+          name: 'write_file',
+          input: {},
+        }),
+        blockDelta(0, { type: 'input_json_delta', partial_json: '{"a":1}' }),
+        blockDelta(1, { type: 'input_json_delta', partial_json: '{"b":' }),
+        ...messageEnd('tool_use'),
+      ])
+    );
+    const events = await collect(provider(fetchFn));
+    expect(events.filter(e => e.type === 'tool_call')).toEqual([
+      { type: 'tool_call', id: 't1', name: 'write_file', args: { a: 1 } },
+      {
+        type: 'tool_call',
+        id: 't2',
+        name: 'verify',
+        args: '{"b":',
+        argsError: expect.stringContaining('not valid JSON') as string,
+      },
+    ]);
+    expect(events.at(-1)).toEqual({ type: 'done', stopReason: 'tool_calls' });
+    expect(events.findIndex(e => e.type === 'usage')).toBeGreaterThan(
+      events.findLastIndex(e => e.type === 'tool_call')
+    );
+  });
+
   it('uses the start input when no input_json_delta comes', async () => {
     const fetchFn = fakeFetch(
       sse([
