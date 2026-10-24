@@ -119,6 +119,15 @@ describe('autonomy:goahead:branch against a git repo and a stand-in for GitLab',
     expect(code).toBe(1);
   });
 
+  it('ends a failure with who can give the go-ahead and what to do next', async () => {
+    const { code, text } = await run({ issue: issue24, events: (r) => [push('14:05', 'Ahmad-Faraj', null, r.base), push('14:22', REVIEWER, null, r.head)] });
+    expect(text.trim().split('\n').slice(-2)).toEqual([
+      `Assisted: an agent acts only on a person's go-ahead, one per push, from someone who didn't ask for the work. ${BRANCH} has no MR, so the go-ahead has to be on the issue the branch is named after, and with no risk score it is judged as high risk: only @HamzaHassanain, @Mazen-Ghanaym, @Ahmad-Faraj. If an MR for this branch opened after this job started, retry the job: that MR's pipeline judges these pushes.`,
+      "Next: a go-ahead can't be given after the push. One of @HamzaHassanain, @Mazen-Ghanaym, @Ahmad-Faraj deletes the branch or moves the commits that had one to a new branch; for anything still wanted, the agent proposes again on the issue and waits for a new go-ahead.",
+    ]);
+    expect(code).toBe(1);
+  });
+
   it("passes the issue-builder's push with a maintainer's go-ahead on the issue", async () => {
     const { code, text } = await run({
       mrs: [],

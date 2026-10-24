@@ -12,6 +12,8 @@ const BRANCH = '24-java-source-types-approved';
 const MERGED = '6c58148c00000000000000000000000000000000';
 const AGENT = '561d61ce00000000000000000000000000000000';
 const SECOND = '7777777700000000000000000000000000000000';
+// a head a force-push threw away
+const GONE = '9999999900000000000000000000000000000000';
 
 const at = (time: string) => `2026-10-18T${time}Z`;
 const event = (time: string, by: string, from: string | null, to: string | null, ref = BRANCH): PushEvent => ({
@@ -173,6 +175,28 @@ describe('the go-ahead guard on a branch with no open MR (#64)', () => {
       const result = await checkBranch(rollback({ events: [event('14:22:28', BUILDER, null, AGENT, '30-rollback')] }), config, repo(), async () => []);
       expect(result.problems[0].text).toMatch(/went to 30-rollback, which has no MR, and the branch names no issue written by a person/);
     });
+  });
+
+  it('skips a push whose head a later force-push threw away, and reads the force-push as creating the branch', async () => {
+    // GONE is no longer in the repo, and git can't tell what it contains
+    const r = repo({
+      has: (sha) => sha !== GONE,
+      isAncestor: (c, of) => {
+        if (c === GONE || of === GONE) throw new Error(`git: bad object ${GONE}`);
+        return order.indexOf(c) <= order.indexOf(of);
+      },
+    });
+    const notes = [note(1, '14:00:00', BUILDER, 'Proposal for #24: the change'), note(2, '14:05:00', 'Mazen-Ghanaym', `@${BUILDER} go-ahead`)];
+    const events = [event('14:10:00', REVIEWER, null, GONE), event('14:22:28', BUILDER, GONE, AGENT)];
+    const result = await check({ mrs: [], events }, notes, r);
+    expect(result.problems).toEqual([]);
+    expect(result.agentPushes.map((c) => [c.push.pusher, c.push.from, c.commits])).toEqual([[BUILDER, null, [AGENT]]]);
+  });
+
+  it('leaves an agent push from before the branch was last created when none of its commits are left', async () => {
+    const events = [event('14:00:00', REVIEWER, null, AGENT), event('14:05:00', 'Ahmad-Faraj', AGENT, null), event('14:10:00', 'Ahmad-Faraj', null, MERGED)];
+    const result = await check({ mrs: [], events, commits: [] });
+    expect(result).toEqual({ openMr: null, agentPushes: [], covered: [], problems: [] });
   });
 
   it('passes a branch only people pushed to', async () => {
