@@ -78,6 +78,19 @@ corpus:toolchain:
     reports:
       junit: corpus/out/junit-${LANE}.xml
 
+# The precompiled <bits/stdc++.h> (#113) on one corpus solution, compiled and
+# run five times by corpus/pch-check.mjs: PCH off (--no-cache), PCH built on an
+# empty folder, the same PCH used again, other flags (a key of its own) and
+# clang++ (which must skip it). Each run must take its path, read from
+# polyman's POLYMAN_DEBUG=1 log, and give the same verdicts and output files.
+# The node image has g++ but no clang.
+corpus:pch:
+  extends: .corpus
+  script:
+    - apt-get update -qq && apt-get install -y -qq clang >/dev/null
+    - npm run build
+    - node corpus/pch-check.mjs
+
 # The two operating systems polyman's users have besides Linux, on GitLab's
 # own macOS and Windows runners. On the default branch they run by themselves;
 # in a merge request a person starts them (macOS minutes cost 6x Linux).
