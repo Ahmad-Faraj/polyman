@@ -340,6 +340,49 @@ describe('withRetries: errors that are not retried', () => {
     );
   });
 
+  it('redacts secrets in the broken-stream message', async () => {
+    const secret = 'my-secret-value-123';
+    const mock = new MockProvider([
+      {
+        text: 'Hello',
+        error: err('server', `Overloaded, key ${secret} and sk-abc123456`),
+      },
+    ]);
+    const error = (await collect(
+      withRetries(mock, { secrets: [secret] })
+    ).catch((e: unknown) => e)) as ProviderError;
+
+    expect(error).toBeInstanceOf(ProviderError);
+    expect(error.retryable).toBe(false);
+    expect(error.message).toBe(
+      'the mock stream broke in the middle of the turn, so it was not retried: Overloaded, key *** and ***'
+    );
+    expect(error.message).not.toContain(secret);
+  });
+
+  it('redacts secrets in the gave-up message of a non-auth error', async () => {
+    const secret = 'my-secret-value-123';
+    const down = () => err('server', `HTTP 503: down for ${secret}`);
+    const mock = new MockProvider([
+      { error: down() },
+      { error: down() },
+      { error: down() },
+      { error: down() },
+    ]);
+    const run = settle(
+      collect(withRetries(mock, { ...EXACT, secrets: [secret] }))
+    );
+    await vi.advanceTimersByTimeAsync(7000);
+    await run.finished;
+
+    const error = run.state.error as ProviderError;
+    expect(error.kind).toBe('server');
+    expect(error.message).toBe(
+      'HTTP 503: down for *** (gave up after 3 retries)'
+    );
+    expect(error.message).not.toContain(secret);
+  });
+
   it('passes errors that are not a ProviderError through', async () => {
     const mock = new MockProvider([]);
     await expect(collect(withRetries(mock))).rejects.toThrow(
