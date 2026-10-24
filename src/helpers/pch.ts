@@ -220,7 +220,16 @@ function isMarkedBad(dir: string): boolean {
   } catch {
     // an empty or unreadable mark counts as expired
   }
-  if (!fresh) fs.rmSync(mark, { force: true });
+  if (!fresh) {
+    fs.rmSync(mark, { force: true });
+    try {
+      // A .gch that could not be deleted when it was marked, or was rebuilt
+      // next to the mark, must not be reused: build it again.
+      fs.rmSync(path.join(dir, GCH), { force: true });
+    } catch {
+      // Still locked: the next compile tries again only if a mark is written.
+    }
+  }
   return fresh;
 }
 
@@ -369,13 +378,19 @@ export async function findPch(request: PchRequest): Promise<Pch | null> {
  */
 export function markPchUnsupported(pch: Pch): void {
   prepared.set(pch.key, Promise.resolve(null));
+  // The mark goes first: if the delete below fails (EBUSY on Windows) or
+  // another process rebuilds the .gch in between, later processes still skip it.
+  try {
+    markBad(pch.includeDir);
+  } catch {
+    // This process still skips it.
+  }
   try {
     // Delete the bad .gch too: once the mark expires, a rebuild must happen
     // instead of reusing it.
     fs.rmSync(path.join(pch.includeDir, GCH), { force: true });
-    markBad(pch.includeDir);
   } catch {
-    // Only this process will skip it; that is still correct.
+    // An expired mark will retry the delete.
   }
   debugLog(`pch: key ${pch.key.slice(0, 12)} marked unsupported`);
 }
