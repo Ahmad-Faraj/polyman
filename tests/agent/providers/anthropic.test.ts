@@ -771,6 +771,36 @@ describe('AnthropicProvider: stream details', () => {
     expect(done).toEqual({ type: 'done', stopReason: 'max_tokens' });
   });
 
+  it.each(['[1]', 'null', '"x"', '3'])(
+    'gives argsError and the raw string when the arguments are %s, not an object',
+    async raw => {
+      const fetchFn = fakeFetch(
+        sse([
+          MESSAGE_START,
+          blockStart(0, {
+            type: 'tool_use',
+            id: 't1',
+            name: 'write_file',
+            input: {},
+          }),
+          blockDelta(0, { type: 'input_json_delta', partial_json: raw }),
+          blockStop(0),
+          ...messageEnd('tool_use'),
+        ])
+      );
+      const events = await collect(provider(fetchFn));
+      expect(events.filter(e => e.type === 'tool_call')).toEqual([
+        {
+          type: 'tool_call',
+          id: 't1',
+          name: 'write_file',
+          args: raw,
+          argsError: 'tool arguments are not a JSON object',
+        },
+      ]);
+    }
+  );
+
   it('uses the start input when no input_json_delta comes', async () => {
     const fetchFn = fakeFetch(
       sse([

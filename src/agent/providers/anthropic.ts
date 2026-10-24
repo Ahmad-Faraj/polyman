@@ -485,7 +485,7 @@ class TurnState {
         return;
       }
       const parsed = parseToolArgs(block.json, false);
-      if (parsed.ok) {
+      if (parsed.ok && isRecord(parsed.value)) {
         yield {
           type: 'tool_call',
           id: block.id,
@@ -498,7 +498,9 @@ class TurnState {
           id: block.id,
           name: block.name,
           args: block.json,
-          argsError: parsed.error,
+          argsError: parsed.ok
+            ? 'tool arguments are not a JSON object'
+            : parsed.error,
         };
       }
     } else if (block.type === 'thinking' && block.signature !== '') {
