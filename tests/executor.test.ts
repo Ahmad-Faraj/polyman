@@ -236,7 +236,7 @@ describe('CommandExecutor', () => {
     // error with its own message, and must not read as a signal death ("exit code 128").
     it.each([undefined, null])(
       'keeps a spawn failure with no signal (%s) a spawn error, not exit code 128',
-      async (signal) => {
+      async signal => {
         const sub = createMockSubprocess();
         primeExeca(sub);
 
@@ -251,7 +251,7 @@ describe('CommandExecutor', () => {
 
         await expect(promise).rejects.toThrow('spawn ENOENT');
         await expect(promise).rejects.not.toThrow(/exit code 128/);
-      },
+      }
     );
 
     it('runs in silent mode without throwing on success', async () => {
@@ -377,27 +377,30 @@ describe('CommandExecutor', () => {
     // Without the `ulimit` subshell (macOS, Windows) execa reports a killed child as
     // exitCode undefined plus a signal; that is 128 + the signal number, and SIGKILL
     // and SIGABRT are what a memory limit sends.
-    it.each(['SIGKILL', 'SIGABRT'] as const)('detects MLE for a child killed by %s (no exit code, only the signal)', async (signal) => {
-      // 128 + the platform's own number for the signal (SIGABRT is 6 on Linux and 22 on Windows)
-      const code = 128 + os.constants.signals[signal];
-      const sub = createMockSubprocess();
-      primeExeca(sub);
-      const onMemoryExceeded: MockedFunction<
-        NonNullable<ExecutionOptions['onMemoryExceeded']>
-      > = vi.fn();
+    it.each(['SIGKILL', 'SIGABRT'] as const)(
+      'detects MLE for a child killed by %s (no exit code, only the signal)',
+      async signal => {
+        // 128 + the platform's own number for the signal (SIGABRT is 6 on Linux and 22 on Windows)
+        const code = 128 + os.constants.signals[signal];
+        const sub = createMockSubprocess();
+        primeExeca(sub);
+        const onMemoryExceeded: MockedFunction<
+          NonNullable<ExecutionOptions['onMemoryExceeded']>
+        > = vi.fn();
 
-      const promise = executor.execute('killed_prog', {
-        timeout: 1000,
-        onMemoryExceeded,
-      });
-      sub.__resolveWith({ exitCode: undefined, signal, failed: true });
+        const promise = executor.execute('killed_prog', {
+          timeout: 1000,
+          onMemoryExceeded,
+        });
+        sub.__resolveWith({ exitCode: undefined, signal, failed: true });
 
-      const result = await promise;
-      expect(result.exitCode).toBe(code);
-      expect(result.memoryExceeded).toBe(true);
-      expect(result.success).toBe(false);
-      expect(onMemoryExceeded).toHaveBeenCalled();
-    });
+        const result = await promise;
+        expect(result.exitCode).toBe(code);
+        expect(result.memoryExceeded).toBe(true);
+        expect(result.success).toBe(false);
+        expect(onMemoryExceeded).toHaveBeenCalled();
+      }
+    );
 
     it('detects MLE via bad_alloc in stderr', async () => {
       const sub = createMockSubprocess();
