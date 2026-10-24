@@ -751,6 +751,78 @@ describe('OpenAICompatibleProvider: stream details', () => {
   });
 });
 
+describe('OpenAICompatibleProvider: tool call indexes', () => {
+  const piece = (index: number, id: string | undefined, name: string) => ({
+    index,
+    ...(id ? { id } : {}),
+    function: { name, arguments: '{"n":"' + name + '"}' },
+  });
+
+  it.each([2000000000, -1, 1.5, 129])(
+    'rejects the tool call index %s',
+    async index => {
+      const fetchFn = fakeFetch(
+        sse([
+          delta({ tool_calls: [piece(index, 'c1', 'read_file')] }),
+          delta({}, 'tool_calls'),
+        ])
+      );
+      const error = await failure(collect(provider(fetchFn)));
+      expect(error.kind).toBe('server');
+      expect(error.message).toContain('bad index');
+    }
+  );
+
+  it('starts a new call when a piece at the same index has another id', async () => {
+    const fetchFn = fakeFetch(
+      sse([
+        delta({ tool_calls: [piece(0, 'a', 'one')] }),
+        delta({ tool_calls: [piece(0, 'b', 'two')] }),
+        delta({}, 'tool_calls'),
+      ])
+    );
+    const events = await collect(provider(fetchFn));
+    expect(events.filter(e => e.type === 'tool_call')).toEqual([
+      { type: 'tool_call', id: 'a', name: 'one', args: { n: 'one' } },
+      { type: 'tool_call', id: 'b', name: 'two', args: { n: 'two' } },
+    ]);
+  });
+
+  it('keeps adding pieces without an id, or with the same id, to the call', async () => {
+    const fetchFn = fakeFetch(
+      sse([
+        delta({ tool_calls: [{ index: 0, id: 'a', function: { name: 'x' } }] }),
+        delta({
+          tool_calls: [{ index: 0, id: 'a', function: { arguments: '{"k":' } }],
+        }),
+        delta({
+          tool_calls: [{ index: 0, function: { arguments: '1}' } }],
+        }),
+        delta({}, 'tool_calls'),
+      ])
+    );
+    const events = await collect(provider(fetchFn));
+    expect(events.filter(e => e.type === 'tool_call')).toEqual([
+      { type: 'tool_call', id: 'a', name: 'x', args: { k: 1 } },
+    ]);
+  });
+
+  it('gives the calls in index order', async () => {
+    const fetchFn = fakeFetch(
+      sse([
+        delta({
+          tool_calls: [piece(1, 'b', 'two'), piece(0, 'a', 'one')],
+        }),
+        delta({}, 'tool_calls'),
+      ])
+    );
+    const events = await collect(provider(fetchFn));
+    expect(
+      events.flatMap(e => (e.type === 'tool_call' ? [e.name] : []))
+    ).toEqual(['one', 'two']);
+  });
+});
+
 describe('OpenAICompatibleProvider: broken streams', () => {
   /** Gives each chunk in its own read, then fails the next read. */
   const failingBody = (chunks: string[]) => () => {

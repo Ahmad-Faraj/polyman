@@ -421,10 +421,15 @@ function parseChunk(data: string): Chunk {
   return json as Chunk;
 }
 
+/** The highest tool call `index` accepted from a server. */
+const MAX_TOOL_INDEX = 128;
+
 type StopReason = Extract<StreamEvent, { type: 'done' }>['stopReason'];
 type Usage = Extract<StreamEvent, { type: 'usage' }>;
 
 interface PendingCall {
+  /** The `index` the server gave the piece that started this call. */
+  index: number;
   id: string;
   name: string;
   args: string;
@@ -434,7 +439,11 @@ interface PendingCall {
 class TurnState {
   stopReason: StopReason | undefined;
   private usage: Usage | undefined;
-  private calls: PendingCall[] = [];
+  /** Pending calls by internal sequence number, in the order they started. */
+  private calls = new Map<number, PendingCall>();
+  /** The sequence number of the current call for each server index. */
+  private current = new Map<number, number>();
+  private nextSeq = 0;
   private emittedCalls = 0;
 
   constructor(
@@ -458,7 +467,20 @@ class TurnState {
 
     (delta.tool_calls ?? []).forEach((piece, i) => {
       const index = piece.index ?? i;
-      const call = (this.calls[index] ??= { id: '', name: '', args: '' });
+      if (!Number.isInteger(index) || index < 0 || index > MAX_TOOL_INDEX) {
+        throw new ProviderError(
+          'server',
+          `a tool call has a bad index: ${String(index).slice(0, 40)}`
+        );
+      }
+      let call = this.calls.get(this.current.get(index) ?? -1);
+      // Some servers number every call 0. A new id starts a new call.
+      if (call === undefined || (piece.id && call.id && piece.id !== call.id)) {
+        call = { index, id: '', name: '', args: '' };
+        this.current.set(index, this.nextSeq);
+        this.calls.set(this.nextSeq, call);
+        this.nextSeq += 1;
+      }
       if (piece.id && call.id === '') call.id = piece.id;
       call.name += piece.function?.name ?? '';
       call.args += piece.function?.arguments ?? '';
@@ -491,10 +513,11 @@ class TurnState {
 
   /** Parses the collected tool calls once, in index order. */
   private *flushCalls(): Generator<StreamEvent> {
-    const calls = this.calls;
-    this.calls = [];
+    // Sorted by server index; calls with the same index keep their order.
+    const calls = [...this.calls.values()].sort((a, b) => a.index - b.index);
+    this.calls = new Map();
+    this.current = new Map();
     for (const call of calls) {
-      if (call === undefined) continue;
       this.emittedCalls += 1;
       const id = call.id === '' ? this.newId() : call.id;
       const parsed = parseToolArgs(call.args, this.quirks.repairToolArgs);
