@@ -24,7 +24,7 @@ One loop you can click through without logging in: [#95](https://gitlab.com/gitl
 
 Across every loop so far: the go-ahead never came from the person who asked, in 44 of 44 loops and 63 of 63 agent pushes, and the guard refused 9 agent pushes on 8 MRs since it reached `main` on 17 Oct 20:11 (7 on 18 Oct for no go-ahead, !177 above, and on 22 Oct one push on !241 that broke two rules: a merge commit, with no proposal before it). *Counted by the [ledger job](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17418251989) on `main`, 23 Oct 13:59 UTC, which rebuilds every loop from GitLab's note and push records ([`engine/src/ledger.ts`](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/blob/bc8597bed80372d9bc97e9578cbfe654c15d4120/engine/src/ledger.ts#L212)).*
 
-The risk tiers are fixed on purpose: an agent never raises its own level, only a person does. The risk score from `.autonomy.yml` decides how deep the review is, the go-ahead guard `autonomy:goahead` decides who may let an agent act, and an agent push that changes either one fails CI (step 6 above).
+The risk tiers are fixed on purpose: an agent never raises its own level, only a person does. The risk score from `.autonomy.yml` decides how deep the review is, and the go-ahead guard `autonomy:goahead` decides who may let an agent act. Both are governance paths: a change to them is always high risk, so only a maintainer who did not ask for it can say go-ahead.
 
 ## Four more clicks
 
