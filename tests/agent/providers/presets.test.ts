@@ -149,6 +149,23 @@ function urlWith(change: Partial<URL>): string {
   return url.href.replace(/\/$/, '');
 }
 
+describe('quirks', () => {
+  it.each<[string, Preset['quirks']]>([
+    ['openai', { maxTokensField: 'max_completion_tokens' }],
+    ['anthropic', undefined],
+    ['deepseek', { reasoningFields: ['reasoning_content'] }],
+    ['qwen', { reasoningFields: ['reasoning_content'] }],
+    ['gemini', undefined],
+    ['groq', undefined],
+    ['mistral', undefined],
+    ['openrouter', { reasoningFields: ['reasoning'] }],
+    ['ollama', { repairToolArgs: true }],
+    ['custom', undefined],
+  ])('%s has the quirks %j', (id, quirks) => {
+    expect(getPreset(id)?.quirks).toEqual(quirks);
+  });
+});
+
 describe('validatePreset', () => {
   const good: Preset = {
     id: 'demo',
