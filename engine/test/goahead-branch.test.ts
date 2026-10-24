@@ -109,6 +109,22 @@ describe('the go-ahead guard on a branch with no open MR (#64)', () => {
     expect(result.problems[0].text).toMatch(/between its previous push at 2026-10-18T14:22:28Z/);
   });
 
+  it('needs a new go-ahead for each branch named after the same issue: one go-ahead clears one push', async () => {
+    const notes = [note(1, '14:00:00', BUILDER, 'Proposal for #24: the change'), note(2, '14:05:00', 'Mazen-Ghanaym', `@${BUILDER} go-ahead`)];
+    const events = [event('14:10:00', BUILDER, null, AGENT, '24-a'), event('14:11:00', BUILDER, null, AGENT, '24-b'), event('14:12:00', BUILDER, null, AGENT, '24-c')];
+    const results = await Promise.all(['24-a', '24-b', '24-c'].map((branch) => check({ branch, mrs: [], events }, notes)));
+    expect(results.map((r) => r.agentPushes.map((c) => c.verdict.ok))).toEqual([[true], [false], [false]]);
+    expect(results[1].problems[0].text).toMatch(/between its previous push at 2026-10-18T14:10:00Z and the push at 2026-10-18T14:11:00Z/);
+    expect(results[2].problems[0].text).toMatch(/between its previous push at 2026-10-18T14:11:00Z/);
+  });
+
+  it("doesn't count a push to a branch of another issue as using up the go-ahead", async () => {
+    const notes = [note(1, '14:00:00', BUILDER, 'Proposal for #24: the change'), note(2, '14:05:00', 'Mazen-Ghanaym', `@${BUILDER} go-ahead`)];
+    const events = [event('14:10:00', BUILDER, null, AGENT, '240-a'), event('14:11:00', BUILDER, null, AGENT, '24-b')];
+    const result = await check({ branch: '24-b', mrs: [], events }, notes);
+    expect(result.problems).toEqual([]);
+  });
+
   it('judges an agent push that brought no commits (a rewind)', async () => {
     const events = [event('14:10:44', 'Ahmad-Faraj', null, AGENT), event('14:22:28', REVIEWER, AGENT, MERGED)];
     const result = await check({ mrs: [], events, commits: [] });

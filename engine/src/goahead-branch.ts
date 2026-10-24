@@ -108,8 +108,16 @@ export async function checkBranch(
   const mine = new Map([...by].filter(([, p]) => judged.includes(p)));
   problems.push(...agentCommitProblems(mine, config, repo));
 
+  // the agent's previous push to any branch named after the same issue: the
+  // go-ahead is on the issue, so a push to 24-a uses it up for 24-b too
+  const iid = issueOfBranch(branch);
+  const refs = new Set(events.map((e) => e.push_data?.ref).filter((ref): ref is string => typeof ref === 'string'));
+  const issuePushes = [...refs]
+    .filter((ref) => ref === branch || (iid !== null && issueOfBranch(ref) === iid))
+    .flatMap((ref) => branchPushes(events, ref))
+    .sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
   const previousPush = (pusher: string, at: string) =>
-    all
+    issuePushes
       .filter((p) => p.pusher.toLowerCase() === pusher.toLowerCase() && Date.parse(p.at) < Date.parse(at))
       .map((p) => p.at)
       .pop();
