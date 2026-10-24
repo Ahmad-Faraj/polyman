@@ -1412,7 +1412,15 @@ export function stepReadConfig(
   }
 
   const config = parseConfigAt(configPath);
-  if (config.problemId) report.setProblemId(config.problemId);
+  // Config.json is user input: only a positive integer is a Polygon ID.
+  const configId: unknown = config.problemId;
+  if (
+    typeof configId === 'number' &&
+    Number.isInteger(configId) &&
+    configId > 0
+  ) {
+    report.setProblemId(configId);
+  }
 
   fmt.info(
     `  ${fmt.infoIcon()} Problem: ${fmt.highlight(config.name || 'Unnamed')}`

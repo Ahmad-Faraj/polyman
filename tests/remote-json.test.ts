@@ -332,6 +332,21 @@ describe('remote commands with --json', () => {
       ]);
     });
 
+    it.each(['x', '7; $(id)', 1.5, -3])(
+      'keeps problemId null when Config.json has problemId %j',
+      async problemId => {
+        const dir = writeProblem({ ...baseConfig, problemId });
+
+        await actions.remotePushProblemAction(dir, {
+          checker: true,
+          json: true,
+        });
+
+        const doc = written();
+        expect(doc.problemId).toBeNull();
+      }
+    );
+
     it('does not prompt with --json and exits 2 without --yes', async () => {
       const dir = writeProblem({ ...baseConfig, problemId: undefined });
 
