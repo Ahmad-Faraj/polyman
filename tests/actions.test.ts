@@ -833,6 +833,32 @@ describe('actions.ts', () => {
         expect(process.exit).not.toHaveBeenCalled();
       });
 
+      it('should record a main solution failure as the target not matching its tag (current behaviour)', async () => {
+        // stepTestSolutionBehavior raises a plain Error for a main solution
+        // failure, with nothing to tell it apart from a target failure, so
+        // the target is reported as not matching its tag.
+        const mainFailure =
+          'Failed to run Main Solution: \n\tmain crashed on test 1';
+        vi.mocked(steps.stepTestSolutionBehavior).mockRejectedValueOnce(
+          new Error(mainFailure)
+        );
+        await expect(
+          actions.testWhatAction('wa', { json: true })
+        ).rejects.toThrow('main crashed on test 1');
+        const doc = writtenJson();
+        expect(doc).toMatchObject({
+          command: 'test',
+          ok: false,
+          exitCode: 1,
+          solution: 'wa',
+          mainSolution: 'main',
+          matchesTag: false,
+          reason: mainFailure,
+        });
+        expect(doc.errors).toContain(mainFailure);
+        expect(process.exit).not.toHaveBeenCalled();
+      });
+
       it('should report an unknown solution before any comparison', async () => {
         vi.mocked(
           steps.stepValidateConfigForSolutionTest
