@@ -120,16 +120,20 @@ build:
     reports:
       cyclonedx: gl-sbom-npm-polyman.cdx.json
 
-# API docs (TypeDoc) → GitLab Pages. typedoc.json still writes to docs/; Pages serves public/.
-# The go-ahead ledger from autonomy:ledger (an earlier stage, so its artifacts
-# are here) goes to /ledger/, and the SCI page from autonomy:sci to /sci/. If
-# either job failed, this one doesn't run and Pages keeps the last published ones.
+# GitLab Pages serves public/. The root is the landing page for judges
+# (pages/index.html); the API docs (TypeDoc, which typedoc.json still writes to
+# docs/) go to /docs/. The go-ahead ledger from autonomy:ledger (an earlier
+# stage, so its artifacts are here) goes to /ledger/, and the SCI page from
+# autonomy:sci to /sci/. If either job failed, this one doesn't run and Pages
+# keeps the last published ones.
 pages:
   extends: .node
   stage: deploy
   script:
     - npm run docs
-    - mv docs public
+    - mkdir public
+    - mv docs public/docs
+    - cp pages/index.html public/index.html
     - cp -r ledger public/ledger
     - cp -r sci public/sci
   artifacts:
