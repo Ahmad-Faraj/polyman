@@ -179,6 +179,18 @@ fetch('/api/version')
   })
   .catch((err) => console.warn('version unavailable', err));
 
+/** The badge's dot beats while the service answers /health, and stops, turned red, when it doesn't. Checked every 30 s while the tab is open. */
+const dot = $('.live-dot');
+const pulse = () => {
+  if (document.hidden) return;
+  fetch('/health', { cache: 'no-store' })
+    .then((r) => dot.classList.toggle('down', !r.ok))
+    .catch(() => dot.classList.add('down'));
+};
+pulse();
+setInterval(pulse, 30_000);
+document.addEventListener('visibilitychange', pulse);
+
 /** The GitLab records with a line of real figures each, read from the project's own published data; the plain text stays if a source can't be read. */
 const getJSON = (url) => fetch(url).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))));
 /** How many items a GitLab list has, from its X-Total header. */
@@ -293,6 +305,7 @@ fetch('/api/samples')
       b.textContent = s.name;
       const hint = SAMPLE_HINT[s.name] ?? s.description;
       b.dataset.tooltip = hint;
+      b.title = hint;
       b.dataset.side = 'bottom';
       b.setAttribute('aria-description', hint);
       b.addEventListener('click', () => {
@@ -319,23 +332,132 @@ fetch('/api/samples')
 
 const runSample = (name) => start(`/api/samples/${encodeURIComponent(name)}/verify`, null, name);
 
-/** All ten steps up front, the first under way, so the wait shows how far along it is;
- * above them, how far along as a Basecoat progress bar (indeterminate until the first step is done: that one takes the longest). */
-function runningSteps(node) {
-  const list = $('.steps-live', node);
-  if (!list || list.children.length) return;
+/** The ten steps as daisyUI Steps, a ready-made stepper: a line of steps joined by connectors, each lit as the run reaches it.
+ * Each step has a short name and, on hover or focus, what it does. */
+const STEP_SHORT = {
+  'Compiling Generators': 'Build generators',
+  'Generating Tests': 'Generate tests',
+  'Compiling Validator': 'Build validator',
+  'Testing Validator': 'Test validator',
+  'Validating Generated Tests': 'Check every test',
+  'Compiling Checker': 'Build checker',
+  'Testing Checker': 'Test checker',
+  'Compiling Solutions': 'Compile',
+  'Running Solutions': 'Run',
+  'Verifying Solutions Against Main Correct': 'Compare labels',
+};
+/** What each step does, in the words of the "What the check does" section. */
+const STEP_INFO = {
+  'Compiling Generators': 'Builds the problem’s test generators.',
+  'Generating Tests': 'Runs the generators to write every test.',
+  'Compiling Validator': 'Builds the validator, the program that says whether a test input is allowed.',
+  'Testing Validator': 'Runs the validator on its own tests.',
+  'Validating Generated Tests': 'Checks that every generated test is valid.',
+  'Compiling Checker': 'Builds the answer checker, the program that decides every answer.',
+  'Testing Checker': 'Runs the checker on its own tests, because it decides every answer that follows.',
+  'Compiling Solutions': 'Compiles every solution with its own language.',
+  'Running Solutions': 'Runs each solution on the tests with the time and memory limits, in a sandbox with no internet.',
+  'Verifying Solutions Against Main Correct': 'Compares what each solution did with the main correct solution and with its label.',
+};
+const STEP_CLASS = { done: 'step-primary', now: 'step-primary', failed: 'step-error', stopped: 'step-neutral', pending: '' };
+const STEP_ICON = { done: 'i-check', now: 'i-spin', failed: 'i-x', stopped: 'i-stop' };
+/** The three stages of the ten steps, as the stage brackets above them show: how many steps each spans. */
+const STAGES = [
+  { name: 'Make the tests', steps: STEPS.slice(0, 5) },
+  { name: 'Prove the checker', steps: STEPS.slice(5, 7) },
+  { name: 'Judge every solution', steps: STEPS.slice(7) },
+];
+const stepIcon = (state, i) => (state === 'pending' ? `<b>${String(i + 1).padStart(2, '0')}</b>` : icon(STEP_ICON[state]));
+
+/** Build the pipeline once, every step waiting. (The tooltip sits on the label: the step's own ::before is its connector.) */
+function buildPipeline(node) {
+  const el = $('.pipeline', node);
+  if (!el || el.children.length) return;
+  $('.pipe-stages', node).replaceChildren(
+    ...STAGES.map((st) => {
+      const b = document.createElement('div');
+      b.className = 'stage';
+      b.dataset.state = 'pending';
+      b.style.gridColumn = `span ${st.steps.length}`;
+      b.innerHTML = '<em></em><small></small>';
+      $('em', b).textContent = st.name;
+      return b;
+    }),
+  );
   for (const title of STEPS) {
     const li = document.createElement('li');
-    li.innerHTML = `${icon(title === STEPS[0] ? 'i-spin' : 'i-dot')}<span></span>`;
-    if (title === STEPS[0]) li.className = 'now';
-    $('span', li).textContent = STEP_WORDS[title];
-    list.append(li);
+    li.className = 'step';
+    li.dataset.title = title;
+    li.dataset.state = 'pending';
+    li.innerHTML = `<span class="step-icon">${stepIcon('pending', STEPS.indexOf(title))}</span><span class="step-label" tabindex="0"><span></span><small></small></span>`;
+    const label = $('.step-label', li);
+    label.dataset.tooltip = `${STEP_WORDS[title]}. ${STEP_INFO[title]}`;
+    // (the tooltip opens away from the card's nearer edge: the first steps' rightwards, the last ones' leftwards)
+    const at = STEPS.indexOf(title);
+    label.dataset.align = at < 2 ? 'start' : at >= STEPS.length - 3 ? 'end' : 'center';
+    $('.step-label > span', li).textContent = STEP_SHORT[title];
+    el.append(li);
   }
-  list.insertAdjacentHTML('beforebegin', `<div class="progress indeterminate" role="progressbar" aria-label="Steps done" aria-valuemin="0" aria-valuemax="${STEPS.length}"><span></span></div>`);
+}
+
+/** One step in a state: its class (the colour), its icon, and the time it took once it is known. */
+function paintStep(li, state, time = '') {
+  if (li.dataset.state !== state) {
+    li.dataset.state = state;
+    li.className = `step ${STEP_CLASS[state]}`.trim();
+    $('.step-icon', li).innerHTML = stepIcon(state, STEPS.indexOf(li.dataset.title));
+  }
+  $('small', li).textContent = time;
+}
+
+/** A stage bracket's state, and (once the run is over) the time its steps took in all. */
+function paintStages(node, time = null) {
+  const lis = [...node.querySelectorAll('.pipeline .step')];
+  node.querySelectorAll('.pipe-stages .stage').forEach((el, i) => {
+    const mine = lis.filter((li) => STAGES[i].steps.includes(li.dataset.title));
+    const states = mine.map((li) => li.dataset.state);
+    el.dataset.state = states.includes('failed') ? 'failed' : states.every((s) => s === 'done') ? 'done' : states.includes('now') || states.includes('done') ? 'now' : 'pending';
+    $('small', el).textContent = time ? time(STAGES[i].steps) : '';
+  });
+}
+
+/** Light the pipeline to step `at` (0-9): the ones before it done, that one under way, the rest waiting. */
+function setPipeline(node, at) {
+  buildPipeline(node);
+  node.querySelectorAll('.pipeline .step').forEach((li, i) => paintStep(li, i < at ? 'done' : i === at ? 'now' : 'pending'));
+  paintStages(node);
+}
+
+/** The run is over: each step as its report has it (passed, failed or not reached), with the time it took. */
+function finishPipeline(node, steps, took, langs = '') {
+  buildPipeline(node);
+  const byTitle = new Map(steps.map((s) => [s.title, s]));
+  const time = (ms) => (ms < 100 ? `${Math.max(1, Math.round(ms))} ms` : seconds(ms / 1000));
+  for (const li of node.querySelectorAll('.pipeline .step')) {
+    const title = li.dataset.title;
+    const s = byTitle.get(title);
+    const state = !s ? 'pending' : s.state === 'ok' ? 'done' : s.state === 'failed' ? 'failed' : 'stopped';
+    const dur = s ? took(title) : null;
+    const text = dur === null ? '' : time(dur);
+    paintStep(li, state, text);
+    $('.step-label', li).dataset.tooltip = `${STEP_WORDS[title]}${title === 'Compiling Solutions' && langs ? ` (${langs})` : ''}. ${STEP_INFO[title]}${state === 'failed' ? ' It failed.' : state === 'pending' ? ' Not reached.' : text ? ` Took ${text}.` : ''}`;
+  }
+  // each bracket totals the time of the steps under it
+  paintStages(node, (titles) => {
+    const total = titles.reduce((sum, t) => sum + (byTitle.has(t) ? took(t) ?? 0 : 0), 0);
+    return total ? time(total) : '';
+  });
+}
+
+/** All ten steps up front, the first under way, so the wait shows how far along it is. */
+function runningSteps(node) {
+  setPipeline(node, 0);
 }
 
 /** Empty the card's body for what comes next, the guidelines too (after a result they sit below its actions). */
 function clearProblems(...nodes) {
+  $('#run-legend').hidden = true;
+  els.run.classList.toggle('single', nodes.length === 1);
   els.run.querySelector(':scope > .more')?.remove();
   els.problems.replaceChildren(...nodes);
 }
@@ -345,12 +467,16 @@ function showPreview(name) {
   const node = els.tpl.content.firstElementChild.cloneNode(true);
   $('.problem-name', node).classList.add('sr-only');
   $('.problem-name', node).textContent = name;
+  setPipeline(node, -1);
   waitingRows(node, name);
   clearProblems(node);
 }
 
 /** Before a sample runs: its solutions in the card, its story in the head, and the card's own button. */
 function showIdle(name) {
+  // (a sample waiting to be run has no log yet)
+  els.log.hidden = true;
+  els.log.replaceChildren();
   pending = name;
   markSample(name);
   showPreview(name);
@@ -367,38 +493,6 @@ function showIdle(name) {
 }
 
 /** The tab for the sample in the result card is the selected one, and the one Tab lands on. */
-/** The hero's three parts (shadcn Items) follow the run's ten steps: 5 make the tests, 2 prove the checker, 3 judge.
- * at: the step under way (0-9), STEPS.length when all are done, -1 for no run, 'stopped' when a run broke off. */
-const PARTS = [5, 7, 10];
-function heroParts(at) {
-  document.querySelectorAll('.hero-parts .item').forEach((item, i) => {
-    const use = $('figure use', item);
-    item.dataset.icon ??= use.getAttribute('href');
-    const from = i ? PARTS[i - 1] : 0;
-    const state = at === -1 ? '' : at === 'stopped' ? (item.dataset.state === 'active' ? 'stopped' : item.dataset.state) : at >= PARTS[i] ? 'done' : at >= from ? 'active' : 'pending';
-    item.dataset.state = state ?? '';
-    use.setAttribute('href', state === 'done' ? '#i-check' : state === 'active' ? '#i-spin' : state === 'stopped' ? '#i-stop' : item.dataset.icon);
-  });
-}
-
-/** polyman's report names its steps; each belongs to one of the three parts (reading the config comes first). */
-const STEP_PART = {
-  'read-config': 0, 'compile-generators': 0, 'generate-tests': 0, 'compile-validator': 0, 'test-validator': 0, 'validate-tests': 0,
-  'compile-checker': 1, 'test-checker': 1,
-  'compile-solutions': 2, 'run-solutions': 2, 'verify-solutions': 2,
-};
-/** The run is over: each part ends passed (a check), failed (an x), or not reached; a contest's parts fail if any problem's did. */
-function heroResult(reports) {
-  document.querySelectorAll('.hero-parts .item').forEach((item, i) => {
-    const steps = reports.flatMap((r) => r.steps).filter((s) => STEP_PART[s.name] === i);
-    const use = $('figure use', item);
-    item.dataset.icon ??= use.getAttribute('href');
-    const state = !steps.length ? 'pending' : steps.every((s) => s.ok) ? 'done' : 'failed';
-    item.dataset.state = state;
-    use.setAttribute('href', state === 'done' ? '#i-check' : state === 'failed' ? '#i-x' : item.dataset.icon);
-  });
-}
-
 function markSample(name) {
   const tabs = [...els.samples.querySelectorAll('.sample')];
   for (const b of tabs) {
@@ -442,7 +536,7 @@ function waitingRows(node, name) {
   for (const sol of [...(expected.get(name) ?? [])].sort((a, b) => Number(b === lead) - Number(a === lead))) {
     const tr = document.createElement('tr');
     tr.className = 'waiting';
-    tr.innerHTML = `<td class="sol"><b class="sol-name"></b><span class="sol-label"></span></td><td class="tests"><span class="skeleton" aria-hidden="true"></span></td><td class="res"><span class="skeleton" aria-hidden="true"></span></td>`;
+    tr.innerHTML = `<td class="sol"><b class="sol-name"></b><span class="sol-label"></span></td><td class="tests"><div class="dots" aria-hidden="true">${Array.from({ length: 12 }, (_, i) => `<span class="dot wait" style="--i:${i}"></span>`).join('')}</div></td><td class="slow"><span class="wait-time" aria-hidden="true">—</span></td><td class="res"><span class="wait-res"><svg class="hexspin" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.6 20.4 7.3v9.4L12 21.4 3.6 16.7V7.3Z" pathLength="100"/></svg><span class="q">Waiting</span><span class="j">Judging…</span></span></td>`;
     $('.sol-name', tr).textContent = sol;
     const tag = SAMPLES[name]?.[3]?.[sol];
     if (tag) labelText($('.sol-label', tr), tag);
@@ -616,7 +710,6 @@ async function start(url, body, name, tries = 1) {
   els.log.hidden = false;
   logLine(null, body ? `Sent ${name} to the service` : `Asked the service to check the ${name} sample`);
   els.run.classList.remove('has-found');
-  heroParts(0);
   // the sample cards mark the one in the result card; an upload is none of them
   if (!body) pending = name;
   markSample(body ? null : name);
@@ -706,9 +799,9 @@ async function start(url, body, name, tries = 1) {
 /** The service checks one upload at a time: wait for the slot, then start again by itself. */
 function queue(wait, tries) {
   settle();
+  hideLog();
   clearProblems();
   // nothing is under way while it waits its turn
-  heroParts(-1);
   if (tries >= MAX_TRIES) {
     setHead(`Not started: ${label}`, 'The service is still busy.', 'Other checks have kept it busy for a few minutes. Run it again in a minute.');
     setStatus('Busy', 'secondary');
@@ -782,30 +875,18 @@ function handle(ev) {
       els.problems.append(node);
       node.id = `problem-${ev.problems.indexOf(name)}`;
       cards.set(name, node);
+      els.run.classList.toggle('single', cards.size === 1);
     }
   } else if (ev.type === 'step') {
     const c = card(ev.problem);
     const at = STEPS.includes(ev.title) ? STEPS.indexOf(ev.title) : ev.step - 1;
-    [...$('.steps-live', c).children].forEach((li, i) => {
-      const state = i < at ? 'done' : i === at ? 'now' : '';
-      if (li.className === state) return;
-      li.className = state;
-      $('svg', li).outerHTML = icon(state === 'done' ? 'i-check' : state === 'now' ? 'i-spin' : 'i-dot');
-    });
-    const bar = $('.progress', c);
-    bar.classList.toggle('indeterminate', at < 1);
-    if (at < 1) bar.removeAttribute('aria-valuenow');
-    else bar.setAttribute('aria-valuenow', at);
-    $('span', bar).style.width = at < 1 ? '' : `${(at / STEPS.length) * 100}%`;
+    setPipeline(c, at);
     $('.sols', c).classList.toggle('is-running', ev.title === 'Running Solutions');
     reached.set(ev.problem, at);
     if (!stepAt.has(ev.problem)) stepAt.set(ev.problem, []);
     stepAt.get(ev.problem).push({ title: ev.title, t: performance.now() - runStart });
     logLine(ev.problem, STEP_WORDS[ev.title] ?? ev.title);
-    // (a contest's parts go as far as the problem furthest behind)
-    if (cards.size > 1) heroParts(Math.min(...[...cards.keys()].map((n) => reached.get(n) ?? 0)));
     if (cards.size === 1) {
-      heroParts(at);
       step = at + 1;
       els.sub.textContent = progress(runStart);
       holdHead();
@@ -819,12 +900,6 @@ function handle(ev) {
     // (every time on the page is on one clock, the page's, from the click)
     const took = (cards.size === 1 && resultAt) || performance.now() - runStart;
     logLine(null, 'Done');
-    // the log folds into each problem's "How it was checked"
-    for (const [name, c] of cards) {
-      // (one problem's details sit after the card's actions)
-      const pre = cards.size === 1 ? $(':scope > .more .how-log', els.run) : $('.how-log', c);
-      if (pre) writeLog(pre, runLog.filter((l) => !l.problem || l.problem === name), cards.size > 1 ? name : null);
-    }
     settle();
     // scripts wait on this line: it reads "Checked <name> in <s> s" when the run is over
     els.title.textContent = `Checked ${label} in ${seconds(took / 1000)}`;
@@ -849,9 +924,6 @@ function handle(ev) {
     const reports = events.filter((e) => e.type === 'problem');
     const unfinished = !reports.length || reports.every((e) => !e.report);
     showActions('done');
-    // the hero's parts end as the report says each went; a run with no report leaves the part under way stopped
-    if (unfinished) heroParts('stopped');
-    else heroResult(reports.filter((e) => e.report).map((e) => e.report));
     if (!unfinished) suggestNext(ev.ok);
     else if (lastRun?.body) els.choose.hidden = false;
     // a sample's point, answered first: the demo asked "can the check find it?", sandbox-check "does the sandbox hold?"
@@ -879,6 +951,7 @@ function handle(ev) {
       tab.insertAdjacentHTML('beforeend', icon(ev.ok ? 'i-check' : 'i-x').replace('<svg', `<svg class="tab-result ${ev.ok ? 'ok' : 'bad'}"`));
       tab.setAttribute('aria-label', `${label}, ${status.toLowerCase()}`);
       tab.dataset.tooltip = `${SAMPLE_HINT[label] ?? tab.dataset.tooltip.split(' · ')[0]} · ${status.toLowerCase()}`;
+      tab.title = tab.dataset.tooltip;
       showTab(tab);
     }
     setStatus(status, ev.ok ? 'success' : win ? 'outline' : 'destructive');
@@ -980,8 +1053,6 @@ function writeFacts(el, facts) {
 
 /** "How it was checked": each step the report lists, passed or failed, with the time it took as this page saw it. */
 function howChecked(card, ev, at) {
-  const how = $('.how', card);
-  if (!how) return;
   const seen = stepAt.get(ev.problem) ?? [];
   // a step's time is from when the service said it began to when the next one began (the last: to the result)
   const took = (title) => {
@@ -994,23 +1065,13 @@ function howChecked(card, ev, at) {
   const steps = ev.report
     ? ev.report.steps.filter((s) => STEP_TITLE[s.name]).map((s) => ({ title: STEP_TITLE[s.name], state: s.ok ? 'ok' : 'failed' }))
     : seen.map((s, i) => ({ title: s.title, state: i < seen.length - 1 ? 'ok' : 'stopped' }));
-  if (!steps.length) return;
-  const list = $('.how-steps', how);
-  list.replaceChildren(
-    ...steps.map((s) => {
-      const li = document.createElement('li');
-      li.className = s.state;
-      li.innerHTML = `${icon(s.state === 'ok' ? 'i-check' : s.state === 'failed' ? 'i-x' : 'i-stop')}<span class="how-step"></span><span class="how-time"></span>`;
-      $('.how-step', li).textContent = STEP_WORDS[s.title] ?? s.title;
-      // (the languages the solutions were in, as the report's own guideline found them)
-      if (s.title === 'Compiling Solutions' && langs) $('.how-step', li).append(Object.assign(document.createElement('span'), { className: 'how-note', textContent: ` · ${langs}` }));
-      const dur = took(s.title);
-      $('.how-time', li).textContent = dur === null ? '' : dur < 100 ? `${Math.max(1, Math.round(dur))} ms` : seconds(dur / 1000);
-      return li;
-    }),
-  );
-  $('.how-title', how).textContent = `How it was checked · ${plural(steps.length, 'step')}, ${seconds(at / 1000)} from the click`;
-  how.hidden = false;
+  if (!steps.length) {
+    // no step to show: still end the pipeline, so no step is left spinning
+    finishPipeline(card, [], took, langs);
+    return;
+  }
+  // the same steps in the pipeline above the table, so the whole run reads without opening anything
+  finishPipeline(card, steps, took, langs);
 }
 
 function renderProblem(card, ev, at) {
@@ -1023,8 +1084,6 @@ function renderProblem(card, ev, at) {
   const fix = (list) => list.map((c) => GUIDE_FIX[c.id] ?? (GUIDE_WORDS[c.id] ?? c.title).toLowerCase()).join('; ');
   const recommended = gaps.filter((c) => c.severity !== 'critical');
   const also = recommended.length ? ` Also recommended: ${fix(recommended)}.` : '';
-  $('.steps-live', card).hidden = true;
-  $('.progress', card)?.remove();
 
   // the answer first: what is wrong and what to do
   let title;
@@ -1104,6 +1163,8 @@ function renderProblem(card, ev, at) {
 
   $('.guides-title', card).textContent = checks.length ? `Contest guidelines · ${checks.length - gaps.length} of ${checks.length} met` : 'Contest guidelines';
   if (!checks.length) $('.guides', card).hidden = true;
+  // every guideline with its evidence is the answer to "is it ready", so it opens with the result
+  else $('.guides', card).open = true;
   const list = $('.checks', card);
   for (const c of [...checks].sort((a, b) => Number(a.ok) - Number(b.ok))) {
     const li = document.createElement('li');
@@ -1111,6 +1172,10 @@ function renderProblem(card, ev, at) {
     li.innerHTML = `${icon(c.ok ? 'i-check' : c.severity === 'critical' ? 'i-x' : 'i-alert')}<span><span class="t"></span><small></small></span>`;
     $('.t', li).textContent = GUIDE_WORDS[c.id] ?? c.title;
     $('small', li).textContent = c.ok ? cap(tidy(c.detail)) : `${cap(SEVERITY_WORDS[c.severity] ?? c.severity)}. ${cap(tidy(c.detail))}`;
+    if (c.ok) {
+      li.dataset.tooltip = $('small', li).textContent;
+      li.dataset.align = 'start';
+    }
     list.append(li);
   }
   // when some guidelines aren't met, those lead and the met ones wait behind a toggle
@@ -1164,7 +1229,12 @@ function legendFor(card, solutions) {
     ['bad-hollow', 'dot bad hollow', 'i-x', 'wrong, on purpose'],
     ['limit-hollow', 'dot limit hollow', 'i-clock', 'too slow, on purpose'],
   ].filter(([kind]) => seen.has(kind));
-  $('.legend', card).innerHTML = `<span class="legend-note">${matchMedia('(hover: hover)').matches ? 'Each square is a test:' : 'Each square is a test, tap to read it:'}</span>${items.map(([, cls, glyph, words]) => `<span><span class="${cls}" aria-hidden="true">${glyph ? icon(glyph) : ''}</span>${words}</span>`).join('')}`;
+  const key = cards.size === 1 ? $('#run-legend') : $('.legend', card);
+  if (cards.size === 1) $('.legend', card).hidden = true;
+  // no solutions, no marks to explain: no key
+  key.hidden = !items.length;
+  if (!items.length) return;
+  key.innerHTML = `<span class="legend-note">${matchMedia('(hover: hover)').matches ? 'Each square is a test:' : 'Each square is a test, tap to read it:'}</span>${items.map(([, cls, glyph, words]) => `<span><span class="${cls}" aria-hidden="true">${glyph ? icon(glyph) : ''}</span>${words}</span>`).join('')}`;
 }
 
 /** What a solution got, in words: "wrong answer on 6 of 12 tests". */
@@ -1199,8 +1269,20 @@ function solutionRow(s) {
     tr.dataset.state = 'selected';
   }
   if (expectedToFail) tr.className = 'expected-fail';
-  tr.innerHTML = `<td class="sol"><b class="sol-name"></b><span class="sol-label"></span></td><td class="tests"><div class="dots"></div><small class="dots-note"></small></td><td class="res"></td>`;
+  tr.innerHTML = `<td class="sol"><b class="sol-name"></b><span class="sol-label"></span></td><td class="tests"><div class="dots"></div><small class="dots-note"></small></td><td class="slow"></td><td class="res"></td>`;
   $('.sol-name', tr).textContent = s.name;
+  // the slowest test of the solution, as its own column (a failing solution's time is still the time it took)
+  const slowest = s.tests.length ? Math.max(...s.tests.map((t) => t.timeMs)) : null;
+  // its colour and a word say how fast: a time-limit failure or a second or more is slow, a quarter of a second or more is moderate
+  const overLimit = s.tests.some((t) => verdictKind(t.verdict) === 'limit');
+  const speed = slowest === null ? '' : overLimit || slowest >= 1000 ? 'slow' : slowest >= 250 ? 'mid' : 'fast';
+  $('.slow', tr).dataset.speed = speed;
+  if (slowest !== null) {
+    $('.slow', tr).innerHTML = '<span class="t"></span><small class="flag"></small>';
+    $('.slow .t', tr).textContent = ms(slowest);
+    $('.slow .flag', tr).textContent = overLimit ? 'too slow' : { fast: 'fast', mid: 'moderate', slow: 'slow' }[speed];
+    $('.slow', tr).title = `Slowest test: ${ms(slowest)}`;
+  }
   // the setter's own tag letters stay visible beside the plain words
   labelText($('.sol-label', tr), s.tag);
   const dots = $('.dots', tr);
@@ -1221,12 +1303,9 @@ function solutionRow(s) {
     dots.append(d);
   });
   const stoppedEarly = s.tests.length === 1 && s.tests[0].verdict !== 'OK';
-  // the slowest test in words, since a dot's own time is only in its tooltip
-  // (only for a solution that passed: on a failing one the time says nothing)
-  const slowest = s.tests.length > 1 && s.tests.every((t) => t.verdict === 'OK') ? `, slowest ${ms(Math.max(...s.tests.map((t) => t.timeMs)))}` : '';
   // a solution meant to fail that fails is fine: say so, so its red dots don't read as a problem
   // (a solution that broke its label names its failing tests; what the checker saw on each is in its square)
-  $('.dots-note', tr).textContent = !s.matchesTag ? `${cap(failedOn(s))}.` : stoppedEarly ? `${cap(verdictWords(s.tests[0].verdict))} on the first test, so it was stopped there.` : `${cap(outcome(s))}${slowest}.`;
+  $('.dots-note', tr).textContent = !s.matchesTag ? `${cap(failedOn(s))}.` : stoppedEarly ? `${cap(verdictWords(s.tests[0].verdict))} on the first test, so it was stopped there.` : `${cap(outcome(s))}.`;
   wireSquares(dots);
   // whether it kept its label, as a shadcn badge
   $('.res', tr).innerHTML = s.matchesTag ? `<span class="badge" data-variant="outline">${icon('i-check')}${expectedToFail ? 'Fails as labelled' : 'As labelled'}</span>` : `<span class="badge" data-variant="destructive">${icon('i-x')}Not as labelled</span>`;
@@ -1295,13 +1374,18 @@ function holdHead() {
 }
 
 /** The run is over, with or without an answer: let the card size itself again. */
+/** No run to show a log for: hide it and empty it, so an old run's lines never sit under a new head. */
+function hideLog() {
+  els.log.hidden = true;
+  els.log.replaceChildren();
+}
+
 function settle() {
   finished = true;
   clearInterval(timer);
   els.run.classList.remove('is-running');
   els.run.style.minHeight = '';
   els.head.style.minHeight = '';
-  els.log.hidden = true;
   // a passing message from the run (a file dropped mid-run) goes with it, so it doesn't cover the result
   clearTimeout(noticeTimer);
   $('#toaster .toast')?.setAttribute('aria-hidden', 'true');
@@ -1309,11 +1393,11 @@ function settle() {
 
 function stopped() {
   settle();
+  hideLog();
   // a sample keeps its solutions in view, as before it ran
   if (!lastRun?.body && expected.has(label)) showPreview(label);
   else clearProblems();
   setHead(`Stopped ${label}`, 'You stopped the check.', 'Nothing was kept. Run it again whenever you like.');
-  heroParts(-1);
   setStatus('Stopped', 'secondary');
   showActions('done');
   els.download.hidden = true;
@@ -1326,13 +1410,12 @@ function failMidway(message) {
   settle();
   setHead(`Did not finish: ${label}`, 'The check did not finish.', message);
   // no step is still under way: the one that was stops, neutral (the connection broke, not that step)
-  for (const li of els.problems.querySelectorAll('.steps-live li.now')) {
-    li.className = 'stopped';
-    $('svg', li).outerHTML = icon('i-dot');
-    $('span', li).append(' (stopped here)');
+  for (const li of els.problems.querySelectorAll('.pipeline .step[data-state=now]')) {
+    paintStep(li, 'stopped');
+    paintStages(li.closest('.pipe'));
+    const label = $('.step-label', li);
+    label.dataset.tooltip = `${label.dataset.tooltip} The run stopped here.`;
   }
-  for (const bar of els.problems.querySelectorAll('.progress')) bar.classList.add('stopped');
-  heroParts('stopped');
   els.run.classList.add('is-bad');
   setStatus('Did not finish', 'destructive');
   showActions('done');
@@ -1354,7 +1437,7 @@ function plainReason(message = '') {
 
 function showError(message, issues, kind = 'refused', detail = '') {
   settle();
-  heroParts(-1);
+  hideLog();
   const offline = kind === 'offline';
   // the browser's own checks: a short fact and what to do, and the service never saw the file
   const local = kind === 'local';
