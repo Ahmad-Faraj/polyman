@@ -1222,7 +1222,7 @@ export async function stepDownloadProblemFilesAndSetUpConfig(
   for (const result of [checkerResult, validatorResult]) {
     const sourceType =
       generatorsResult.sourceTypes[path.basename(result.data.source)];
-    if (result.count > 0 && sourceType) {
+    if (result.count > 0 && typeof sourceType === 'string' && sourceType) {
       result.data.sourceType = sourceType as TestlibSourceType;
     }
   }

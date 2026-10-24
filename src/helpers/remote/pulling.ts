@@ -421,13 +421,20 @@ export async function downloadGenerators(
 }> {
   const generatorsData: Array<LocalGenerator> = [];
   const failures: PullFailure[] = [];
-  const sourceTypes: Record<string, string> = {};
+  // No prototype: a Polygon file named `__proto__` or `constructor` must not
+  // read back an inherited value.
+  const sourceTypes: Record<string, string> = Object.create(null) as Record<
+    string,
+    string
+  >;
   let count = 0;
 
   try {
     const files = await sdk.getFiles(problemId);
     for (const file of files.sourceFiles) {
-      if (file.sourceType) sourceTypes[file.name] = file.sourceType;
+      if (typeof file.sourceType === 'string' && file.sourceType) {
+        sourceTypes[file.name] = file.sourceType;
+      }
     }
 
     // Download generators (skip solutions, checker, validator)

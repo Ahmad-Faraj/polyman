@@ -1375,6 +1375,25 @@ describe('steps.ts', () => {
       expect(config.validator.sourceType).toBe('cpp.gcc14-64-msys2-g++23');
     });
 
+    it.each(['__proto__', 'constructor', 'toString'])(
+      'adds no sourceType when the checker and validator are named %s',
+      async name => {
+        await pullWithChecker(
+          { name, source: name, isStandard: false },
+          { count: 1, data: { name, source: name } }
+        );
+        const written = vi
+          .mocked(fs.writeFileSync)
+          .mock.calls.find(([file]) => String(file).endsWith('Config.json'));
+        const config = JSON.parse(written?.[1] as string) as {
+          checker: object;
+          validator: object;
+        };
+        expect(config.checker).not.toHaveProperty('sourceType');
+        expect(config.validator).not.toHaveProperty('sourceType');
+      }
+    );
+
     it('adds no sourceType to a checker or validator that was not downloaded', async () => {
       await pullWithChecker(
         { name: 'chk', source: 'chk.cpp', isStandard: true },

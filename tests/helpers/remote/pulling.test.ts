@@ -699,7 +699,37 @@ describe('pulling.ts', () => {
 
       expect(result.count).toBe(0);
       expect(result.data).toEqual([]);
+      expect(result.sourceTypes).toEqual({});
     });
+
+    it.each(['__proto__', 'constructor', 'toString'])(
+      'should map a file named %s to its own sourceType',
+      async name => {
+        mockSdk.getFiles.mockResolvedValue({
+          sourceFiles: [
+            {
+              name,
+              modificationTimeSeconds: 0,
+              length: 0,
+              sourceType: 'cpp.g++17',
+            },
+          ],
+          resourceFiles: [],
+          auxFiles: [],
+        });
+        mockSdk.viewFile.mockResolvedValue('code');
+
+        const result = await pulling.downloadGenerators(
+          asSdk(mockSdk),
+          1,
+          'dir',
+          []
+        );
+
+        expect(result.sourceTypes[name]).toBe('cpp.g++17');
+        expect(Object.keys(result.sourceTypes)).toEqual([name]);
+      }
+    );
 
     it('should return empty data when no source files', async () => {
       mockSdk.getFiles.mockResolvedValue({
