@@ -940,3 +940,93 @@ describe('AnthropicProvider: stream details', () => {
     ]);
   });
 });
+
+describe('AnthropicProvider: usage', () => {
+  const start = (usage: Record<string, unknown>) => ({
+    type: 'message_start',
+    message: { id: 'msg_1', role: 'assistant', content: [], usage },
+  });
+  const delta = (usage: Record<string, unknown>) => ({
+    type: 'message_delta',
+    delta: { stop_reason: 'end_turn', stop_sequence: null },
+    usage,
+  });
+  const usageOf = (events: StreamEvent[]) =>
+    events.filter(e => e.type === 'usage');
+
+  it('adds the cache write and a later cache read to the prompt size', async () => {
+    const fetchFn = fakeFetch(
+      sse([
+        start({
+          input_tokens: 10,
+          cache_creation_input_tokens: 5,
+          output_tokens: 1,
+        }),
+        delta({
+          input_tokens: 20,
+          cache_read_input_tokens: 3,
+          output_tokens: 7,
+        }),
+        { type: 'message_stop' },
+      ])
+    );
+    expect(usageOf(await collect(provider(fetchFn)))).toEqual([
+      { type: 'usage', inputTokens: 28, outputTokens: 7, cachedTokens: 3 },
+    ]);
+  });
+
+  it('has no cachedTokens when there is only a cache write', async () => {
+    const fetchFn = fakeFetch(
+      sse([
+        start({
+          input_tokens: 10,
+          cache_creation_input_tokens: 5,
+          output_tokens: 1,
+        }),
+        delta({ output_tokens: 4 }),
+        { type: 'message_stop' },
+      ])
+    );
+    const [usage] = usageOf(await collect(provider(fetchFn)));
+    expect(usage).toEqual({ type: 'usage', inputTokens: 15, outputTokens: 4 });
+    expect(usage).not.toHaveProperty('cachedTokens');
+  });
+
+  it('gives only done when the stream has no usage', async () => {
+    const fetchFn = fakeFetch(
+      sse([
+        { type: 'message_start', message: { id: 'msg_1' } },
+        {
+          type: 'message_delta',
+          delta: { stop_reason: 'end_turn', stop_sequence: null },
+        },
+        { type: 'message_stop' },
+      ])
+    );
+    expect(await collect(provider(fetchFn))).toEqual([
+      { type: 'done', stopReason: 'end' },
+    ]);
+  });
+
+  it('keeps the earlier value when a delta has a null field', async () => {
+    const fetchFn = fakeFetch(
+      sse([
+        start({
+          input_tokens: 10,
+          cache_read_input_tokens: 2,
+          output_tokens: 1,
+        }),
+        delta({
+          input_tokens: null,
+          cache_read_input_tokens: null,
+          cache_creation_input_tokens: null,
+          output_tokens: 6,
+        }),
+        { type: 'message_stop' },
+      ])
+    );
+    expect(usageOf(await collect(provider(fetchFn)))).toEqual([
+      { type: 'usage', inputTokens: 12, outputTokens: 6, cachedTokens: 2 },
+    ]);
+  });
+});
