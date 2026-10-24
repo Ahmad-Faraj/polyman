@@ -487,6 +487,49 @@ describe('checker.ts', () => {
         }
       );
 
+      it.each(['CRASHED', 'crashed', 'Crashed'])(
+        'should fail expected %s when the checker accepts the output',
+        async verdict => {
+          mockCheckerExit(0);
+          await expect(run(verdict)).rejects.toThrow(
+            `Expected ${verdict} but got OK`
+          );
+        }
+      );
+
+      it('should fail expected CRASHED when the checker reports a wrong answer', async () => {
+        mockCheckerExit(1);
+        await expect(run('CRASHED')).rejects.toThrow(
+          'Expected CRASHED but got WA'
+        );
+      });
+
+      it('should fail expected CRASHED when the checker reports a presentation error', async () => {
+        mockCheckerExit(2);
+        await expect(run('CRASHED')).rejects.toThrow(
+          'Expected CRASHED but got PE'
+        );
+      });
+
+      it.each([4, 5, 7, 8, 16, 17, 50])(
+        'should fail expected CRASHED on testlib verdict exit code %i',
+        async exitCode => {
+          mockCheckerExit(exitCode);
+          await expect(run('CRASHED')).rejects.toThrow(
+            `Expected CRASHED but got exit code ${exitCode}`
+          );
+        }
+      );
+
+      it.each([3, 6, 9, 15, 134, 139])(
+        'should pass expected CRASHED on exit code %i',
+        async exitCode => {
+          mockCheckerExit(exitCode);
+          await expect(run('CRASHED')).resolves.toBeUndefined();
+          await expect(run('crashed')).resolves.toBeUndefined();
+        }
+      );
+
       it('should fail expected WRONG_ANSWER on an unrelated exit code', async () => {
         mockCheckerExit(3);
         await expect(run('WRONG_ANSWER')).rejects.toThrow(
