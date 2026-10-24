@@ -4,6 +4,7 @@
 
 **SCI = ((E × I) + M) per R** (Software Carbon Intensity, ISO/IEC 21031:2024). Every figure here is from a section further down, named in brackets.
 
+- **One merged agent change: a median of 11-93 gCO2e, about 31 g central. One delivered fix: 11-90 g, about 26 g central.** 44 changes merged 17-23 Oct, 35 of them fixes built by issue-builder. Boundary: the proposal, build and review sessions up to the merge (runner time plus every counted model call, the same method as for reviews); not the loop's own CI pipelines, not the verify service. The low-high figures are the medians of the per-loop rows in the log of [ledger job 17424130908](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17424130908) (23 Oct, sessions counted to 23 Oct 12:59 UTC); the central is an estimate per output token ["Per delivered fix", "How it's calculated"].
 - **R, the functional unit: one full merge request review.** Also per loop: one agent-built change a person merged, from the proposal to the merge (the [go-ahead ledger](https://showcase-ce2cdc.gitlab.io/ledger/), and "Per delivered fix").
 - **E, energy:** counted model calls × 0.24-2.5 Wh per call, plus runner time. 0.24 Wh is Google's median Gemini Apps text prompt (arXiv:2508.15734), 2.5 Wh Epoch AI's estimate for a GPT-4o query with ~10k input tokens; neither is measured for the model our flows use. Calls are counted from each session's checkpoints. Runner time is the job duration from the GitLab API, turned into energy with Cloud Carbon Footprint coefficients for a 2 vCPU, 8 GB runner (7.56 g per runner-hour) ["How it's calculated", "Same diffs"].
 - **I, grid intensity:** 579 gCO2e/kWh, us-east1 (Google's 2025 region data). The model's serving region isn't published ["How it's calculated"].
@@ -82,25 +83,27 @@ person), so we don't split the rise between testing and MR size.
 
 A review is only part of a fix. Functional unit two: **one judge-found bug fixed by agents on a person's go-ahead**, from the proposal to the merge: issue-builder's sessions (proposal and build), and every review, fix-round and GitLab Code Review session on its MR. Counted from every session's checkpoints to Oct 19 20:03 UTC, for the 15 issue-builder fixes merged by then; sessions are matched by issue (issue-builder) and by MR or branch (reviews). Credits are estimated as above.
 
-| Issue | MR | Sessions (issue-builder + reviews) | Model calls | Credits (estimated) |
-|---|---|---|---|---|
-| #22 | !26 | 5 (2 + 3) | 31 | 8.0 |
-| #12 | !50 | 3 (2 + 1) | 32 | 8.9 |
-| #13 | !51 | 5 (2 + 3) | 58 | 16.1 |
-| #4 | !54 | 3 (2 + 1) | 24 | 6.7 |
-| #8 | !59 | 9 (2 + 7) | 270 | 75.0 |
-| #21 | !73 | 3 (2 + 1) | 59 | 16.4 |
-| #31 | !67, !83 | 9 (2 + 7) | 143 | 39.7 |
-| #26 | !74, !87 | 7 (3 + 4) | 130 | 36.1 |
-| #24 | !72, !86 | 6 (2 + 4) | 156 | 43.3 |
-| #28 | !85, !92 | 5 (3 + 2) | 130 | 36.1 |
-| #25 | !75, !95 | 9 (2 + 7) | 253 | 70.3 |
-| #58 | !101 | 2 (2 + 0) | 16 | 4.4 |
-| #62 | !136 | 9 (2 + 7) | 145 | 40.3 |
-| #82 | !143 | 6 (3 + 3) | 79 | 21.9 |
-| #29 | !146 | 3 (2 + 1) | 27 | 7.5 |
+| Issue | MR | Sessions (issue-builder + reviews) | Model calls | Credits (estimated) | gCO2e, low-high (ledger) |
+|---|---|---|---|---|---|
+| #22 | !26 | 5 (2 + 3) | 31 | 8.0 | 4.7-40.0 |
+| #12 | !50 | 3 (2 + 1) | 32 | 8.9 | 5.5-47.4 |
+| #13 | !51 | 5 (2 + 3) | 58 | 16.1 | 10.0-85.9 |
+| #4 | !54 | 3 (2 + 1) | 24 | 6.7 | 4.3-35.7 |
+| #8 | !59 | 9 (2 + 7) | 270 | 75.0 | 65.0-434.0 |
+| #21 | !73 | 3 (2 + 1) | 59 | 16.4 | 10.7-93.1 |
+| #31 | !67, !83 | 9 (2 + 7) | 143 | 39.7 | 25.2-212.3 |
+| #26 | !74, !87 | 7 (3 + 4) | 130 | 36.1 | 22.4-197.7 |
+| #24 | !72, !86 | 6 (2 + 4) | 156 | 43.3 | 25.8-229.9 |
+| #28 | !85, !92 | 5 (3 + 2) | 130 | 36.1 | 21.4-191.5 |
+| #25 | !75, !95 | 9 (2 + 7) | 253 | 70.3 | 43.1-374.2 |
+| #58 | !101 | 2 (2 + 0) | 16 | 4.4 | 2.9-23.8 |
+| #62 | !136 | 9 (2 + 7) | 145 | 40.3 | 26.6-216.3 |
+| #82 | !143 | 6 (3 + 3) | 79 | 21.9 | 14.4-117.8 |
+| #29 | !146 | 3 (2 + 1) | 27 | 7.5 | 4.9-40.2 |
 
-**A merged fix, median: 5 sessions, 79 model calls, about 22 credits.** What drives it is the number of review sessions, not the build: #8, #31, #25 and #62 had seven each. (One #26 session recorded no usage, so its calls lean low.)
+The gCO2e column is from the go-ahead ledger ([job 17424130908](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17424130908), run 23 Oct 17:23 UTC, one log row per loop). It uses the same session matching, but its sessions are counted to 23 Oct 12:59 UTC, so for !26, !59 and !73 it has one or two sessions more or less than the columns to its left. Each session is its runner seconds at 7.56 g per runner-hour (Cloud Carbon Footprint coefficients, 579 g/kWh, embodied 1.2 g per vCPU-hour) plus its counted model calls × 0.24-2.5 Wh × 579 g/kWh, the method we use for reviews. Over every loop on the ledger, 44 changes merged 17 Oct 23:00 to 23 Oct 13:08 UTC, the median is 11-93 gCO2e per merged change, and 11-90 g over the 35 fixes built by issue-builder. To recompute: take the 44 "loop !N ... gCO2e" rows of the job log and the median of the low and the high end separately. In the boundary: the proposal, build and review sessions of the loop up to the merge. Not in it: the loop's own CI pipelines (tests, assess, deploy), the verify service, and reviews after the merge. !265 and !262 merged after the count, so they are counted only in part.
+
+**A merged fix, median: 5 sessions, 79 model calls, about 22 credits, 14-118 gCO2e.** What drives it is the number of review sessions, not the build: #8, #31, #25 and #62 had seven each. (One #26 session recorded no usage, so its calls lean low.)
 
 **The go-ahead decides what runs at all.** issue-builder posted proposals on 23 issues (its issue notes, to Oct 19 20:50 UTC); 21 became an MR. Two never pushed code: one nobody approved (#10), and one where the agent stopped when `npm audit fix` hit an npm error, as its proposal said it would (#63). On #28 a maintainer revised the first proposal before any code was written (it would have stopped judging at the first PE). Each avoided build saves a build and its reviews, about one row of the table above. With a person deciding each step, a wrong or unwanted change costs a proposal (a few model calls), not a fix plus its reviews.
 
@@ -220,6 +223,31 @@ SCI (Software Carbon Intensity, ISO/IEC 21031:2024): `(E x I + M) per R`.
   the fewest calls with 0.24 Wh, the high end the most calls with 2.5 Wh.
   Grid intensity: us-east1's, 579 gCO2e/kWh (Google's 2025 region data; 560 in 2023); the flows' tool-call ids
   suggest the model is served on Google Cloud, but the region isn't published.
+- **A central value per output token (an estimate, used only for the merged
+  change and the delivered fix).** Microsoft estimates a median of 0.31 Wh
+  per query (IQR 0.16-0.60) for models over 200B parameters on H100 nodes,
+  PUE included, with 500 input tokens and a median of 300 output tokens, and
+  energy that grows about linearly with output tokens (Oviedo et al.,
+  arXiv:2509.20241, v2 of 9 Jun 2026). That is about 1.03 Wh per 1,000
+  output tokens. Our loop sessions average 1,003 output tokens per call, so
+  about 1.04 Wh per call, inside our range. It leaves out most of the cost
+  of long inputs: our calls carry about 41k input tokens each, mostly cache
+  reads, and the paper says it models prefill for long contexts only in
+  part, so this central leans low. Per loop it is the runner grams plus each
+  session's output tokens (in
+  [sustainability/agent-tokens.json](sustainability/agent-tokens.json)) ×
+  (0.31 Wh / 300 tokens) × 579 g/kWh: a median of 31 g per merged change and 26 g per
+  delivered fix. The loop list it needs is the ledger job's artifact
+  `ledger/loops.json` (job 17424130908, kept until 22 Nov), matched to
+  sessions as `loopGrams()` in `engine/src/loops.ts` does.
+- **Other published methods give more per call.** Epoch AI ("How much energy
+  does ChatGPT use?", Feb 2025) puts a GPT-4o query with 10k input tokens at
+  about 2.5 Wh (our high end) and one with 100k at almost 40 Wh. Jegham et
+  al. (arXiv:2505.09598, Table 4) estimate Claude 3.7 Sonnet at 0.95 Wh for
+  100 input and 300 output tokens, 2.99 Wh for 1k and 1k, and 5.67 Wh for
+  10k and 1.5k. The Microsoft paper above finds that estimates made outside
+  production serving are 4-20x too high. We keep 0.24-2.5 Wh per call as
+  the published range and show the central next to it, not in its place.
 - **Embodied emissions**: per vCPU-hour for the runner; not included for the
   model's hardware.
 
@@ -284,13 +312,37 @@ days, before the free tier (180,000 vCPU-seconds and 360,000 GiB-seconds a
 month, shared with the service's real requests). It is paid from the project's
 Google Cloud free trial credit.
 
-**Region.** The service runs in us-east1, which Google's
+**Region.** The service runs in us-east1. Google's
 [region carbon page](https://cloud.google.com/sustainability/region-carbon)
-lists at 31% carbon-free energy and 579 gCO2e/kWh, not marked Low CO2 (read
-21 Oct 2026). It stays there by team decision: the live URL is in every link
-of this project. us-central1 (88%) and us-west1 (83%) are the low-carbon
-options; the same instance there would emit less, at the same price tier. The
-warm instance's grams above are counted at us-east1's 579 g.
+and its [2025 data file](https://github.com/GoogleCloudPlatform/region-carbon-info/blob/main/data/yearly/2025.csv)
+(both read 24 Oct 2026, 2025 data) give us-east1 31% carbon-free energy (CFE)
+and 579 gCO2e/kWh. Google marks a region Low CO2 when its CFE is 75% or more,
+so us-central1 (88%) and us-west1 (83%) are marked. But SCI counts the grid
+intensity, not the CFE share, and on that us-central1 is 432 gCO2e/kWh, only
+25% below us-east1. us-west1 is 98 g, and Montréal (northamerica-northeast1)
+is 11 g, the lowest of Google's regions.
+
+The same warm instance per day in each region (60-153 Wh a day and 58 g
+embodied, from the table above; the embodied part does not change with the
+region):
+
+| Region                             | gCO2e/kWh (2025) | Operational gCO2e per day | Total gCO2e per day | Saved per day against us-east1 |
+| ---------------------------------- | ---------------- | ------------------------- | ------------------- | ------------------------------ |
+| us-east1 (now)                     | 579              | 35-89                     | 92-146              | -                              |
+| us-central1                        | 432              | 26-66                     | 84-124              | 9-23                           |
+| us-west1                           | 98               | 6-15                      | 64-73               | 29-74                          |
+| northamerica-northeast1 (Montréal) | 11               | 1-2                       | 58-59               | 34-87                          |
+
+A move to Montréal would save 34-87 g a day, about the grams of 2 to 7
+high-risk reviews (low end against low end, high against high). We do not
+move during judging: a Cloud Run URL carries its region (the `-ue` in
+`polyman-verify-ncvkutguda-ue.a.run.app` is us-east1), and that URL is in
+README.md, JUDGES.md and our submission. The service's isolated network
+(`verify-isolated`) and its image repository are regional too. So the move
+is planned after judging, together with a URL that does not depend on the
+region. By then the warm instance is back to 0, so the move saves on the
+real requests, not on the numbers in this table. Until then the warm instance's grams above are counted at us-east1's
+579 g.
 
 ## What's not here yet
 
