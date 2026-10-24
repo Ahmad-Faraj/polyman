@@ -13,7 +13,7 @@ A cached binary is reused only when all of these are unchanged:
 
 - the source file,
 - every local header it includes with `#include "..."`, recursively (including `testlib.h`),
-- `cppStandard` and `compiler.flags` in `Config.json`,
+- the compile flags: `cppStandard` and `compiler.flags` in `Config.json`, a solution's `sourceType` standard, and `-DONLINE_JUDGE` for solutions,
 - the compiler executable (`POLYMAN_CXX`, `compiler.cpp` or `g++`) and its `--version` output.
 
 Editing any of them triggers a recompile automatically. You don't need to clear the cache after editing sources.

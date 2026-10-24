@@ -33,7 +33,7 @@ Solutions are reference and adversarial implementations of the problem. Every so
 ]
 ```
 
-`sourceType` values: `cpp.g++17` (default), `cpp.g++20`, `cpp.clang++17`, `cpp.clang++20`, `java8`, `java21`, `python.3`, `python.pypy3`.
+`sourceType` values: `cpp.g++17` (default), `cpp.g++20`, `cpp.clang++17`, `cpp.clang++20`, `java8`, `java21`, `python.3`, `python.pypy3`. `polyman remote pull` can also write Polygon's newer C++ names (`cpp.msys2-mingw64-9-g++17`, `cpp.gcc13-64-winlibs-g++20`, `cpp.gcc14-64-msys2-g++23`); keep them. A C++ solution is built locally with the standard in its `sourceType` unless `cppStandard` or `compiler.flags` sets one (see [config.md](./config.md)).
 
 ## Naming
 
