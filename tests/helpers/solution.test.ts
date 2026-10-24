@@ -24,7 +24,7 @@ const executor: {
 } = executorModule.executor;
 import * as utils from '../../src/helpers/utils';
 import * as checker from '../../src/helpers/checker';
-import { LimitExceededError } from '../../src/errors';
+import { LimitExceededError, PolymanError } from '../../src/errors';
 import * as formatterModule from '../../src/formatter';
 import { report } from '../../src/report';
 import * as testsetHelper from '../../src/helpers/testset';
@@ -216,6 +216,15 @@ describe('solution.ts', () => {
       expect(() =>
         solution.findMatchingSolutions(solutions, 'missing')
       ).toThrow(/Solution named "missing" not found/);
+    });
+
+    it('should fail with exit code 2 (usage error) if solution not found', () => {
+      expect(() =>
+        solution.findMatchingSolutions(solutions, 'missing')
+      ).toThrow(expect.objectContaining({ exitCode: 2 }));
+      expect(() =>
+        solution.findMatchingSolutions(solutions, 'missing')
+      ).toThrow(PolymanError);
     });
   });
 

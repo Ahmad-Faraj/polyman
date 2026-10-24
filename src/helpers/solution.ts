@@ -27,7 +27,7 @@ import {
 import { fmt } from '../formatter';
 import { report } from '../report';
 import { ensureCheckerExists, PresentationError, runChecker } from './checker';
-import { LimitExceededError } from '../errors';
+import { LimitExceededError, PolymanError } from '../errors';
 import type { LocalChecker } from '../types';
 import { getTestIndicesForGroup } from './testset';
 
@@ -59,7 +59,7 @@ export function validateSolutionsExist(
  * @param {string} solutionName - Name of solution to find, or 'all' for all solutions
  * @returns {LocalSolution[]} Array of matching solutions
  *
- * @throws {Error} If no solutions match the name
+ * @throws {PolymanError} With exit code 2 if no solutions match the name
  *
  * @example
  * const matching = findMatchingSolutions(config.solutions, 'main');
@@ -74,8 +74,9 @@ export function findMatchingSolutions(
   );
 
   if (matching.length === 0) {
-    throw new Error(
-      `Solution named "${solutionName}" not found or no solutions defined.`
+    throw new PolymanError(
+      `Solution named "${solutionName}" not found or no solutions defined.`,
+      2
     );
   }
 
