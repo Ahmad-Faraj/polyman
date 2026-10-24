@@ -881,6 +881,91 @@ describe('utils.ts', () => {
           );
           expect(vi.mocked(markPchUnsupported)).not.toHaveBeenCalled();
         });
+
+        describe('and a prebuilt testlib', () => {
+          const prebuilt = {
+            key: 'tk',
+            includeDir: path.join('/cache', 'testlib', 'tk'),
+            objectPath: path.join('/cache', 'testlib', 'tk', 'testlib.o'),
+          };
+          const both = `${base.replace(` -iquote ${q(cwd)}`, '')} -iquote ${q(prebuilt.includeDir)} -iquote ${q(cwd)} -I ${q(pch.includeDir)} -o ${q(output)} ${q(prebuilt.objectPath)} ${q(source)}`;
+          const prebuiltOnly = `${base.replace(` -iquote ${q(cwd)}`, '')} -iquote ${q(prebuilt.includeDir)} -iquote ${q(cwd)} -o ${q(output)} ${q(prebuilt.objectPath)} ${q(source)}`;
+          const pchOnly = pchCommand;
+          const plain = fullCommand;
+          const ok = {
+            stdout: '',
+            stderr: '',
+            exitCode: 0,
+            success: true,
+          };
+
+          beforeEach(() => {
+            vi.mocked(findPrebuiltTestlib).mockResolvedValueOnce(prebuilt);
+          });
+
+          it('uses both in one command', async () => {
+            await utils.compileCPP('solutions/main.cpp');
+
+            expect(executeMock()).toHaveBeenCalledTimes(1);
+            expect(executeMock()).toHaveBeenCalledWith(both, expect.anything());
+            expect(vi.mocked(markPchUnsupported)).not.toHaveBeenCalled();
+            expect(
+              vi.mocked(markPrebuiltTestlibUnsupported)
+            ).not.toHaveBeenCalled();
+          });
+
+          it('retries with the prebuilt only when the PCH is at fault', async () => {
+            executeMock()
+              .mockRejectedValueOnce(new Error('bad pch'))
+              .mockRejectedValueOnce(new Error('bad pch, original header'))
+              .mockResolvedValueOnce(ok);
+
+            await utils.compileCPP('solutions/main.cpp');
+
+            expect(
+              executeMock().mock.calls.map(([command]) => command)
+            ).toEqual([both, pchOnly, prebuiltOnly]);
+            expect(vi.mocked(markPchUnsupported)).toHaveBeenCalledWith(pch);
+            expect(
+              vi.mocked(markPrebuiltTestlibUnsupported)
+            ).not.toHaveBeenCalled();
+          });
+
+          it('compiles plain and marks both when neither works', async () => {
+            executeMock()
+              .mockRejectedValueOnce(new Error('both fail'))
+              .mockRejectedValueOnce(new Error('pch fails'))
+              .mockRejectedValueOnce(new Error('prebuilt fails'))
+              .mockResolvedValueOnce(ok);
+
+            await utils.compileCPP('solutions/main.cpp');
+
+            expect(
+              executeMock().mock.calls.map(([command]) => command)
+            ).toEqual([both, pchOnly, prebuiltOnly, plain]);
+            expect(vi.mocked(markPchUnsupported)).toHaveBeenCalledWith(pch);
+            expect(
+              vi.mocked(markPrebuiltTestlibUnsupported)
+            ).toHaveBeenCalledWith(prebuilt);
+          });
+
+          it('reports the plain compile error and marks nothing when the source is broken', async () => {
+            executeMock()
+              .mockRejectedValueOnce(new Error('with both: expected ;'))
+              .mockRejectedValueOnce(new Error('with pch: expected ;'))
+              .mockRejectedValueOnce(new Error('with prebuilt: expected ;'))
+              .mockRejectedValueOnce(new Error('main.cpp:3: expected ;'));
+
+            await expect(
+              utils.compileCPP('solutions/main.cpp')
+            ).rejects.toThrow('main.cpp:3: expected ;');
+            expect(executeMock()).toHaveBeenCalledTimes(4);
+            expect(vi.mocked(markPchUnsupported)).not.toHaveBeenCalled();
+            expect(
+              vi.mocked(markPrebuiltTestlibUnsupported)
+            ).not.toHaveBeenCalled();
+          });
+        });
       });
     });
 
