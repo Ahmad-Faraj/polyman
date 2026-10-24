@@ -112,6 +112,16 @@ describe('the landing page', () => {
       expect(html).toContain(`href="${href}"`);
     }
   });
+
+  it('has an element for every id its script writes to', () => {
+    const used = [...html.matchAll(/getElementById\('([^']+)'\)/g)].map(
+      m => m[1]
+    );
+    expect(used.sort()).toEqual(['goahead-sub', 'loops', 'people', 'pushes']);
+    for (const id of used) {
+      expect(html.match(new RegExp(`\\sid="${id}"`, 'g'))).toHaveLength(1);
+    }
+  });
 });
 
 describe('the pages job', () => {
