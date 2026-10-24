@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Mock, MockedFunction, MockInstance } from 'vitest';
 import { spawn } from 'child_process';
+import os from 'os';
 import execa from 'execa';
 import { CommandExecutor } from '../src/executor';
 import type { ExecutionOptions } from '../src/executor';
@@ -231,6 +232,28 @@ describe('CommandExecutor', () => {
       expect(onError).toHaveBeenCalled();
     });
 
+    // A child that never started has no exit code and no signal: that stays a spawn
+    // error with its own message, and must not read as a signal death ("exit code 128").
+    it.each([undefined, null])(
+      'keeps a spawn failure with no signal (%s) a spawn error, not exit code 128',
+      async signal => {
+        const sub = createMockSubprocess();
+        primeExeca(sub);
+
+        const promise = executor.execute('fail_spawn', { timeout: 1000 });
+        sub.__resolveWith({
+          failed: true,
+          exitCode: undefined,
+          signal,
+          shortMessage: 'spawn ENOENT',
+          stderr: '',
+        });
+
+        await expect(promise).rejects.toThrow('spawn ENOENT');
+        await expect(promise).rejects.not.toThrow(/exit code 128/);
+      }
+    );
+
     it('runs in silent mode without throwing on success', async () => {
       const sub = createMockSubprocess();
       primeExeca(sub);
@@ -350,6 +373,34 @@ describe('CommandExecutor', () => {
       expect(result.success).toBe(false);
       expect(onMemoryExceeded).toHaveBeenCalled();
     });
+
+    // Without the `ulimit` subshell (macOS, Windows) execa reports a killed child as
+    // exitCode undefined plus a signal; that is 128 + the signal number, and SIGKILL
+    // and SIGABRT are what a memory limit sends.
+    it.each(['SIGKILL', 'SIGABRT'] as const)(
+      'detects MLE for a child killed by %s (no exit code, only the signal)',
+      async signal => {
+        // 128 + the platform's own number for the signal (SIGABRT is 6 on Linux and 22 on Windows)
+        const code = 128 + os.constants.signals[signal];
+        const sub = createMockSubprocess();
+        primeExeca(sub);
+        const onMemoryExceeded: MockedFunction<
+          NonNullable<ExecutionOptions['onMemoryExceeded']>
+        > = vi.fn();
+
+        const promise = executor.execute('killed_prog', {
+          timeout: 1000,
+          onMemoryExceeded,
+        });
+        sub.__resolveWith({ exitCode: undefined, signal, failed: true });
+
+        const result = await promise;
+        expect(result.exitCode).toBe(code);
+        expect(result.memoryExceeded).toBe(true);
+        expect(result.success).toBe(false);
+        expect(onMemoryExceeded).toHaveBeenCalled();
+      }
+    );
 
     it('detects MLE via bad_alloc in stderr', async () => {
       const sub = createMockSubprocess();
@@ -1010,6 +1061,50 @@ describe('CommandExecutor', () => {
       sub.__resolveWith({ exitCode: undefined, failed: false });
 
       await expect(promise).rejects.toThrow('Command failed with exit code 1');
+    });
+
+    it('reports a signal-killed process as exit code 128 plus the signal number', async () => {
+      const sub = createMockSubprocess();
+      primeExeca(sub);
+      const onError = vi.fn();
+
+      const promise = executor.execute('run', {
+        timeout: 1000,
+        silent: true,
+        onError,
+      });
+      sub.__resolveWith({
+        exitCode: undefined,
+        signal: 'SIGSEGV',
+        failed: true,
+        shortMessage: 'Command was killed with SIGSEGV',
+      });
+
+      const result = await promise;
+      const segv = os.constants.signals.SIGSEGV;
+      expect(result.exitCode).toBe(128 + segv);
+      expect(result.success).toBe(false);
+      expect(onError).toHaveBeenCalledTimes(1);
+      expect(onError).toHaveBeenCalledWith(
+        expect.objectContaining({ exitCode: 128 + segv })
+      );
+    });
+
+    it('does not treat a signal-killed process as a spawn error', async () => {
+      const sub = createMockSubprocess();
+      primeExeca(sub);
+
+      const promise = executor.execute('run', { timeout: 1000, silent: true });
+      sub.__resolveWith({
+        exitCode: undefined,
+        signal: 'SIGSEGV',
+        failed: true,
+        shortMessage: 'Command was killed with SIGSEGV',
+      });
+
+      await expect(promise).rejects.toThrow(
+        `Command failed with exit code ${128 + os.constants.signals.SIGSEGV}`
+      );
     });
 
     it('handles execa rejecting (defensive spawn-error path)', async () => {

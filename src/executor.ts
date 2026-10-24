@@ -8,6 +8,7 @@
  */
 
 import { spawn } from 'child_process';
+import os from 'os';
 import execa from 'execa';
 import { fmt } from './formatter';
 import { EXIT_CANCELLED, EXIT_TERMINATED } from './errors';
@@ -59,6 +60,8 @@ export interface ExecutionOptions {
 
 const TIMEOUT_EXIT_CODE = 124;
 const OOM_KILL_EXIT_CODE = 137;
+/** A shell reports a process killed by signal N as exit code 128 + N. */
+const SIGNAL_EXIT_CODE_BASE = 128;
 const KILL_GRACE_PERIOD_MS = 100;
 const WINDOWS_HANDLE_RELEASE_DELAY_MS = 150;
 
@@ -155,8 +158,14 @@ export class CommandExecutor {
 
     const stdout = typeof raw.stdout === 'string' ? raw.stdout : '';
     const stderr = typeof raw.stderr === 'string' ? raw.stderr : '';
-    const exitCode = raw.exitCode ?? 1;
     const signal = (raw.signal ?? null) as NodeJS.Signals | null;
+    // A process killed by a signal has no exit code in execa. Report it the way
+    // a shell does (128 + signal number) so a crash looks the same on every
+    // platform, and keep it out of the spawn-error path below.
+    const killedBySignal = raw.exitCode === undefined && signal !== null;
+    const exitCode = killedBySignal
+      ? SIGNAL_EXIT_CODE_BASE + (os.constants.signals[signal] ?? 0)
+      : (raw.exitCode ?? 1);
 
     if (didTimeout) {
       return this.finalizeTimeout(stdout, options);
@@ -164,7 +173,7 @@ export class CommandExecutor {
 
     // Spawn failure (ENOENT, EACCES, ...). execa marks `failed: true` and leaves
     // `exitCode` undefined; the human-readable reason lives on `shortMessage`.
-    if (raw.failed && raw.exitCode === undefined) {
+    if (raw.failed && raw.exitCode === undefined && !killedBySignal) {
       const errLike = raw as execa.ExecaError;
       return this.finalizeSpawnError(
         new Error(errLike.shortMessage || errLike.message || stderr),
