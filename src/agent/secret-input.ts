@@ -19,22 +19,32 @@ export type SecretInput = Pick<
 >;
 
 /**
- * Complete CSI sequences: ESC [, parameter bytes, intermediate bytes, a final
- * byte. This covers arrow keys, Delete, and the bracketed paste markers
- * (ESC[200~ and ESC[201~).
+ * Where the hidden prompt is inside an escape sequence. The state is kept
+ * between `data` events, so a sequence split across two chunks is still
+ * removed whole.
+ *
+ * - `text`: normal input.
+ * - `esc`: after ESC.
+ * - `csi`: after ESC [ (arrow keys, Delete, the paste markers ESC[200~ and
+ *   ESC[201~), until the final byte.
+ * - `ss3`: after ESC O (arrow keys in application cursor mode, F1 to F4),
+ *   until the final byte.
  */
-// eslint-disable-next-line no-control-regex
-const CSI_SEQUENCE = /\u001b\[[0-?]*[ -/]*[@-~]/g;
+type EscapeState = 'text' | 'esc' | 'csi' | 'ss3';
 
-/** Removes escape sequences from typed input, keeping the text around them. */
-function stripEscapes(text: string): string {
-  return text.replace(CSI_SEQUENCE, '');
-}
+const ESC = '\u001b';
+
+/** Parameter and intermediate bytes of a CSI or SS3 sequence (0x20-0x3F). */
+const isSequenceMiddle = (ch: string) => ch >= ' ' && ch <= '?';
 
 /**
  * Asks for a secret on the terminal with echo off. Enter ends the input,
  * Backspace removes the last character, Ctrl+C cancels. Escape sequences
- * (arrow keys, Delete, paste markers) are removed from the input.
+ * are removed from the input, also when a chunk ends in the middle of one:
+ * CSI (arrow keys, Delete, paste markers, keeping the pasted text), SS3
+ * (ESC O and a key), and ESC with the one character after it (Alt+key).
+ * A control character inside a sequence ends it and is handled as usual,
+ * so Enter and Ctrl+C always work.
  */
 export function readHiddenLine(
   question: string,
@@ -65,9 +75,39 @@ export function readHiddenLine(
       else resolve(value);
     };
 
+    let state: EscapeState = 'text';
+
+    /** Returns true when `ch` is part of an escape sequence and is dropped. */
+    const inSequence = (ch: string): boolean => {
+      if (state === 'text') {
+        if (ch !== ESC) return false;
+        state = 'esc';
+        return true;
+      }
+      if (ch === ESC) {
+        state = 'esc';
+        return true;
+      }
+      if (ch < ' ' || ch === '\u007f') {
+        // A control character never belongs to a sequence: drop what came
+        // before it and handle it as a key.
+        state = 'text';
+        return false;
+      }
+      if (state === 'esc') {
+        state = ch === '[' ? 'csi' : ch === 'O' ? 'ss3' : 'text';
+        return true;
+      }
+      if (isSequenceMiddle(ch)) return true;
+      // The final byte (0x40-0x7E) ends the sequence. Any other byte is not
+      // valid there, so it ends the sequence too, and is dropped with it.
+      state = 'text';
+      return true;
+    };
+
     const onData = (chunk: Buffer | string) => {
-      const text = stripEscapes(chunk.toString());
-      for (const ch of text) {
+      for (const ch of chunk.toString()) {
+        if (inSequence(ch)) continue;
         if (ch === '\r' || ch === '\n' || ch === '\u0004') {
           finish();
           return;

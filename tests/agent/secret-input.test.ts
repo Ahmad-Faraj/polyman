@@ -71,6 +71,89 @@ describe('readHiddenLine', () => {
     await expect(result).resolves.toBe('sk-pasted-12345');
   });
 
+  describe('escape sequences split across chunks', () => {
+    const read = async (...chunks: string[]) => {
+      const tty = new FakeTty();
+      const result = readHiddenLine('Key: ', asInput(tty), sink().out);
+      for (const chunk of chunks) tty.type(chunk);
+      return result;
+    };
+
+    it('drops an arrow key split after ESC', async () => {
+      await expect(read('abc\u001b', '[Adef\r')).resolves.toBe('abcdef');
+    });
+
+    it('drops an arrow key split after ESC [', async () => {
+      await expect(read('abc\u001b[', 'Adef\r')).resolves.toBe('abcdef');
+    });
+
+    it('drops a paste end marker split in the middle', async () => {
+      await expect(read('\u001b[200~abc\u001b[20', '1~\r')).resolves.toBe(
+        'abc'
+      );
+    });
+
+    it('takes a paste split at every byte offset', async () => {
+      const paste = '\u001b[200~sk-pasted-12345\u001b[201~\r';
+      for (let at = 0; at <= paste.length; at++) {
+        await expect(
+          read(paste.slice(0, at), paste.slice(at)),
+          `split at ${at}`
+        ).resolves.toBe('sk-pasted-12345');
+      }
+    });
+
+    it('takes a paste sent one byte per chunk', async () => {
+      await expect(
+        read(...'\u001b[200~sk-pasted-12345\u001b[201~\r')
+      ).resolves.toBe('sk-pasted-12345');
+    });
+
+    it('drops an SS3 arrow key (ESC O A, application cursor mode)', async () => {
+      await expect(read('abc\u001bOAdef\r')).resolves.toBe('abcdef');
+    });
+
+    it('drops an SS3 arrow key split across chunks', async () => {
+      await expect(read('abc\u001bO', 'Adef\r')).resolves.toBe('abcdef');
+    });
+
+    it('drops F1 (ESC O P)', async () => {
+      await expect(read('\u001bOP\r')).resolves.toBe('');
+    });
+
+    it('drops ESC and the character after it (Alt+key)', async () => {
+      await expect(read('ab\u001bxcd\r')).resolves.toBe('abcd');
+    });
+
+    it('drops a lone ESC chunk together with the next character', async () => {
+      // Alt+a is sent as ESC a, so the a after a lone ESC chunk goes too.
+      await expect(read('\u001b', 'abc\r')).resolves.toBe('bc');
+    });
+
+    it('ends on Enter right after a sequence', async () => {
+      await expect(read('abc\u001b[A', '\r')).resolves.toBe('abc');
+      await expect(read('abc\u001bOA\r')).resolves.toBe('abc');
+    });
+
+    it('ends on Enter right after a lone ESC', async () => {
+      await expect(read('abc\u001b', '\r')).resolves.toBe('abc');
+    });
+
+    it('ends on Enter inside an unfinished sequence', async () => {
+      await expect(read('abc\u001b[2', '\r')).resolves.toBe('abc');
+    });
+
+    it('cancels on Ctrl+C right after a sequence', async () => {
+      await expect(read('abc\u001b[A', '\u0003')).rejects.toThrow('Cancelled.');
+      await expect(read('abc\u001b', '\u0003')).rejects.toThrow('Cancelled.');
+      await expect(read('abc\u001bO\u0003')).rejects.toThrow('Cancelled.');
+    });
+
+    it('handles backspace right after a sequence', async () => {
+      await expect(read('abc\u001b[A', '\u007fd\r')).resolves.toBe('abd');
+    });
+  });
+
   it('returns what was typed and never echoes it', async () => {
     const tty = new FakeTty();
     const { out, written } = sink();
