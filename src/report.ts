@@ -332,7 +332,7 @@ export class ReportCollector {
 
   /**
    * Records a warning. Warnings never fail a step; they are listed in the
-   * verify report's `warnings` array.
+   * `warnings` array of the verify and remote reports.
    */
   addWarning(message: string): void {
     if (!this.active) return;
@@ -579,6 +579,7 @@ export class ReportCollector {
               ? { ...action }
               : { ...action, error: this.redact(action.error) }
           ),
+          warnings: active.warnings.map(warning => this.redact(warning)),
         };
         return remoteReport;
       }

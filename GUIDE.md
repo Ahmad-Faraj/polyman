@@ -2396,7 +2396,8 @@ Shape:
   "actions": [
     { "component": "solution", "name": "main", "action": "upload", "ok": true },
     { "component": "solution", "name": "wa", "action": "upload", "ok": false, "error": "Polygon API Error: ..." }
-  ]
+  ],
+  "warnings": []
 }
 ```
 
@@ -2405,7 +2406,8 @@ Shape:
 - `problemId` is always in the report. For a push that creates the problem, it is the new ID. It is `null` only when the command failed before it knew the ID.
 - `errors` is plain text. The API key and secret are replaced with `[REDACTED]` everywhere in the report.
 - With `--json`, `push` never prompts. To create a new problem, pass `--yes` (and `--name <slug>` if needed), or it exits 2.
-- `pull` lists the files it saved and each testset it tried. A file Polygon refused is still only a warning on stderr for now.
+- `pull` lists the files it saved and each testset it tried.
+- `warnings` lists what did not fail the command but needs a look. For `pull`, it has one line for each placeholder put in `Config.json` instead of a file: the `acc.cpp` main solution (no solution downloaded), the standard `ncmp` checker, the `val.cpp` validator (none on Polygon, or the download failed) and an empty generator list (the file list could not be fetched). The pull still ends with `ok: true` and exit 0, and the same lines are repeated at the end of the human output. A testset Polygon refused is an `ok: false` entry in `actions`, and a refused problem fetch fails the pull.
 
 ---
 

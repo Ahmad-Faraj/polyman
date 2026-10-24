@@ -1056,6 +1056,9 @@ interface RemoteAction {
  * @property {number | null} problemId - Polygon problem ID, also for a new
  *   problem; null only when the command failed before it knew the ID
  * @property {RemoteAction[]} actions - One entry per upload, download or change
+ * @property {string[]} warnings - Things that did not fail the command but
+ *   need a look, for example a placeholder `pull` put in Config.json
+ *   instead of a file it could not download
  */
 interface RemoteReport extends ReportBase {
   command: string;
@@ -1064,6 +1067,7 @@ interface RemoteReport extends ReportBase {
   errors: string[];
   problemId: number | null;
   actions: RemoteAction[];
+  warnings: string[];
 }
 
 type JsonReport =

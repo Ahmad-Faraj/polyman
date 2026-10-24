@@ -870,6 +870,18 @@ describe('report.ts', () => {
       });
     });
 
+    it('lists warnings, with secrets replaced, also when ok is true', () => {
+      collector.startRemote('remote pull');
+      collector.setSecrets(['KEY123']);
+      collector.addWarning('\u001b[33mcould not fetch KEY123\u001b[39m');
+      collector.finish(true);
+      expect(written()).toMatchObject({
+        ok: true,
+        errors: [],
+        warnings: ['could not fetch [REDACTED]'],
+      });
+    });
+
     it('does not capture fmt.error lines, only reported errors', () => {
       collector.startRemote('remote push');
       fmt.error('  2 item(s) failed to upload:');

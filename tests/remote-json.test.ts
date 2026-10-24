@@ -272,6 +272,7 @@ describe('remote commands with --json', () => {
         actions: [
           { component: 'checker', name: 'wcmp', action: 'upload', ok: true },
         ],
+        warnings: [],
       });
       expect(exitSpy).not.toHaveBeenCalled();
     });
@@ -403,6 +404,7 @@ describe('remote commands with --json', () => {
         ok: true,
         exitCode: 0,
         problemId: 7,
+        warnings: [],
       });
       expect(doc.actions).toEqual([
         { component: 'info', name: 'problem info', action: 'fetch', ok: true },
@@ -435,6 +437,94 @@ describe('remote commands with --json', () => {
       const doc = written();
       expect(doc.ok).toBe(true);
       expect(doc.actions.filter(a => a.component === 'solution')).toEqual([]);
+    });
+
+    const refused = (): Promise<never> =>
+      Promise.reject(new Error('Polygon API Error: no access'));
+    const notCreated =
+      'val.cpp is listed in Config.json but not created, so verify will fail until you add it';
+
+    it.each([
+      {
+        kind: 'the solutions list',
+        setUp: () => sdk['getSolutions'].mockImplementation(refused),
+        warning:
+          'Could not download the solutions list (Polygon API Error: no access): acc.cpp is listed in Config.json as the main solution but not created',
+      },
+      {
+        kind: 'no solutions',
+        setUp: () => sdk['getSolutions'].mockResolvedValue([]),
+        warning:
+          'No solution was downloaded from Polygon: acc.cpp is listed in Config.json as the main solution but not created',
+      },
+      {
+        kind: 'the checker',
+        setUp: () => sdk['getChecker'].mockImplementation(refused),
+        warning:
+          'Could not download the checker (Polygon API Error: no access): Config.json uses the standard checker ncmp.cpp instead',
+      },
+      {
+        kind: 'the validator',
+        setUp: () => sdk['getValidator'].mockImplementation(refused),
+        warning: `Could not download the validator (Polygon API Error: no access): ${notCreated}`,
+      },
+      {
+        kind: 'no validator',
+        setUp: () => sdk['getValidator'].mockResolvedValue(''),
+        warning: `Polygon has no validator set for problem 7: ${notCreated}`,
+      },
+      {
+        kind: 'the generators',
+        setUp: () => sdk['getFiles'].mockImplementation(refused),
+        warning:
+          'Could not fetch the problem files (Polygon API Error: no access): Config.json lists no generators',
+      },
+    ])(
+      'lists a placeholder for $kind as a warning and still exits 0',
+      async ({ setUp, warning }) => {
+        setUp();
+        const out = path.join(tmp, 'pulled');
+
+        await actions.remotePullProblemAction('7', out, { json: true });
+
+        const doc = written();
+        expect(doc).toMatchObject({ ok: true, exitCode: 0, errors: [] });
+        expect(doc.warnings).toEqual([warning]);
+        expect(exitSpy).not.toHaveBeenCalled();
+        // The human output (stderr under --json) repeats it in the summary.
+        const human = vi
+          .mocked(console.error)
+          .mock.calls.map(call => call.join(' '))
+          .join('\n');
+        expect(human).toContain(warning);
+      }
+    );
+
+    it('still fails when Polygon refuses a download', async () => {
+      sdk['getProblemInfo'].mockImplementation(refused);
+      const out = path.join(tmp, 'pulled');
+
+      const error = await failure(
+        actions.remotePullProblemAction('7', out, { json: true })
+      );
+
+      const doc = written();
+      expect(exitCodeFor(error)).not.toBe(0);
+      expect(doc).toMatchObject({
+        ok: false,
+        exitCode: exitCodeFor(error),
+        errors: ['Polygon API Error: no access'],
+        warnings: [],
+      });
+      expect(doc.actions).toEqual([
+        {
+          component: 'info',
+          name: 'problem info',
+          action: 'fetch',
+          ok: false,
+          error: 'Polygon API Error: no access',
+        },
+      ]);
     });
 
     it('keeps problemId null when the ID cannot be resolved', async () => {

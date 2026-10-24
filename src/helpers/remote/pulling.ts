@@ -67,7 +67,9 @@ function reason(error: unknown): string {
  * @param {PolygonSDK} sdk - Polygon SDK instance
  * @param {number} problemId - Problem ID
  * @param {string} problemDir - Target directory for solutions
- * @returns {Promise<{ data: Array<LocalSolution>; count: number }>}
+ * @returns {Promise<{ data: Array<LocalSolution>; count: number; placeholder?: string }>}
+ *   `placeholder` is a warning, set when no solution was downloaded and
+ *   Config.json lists the acc.cpp placeholder instead
  */
 export async function downloadSolutions(
   sdk: PolygonSDK,
@@ -76,9 +78,11 @@ export async function downloadSolutions(
 ): Promise<{
   data: Array<{ name: string; source: string; tag: SolutionTag }>;
   count: number;
+  placeholder?: string;
 }> {
   const solutionsData: Array<LocalSolution> = [];
   let count = 0;
+  let listError = '';
 
   try {
     const solutions = await sdk.getSolutions(problemId);
@@ -113,7 +117,8 @@ export async function downloadSolutions(
         );
       }
     }
-  } catch {
+  } catch (error) {
+    listError = reason(error);
     fmt.error(
       `  ${fmt.cross()} Could not download Solution, adding acc.cpp to be implemented`
     );
@@ -121,6 +126,14 @@ export async function downloadSolutions(
 
   if (solutionsData.length === 0) {
     solutionsData.push({ name: 'main', source: 'acc.cpp', tag: 'MA' as const });
+    const why = listError
+      ? `Could not download the solutions list (${listError})`
+      : 'No solution was downloaded from Polygon';
+    return {
+      data: solutionsData,
+      count,
+      placeholder: `${why}: acc.cpp is listed in Config.json as the main solution but not created`,
+    };
   }
 
   return { data: solutionsData, count };
@@ -132,7 +145,9 @@ export async function downloadSolutions(
  * @param {PolygonSDK} sdk - Polygon SDK instance
  * @param {number} problemId - Problem ID
  * @param {string} problemDir - Target directory for checker
- * @returns {Promise<{ data: LocalChecker; count: number }>}
+ * @returns {Promise<{ data: LocalChecker; count: number; placeholder?: string }>}
+ *   `placeholder` is a warning, set when the download failed and Config.json
+ *   uses the standard ncmp checker instead
  */
 export async function downloadChecker(
   sdk: PolygonSDK,
@@ -141,6 +156,7 @@ export async function downloadChecker(
 ): Promise<{
   data: LocalChecker;
   count: number;
+  placeholder?: string;
 }> {
   let count = 0;
 
@@ -210,6 +226,7 @@ export async function downloadChecker(
     return {
       data: { name: 'ncmp', source: 'ncmp.cpp', isStandard: true },
       count: 0,
+      placeholder: `Could not download the checker (${reason(error)}): Config.json uses the standard checker ncmp.cpp instead`,
     };
   }
 }
@@ -220,8 +237,10 @@ export async function downloadChecker(
  * @param {PolygonSDK} sdk - Polygon SDK instance
  * @param {number} problemId - Problem ID
  * @param {string} problemDir - Target directory for validator
- * @returns {Promise<{ data: LocalValidator; count: number; missing?: boolean }>}
- *   `missing` is true when Polygon has no validator set for the problem
+ * @returns {Promise<{ data: LocalValidator; count: number; missing?: boolean; placeholder?: string }>}
+ *   `missing` is true when Polygon has no validator set for the problem.
+ *   `placeholder` is a warning, set when the download failed and Config.json
+ *   lists the val.cpp placeholder instead
  */
 export async function downloadValidator(
   sdk: PolygonSDK,
@@ -231,6 +250,7 @@ export async function downloadValidator(
   data: LocalValidator;
   count: number;
   missing?: boolean;
+  placeholder?: string;
 }> {
   let count = 0;
 
@@ -300,6 +320,7 @@ export async function downloadValidator(
     return {
       data: { name: 'validator', source: 'val.cpp' },
       count: 0,
+      placeholder: `Could not download the validator (${reason(error)}): val.cpp is listed in Config.json but not created, so verify will fail until you add it`,
     };
   }
 }
@@ -311,7 +332,9 @@ export async function downloadValidator(
  * @param {number} problemId - Problem ID
  * @param {string} problemDir - Target directory
  * @param {string[]} skipNames - Checker and validator names (without extension) to skip
- * @returns {Promise<{ data: Array<LocalGenerator>; count: number }>}
+ * @returns {Promise<{ data: Array<LocalGenerator>; count: number; placeholder?: string }>}
+ *   `placeholder` is a warning, set when the file list could not be fetched
+ *   and Config.json lists no generators
  */
 export async function downloadGenerators(
   sdk: PolygonSDK,
@@ -321,6 +344,7 @@ export async function downloadGenerators(
 ): Promise<{
   data: Array<LocalGenerator>;
   count: number;
+  placeholder?: string;
 }> {
   const generatorsData: Array<LocalGenerator> = [];
   let count = 0;
@@ -361,8 +385,13 @@ export async function downloadGenerators(
         );
       }
     }
-  } catch {
+  } catch (error) {
     fmt.warning('  ⚠️  Could not fetch files');
+    return {
+      data: generatorsData,
+      count,
+      placeholder: `Could not fetch the problem files (${reason(error)}): Config.json lists no generators`,
+    };
   }
 
   return { data: generatorsData, count };
