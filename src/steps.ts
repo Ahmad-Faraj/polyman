@@ -1114,6 +1114,13 @@ async function buildPackageAndWait(
     throw new PolymanError('Package build timed out after 30 minutes', 4);
   }
 
+  if (latestPackage.state !== 'READY' && latestPackage.state !== 'FAILED') {
+    throw new PolymanError(
+      `Package build did not finish within the polling limit of 30 minutes (package ${latestPackage.id} is still ${latestPackage.state})`,
+      4
+    );
+  }
+
   if (latestPackage.state === 'READY') {
     fmt.stepComplete(`Package built successfully (ID: ${latestPackage.id})`);
   } else if (latestPackage.state === 'FAILED') {

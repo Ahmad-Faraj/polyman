@@ -517,6 +517,41 @@ describe('remote commands with --json', () => {
       ]);
     });
 
+    it('fails with exit code 4 when the build is still running after the poll limit', async () => {
+      vi.useFakeTimers();
+      let error: unknown;
+      try {
+        sdk['listPackages']
+          .mockResolvedValueOnce([])
+          .mockResolvedValue([{ id: 5, state: 'RUNNING', comment: '' }]);
+
+        const run = failure(
+          actions.remotePackageProblemAction('7', 'standard', { json: true })
+        );
+        await vi.advanceTimersByTimeAsync(31 * 30000);
+        error = await run;
+      } finally {
+        vi.useRealTimers();
+      }
+
+      const message =
+        'Package build did not finish within the polling limit of 30 minutes (package 5 is still RUNNING)';
+      const doc = written();
+      expect(doc.ok).toBe(false);
+      expect(doc.exitCode).toBe(4);
+      expect(exitCodeFor(error)).toBe(4);
+      expect(doc.errors).toEqual([message]);
+      expect(doc.actions).toEqual([
+        {
+          component: 'package',
+          name: 'standard',
+          action: 'build',
+          ok: false,
+          error: message,
+        },
+      ]);
+    });
+
     it('records a successful build', async () => {
       vi.useFakeTimers();
       try {
