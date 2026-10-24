@@ -12,13 +12,14 @@ const REVIEWER = 'ai-mr-reviewer-group_e50080';
 const BUILDER = 'ai-issue-builder-group_e1c791';
 const BRANCH = '24-java-source-types-approved';
 
-/** A repo whose first commit is the default branch (with the policy), and one agent commit on top. */
-function repo(policy = true) {
+/** A repo whose first commit is the default branch (with the policy, or this one), and one agent commit on top. */
+function repo(policy: boolean | string = true) {
   const dir = mkdtempSync(join(tmpdir(), 'goahead-branch-'));
   const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' }).trim();
   git('init', '-q');
   writeFileSync(join(dir, 'a.txt'), 'a');
-  if (policy) copyFileSync(CONFIG, join(dir, '.autonomy.yml'));
+  if (typeof policy === 'string') writeFileSync(join(dir, '.autonomy.yml'), policy);
+  else if (policy) copyFileSync(CONFIG, join(dir, '.autonomy.yml'));
   git('add', '.');
   git('-c', 'user.name=Mazen', '-c', 'user.email=mazen@example.com', 'commit', '-qm', 'base');
   const base = git('rev-parse', 'HEAD');
@@ -27,10 +28,14 @@ function repo(policy = true) {
   return { dir, base, head: git('rev-parse', 'HEAD') };
 }
 
-/** Answers like GitLab's API for the given paths (arrays are paged). */
-function gitlab(routes: Record<string, unknown>) {
+/** Answers like GitLab's API for the given paths (arrays are paged), or with the given error status. */
+function gitlab(routes: Record<string, unknown>, errors: Record<string, number> = {}) {
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? '', 'http://x');
+    if (errors[url.pathname]) {
+      res.writeHead(errors[url.pathname]).end('{"message":"server error"}');
+      return;
+    }
     const body = routes[url.pathname];
     if (body === undefined) {
       res.writeHead(404).end('{"message":"404 Not found"}');
@@ -58,12 +63,15 @@ const merged86 = { iid: 86, state: 'merged', source_project_id: 1, created_at: a
 
 interface Case {
   branch?: string;
-  policy?: boolean;
+  policy?: boolean | string;
   mrs?: unknown[];
   events: (r: { base: string; head: string }) => unknown[];
   /** what GET /issues/24 answers; undefined: 404 */
   issue?: unknown;
   issueNotes?: unknown[];
+  /** API paths that answer with this error status */
+  errors?: Record<string, number>;
+  env?: Record<string, string>;
 }
 
 async function run(c: Case) {
@@ -73,7 +81,7 @@ async function run(c: Case) {
     '/api/v4/projects/1/events': c.events(r),
     ...(c.issue === undefined ? {} : { '/api/v4/projects/1/issues/24': c.issue }),
     '/api/v4/projects/1/issues/24/notes': c.issueNotes ?? [],
-  });
+  }, c.errors);
   const child = spawn('node', [CLI], {
     cwd: r.dir,
     env: {
@@ -88,6 +96,8 @@ async function run(c: Case) {
       AUTONOMY_POLICY_REF: r.base,
       AUTONOMY_CONFIG: '.autonomy.yml',
       AUTONOMY_TIER: '',
+      GITLAB_RETRY_MS: '0',
+      ...c.env,
     },
   });
   let text = '';
@@ -150,6 +160,22 @@ describe('autonomy:goahead:branch against a git repo and a stand-in for GitLab',
     const { code, text } = await run({ branch: 'docs/notes', events: (r) => [{ ...push('14:22', 'HamzaHassanain', null, r.head), push_data: { ref: 'docs/notes', ref_type: 'branch', action: 'created', commit_from: null, commit_to: r.head } }] });
     expect(text).toContain('1 commit(s) on docs/notes not on main, 0 agent push(es) no MR covers');
     expect(code).toBe(0);
+  });
+
+  it('judges as high risk even when AUTONOMY_TIER says low: the push can set that variable', async () => {
+    const onlyHamza = readFileSync(CONFIG, 'utf8').replace(/^  maintainers:\n(    - .*\n)+/m, '  maintainers:\n    - HamzaHassanain\n');
+    expect(onlyHamza).not.toBe(readFileSync(CONFIG, 'utf8'));
+    const { code, text } = await run({
+      policy: onlyHamza,
+      mrs: [],
+      issue: issue24,
+      issueNotes: [note(1, '14:00', BUILDER, 'Proposal for #24: the change'), note(2, '14:05', 'Mazen-Ghanaym', `@${BUILDER} go-ahead`)],
+      events: (r) => [push('14:22', BUILDER, null, r.head)],
+      env: { AUTONOMY_TIER: 'low' },
+    });
+    expect(text).toContain("go-ahead in note 2 doesn't count: @Mazen-Ghanaym is not a maintainer; high risk needs @HamzaHassanain");
+    expect(text).toMatch(/judged as high risk: only @HamzaHassanain/);
+    expect(code).toBe(1);
   });
 
   it('does nothing on the default branch', async () => {

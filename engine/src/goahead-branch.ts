@@ -31,8 +31,15 @@ export interface BranchFacts {
   issue: { iid: number; author: { username: string } } | null;
   /** the day push events are read from, for the messages */
   since: string;
-  tier: Tier;
 }
+
+/**
+ * The risk a branch push is judged at. There is no risk score on a branch
+ * pipeline, and its variables (AUTONOMY_TIER too) can come from the pushed
+ * commit's own CI config or from the push, so it is always high: only a
+ * maintainer's go-ahead counts.
+ */
+export const BRANCH_TIER: Tier = 'high';
 
 export interface BranchCheck {
   /** an open MR from this branch: its pipeline judges every push, so this judged none */
@@ -79,7 +86,7 @@ export async function checkBranch(
   repo: Repo,
   issueNotesOf: (iid: number) => Promise<Note[]>,
 ): Promise<BranchCheck> {
-  const { branch, events, commits, mrs, issue, since, tier } = facts;
+  const { branch, events, commits, mrs, issue, since } = facts;
   const open = mrs.find(isOpen);
   if (open) return { openMr: open.iid, agentPushes: [], covered: [], problems: [] };
 
@@ -132,7 +139,7 @@ export async function checkBranch(
     const rollback = isRollback(push.pusher);
     // as in checkMr: a person's issue shows someone asked; an incident only counts for the responder's own push
     const asked = issue && (isPerson(issue.author.username) || (rollback && isRollback(issue.author.username))) ? issue : null;
-    const step: Step = { requesters: asked ? [asked.author.username] : [], tier, rollback };
+    const step: Step = { requesters: asked ? [asked.author.username] : [], tier: BRANCH_TIER, rollback };
     if (!asked) {
       const reason = `went to ${branch}, which has no MR, and the branch names no issue written by a person to hold its go-ahead`;
       const line = `push at ${push.at} by @${push.pusher} (${shas}) ${reason}`;

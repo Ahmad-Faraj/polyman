@@ -42,7 +42,6 @@ const facts = (over: Partial<BranchFacts> = {}): BranchFacts => ({
   mrs: [merged86],
   issue: { iid: 24, author: { username: 'Ahmad-Faraj' } },
   since: '2026-10-16',
-  tier: 'high',
   ...over,
 });
 
