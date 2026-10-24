@@ -789,33 +789,57 @@ describe('pulling.ts', () => {
       expect(result.tags).toEqual(['math', 'dp']);
     });
 
-    it('should return empty description when viewGeneralDescription fails', async () => {
+    it('leaves out the description and warns when viewGeneralDescription fails', async () => {
       mockSdk.viewGeneralDescription.mockRejectedValue(new Error('boom'));
       mockSdk.viewTags.mockResolvedValue(['x']);
 
       const result = await pulling.fetchProblemMetadata(asSdk(mockSdk), 1);
 
-      expect(result.description).toBe('');
-      expect(result.tags).toEqual(['x']);
+      expect(result).toEqual({
+        tags: ['x'],
+        failures: [
+          'Could not download the description (boom): Config.json has no description, so push will not change it on Polygon',
+        ],
+      });
+      expect('description' in result).toBe(false);
     });
 
-    it('should return empty tags when viewTags fails', async () => {
+    it('leaves out the tags and warns when viewTags fails', async () => {
       mockSdk.viewGeneralDescription.mockResolvedValue('desc');
       mockSdk.viewTags.mockRejectedValue(new Error('boom'));
 
       const result = await pulling.fetchProblemMetadata(asSdk(mockSdk), 1);
 
-      expect(result.description).toBe('desc');
-      expect(result.tags).toEqual([]);
+      expect(result).toEqual({
+        description: 'desc',
+        failures: [
+          'Could not download the tags (boom): Config.json has no tags, so push will not change them on Polygon',
+        ],
+      });
+      expect('tags' in result).toBe(false);
     });
 
-    it('should handle both calls failing gracefully', async () => {
+    it('leaves out both fields with one warning each when both calls fail', async () => {
       mockSdk.viewGeneralDescription.mockRejectedValue(new Error('a'));
       mockSdk.viewTags.mockRejectedValue(new Error('b'));
 
       const result = await pulling.fetchProblemMetadata(asSdk(mockSdk), 1);
 
-      expect(result).toEqual({ description: '', tags: [] });
+      expect(result).toEqual({
+        failures: [
+          'Could not download the description (a): Config.json has no description, so push will not change it on Polygon',
+          'Could not download the tags (b): Config.json has no tags, so push will not change them on Polygon',
+        ],
+      });
+    });
+
+    it('keeps an empty description and empty tags that Polygon returned', async () => {
+      mockSdk.viewGeneralDescription.mockResolvedValue('');
+      mockSdk.viewTags.mockResolvedValue([]);
+
+      const result = await pulling.fetchProblemMetadata(asSdk(mockSdk), 1);
+
+      expect(result).toEqual({ description: '', tags: [], failures: [] });
     });
   });
 

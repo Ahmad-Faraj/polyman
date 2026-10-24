@@ -580,28 +580,37 @@ export async function downloadStatements(
  *
  * @param {PolygonSDK} sdk - Polygon SDK instance
  * @param {number} problemId - Problem ID
- * @returns {Promise<{ description: string; tags: string[] }>}
+ * @returns {Promise<{ description?: string; tags?: string[]; failures: string[] }>}
+ *   A field that could not be downloaded is left out, so Config.json does not
+ *   get an empty value that a later push would upload over the real one.
+ *   `failures` has one warning per field that could not be downloaded.
  */
 export async function fetchProblemMetadata(
   sdk: PolygonSDK,
   problemId: number
-): Promise<{ description: string; tags: string[] }> {
-  let description = '';
-  let tags: string[] = [];
+): Promise<{ description?: string; tags?: string[]; failures: string[] }> {
+  const metadata: { description?: string; tags?: string[] } = {};
+  const failures: string[] = [];
 
   try {
-    description = await sdk.viewGeneralDescription(problemId);
-  } catch {
-    // Description is optional
+    metadata.description = await sdk.viewGeneralDescription(problemId);
+  } catch (error) {
+    fmt.warning(`  ⚠️  Could not fetch the description (${reason(error)})`);
+    failures.push(
+      `Could not download the description (${reason(error)}): Config.json has no description, so push will not change it on Polygon`
+    );
   }
 
   try {
-    tags = await sdk.viewTags(problemId);
-  } catch {
-    // Tags are optional
+    metadata.tags = await sdk.viewTags(problemId);
+  } catch (error) {
+    fmt.warning(`  ⚠️  Could not fetch the tags (${reason(error)})`);
+    failures.push(
+      `Could not download the tags (${reason(error)}): Config.json has no tags, so push will not change them on Polygon`
+    );
   }
 
-  return { description, tags };
+  return { ...metadata, failures };
 }
 
 /**

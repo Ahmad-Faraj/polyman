@@ -1106,6 +1106,7 @@ describe('steps.ts', () => {
       vi.mocked(pulling.fetchProblemMetadata).mockResolvedValue({
         description: 'd',
         tags: ['t'],
+        failures: [],
       } as any);
       vi.mocked(fs.writeFileSync).mockImplementation(() => undefined);
 

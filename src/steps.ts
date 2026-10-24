@@ -1173,8 +1173,8 @@ export function stepCreatePulledProblemDirectory(
  *   caller should repeat in its summary: no validator on Polygon, each
  *   placeholder (solution, checker, validator, generators) put in
  *   Config.json instead of a downloaded file, and each file (solution,
- *   generator, checker or validator tests, statement) that could not be
- *   downloaded and is left out of Config.json. They are also added to the
+ *   generator, checker or validator tests, statement, description, tags)
+ *   that could not be downloaded and is left out of Config.json. They are also added to the
  *   `--json` report's `warnings`; they do not fail the pull.
  */
 export async function stepDownloadProblemFilesAndSetUpConfig(
@@ -1225,8 +1225,10 @@ export async function stepDownloadProblemFilesAndSetUpConfig(
     problemId: problemId,
     name: info.name,
     owner: info.owner,
-    description: metadata.description,
-    tags: metadata.tags,
+    ...(metadata.description !== undefined && {
+      description: metadata.description,
+    }),
+    ...(metadata.tags !== undefined && { tags: metadata.tags }),
     timeLimit: info.timeLimit,
     memoryLimit: info.memoryLimit,
     inputFile: info.inputFile,
@@ -1307,6 +1309,7 @@ export async function stepDownloadProblemFilesAndSetUpConfig(
     warnings.push(generatorsResult.placeholder);
   }
   warnings.push(...statementsResult.failures);
+  warnings.push(...metadata.failures);
   for (const warning of warnings) report.addWarning(warning);
   return warnings;
 }

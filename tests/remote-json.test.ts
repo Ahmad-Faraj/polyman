@@ -629,6 +629,97 @@ describe('remote commands with --json', () => {
       }
     );
 
+    const noDescription =
+      'Could not download the description (Polygon API Error: no access): Config.json has no description, so push will not change it on Polygon';
+    const noTags =
+      'Could not download the tags (Polygon API Error: no access): Config.json has no tags, so push will not change them on Polygon';
+
+    it.each([
+      {
+        kind: 'the description',
+        setUp: () => sdk['viewGeneralDescription'].mockImplementation(refused),
+        warnings: [noDescription],
+        missing: ['description'],
+      },
+      {
+        kind: 'the tags',
+        setUp: () => sdk['viewTags'].mockImplementation(refused),
+        warnings: [noTags],
+        missing: ['tags'],
+      },
+      {
+        kind: 'the description and the tags',
+        setUp: () => {
+          sdk['viewGeneralDescription'].mockImplementation(refused);
+          sdk['viewTags'].mockImplementation(refused);
+        },
+        warnings: [noDescription, noTags],
+        missing: ['description', 'tags'],
+      },
+    ])(
+      'lists a failed download of $kind as a warning and leaves it out of Config.json',
+      async ({ setUp, warnings, missing }) => {
+        sdk['viewGeneralDescription'].mockResolvedValue('Add two numbers');
+        sdk['viewTags'].mockResolvedValue(['math']);
+        setUp();
+        const out = path.join(tmp, 'pulled');
+
+        await actions.remotePullProblemAction('7', out, { json: true });
+
+        const doc = written();
+        expect(doc).toMatchObject({ ok: true, exitCode: 0, errors: [] });
+        expect(doc.warnings).toEqual(warnings);
+        expect(exitSpy).not.toHaveBeenCalled();
+        const config = pulledConfig();
+        for (const key of missing)
+          expect(Object.keys(config)).not.toContain(key);
+        if (!missing.includes('description')) {
+          expect(config.description).toBe('Add two numbers');
+        }
+        if (!missing.includes('tags')) expect(config.tags).toEqual(['math']);
+        const human = vi
+          .mocked(console.error)
+          .mock.calls.map(call => call.join(' '))
+          .join('\n');
+        for (const warning of warnings) expect(human).toContain(warning);
+      }
+    );
+
+    it('redacts the credentials in a failed description warning', async () => {
+      sdk['viewGeneralDescription'].mockRejectedValue(
+        new Error(`Polygon API Error: bad key ${API_KEY}`)
+      );
+      const out = path.join(tmp, 'pulled');
+
+      await actions.remotePullProblemAction('7', out, { json: true });
+
+      const doc = written();
+      expect(doc.warnings).toEqual([
+        'Could not download the description (Polygon API Error: bad key [REDACTED]): Config.json has no description, so push will not change it on Polygon',
+      ]);
+      expect(JSON.stringify(doc)).not.toContain(API_KEY);
+    });
+
+    it('does not let a push of the pulled problem send an empty description or tags', async () => {
+      sdk['viewGeneralDescription'].mockImplementation(refused);
+      sdk['viewTags'].mockImplementation(refused);
+      const out = path.join(tmp, 'pulled');
+      await actions.remotePullProblemAction('7', out, { json: true });
+      report.reset();
+      writeSpy.mockClear();
+
+      await actions.remotePushProblemAction(out, {
+        metadata: true,
+        json: true,
+      });
+
+      const doc = written();
+      expect(doc).toMatchObject({ ok: true, exitCode: 0, problemId: 7 });
+      expect(sdk['saveGeneralDescription']).not.toHaveBeenCalled();
+      expect(sdk['saveTags']).not.toHaveBeenCalled();
+      expect(doc.actions.filter(a => a.component === 'metadata')).toEqual([]);
+    });
+
     it('redacts the credentials in a failed download warning', async () => {
       sdk['viewSolution'].mockRejectedValue(
         new Error(`Polygon API Error: bad key ${API_KEY}`)
