@@ -210,6 +210,12 @@ describe('issueOfBranch', () => {
     expect(issueOfBranch('0-zero')).toBeNull();
     expect(issueOfBranch('v24-x')).toBeNull();
   });
+
+  it('finds none in a number too big to be an iid', () => {
+    expect(issueOfBranch('100000000000000000000000-x')).toBeNull();
+    expect(issueOfBranch('9007199254740993-x')).toBeNull();
+    expect(issueOfBranch('9007199254740991-x')).toBe(9007199254740991);
+  });
 });
 
 describe('coveringMr', () => {

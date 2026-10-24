@@ -57,8 +57,9 @@ export interface BranchCheck {
  * after the agent's proposal there, from someone the rules allow.
  */
 export function issueOfBranch(branch: string): number | null {
-  const iid = /^([1-9]\d*)-/.exec(branch)?.[1];
-  return iid ? Number(iid) : null;
+  const iid = Number(/^([1-9]\d*)-/.exec(branch)?.[1]);
+  // a number too big to hold exactly (1e+23) names no issue
+  return Number.isSafeInteger(iid) ? iid : null;
 }
 
 const isOpen = (mr: BranchMr) => mr.state !== 'merged' && mr.state !== 'closed';
