@@ -4,6 +4,11 @@
  * for lines and fields, and knows nothing about any provider's payload.
  */
 
+import { ProviderError } from './types';
+
+/** The longest line accepted, in UTF-16 units (about 2 to 4 MB of text). */
+export const MAX_SSE_LINE = 2 * 1024 * 1024;
+
 /** One server-sent event. */
 export interface SseEvent {
   /** The `event:` field, when the server sent one. */
@@ -40,7 +45,11 @@ export async function* parseSse(
 
   const decoder = new TextDecoder();
   const builder = new EventBuilder();
-  let buffer = '';
+  // Text of a line that has no end yet. It is kept in pieces and joined only
+  // when a line end arrives, so a long line costs linear time, not quadratic.
+  let pending: string[] = [];
+  let pendingLength = 0;
+  let pendingEndsWithCr = false;
   let finished = false;
   let first = true;
 
@@ -48,11 +57,17 @@ export async function* parseSse(
     for (;;) {
       const { done, value } = await reader.read();
       signal?.throwIfAborted();
-      if (done) {
-        buffer += decoder.decode();
-      } else {
-        buffer += decoder.decode(value, { stream: true });
+      const text = done
+        ? decoder.decode()
+        : decoder.decode(value, { stream: true });
+      if (!done && !pendingEndsWithCr && !/[\r\n]/.test(text)) {
+        pending.push(text);
+        pendingLength += text.length;
+        if (pendingLength > MAX_SSE_LINE) throw lineTooLong();
+        continue;
       }
+      let buffer = pending.join('') + text;
+      pending = [];
       if (first && buffer.length > 0) {
         // A byte order mark is allowed before the first line.
         if (buffer.startsWith('﻿')) buffer = buffer.slice(1);
@@ -63,11 +78,13 @@ export async function* parseSse(
       for (;;) {
         const end = lineEnd(buffer, start, done);
         if (end === undefined) break;
+        if (end.at - start > MAX_SSE_LINE) throw lineTooLong();
         const event = builder.line(buffer.slice(start, end.at));
         start = end.next;
         if (event) yield event;
       }
       buffer = buffer.slice(start);
+      if (buffer.length > MAX_SSE_LINE) throw lineTooLong();
 
       if (done) {
         if (buffer !== '') {
@@ -79,12 +96,22 @@ export async function* parseSse(
         finished = true;
         return;
       }
+      if (buffer !== '') pending.push(buffer);
+      pendingLength = buffer.length;
+      pendingEndsWithCr = buffer.endsWith('\r');
     }
   } finally {
     signal?.removeEventListener('abort', onAbort);
     if (!finished) await reader.cancel().catch(() => undefined);
     reader.releaseLock();
   }
+}
+
+function lineTooLong(): ProviderError {
+  return new ProviderError(
+    'server',
+    `an SSE line is longer than ${MAX_SSE_LINE} characters`
+  );
 }
 
 /**

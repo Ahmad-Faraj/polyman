@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
+  MAX_SSE_LINE,
   parseSse,
   type SseEvent,
 } from '../../../src/agent/providers/sse-parser';
+import { ProviderError } from '../../../src/agent/providers/types';
 import {
   fixtureResponse,
   listFixtures,
@@ -156,6 +158,41 @@ describe('parseSse', () => {
     await expect(
       collect(bodyOf(['data: a\n\n']), controller.signal)
     ).rejects.toThrow('early');
+  });
+
+  it('throws a server error for a huge line without a newline, in bounded time', async () => {
+    const piece = 'x'.repeat(64);
+    const count = Math.ceil(MAX_SSE_LINE / piece.length) + 10;
+    let sent = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        sent += 1;
+        controller.enqueue(new TextEncoder().encode(piece));
+      },
+    });
+    const started = Date.now();
+    const error: unknown = await collect(body).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ProviderError);
+    expect(error).toMatchObject({ kind: 'server' });
+    expect(sent).toBeLessThanOrEqual(count);
+    expect(Date.now() - started).toBeLessThan(5000);
+  });
+
+  it('throws for one chunk with a line over the limit', async () => {
+    const huge = 'data: ' + 'x'.repeat(MAX_SSE_LINE) + '\n\n';
+    await expect(collect(bodyOf([huge]))).rejects.toMatchObject({
+      kind: 'server',
+    });
+  });
+
+  it('still joins a line split into many small reads', async () => {
+    const pieces = [...'data: hello world\r', '\n', '\r', '\n'];
+    expect(await collect(bodyOf(pieces))).toEqual([{ data: 'hello world' }]);
+    const split = ['da', 'ta: a', '\r', 'data: b\r', '\r', 'data: c\n\n'];
+    expect(await collect(bodyOf(split))).toEqual([
+      { data: 'a\nb' },
+      { data: 'c' },
+    ]);
   });
 
   it.each(listFixtures('openai'))(
