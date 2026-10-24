@@ -45,8 +45,19 @@ export type StreamEvent =
   | { type: 'text_delta'; text: string }
   /** A chunk of the model's reasoning. */
   | { type: 'reasoning_delta'; text: string }
-  /** A finished tool call, emitted only when its arguments are complete. */
-  | { type: 'tool_call'; id: string; name: string; args: unknown }
+  /**
+   * A finished tool call, emitted only when its arguments are complete.
+   * When the arguments are not valid JSON and could not be fixed, `args` is
+   * the raw string and `argsError` says why. The loop then sends an error
+   * tool result, so the model can try again.
+   */
+  | {
+      type: 'tool_call';
+      id: string;
+      name: string;
+      args: unknown;
+      argsError?: string;
+    }
   /** Token counts for the turn. */
   | {
       type: 'usage';
