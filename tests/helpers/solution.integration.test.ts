@@ -2,6 +2,7 @@ import { execFileSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { isMainThread } from 'worker_threads';
 import { describe, expect, it } from 'vitest';
 import { PresentationError, runChecker } from '../../src/helpers/checker';
 import {
@@ -73,7 +74,9 @@ int main(int, char* argv[]) {
 `;
 
 describe('solution.ts integration: ONLINE_JUDGE', () => {
-  it.skipIf(process.platform === 'win32' || !hasGpp())(
+  // process.chdir() is not allowed in worker threads (Stryker runs vitest
+  // in threads), so the test only runs in the normal forks pool.
+  it.skipIf(process.platform === 'win32' || !hasGpp() || !isMainThread)(
     'a main that writes to a file without ONLINE_JUDGE gave PE on the other solution, and is OK now',
     async () => {
       const originalCwd = process.cwd();
