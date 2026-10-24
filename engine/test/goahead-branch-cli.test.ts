@@ -178,6 +178,13 @@ describe('autonomy:goahead:branch against a git repo and a stand-in for GitLab',
     expect(code).toBe(1);
   });
 
+  it("fails when GitLab answers the issue with an error other than 404, rather than taking the issue as missing", async () => {
+    const { code, text } = await run({ mrs: [], issue: issue24, errors: { '/api/v4/projects/1/issues/24': 500 }, events: (r) => [push('14:22', BUILDER, null, r.head)] });
+    expect(text).toMatch(/autonomy:goahead:branch could not finish, so it fails: GET .*issues\/24 -> 500/);
+    expect(text).not.toMatch(/names no issue/);
+    expect(code).toBe(1);
+  });
+
   it('does nothing on the default branch', async () => {
     const { code, text } = await run({ branch: 'main', events: () => [] });
     expect(text).toContain('main is the default branch, which autonomy:guard:main checks');

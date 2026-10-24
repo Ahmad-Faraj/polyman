@@ -150,6 +150,31 @@ describe('the go-ahead guard on a branch with no open MR (#64)', () => {
     expect(result.problems[0].text).toMatch(/names no issue written by a person/);
   });
 
+  describe('a rollback by the incident responder', () => {
+    const RESPONDER = 'ai-incident-responder-gitlab-ai-hackathon_0566ec';
+    const incidentIssue = { iid: 30, author: { username: RESPONDER } };
+    const rollback = (over: Partial<BranchFacts> = {}) =>
+      facts({ branch: '30-rollback', mrs: [], issue: incidentIssue, events: [event('14:22:28', RESPONDER, null, AGENT, '30-rollback')], ...over });
+    const proposal = note(1, '14:00:00', RESPONDER, 'Proposal for #30: roll back the release');
+
+    it("passes on its own incident with a maintainer's go-ahead", async () => {
+      const result = await checkBranch(rollback(), config, repo(), async () => [proposal, note(2, '14:05:00', 'Mazen-Ghanaym', `@${RESPONDER} go-ahead`)]);
+      expect(result.problems).toEqual([]);
+      expect(result.agentPushes.map((c) => [c.step.rollback, c.issue])).toEqual([[true, 30]]);
+    });
+
+    it("needs a maintainer's go-ahead", async () => {
+      const strict = { ...config, goAhead: { ...config.goAhead, maintainers: ['HamzaHassanain'] } };
+      const result = await checkBranch(rollback(), strict, repo(), async () => [proposal, note(2, '14:05:00', 'Mazen-Ghanaym', `@${RESPONDER} go-ahead`)]);
+      expect(result.problems[0].text).toMatch(/@Mazen-Ghanaym is not a maintainer; a rollback needs @HamzaHassanain/);
+    });
+
+    it("doesn't let another agent use an incident as someone asking", async () => {
+      const result = await checkBranch(rollback({ events: [event('14:22:28', BUILDER, null, AGENT, '30-rollback')] }), config, repo(), async () => []);
+      expect(result.problems[0].text).toMatch(/went to 30-rollback, which has no MR, and the branch names no issue written by a person/);
+    });
+  });
+
   it('passes a branch only people pushed to', async () => {
     const result = await check({ mrs: [], events: [event('14:22:28', 'HamzaHassanain', null, AGENT)] });
     expect(result).toEqual({ openMr: null, agentPushes: [], covered: [], problems: [] });
