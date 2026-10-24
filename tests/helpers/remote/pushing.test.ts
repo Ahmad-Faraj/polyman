@@ -817,6 +817,45 @@ describe('pushing.ts', () => {
       }
     });
 
+    it('should label each manual failure and count only fulfilled uploads when missing, failed and uploaded tests are mixed', async () => {
+      const { sdk, mocks } = buildSdk();
+      mockedExistsSync.mockImplementation(
+        (p: PathLike) => !String(p).endsWith('a.txt')
+      );
+      mockedReadFileSync.mockReturnValue('m');
+      mocks.saveTest.mockImplementation(
+        (_problemId: number, _testset: string, index: number) =>
+          index === 3
+            ? Promise.reject(new Error('saveTest c'))
+            : Promise.resolve()
+      );
+      const failures: string[] = [];
+      const cfg = asConfig({
+        testsets: [
+          {
+            name: 'tests',
+            manualTests: [
+              { input: 'a.txt', index: 1 },
+              { input: 'b.txt', index: 2 },
+              { input: 'c.txt', index: 3 },
+              { input: 'd.txt', index: 4 },
+            ],
+          },
+        ],
+      });
+      const result = await pushing.uploadTestsets(sdk, 1, 'dir', cfg, failures);
+      const savedIndexes = mocks.saveTest.mock.calls.map(
+        call => call[2] as number
+      );
+      expect(savedIndexes).toEqual([2, 3, 4]);
+      expect(result.manualsCount).toBe(2);
+      expect(failures).toEqual([
+        'testset tests manual test a.txt: Manual test file not found: a.txt',
+        'testset tests manual test c.txt: saveTest c',
+        'testset tests tests: Manual test input not found: a.txt',
+      ]);
+    });
+
     it('should read every manual input before uploading and count only uploaded tests', async () => {
       const { sdk, mocks } = buildSdk();
       mockedExistsSync.mockReturnValue(true);
