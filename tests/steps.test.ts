@@ -708,6 +708,14 @@ describe('steps.ts', () => {
       expect(solution.startTheComparisonProcess).toHaveBeenCalledTimes(1);
     });
 
+    it('does not compare anything when the main is the only solution', async () => {
+      const main = { name: 'main', source: 'm.cpp', tag: 'MA' };
+      const config = baseConfig({ solutions: [main] });
+      vi.mocked(solution.getMainSolution).mockReturnValue(main as any);
+      await steps.stepVerifySolutionsAgainstMainCorrect(1, config);
+      expect(solution.startTheComparisonProcess).not.toHaveBeenCalled();
+    });
+
     it('should throw when at least one comparison fails', async () => {
       const main = { name: 'main', source: 'm.cpp', tag: 'MA' };
       const other = { name: 'b', source: 'b.cpp', tag: 'OK' };

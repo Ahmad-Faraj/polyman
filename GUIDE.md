@@ -285,7 +285,7 @@ So the order is: environment variable, then `Config.json`, then the default. An 
 - a `-std=` flag in `flags` replaces `cppStandard`,
 - an `-O` flag in `flags` (`-O0`, `-O3`, `-Ofast`, ...) replaces `-O2`.
 
-With the example above, polyman runs `g++-15 -O2 -std=c++20 -Wall -DLOCAL ...`. With `"flags": ["-O0", "-std=gnu++17"]` it runs `g++-15 -O0 -std=gnu++17 ...`, so `cppStandard` is not used. The same flags are used for every C++ source: solutions, generators, the validator and the checker.
+With the example above, polyman runs `g++-15 -O2 -std=c++20 -Wall -DLOCAL ...`. With `"flags": ["-O0", "-std=gnu++17"]` it runs `g++-15 -O0 -std=gnu++17 ...`, so `cppStandard` is not used. The same flags are used for every C++ source: solutions, generators, the validator and the checker. The one difference: C++ solutions also get `-DONLINE_JUDGE` right after the standard, like on Codeforces, so a solution with `#ifndef ONLINE_JUDGE freopen(...) #endif` writes to stdout. It is not added twice if `flags` already defines `ONLINE_JUDGE`.
 
 Paths with spaces work, polyman quotes the executable and each flag. Because each item is one argument, write `["-Wall", "-Wextra"]` and not `["-Wall -Wextra"]`. On Windows, use the full path with backslashes in JSON (`"C:\\mingw64\\bin\\g++.exe"`) or forward slashes.
 
@@ -1639,6 +1639,7 @@ polyman test wa-solution
 
 1. Generates tests if needed, runs the main solution to get jury answers, then runs the target solution
 2. Uses the checker to compare outputs and confirms the target solution behaves as its tag advertises (e.g., a `WA`-tagged solution passes when it gets WA or PE on at least one test, as on Polygon)
+3. If the main solution prints nothing on every test while the target solution prints output on some test, it stops with an error that names the main solution. This is usually a build or flag problem (for example `freopen` under `#ifndef ONLINE_JUDGE`). The main output is the answer for the checker, so it would only show up as a wrong verdict on the other solution. An empty answer on some tests is fine, those tests go to the checker as usual. `verify` does the same check
 
 **Use Case:** Verify that WA/TL/RE solutions actually fail as expected.
 
@@ -1881,7 +1882,7 @@ Compiling testlib-based C++ takes seconds per file, and most runs recompile sour
 
 - the source file's contents,
 - the contents of every local header it reaches through `#include "..."`, followed recursively (`testlib.h`, your own helpers),
-- the compile flags (`-O2`, `-std=<cppStandard>` and `compiler.flags`),
+- the compile flags (`-O2`, `-std=<cppStandard>`, `-DONLINE_JUDGE` for solutions and `compiler.flags`),
 - the compiler executable (`POLYMAN_CXX`, `compiler.cpp` or `g++`) and its `--version` output.
 
 If any of these change, the source is recompiled; otherwise the cached binary is copied into place and the compiler does not run. A cached binary whose checksum no longer matches is discarded and rebuilt. `verify` prints how much compile time the cache saved:

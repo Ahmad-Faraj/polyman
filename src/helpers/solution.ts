@@ -14,6 +14,7 @@ import { executor } from '../executor';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { StringDecoder } from 'string_decoder';
 import { logError, throwError } from './utils';
 import {
   compileCPP,
@@ -444,6 +445,7 @@ function ensureOutputDirectory(
 /**
  * Compiles a solution based on file extension.
  * Supports C++ (.cpp), Python (.py), and Java (.java).
+ * C++ is compiled with `-DONLINE_JUDGE`, like Codeforces does.
  * For interpreted languages, returns the interpreter command.
  *
  * @param {string} sourcePath - Path to solution source file
@@ -462,7 +464,7 @@ function ensureOutputDirectory(
  */
 export async function compileSolution(sourcePath: string): Promise<void> {
   if (isCppSource(sourcePath)) {
-    await compileCPP(sourcePath);
+    await compileCPP(sourcePath, { onlineJudge: true });
     return;
   }
 
@@ -978,6 +980,7 @@ export async function startTheComparisonProcess(
   try {
     const compiledCheckerPath = getCompiledCommandToRun(checker);
     const verdictTracker = createVerdictTracker();
+    await ensureMainPrintedOutput(mainSolution, targetSolution, testsets);
 
     for (const testset of testsets) {
       const mainOutputDir = ensureOutputDirectory(
@@ -1207,6 +1210,129 @@ function validateMainSolutionOutput(firstLine: string, testFile: string) {
   if (isRTE(firstLine)) {
     throw new Error(`Main Solution had runtime error on test ${testFile}`);
   }
+}
+
+/** Chunk size used when scanning an output file for a non-blank character. */
+const BLANK_SCAN_CHUNK_BYTES = 64 * 1024;
+
+/**
+ * Whether an output file holds nothing but whitespace. Reads the first line
+ * first, so a normal output is not read in full. When the first line is
+ * blank, the file is scanned in 64 KB chunks and the scan stops at the first
+ * non-whitespace character, so a huge output never has to fit in a string.
+ * Whitespace is what `String.prototype.trim` treats as whitespace.
+ *
+ * @private
+ * @param {string} filePath - Output file to check
+ * @returns {Promise<boolean>} True if the file is empty or only whitespace
+ */
+async function isBlankOutput(filePath: string): Promise<boolean> {
+  if ((await readFirstLine(filePath)).trim() !== '') return false;
+
+  const handle = await fs.promises.open(filePath, 'r');
+  try {
+    const buffer = Buffer.alloc(BLANK_SCAN_CHUNK_BYTES);
+    // A decoder keeps a multi-byte character split across two chunks intact.
+    const decoder = new StringDecoder('utf8');
+    for (;;) {
+      const { bytesRead } = await handle.read(
+        buffer,
+        0,
+        BLANK_SCAN_CHUNK_BYTES,
+        null
+      );
+      if (bytesRead === 0) return decoder.end().trim() === '';
+      if (decoder.write(buffer.subarray(0, bytesRead)).trim() !== '') {
+        return false;
+      }
+    }
+  } finally {
+    await handle.close();
+  }
+}
+
+/**
+ * Fails when the main solution printed nothing on every test while the
+ * target solution printed an answer on at least one test. This is what a
+ * broken build looks like (for example a main that writes to a file under
+ * `#ifndef ONLINE_JUDGE`): the main output is the answer file for the
+ * checker, so every other solution would get a wrong verdict instead.
+ * An empty answer on some tests is fine, those tests go to the checker as
+ * usual. A target output that is a TLE, MLE or RTE marker is not an answer.
+ * Runs after both solutions ran, before any test goes to the checker.
+ *
+ * @private
+ * @param {LocalSolution} mainSolution - Main correct solution
+ * @param {LocalSolution} targetSolution - Solution being checked
+ * @param {LocalTestset[]} testsets - Testsets to look at
+ *
+ * @throws {Error} If the main output is blank on every test and the target
+ *   printed an answer on some test
+ *
+ * @example
+ * await ensureMainPrintedOutput(main, other, config.testsets);
+ */
+async function ensureMainPrintedOutput(
+  mainSolution: LocalSolution,
+  targetSolution: LocalSolution,
+  testsets: LocalTestset[]
+): Promise<void> {
+  let testCount = 0;
+  let targetAnsweredOn: string | undefined;
+
+  for (const testset of testsets) {
+    const mainOutputDir = ensureOutputDirectory(
+      mainSolution.name,
+      testset.name
+    );
+    const targetOutputDir = ensureOutputDirectory(
+      targetSolution.name,
+      testset.name
+    );
+    const testsDir = path.resolve(process.cwd(), 'testsets', testset.name);
+
+    for (const testFile of getTestFiles(testsDir)) {
+      const mainOutputPath = path.join(mainOutputDir, `output_${testFile}`);
+      // A missing main output is not "nothing printed", the per-test checks
+      // report it.
+      if (!fs.existsSync(mainOutputPath)) return;
+      if (!(await isBlankOutput(mainOutputPath))) return;
+      testCount++;
+
+      const targetOutputPath = path.join(targetOutputDir, `output_${testFile}`);
+      if (
+        targetAnsweredOn === undefined &&
+        (await printedAnswer(targetOutputPath))
+      ) {
+        targetAnsweredOn = `test ${testFile} in testset ${testset.name}`;
+      }
+    }
+  }
+
+  if (targetAnsweredOn === undefined) return;
+
+  throw new Error(
+    `Main solution "${mainSolution.name}" printed nothing on every test ` +
+      `(${testCount} in total), but "${targetSolution.name}" printed output ` +
+      `(first on ${targetAnsweredOn}). The main output is the answer for ` +
+      'the checker, so this is likely a build or flag problem: check that ' +
+      'the main writes its answer to stdout and not to a file ' +
+      '(for example freopen under #ifndef ONLINE_JUDGE).'
+  );
+}
+
+/**
+ * Whether a solution output file holds a real answer: it exists, it is not
+ * blank, and it is not a TLE, MLE or RTE marker written by polyman.
+ *
+ * @private
+ * @param {string} filePath - Output file to check
+ * @returns {Promise<boolean>} True if the file holds an answer
+ */
+async function printedAnswer(filePath: string): Promise<boolean> {
+  if (!fs.existsSync(filePath)) return false;
+  if (shouldSkipCheckerComparison(await readFirstLine(filePath))) return false;
+  return !(await isBlankOutput(filePath));
 }
 
 /**
