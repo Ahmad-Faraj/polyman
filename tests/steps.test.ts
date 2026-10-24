@@ -1150,6 +1150,17 @@ describe('steps.ts', () => {
   });
 
   describe('stepDownloadTests', () => {
+    it('should fail with exit code 2 when Config.json is not valid JSON', async () => {
+      vi.mocked(fs.existsSync).mockReturnValue(true);
+      vi.mocked(fs.readFileSync).mockReturnValue('{ not json');
+      const error: unknown = await steps
+        .stepDownloadTests(1, {} as any, 7, 'tests', 'savePath')
+        .catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(PolymanError);
+      expect((error as PolymanError).exitCode).toBe(2);
+      expect((error as PolymanError).cause).toBeInstanceOf(SyntaxError);
+    });
+
     it('should throw when Config.json is missing', async () => {
       vi.mocked(fs.existsSync).mockReturnValue(false);
       await expect(
@@ -1275,6 +1286,20 @@ describe('steps.ts', () => {
   });
 
   describe('stepReadConfig', () => {
+    it('should fail with exit code 2 when Config.json is not valid JSON', () => {
+      vi.mocked(fs.existsSync).mockReturnValue(true);
+      vi.mocked(fs.readFileSync).mockReturnValue('{ not json');
+      let error: unknown;
+      try {
+        steps.stepReadConfig(1, '/dir');
+      } catch (e) {
+        error = e;
+      }
+      expect(error).toBeInstanceOf(PolymanError);
+      expect((error as PolymanError).exitCode).toBe(2);
+      expect((error as PolymanError).cause).toBeInstanceOf(SyntaxError);
+    });
+
     it('should read and parse Config.json', () => {
       vi.mocked(fs.existsSync).mockReturnValue(true);
       const cfg = baseConfig();

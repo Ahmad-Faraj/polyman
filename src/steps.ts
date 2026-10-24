@@ -1165,6 +1165,26 @@ export async function stepDownloadProblemFilesAndSetUpConfig(
 }
 
 /**
+ * Reads and parses the Config.json at `configPath`.
+ *
+ * @throws {PolymanError} With exit code 2 if the file is unreadable or is not
+ *   valid JSON (a usage error: the setter has to fix the file).
+ */
+function parseConfigAt(configPath: string): ConfigFile {
+  try {
+    return JSON.parse(fs.readFileSync(configPath, 'utf-8')) as ConfigFile;
+  } catch (error) {
+    const why = error instanceof Error ? error.message : String(error);
+    throw new PolymanError(
+      `Could not read ${configPath}: ${why}`,
+      2,
+      'Fix the JSON in Config.json, then run the command again.',
+      { cause: error }
+    );
+  }
+}
+
+/**
  * Step: Download test files from Polygon
  */
 export async function stepDownloadTests(
@@ -1184,7 +1204,7 @@ export async function stepDownloadTests(
     throw new PolymanError('Config.json not found', 2);
   }
 
-  const config = JSON.parse(fs.readFileSync(configPath, 'utf-8')) as ConfigFile;
+  const config = parseConfigAt(configPath);
   const generators = config.generators || [];
 
   try {
@@ -1248,7 +1268,7 @@ export function stepReadConfig(
     throw new PolymanError(`Config.json not found in ${problemDir}`, 2);
   }
 
-  const config = JSON.parse(fs.readFileSync(configPath, 'utf-8')) as ConfigFile;
+  const config = parseConfigAt(configPath);
 
   fmt.info(
     `  ${fmt.infoIcon()} Problem: ${fmt.highlight(config.name || 'Unnamed')}`
