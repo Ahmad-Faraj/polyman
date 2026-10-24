@@ -227,12 +227,20 @@ describe('cli.ts', () => {
 
   it('should register test command', async () => {
     await loadCli(['test', 'validator']);
-    expect(actions.testWhatAction).toHaveBeenCalledWith(
-      'validator',
-      expect.anything(),
-      expect.anything()
-    );
+    expect(actions.testWhatAction).toHaveBeenCalledWith('validator', {
+      json: false,
+    });
   });
+
+  it.each(['validator', 'checker', 'wa-solution'])(
+    'should pass --json through to test %s',
+    async what => {
+      await loadCli(['test', what, '--json']);
+      expect(actions.testWhatAction).toHaveBeenCalledWith(what, {
+        json: true,
+      });
+    }
+  );
 
   it('should register verify command', async () => {
     await loadCli(['verify']);

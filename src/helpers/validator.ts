@@ -71,6 +71,7 @@ export async function compileValidator(
  * @param {string} execCommand - Path to compiled validator executable
  * @param {string} testFilePath - Path to test file
  * @param {ValidatorVerdict} expectedVerdict - Expected verdict (VALID or INVALID)
+ * @param {Function} [observe] - Called with the verdict the validator gave and its stderr, before it is compared with `expectedVerdict`
  *
  * @throws {Error} If validator verdict doesn't match expected
  * @throws {Error} If validator exceeds time or memory limits (throws a LimitExceededError)
@@ -81,7 +82,8 @@ export async function compileValidator(
 async function runValidator(
   execCommand: string,
   testFilePath: string,
-  expectedVerdict: ValidatorVerdict
+  expectedVerdict: ValidatorVerdict,
+  observe?: (actual: ValidatorVerdict, message: string) => void
 ) {
   let didCatchInvalid = false;
   await executor.executeWithRedirect(
@@ -92,6 +94,7 @@ async function runValidator(
       silent: true,
       onError: result => {
         didCatchInvalid = true;
+        observe?.('INVALID', result.stderr.trim());
         if (expectedVerdict === 'VALID')
           throw new Error(result.stderr || 'Validator execution failed');
       },
@@ -117,6 +120,8 @@ async function runValidator(
     testFilePath,
     undefined
   );
+
+  if (!didCatchInvalid) observe?.('VALID', '');
 
   if (expectedVerdict === 'INVALID' && !didCatchInvalid) {
     throw new Error('Validator did not detect invalid test');
@@ -470,15 +475,35 @@ export async function runValidatorTests(validator: LocalValidator) {
 
     for (const [index, { expectedVerdict }] of validatorTests.entries()) {
       const testFileDir = path.join(testsDir, `test${index + 1}.txt`);
+      let actual = 'ERROR';
+      let detail = '';
       try {
         await runValidator(
           getCompiledCommandToRun(validator),
           testFileDir,
-          expectedVerdict
+          expectedVerdict,
+          (verdict, message) => {
+            actual = verdict;
+            detail = message;
+          }
         );
+        report.recordSelfTestCase({
+          index: index + 1,
+          expected: expectedVerdict,
+          actual,
+          ok: true,
+          message: detail,
+        });
       } catch (error) {
         if (error instanceof LimitExceededError) throw error;
         someFailed = true;
+        report.recordSelfTestCase({
+          index: index + 1,
+          expected: expectedVerdict,
+          actual,
+          ok: false,
+          message: (error as Error).message,
+        });
         fmt.error(
           `  ${fmt.cross()} Validator Test ${index + 1} failed:\n\t${(error as Error).message} expected to be ${expectedVerdict}`
         );

@@ -404,12 +404,19 @@ program
  * polyman test validator
  * polyman test checker
  * polyman test wa-solution
+ * polyman test checker --json   # machine-readable report on stdout
  */
 program
   .command('test <what>')
   .description('Test validator, checker, or a solution against main correct')
+  .option(
+    '--json',
+    'Print a JSON report to stdout (human output goes to stderr)'
+  )
   .option('--no-cache', NO_CACHE_DESCRIPTION)
-  .action(testWhatAction);
+  .action(async (what: string, options: { json?: boolean }) => {
+    await testWhatAction(what, { json: options.json === true });
+  });
 
 // ============================================================================
 // VERIFY COMMAND

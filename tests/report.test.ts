@@ -6,6 +6,8 @@ import type {
   GenerateReport,
   LocalSolution,
   RunReport,
+  SelfTestReport,
+  SolutionTestReport,
   ValidateReport,
   VerifyReport,
 } from '../src/types';
@@ -625,7 +627,185 @@ describe('report.ts', () => {
     });
   });
 
+  describe('self-test report', () => {
+    it('renders each case with expected, actual and message', () => {
+      collector.startSelfTest('validator');
+      collector.recordSelfTestCase({
+        index: 1,
+        expected: 'VALID',
+        actual: 'VALID',
+        ok: true,
+        message: '',
+      });
+      collector.recordSelfTestCase({
+        index: 2,
+        expected: 'INVALID',
+        actual: 'VALID',
+        ok: false,
+        message: '\u001b[31mValidator did not detect invalid test\u001b[39m',
+      });
+      fmt.error('Some validator tests failed');
+      collector.finish(false);
+
+      const doc = written() as SelfTestReport;
+      expect(doc).toMatchObject({
+        schemaVersion: 1,
+        command: 'test validator',
+        ok: false,
+        exitCode: 1,
+        target: 'validator',
+        errors: ['Some validator tests failed'],
+      });
+      expect(doc.cases).toEqual([
+        { index: 1, expected: 'VALID', actual: 'VALID', ok: true, message: '' },
+        {
+          index: 2,
+          expected: 'INVALID',
+          actual: 'VALID',
+          ok: false,
+          message: 'Validator did not detect invalid test',
+        },
+      ]);
+      expect(doc.durationMs).toBeGreaterThanOrEqual(0);
+    });
+
+    it('renders an empty case list when nothing ran', () => {
+      collector.startSelfTest('checker');
+      collector.finish(true);
+      expect(written()).toMatchObject({
+        command: 'test checker',
+        ok: true,
+        exitCode: 0,
+        target: 'checker',
+        cases: [],
+        errors: [],
+      });
+    });
+
+    it('uses the exit code passed to finish', () => {
+      collector.startSelfTest('checker');
+      collector.fail('No checker defined in the configuration file.');
+      collector.finish(false, 2);
+      expect(written()).toMatchObject({ ok: false, exitCode: 2 });
+    });
+
+    it('ignores self-test cases for other reports', () => {
+      collector.startVerify();
+      collector.recordSelfTestCase({
+        index: 1,
+        expected: 'OK',
+        actual: 'OK',
+        ok: true,
+        message: '',
+      });
+      collector.finish(true);
+      expect(written()).not.toHaveProperty('cases');
+    });
+  });
+
+  describe('solution test report', () => {
+    it('renders only the target tests, the main solution and the outcome', () => {
+      collector.startSolutionTest('wa');
+      collector.setSolutionTest(main, wa);
+      collector.recordTest(main, {
+        testset: 'tests',
+        index: 1,
+        verdict: 'OK',
+        timeMs: 3,
+        message: '',
+      });
+      collector.recordTest(wa, {
+        testset: 'tests',
+        index: 1,
+        verdict: 'OK',
+        timeMs: 4,
+        message: '',
+      });
+      collector.updateTestVerdict(wa, 'tests', 1, 'WA', 'wrong answer 1st');
+      collector.setSolutionOutcome(wa, true, 'Behaves as expected');
+      collector.finish(true);
+
+      const doc = written() as SolutionTestReport;
+      expect(doc).toMatchObject({
+        schemaVersion: 1,
+        command: 'test',
+        ok: true,
+        exitCode: 0,
+        solution: 'wa',
+        tag: 'WA',
+        mainSolution: 'main',
+        matchesTag: true,
+        reason: 'Behaves as expected',
+        errors: [],
+      });
+      expect(doc.tests).toEqual([
+        {
+          testset: 'tests',
+          index: 1,
+          verdict: 'WA',
+          timeMs: 4,
+          message: 'wrong answer 1st',
+        },
+      ]);
+      expect(doc.summary).toEqual({ total: 1, byVerdict: { WA: 1 } });
+    });
+
+    it('reports a tag mismatch with its reason', () => {
+      collector.startSolutionTest('wa');
+      collector.setSolutionTest(main, wa);
+      collector.setSolutionOutcome(
+        wa,
+        false,
+        new Error('Solution wa marked as WA but did not get Wrong Answer')
+      );
+      collector.fail('Solution wa marked as WA but did not get Wrong Answer');
+      collector.finish(false);
+
+      expect(written()).toMatchObject({
+        ok: false,
+        exitCode: 1,
+        matchesTag: false,
+        reason: 'Solution wa marked as WA but did not get Wrong Answer',
+        errors: ['Solution wa marked as WA but did not get Wrong Answer'],
+      });
+    });
+
+    it('says the solution was not evaluated when the test stopped early', () => {
+      collector.startSolutionTest('nope');
+      collector.fail('No solution named "nope" found.');
+      collector.finish(false);
+
+      expect(written()).toMatchObject({
+        command: 'test',
+        solution: 'nope',
+        tag: null,
+        mainSolution: null,
+        matchesTag: false,
+        reason: 'Not evaluated: the test stopped before comparison',
+        tests: [],
+        summary: { total: 0, byVerdict: {} },
+      });
+    });
+
+    it('ignores setSolutionTest for other reports', () => {
+      collector.startRun('wa');
+      collector.setSolutionTest(main, wa);
+      collector.finish(true);
+      expect(written()).not.toHaveProperty('mainSolution');
+      expect(written()).toMatchObject({ tag: null });
+    });
+  });
+
   describe('finish', () => {
+    it('writes the process exit code from the exit hook', () => {
+      const onSpy = vi.spyOn(process, 'on');
+      collector.startSelfTest('validator');
+      const exitCall = onSpy.mock.calls.find(call => call[0] === 'exit');
+      const handler = exitCall![1] as (code: number) => void;
+      handler(3);
+      expect(written()).toMatchObject({ ok: false, exitCode: 3 });
+    });
+
     it('writes exactly once even if called twice', () => {
       collector.startVerify();
       collector.finish(true);

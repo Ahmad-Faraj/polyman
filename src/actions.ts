@@ -785,6 +785,9 @@ export const runSolutionAction = async (
  * For solutions: Tests against main-correct solution using checker.
  *
  * @param {string} what - 'validator', 'checker', or solution name to test
+ * @param {{ json?: boolean }} [options] - With `json`, print a JSON report
+ *   to stdout (a self-test report for validator/checker, a solution test
+ *   report otherwise) and move human output to stderr
  * @returns {Promise<void>} Resolves when testing completes
  *
  * @throws {Error} If Config.json is invalid
@@ -809,7 +812,17 @@ export const runSolutionAction = async (
  * // Runs wa-solution and main solution, compares with checker
  * // Validates that wa-solution gets WA on at least one test
  */
-export const testWhatAction = async (what: string) => {
+export const testWhatAction = async (
+  what: string,
+  options: { json?: boolean } = {}
+) => {
+  if (options.json) {
+    if (what === 'validator' || what === 'checker') {
+      report.startSelfTest(what);
+    } else {
+      report.startSolutionTest(what);
+    }
+  }
   fmt.section(`🔍 TESTING: ${what.toUpperCase()}`);
 
   try {
@@ -855,6 +868,7 @@ export const testWhatAction = async (what: string) => {
         // step 1: Validate configuration
         const { mainSolution, targetSolution } =
           stepValidateConfigForSolutionTest(stepNum++, what);
+        report.setSolutionTest(mainSolution, targetSolution);
 
         // step 2: Compile solutions
         await stepCompileSolutions(stepNum++, [mainSolution, targetSolution]);
@@ -866,15 +880,25 @@ export const testWhatAction = async (what: string) => {
         }
 
         // step 4: Test solution behavior
-        await stepTestSolutionBehavior(stepNum++, what);
+        try {
+          await stepTestSolutionBehavior(stepNum++, what);
+        } catch (error) {
+          report.setSolutionOutcome(targetSolution, false, error);
+          throw error;
+        }
+        report.setSolutionOutcome(targetSolution, true, 'Behaves as expected');
 
         // Final success message
         fmt.successBox(`${what.toUpperCase()} BEHAVES AS EXPECTED!`);
         break;
       }
     }
+    report.finish(true);
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     fmt.errorBox('TESTING FAILED!');
+    report.fail(message);
+    report.finish(false, exitCodeFor(error));
     throw error;
   }
 };

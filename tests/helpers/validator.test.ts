@@ -787,6 +787,64 @@ describe('validator.ts', () => {
       expect(mockedCleanup).toHaveBeenCalled();
     });
 
+    it('should record every case with expected, actual and message', async () => {
+      const recordSpy = vi
+        .spyOn(report, 'recordSelfTestCase')
+        .mockImplementation(() => {});
+      const mockValidator: LocalValidator = {
+        name: 'val',
+        source: 'val.cpp',
+        testsFilePath: 'validator_tests.json',
+      };
+      const testsJson = {
+        tests: [
+          { index: 1, input: '1 2', expectedVerdict: 'VALID' },
+          { index: 2, input: '-1', expectedVerdict: 'INVALID' },
+          { index: 3, input: '0', expectedVerdict: 'INVALID' },
+          { index: 4, input: 'x', expectedVerdict: 'VALID' },
+        ],
+      };
+      mockedReadFile.mockImplementation(
+        readFileImpl(null, JSON.stringify(testsJson)) as typeof fs.readFile
+      );
+      mockedGetCompiledCommandToRun.mockReturnValue('./val');
+      mockedExecuteWithRedirect
+        .mockResolvedValueOnce(SUCCESS_RESULT)
+        .mockImplementationOnce(executeOnErrorResolve('FAIL n >= 1\n'))
+        .mockResolvedValueOnce(SUCCESS_RESULT)
+        .mockImplementationOnce(executeOnErrorResolve('FAIL expected int'));
+      mockedCleanup.mockResolvedValue();
+
+      await expect(validator.runValidatorTests(mockValidator)).rejects.toThrow(
+        'Some validator tests failed'
+      );
+
+      expect(recordSpy.mock.calls.map(call => call[0])).toEqual([
+        { index: 1, expected: 'VALID', actual: 'VALID', ok: true, message: '' },
+        {
+          index: 2,
+          expected: 'INVALID',
+          actual: 'INVALID',
+          ok: true,
+          message: 'FAIL n >= 1',
+        },
+        {
+          index: 3,
+          expected: 'INVALID',
+          actual: 'VALID',
+          ok: false,
+          message: 'Validator did not detect invalid test',
+        },
+        {
+          index: 4,
+          expected: 'VALID',
+          actual: 'INVALID',
+          ok: false,
+          message: 'FAIL expected int',
+        },
+      ]);
+    });
+
     it('should propagate parse errors', async () => {
       const mockValidator: LocalValidator = {
         name: 'val',
