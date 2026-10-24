@@ -228,6 +228,9 @@ export async function executeResolvedTests(
 
   for (const t of tests) {
     let key: string | null = null;
+    // True once the stale output files of this multi-output line are gone,
+    // so any `test<idx>.txt` that exists after that was written by this run.
+    let cleared = false;
     try {
       if (t.source.kind === 'manual') {
         const dest = path.join(testsDir, `test${t.index}.txt`);
@@ -252,6 +255,16 @@ export async function executeResolvedTests(
         }
         handled.set(key, null);
 
+        // The testset folder is not cleaned between runs. Remove the files an
+        // earlier run left for these indices, so a file is only accepted (on
+        // success) or counted as written (on failure) if this run wrote it.
+        for (const idx of src.multiOutputs) {
+          for (const name of multiOutputNames(idx)) {
+            fs.rmSync(path.join(testsDir, name), { force: true });
+          }
+        }
+        cleared = true;
+
         const compiledPath = compiled.get(src.generator);
         if (!compiledPath) {
           throw new Error(`Generator "${src.generator}" not compiled`);
@@ -259,13 +272,7 @@ export async function executeResolvedTests(
         await runGeneratorMultiOutput(compiledPath, src.args, testsDir);
         // Verify each promised file exists and rename to test<N>.txt convention.
         for (const idx of src.multiOutputs) {
-          const expectedNames = [
-            String(idx),
-            `${idx}`,
-            `test${idx}`,
-            `${idx}.txt`,
-            `test${idx}.txt`,
-          ];
+          const expectedNames = multiOutputNames(idx);
           let found: string | undefined;
           for (const candidate of expectedNames) {
             const p = path.join(testsDir, candidate);
@@ -303,9 +310,10 @@ export async function executeResolvedTests(
         handled.set(key, message);
         // A failed multi-output line may still have written some files:
         // `ok` means "the input file was written", so judge each index by
-        // whether its file exists.
+        // whether its file exists. That is only safe once the stale files
+        // are gone; otherwise every index keeps the line's error.
         const indices = t.source.multiOutputs;
-        if (indices) {
+        if (indices && cleared) {
           const perIndex = new Map<number, string | null>();
           for (const idx of indices) {
             const written = fs.existsSync(
@@ -327,6 +335,14 @@ export async function executeResolvedTests(
   if (someFailed) {
     throw new PolymanError('Some tests failed to generate', 1);
   }
+}
+
+/**
+ * File names a multi-output generator may write for one index, in the order
+ * they are looked up. The one found is renamed to `test<idx>.txt`.
+ */
+function multiOutputNames(idx: number): string[] {
+  return [`${idx}`, `test${idx}`, `${idx}.txt`, `test${idx}.txt`];
 }
 
 /**

@@ -587,6 +587,71 @@ describe('executeResolvedTests records each test for generate --json', () => {
     expect(results[1].error).toMatch(/did not produce a file for index 2/);
   });
 
+  // A tiny in-memory folder: `fs` is mocked, so existsSync, rmSync and
+  // renameSync work on this set of paths.
+  function fakeFolder(files: string[]): Set<string> {
+    const folder = new Set(files.map(f => path.join('/out', f)));
+    vi.mocked(fs.existsSync).mockImplementation(p => folder.has(String(p)));
+    vi.mocked(fs.rmSync).mockImplementation(p => {
+      folder.delete(String(p));
+    });
+    vi.mocked(fs.renameSync).mockImplementation((from, to) => {
+      folder.delete(String(from));
+      folder.add(String(to));
+    });
+    return folder;
+  }
+
+  it('does not count a stale test file from an earlier run on a failed multi-output line', async () => {
+    const folder = fakeFolder(['test2.txt']);
+    execute().mockImplementationOnce(() => {
+      folder.add(path.join('/out', 'test1.txt'));
+      return Promise.reject(new Error('crashed after test 1'));
+    });
+
+    await expect(
+      generator.executeResolvedTests(
+        [genTest(1, [1, 2]), genTest(2, [1, 2])],
+        gens,
+        '/out',
+        'main'
+      )
+    ).rejects.toThrow(/Some tests failed/);
+
+    expect(recorded().map(t => [t.index, t.ok, t.error])).toEqual([
+      [1, true, undefined],
+      [2, false, 'crashed after test 1'],
+    ]);
+  });
+
+  it('does not accept a stale file from an earlier run when the multi-output line exits 0', async () => {
+    const folder = fakeFolder(['test2.txt', '3']);
+    execute().mockImplementationOnce(() => {
+      folder.add(path.join('/out', 'test1.txt'));
+      folder.add(path.join('/out', 'test3.txt'));
+      return Promise.resolve(okResult);
+    });
+
+    await expect(
+      generator.executeResolvedTests(
+        [genTest(1, [1, 2, 3]), genTest(2, [1, 2, 3]), genTest(3, [1, 2, 3])],
+        gens,
+        '/out',
+        'main'
+      )
+    ).rejects.toThrow(/Some tests failed/);
+
+    const results = recorded();
+    expect(results.map(t => [t.index, t.ok])).toEqual([
+      [1, true],
+      [2, false],
+      [3, true],
+    ]);
+    expect(results[1].error).toMatch(/did not produce a file for index 2/);
+    // The stale `3` is gone, so it was not renamed over the new test3.txt.
+    expect(fs.renameSync).not.toHaveBeenCalled();
+  });
+
   it('gives every test of a failed multi-output line the same error', async () => {
     vi.mocked(fs.existsSync).mockReturnValue(false);
     execute().mockRejectedValueOnce(new Error('bad line'));
