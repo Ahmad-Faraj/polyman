@@ -4,6 +4,7 @@ import path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { executor } from '../../src/executor';
 import {
+  DEFAULT_MAX_ENTRY_AGE_MS,
   resetCompileCacheState,
   setCacheEnabled,
 } from '../../src/helpers/compile-cache';
@@ -392,6 +393,44 @@ describe('pch.ts', () => {
       await pch.findPch(c);
 
       expect(fs.existsSync(gchOf(c))).toBe(true);
+    });
+  });
+
+  describe('pruning by age', () => {
+    const DAY = 24 * 60 * 60 * 1000;
+    const root = () => path.join(cacheDir, 'pch');
+    const setTime = (target: string, ms: number) => {
+      const when = new Date(Date.now() - ms);
+      fs.utimesSync(target, when, when);
+    };
+
+    it('removes a key whose .gch is older than the maximum age, with fewer than 2 keys', async () => {
+      const dir = path.join(root(), 'oldkey');
+      const gch = path.join(dir, 'bits', 'stdc++.h.gch');
+      fs.mkdirSync(path.dirname(gch), { recursive: true });
+      fs.writeFileSync(gch, 'GCH');
+      setTime(gch, DEFAULT_MAX_ENTRY_AGE_MS + DAY);
+
+      const built = await pch.findPch(request());
+
+      expect(built).not.toBeNull();
+      expect(fs.existsSync(dir)).toBe(false);
+      expect(fs.existsSync(path.join(built!.includeDir, 'bits'))).toBe(true);
+    });
+
+    it('removes a mark-only folder older than the maximum age, and keeps a recent one', async () => {
+      const oldDir = path.join(root(), 'oldmark');
+      const recentDir = path.join(root(), 'recentmark');
+      for (const dir of [oldDir, recentDir]) {
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(path.join(dir, 'unsupported'), '{}');
+      }
+      setTime(oldDir, DEFAULT_MAX_ENTRY_AGE_MS + DAY);
+
+      expect(await pch.findPch(request())).not.toBeNull();
+
+      expect(fs.existsSync(oldDir)).toBe(false);
+      expect(fs.existsSync(recentDir)).toBe(true);
     });
   });
 
