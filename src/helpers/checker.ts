@@ -67,6 +67,12 @@ const TESTLIB_NON_CRASH_EXIT_CODES = new Set([0, 1, 2, 4, 5, 7, 8]);
  * - 8 (unexpected EOF, with ENABLE_UNEXPECTED_EOF),
  * - 16 to 127 (`_pc(n)`, partially correct).
  *
+ * A checker killed by a signal reaches here as 128 plus the signal number on
+ * every platform (the executor does this). Two of those codes never get here:
+ * SIGABRT (134) and SIGKILL (137) are caught first by the executor's
+ * `isMemoryError` check, so they throw a `LimitExceededError` and do not count
+ * as CRASHED.
+ *
  * This is polyman's reading of testlib. How Polygon itself maps a checker's
  * exit code to CRASHED is unverified.
  */

@@ -9,6 +9,7 @@ import { report } from '../../src/report';
 import * as utils from '../../src/helpers/utils';
 import { fmt } from '../../src/formatter';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 
 // Mock dependencies
@@ -530,6 +531,35 @@ describe('checker.ts', () => {
           await expect(run('crashed')).resolves.toBeUndefined();
         }
       );
+
+      describe('a checker killed by a signal (exit code 128 + signal)', () => {
+        const segv = 128 + os.constants.signals.SIGSEGV;
+
+        it.each(['CRASHED', 'crashed'])(
+          'should pass expected %s on SIGSEGV',
+          async verdict => {
+            mockCheckerExit(segv);
+            await expect(run(verdict)).resolves.toBeUndefined();
+          }
+        );
+
+        it('should fail expected OK', async () => {
+          mockCheckerExit(segv);
+          await expect(run('OK')).rejects.toThrow('checker said no');
+        });
+
+        it.each([
+          ['WA', 'WRONG_ANSWER'],
+          ['WRONG_ANSWER', 'WRONG_ANSWER'],
+          ['PE', 'PRESENTATION_ERROR'],
+          ['PRESENTATION_ERROR', 'PRESENTATION_ERROR'],
+        ])('should fail expected %s', async verdict => {
+          mockCheckerExit(segv);
+          await expect(run(verdict)).rejects.toThrow(
+            `Expected ${verdict} but got exit code ${segv}`
+          );
+        });
+      });
 
       it('should fail expected WRONG_ANSWER on an unrelated exit code', async () => {
         mockCheckerExit(3);

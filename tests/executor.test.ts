@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Mock, MockedFunction, MockInstance } from 'vitest';
 import { spawn } from 'child_process';
+import os from 'os';
 import execa from 'execa';
 import { CommandExecutor } from '../src/executor';
 import type { ExecutionOptions } from '../src/executor';
@@ -1010,6 +1011,50 @@ describe('CommandExecutor', () => {
       sub.__resolveWith({ exitCode: undefined, failed: false });
 
       await expect(promise).rejects.toThrow('Command failed with exit code 1');
+    });
+
+    it('reports a signal-killed process as exit code 128 plus the signal number', async () => {
+      const sub = createMockSubprocess();
+      primeExeca(sub);
+      const onError = vi.fn();
+
+      const promise = executor.execute('run', {
+        timeout: 1000,
+        silent: true,
+        onError,
+      });
+      sub.__resolveWith({
+        exitCode: undefined,
+        signal: 'SIGSEGV',
+        failed: true,
+        shortMessage: 'Command was killed with SIGSEGV',
+      });
+
+      const result = await promise;
+      const segv = os.constants.signals.SIGSEGV;
+      expect(result.exitCode).toBe(128 + segv);
+      expect(result.success).toBe(false);
+      expect(onError).toHaveBeenCalledTimes(1);
+      expect(onError).toHaveBeenCalledWith(
+        expect.objectContaining({ exitCode: 128 + segv })
+      );
+    });
+
+    it('does not treat a signal-killed process as a spawn error', async () => {
+      const sub = createMockSubprocess();
+      primeExeca(sub);
+
+      const promise = executor.execute('run', { timeout: 1000, silent: true });
+      sub.__resolveWith({
+        exitCode: undefined,
+        signal: 'SIGSEGV',
+        failed: true,
+        shortMessage: 'Command was killed with SIGSEGV',
+      });
+
+      await expect(promise).rejects.toThrow(
+        `Command failed with exit code ${128 + os.constants.signals.SIGSEGV}`
+      );
     });
 
     it('handles execa rejecting (defensive spawn-error path)', async () => {
