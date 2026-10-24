@@ -214,8 +214,12 @@ export async function validateTestset(
     }
 
     for (const testFile of testFiles) {
+      // Only `test<N>.txt` is a numbered test; stray files such as
+      // `test2.txt.bak` or `test_notes.txt` must not map onto an index.
+      const match = /^test(\d+)\.txt$/.exec(testFile);
+      if (!match) continue;
+      const index = Number(match[1]);
       const testFilePath = path.join(testsDir, testFile);
-      const index = parseInt(testFile.replace('test', '').replace('.txt', ''));
       try {
         await runValidator(compiledPath, testFilePath, 'VALID');
         report.recordValidatedTest({

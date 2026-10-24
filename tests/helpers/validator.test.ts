@@ -498,6 +498,29 @@ describe('validator.ts', () => {
       ]);
     });
 
+    it('validateTestset ignores files that are not test<N>.txt', async () => {
+      mockedGetTestFiles.mockReturnValue([
+        'test2.txt',
+        'test2.txt.bak',
+        'test_notes.txt',
+      ]);
+      mockedExecuteWithRedirect
+        .mockImplementationOnce(executeOnErrorResolve('FAIL bad'))
+        .mockResolvedValue(SUCCESS_RESULT);
+
+      await expect(
+        validator.validateTestset(mockValidator, 'tests')
+      ).rejects.toThrow('Some tests failed validation');
+
+      expect(mockedExecuteWithRedirect).toHaveBeenCalledTimes(1);
+      expect(recorded()).toEqual([
+        { testset: 'tests', index: 2, valid: false, message: 'FAIL bad' },
+      ]);
+      expect(recorded().every(entry => Number.isInteger(entry.index))).toBe(
+        true
+      );
+    });
+
     it('validateGroup records the group of each test', async () => {
       const mockTestset: LocalTestset = { name: 'tests', groups: [] };
       mockedGetTestIndicesForGroup.mockReturnValue([2, 3]);
