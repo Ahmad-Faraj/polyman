@@ -2,6 +2,7 @@
 
 ## 3.0.3
 
+- Every command now ends with an exit code that says what kind of failure happened: `1` the problem is wrong, `2` usage error (bad `Config.json`, unknown name, missing input), `3` environment error (no Polygon credentials, no Python 3, old Node.js), `4` Polygon or network error, `130`/`143` on SIGINT/SIGTERM. The error message is printed once, at the end. See [GUIDE.md](GUIDE.md#exit-codes) (#68).
 - polyman compiles solutions a few at a time (one per CPU), so a slow or small machine no longer fails a compile on the 10 s limit while it waits for a CPU (#88).
 - A local C++ or Java compiler can be picked with `POLYMAN_CXX` / `POLYMAN_JAVAC` or the optional `compiler` block in `Config.json` (`cpp`, `javac`, `flags`). Local runs only, Polygon still uses each file's `sourceType`. The compile cache also rebuilds when the compiler or `compiler.flags` change (GitHub PR 24).
 

@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { PolygonSDK } from '../../polygon';
+import { PolymanError } from '../../errors';
 import type ConfigFile from '../../types';
 import type { Problem, ProblemInfo } from '../../types';
 
@@ -82,7 +83,8 @@ export function getPolymanDirectory(): string {
  *
  * @returns {{ apiKey: string; secret: string }} API credentials
  *
- * @throws {Error} If credentials files don't exist or are empty
+ * @throws {PolymanError} With exit code 3 if credentials files don't exist
+ *   or are empty
  *
  * @example
  * const { apiKey, secret } = readCredentials();
@@ -93,14 +95,16 @@ export function readCredentials(): { apiKey: string; secret: string } {
   const secretPath = path.join(polymanDir, 'secret_key');
 
   if (!fs.existsSync(apiKeyPath)) {
-    throw new Error(
-      'API key not found. Please run: polyman register <api-key> <secret>'
+    throw new PolymanError(
+      'API key not found. Please run: polyman remote register <api-key> <secret>',
+      3
     );
   }
 
   if (!fs.existsSync(secretPath)) {
-    throw new Error(
-      'API secret not found. Please run: polyman register <api-key> <secret>'
+    throw new PolymanError(
+      'API secret not found. Please run: polyman remote register <api-key> <secret>',
+      3
     );
   }
 
@@ -108,7 +112,10 @@ export function readCredentials(): { apiKey: string; secret: string } {
   const secret = fs.readFileSync(secretPath, 'utf-8').trim();
 
   if (!apiKey || !secret) {
-    throw new Error('API credentials are empty. Please register again.');
+    throw new PolymanError(
+      'API credentials are empty. Please run: polyman remote register <api-key> <secret>',
+      3
+    );
   }
 
   return { apiKey, secret };

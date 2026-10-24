@@ -6,6 +6,7 @@
  */
 
 import * as crypto from 'crypto';
+import { PolymanError } from './errors';
 import type {
   Problem,
   ProblemInfo,
@@ -164,6 +165,21 @@ const RETRYABLE_METHODS: ReadonlySet<string> = new Set([
 /** Matches the start of an HTML error page (gateway timeouts, 502 pages). */
 const HTML_PAGE = /^\s*<(?:!doctype\s+html|html)\b/i;
 
+/**
+ * Builds the error for a failed Polygon call. It carries exit code 4, so an
+ * agent knows the problem itself is fine and the call can be retried.
+ *
+ * @internal
+ */
+function polygonError(message: string, cause?: unknown): PolymanError {
+  return new PolymanError(
+    message,
+    4,
+    undefined,
+    cause === undefined ? undefined : { cause }
+  );
+}
+
 /** Outcome of one HTTP attempt against Polygon. @internal */
 type Attempt =
   | { ok: true; value: unknown }
@@ -313,7 +329,7 @@ export class PolygonSDK {
     const data = outcome.value as PolygonResponse<T>;
 
     if (data.status === 'FAILED') {
-      throw new Error(`Polygon API Error: ${data.comment}`);
+      throw polygonError(`Polygon API Error: ${data.comment}`);
     }
 
     return data.result as T;
@@ -364,9 +380,10 @@ export class PolygonSDK {
       return {
         ok: false,
         retry: true,
-        error: new Error(`Polygon request ${methodName} failed: ${reason}`, {
-          cause: err,
-        }),
+        error: polygonError(
+          `Polygon request ${methodName} failed: ${reason}`,
+          err
+        ),
       };
     }
 
@@ -382,7 +399,7 @@ export class PolygonSDK {
       return {
         ok: false,
         retry: true,
-        error: new Error(
+        error: polygonError(
           `Polygon request ${methodName} failed: HTTP ${response.status}`
         ),
       };
@@ -398,9 +415,9 @@ export class PolygonSDK {
         return {
           ok: false,
           retry: !isClientError,
-          error: new Error(
+          error: polygonError(
             `Polygon request ${methodName} failed: could not read the response body`,
-            { cause: err }
+            err
           ),
         };
       }
@@ -408,7 +425,7 @@ export class PolygonSDK {
         return {
           ok: false,
           retry: !isClientError,
-          error: new Error(
+          error: polygonError(
             `Polygon request ${methodName} returned an HTML page instead of the file`
           ),
         };
@@ -422,9 +439,9 @@ export class PolygonSDK {
       return {
         ok: false,
         retry: !isClientError,
-        error: new Error(
+        error: polygonError(
           `Polygon request ${methodName} did not return JSON (HTML page or unreadable body)`,
-          { cause: err }
+          err
         ),
       };
     }

@@ -10,6 +10,7 @@
 import { spawn } from 'child_process';
 import execa from 'execa';
 import { fmt } from './formatter';
+import { EXIT_CANCELLED, EXIT_TERMINATED } from './errors';
 import { quoteShellArgument } from './helpers/shell';
 
 /**
@@ -532,6 +533,12 @@ export const executor = new CommandExecutor();
 /**
  * Register signal handlers to ensure child processes are cleaned up
  * when the parent process is terminated (e.g., via Ctrl+C).
+ *
+ * It keeps its own `process.exit` (with `node-version-check.ts`, the only
+ * ones outside `cli.ts`): a signal does not come through an action, so
+ * nothing could catch a thrown error.
+ * SIGINT exits with {@link EXIT_CANCELLED} and SIGTERM with
+ * {@link EXIT_TERMINATED}.
  */
 const setupProcessCleanup = () => {
   let isCleaningUp = false;
@@ -546,7 +553,13 @@ const setupProcessCleanup = () => {
       // Ignore cleanup errors during exit
     }
 
-    process.exit(signal === 'SIGINT' ? 130 : signal === 'SIGTERM' ? 143 : 1);
+    process.exit(
+      signal === 'SIGINT'
+        ? EXIT_CANCELLED
+        : signal === 'SIGTERM'
+          ? EXIT_TERMINATED
+          : 1
+    );
   };
 
   process.on('SIGINT', () => {

@@ -413,6 +413,13 @@ describe('report.ts', () => {
       });
     });
 
+    it('renders the exit code it is given for a failure', () => {
+      collector.startList('list solutions');
+      collector.fail('Config.json is not valid JSON');
+      collector.finish(false, 2);
+      expect(written()).toMatchObject({ ok: false, exitCode: 2 });
+    });
+
     it('ignores setPath and setItems for other reports', () => {
       collector.startVerify();
       collector.setPath('/x');
@@ -441,6 +448,15 @@ describe('report.ts', () => {
       handler(1);
       const doc = written() as VerifyReport;
       expect(doc.ok).toBe(false);
+    });
+
+    it('reports the code the process exits with from the exit hook', () => {
+      const onSpy = vi.spyOn(process, 'on');
+      collector.startList('list solutions');
+      const exitCall = onSpy.mock.calls.find(call => call[0] === 'exit');
+      const handler = exitCall![1] as (code: number) => void;
+      handler(130);
+      expect(written()).toMatchObject({ ok: false, exitCode: 130 });
     });
 
     it('restores the formatter on reset', () => {

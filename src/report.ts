@@ -5,8 +5,8 @@
  * on the formatter prints human output to stderr, every `fmt.error` line is
  * captured against the current step, helpers record per-test verdicts, and
  * `report.finish()` writes exactly one JSON document to stdout. A process
- * `exit` hook guarantees the document is written even on code paths that call
- * `process.exit(1)` directly.
+ * `exit` hook guarantees the document is written even when the process exits
+ * before the action calls `finish()`, for example on SIGINT.
  */
 
 import fs from 'fs';
@@ -258,8 +258,13 @@ export class ReportCollector {
   /**
    * Writes the JSON document to stdout exactly once. Safe to call more than
    * once; later calls are ignored.
+   *
+   * @param ok - Whether the command succeeded
+   * @param exitCode - The code the process will exit with, shown as
+   *   `exitCode` in the `new`, `download-testlib` and `list` reports.
+   *   Defaults to 0 when ok and 1 otherwise.
    */
-  finish(ok: boolean): void {
+  finish(ok: boolean, exitCode: number = ok ? 0 : 1): void {
     if (!this.active || this.finished) return;
     this.finished = true;
     if (!ok) {
@@ -269,7 +274,7 @@ export class ReportCollector {
         this.active.failedStep = step.name;
       }
     }
-    const document = this.render(ok);
+    const document = this.render(ok, exitCode);
     fs.writeSync(process.stdout.fd, `${JSON.stringify(document, null, 2)}\n`);
   }
 
@@ -307,7 +312,7 @@ export class ReportCollector {
     if (!this.exitHookInstalled) {
       this.exitHookInstalled = true;
       process.on('exit', (code: number) => {
-        this.finish(code === 0);
+        this.finish(code === 0, code);
       });
     }
   }
@@ -328,7 +333,7 @@ export class ReportCollector {
     return entry;
   }
 
-  private render(ok: boolean): JsonReport {
+  private render(ok: boolean, exitCode: number): JsonReport {
     const active = this.active!;
     const base = {
       schemaVersion: 1 as const,
@@ -339,7 +344,7 @@ export class ReportCollector {
       const common = {
         ...base,
         command: active.command,
-        exitCode: ok ? 0 : 1,
+        exitCode,
         durationMs: Math.max(0, Date.now() - active.simple.startedAt),
         errors: ok ? [] : [...active.errors],
       };

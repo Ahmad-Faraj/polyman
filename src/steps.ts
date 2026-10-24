@@ -5,7 +5,7 @@
  */
 
 import { fmt } from './formatter';
-import { LimitExceededError } from './errors';
+import { LimitExceededError, PolymanError } from './errors';
 import { report } from './report';
 import type { Interface as ReadlineInterface } from 'readline';
 import type { PolygonSDK, Problem } from './polygon';
@@ -497,7 +497,7 @@ export function stepValidateConfigForSolutionTest(
   const targetSolution = config.solutions.find(s => s.name === what);
 
   if (!targetSolution) {
-    throw new Error(`No solution named "${what}" found.`);
+    throw new PolymanError(`No solution named "${what}" found.`, 2);
   }
 
   fmt.info(
@@ -938,9 +938,10 @@ export function stepValidatePackageType(stepNum: number, packageType: string) {
   fmt.step(stepNum, 'Validating Package Type');
 
   if (!isValidPackageType(packageType)) {
-    throw new Error(
+    throw new PolymanError(
       `Invalid package type: ${packageType}\n` +
-        'Valid types: standard, full, linux, windows'
+        'Valid types: standard, full, linux, windows',
+      2
     );
   }
 
@@ -1021,7 +1022,7 @@ export async function stepBuildPackage(
   }
 
   if (!latestPackage) {
-    throw new Error('Package build timed out after 30 minutes');
+    throw new PolymanError('Package build timed out after 30 minutes', 4);
   }
 
   if (latestPackage.state === 'READY') {
@@ -1164,6 +1165,26 @@ export async function stepDownloadProblemFilesAndSetUpConfig(
 }
 
 /**
+ * Reads and parses the Config.json at `configPath`.
+ *
+ * @throws {PolymanError} With exit code 2 if the file is unreadable or is not
+ *   valid JSON (a usage error: the setter has to fix the file).
+ */
+function parseConfigAt(configPath: string): ConfigFile {
+  try {
+    return JSON.parse(fs.readFileSync(configPath, 'utf-8')) as ConfigFile;
+  } catch (error) {
+    const why = error instanceof Error ? error.message : String(error);
+    throw new PolymanError(
+      `Could not read ${configPath}: ${why}`,
+      2,
+      'Fix the JSON in Config.json, then run the command again.',
+      { cause: error }
+    );
+  }
+}
+
+/**
  * Step: Download test files from Polygon
  */
 export async function stepDownloadTests(
@@ -1180,10 +1201,10 @@ export async function stepDownloadTests(
   // Read current config to get generators
   if (!fs.existsSync(configPath)) {
     fmt.error('Config.json not found. Run download command first.');
-    throw new Error('Config.json not found');
+    throw new PolymanError('Config.json not found', 2);
   }
 
-  const config = JSON.parse(fs.readFileSync(configPath, 'utf-8')) as ConfigFile;
+  const config = parseConfigAt(configPath);
   const generators = config.generators || [];
 
   try {
@@ -1244,10 +1265,10 @@ export function stepReadConfig(
   const configPath = path.join(problemDir, 'Config.json');
 
   if (!fs.existsSync(configPath)) {
-    throw new Error(`Config.json not found in ${problemDir}`);
+    throw new PolymanError(`Config.json not found in ${problemDir}`, 2);
   }
 
-  const config = JSON.parse(fs.readFileSync(configPath, 'utf-8')) as ConfigFile;
+  const config = parseConfigAt(configPath);
 
   fmt.info(
     `  ${fmt.infoIcon()} Problem: ${fmt.highlight(config.name || 'Unnamed')}`
@@ -1637,7 +1658,7 @@ export async function stepGetValidProblemName(
         if (problemName) {
           const message = `Invalid problem name "${problemName}". ${PROBLEM_NAME_RULE}`;
           if (strict) {
-            throw new Error(message);
+            throw new PolymanError(message, 2);
           }
           fmt.error(`  ${message}`);
         }
@@ -1661,7 +1682,7 @@ export async function stepGetValidProblemName(
   }
 
   if (!problemName) {
-    throw new Error('Problem name is required');
+    throw new PolymanError('Problem name is required', 2);
   }
 
   fmt.info(`  ${fmt.infoIcon()} Problem name: ${fmt.highlight(problemName)}`);
@@ -1693,7 +1714,14 @@ export async function stepCreateProblemOnPolygon(
     return problemId;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Failed to create problem on Polygon: ${message}`);
+    throw new PolymanError(
+      `Failed to create problem on Polygon: ${message}`,
+      4,
+      undefined,
+      {
+        cause: error,
+      }
+    );
   }
 }
 

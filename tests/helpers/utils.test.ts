@@ -13,6 +13,7 @@ import {
 } from '../../src/helpers/prebuilt-testlib';
 import { quoteShellArgument } from '../../src/helpers/shell';
 import * as utils from '../../src/helpers/utils';
+import { PolymanError } from '../../src/errors';
 import type ConfigFile from '../../src/types';
 import type {
   LocalChecker,
@@ -57,12 +58,28 @@ vi.mock('../../src/helpers/prebuilt-testlib', () => ({
   markPrebuiltTestlibUnsupported: vi.fn(),
 }));
 
-// Mock specific console methods to avoid clutter
-const mockExit = vi
-  .spyOn(process, 'exit')
-  .mockImplementation((_code?: string | number | null) => {
+// Nothing in utils may exit the process: fail loudly if something does
+vi.spyOn(process, 'exit').mockImplementation(
+  (_code?: string | number | null) => {
     throw new Error('process.exit called');
-  });
+  }
+);
+
+/** Runs `fn`, which must throw, and returns what it threw. */
+const thrownBy = (fn: () => unknown): unknown => {
+  try {
+    fn();
+  } catch (error) {
+    return error;
+  }
+  throw new Error('expected a throw');
+};
+
+/** Asserts `error` is a PolymanError with the given exit code. */
+const expectExitCode = (error: unknown, code: number): void => {
+  expect(error).toBeInstanceOf(PolymanError);
+  expect((error as PolymanError).exitCode).toBe(code);
+};
 
 const executorMocked = vi.mocked(executor);
 const spawnSyncMocked = vi.mocked(spawnSync);
@@ -284,6 +301,10 @@ describe('utils.ts', () => {
         ['an unknown key', { cxx: 'g++-15' }, /Unknown key in compiler: "cxx"/],
       ])('rejects %s', (_label, value, message) => {
         expect(() => utils.validateCompilerConfig(value)).toThrow(message);
+        expectExitCode(
+          thrownBy(() => utils.validateCompilerConfig(value)),
+          2
+        );
       });
     });
 
@@ -398,6 +419,10 @@ describe('utils.ts', () => {
           compiler: { flags: ['-std=c++17'] },
         });
         expect(() => utils.resolveCppFlags()).toThrow(/Invalid cppStandard/);
+        expectExitCode(
+          thrownBy(() => utils.resolveCppFlags()),
+          2
+        );
       });
 
       it('rejects malformed compiler.flags', () => {
@@ -999,6 +1024,30 @@ describe('utils.ts', () => {
       });
       expect(() => utils.readConfigFile()).toThrow('Fail');
     });
+
+    it('should fail with exit code 2 and a hint when Config.json is missing', () => {
+      readFileSyncMock.mockImplementation(() => {
+        throw new Error(
+          "ENOENT: no such file or directory, open 'Config.json'"
+        );
+      });
+      const error = thrownBy(() => utils.readConfigFile());
+      expectExitCode(error, 2);
+      expect((error as PolymanError).message).toContain('ENOENT');
+      expect((error as PolymanError).hint).toContain('polyman new');
+    });
+
+    it('should fail with exit code 2 when Config.json is not valid JSON', () => {
+      (
+        readFileSyncMock as unknown as ReturnType<
+          typeof vi.fn<(...args: unknown[]) => string>
+        >
+      ).mockReturnValue('{ not json');
+      expectExitCode(
+        thrownBy(() => utils.readConfigFile()),
+        2
+      );
+    });
   });
 
   describe('ensureConfigSourcesExist', () => {
@@ -1030,6 +1079,14 @@ describe('utils.ts', () => {
       existing('checker/chk.cpp', 'generators/gen.cpp', 'solutions/main.cpp');
       expect(() => utils.ensureConfigSourcesExist(baseConfig())).toThrow(
         'validator file not found: validator/val.cpp'
+      );
+    });
+
+    it('fails with exit code 2, since Config.json is wrong', () => {
+      existing('checker/chk.cpp', 'generators/gen.cpp', 'solutions/main.cpp');
+      expectExitCode(
+        thrownBy(() => utils.ensureConfigSourcesExist(baseConfig())),
+        2
       );
     });
 
@@ -1274,6 +1331,14 @@ describe('utils.ts', () => {
         );
       });
 
+      it('should fail with exit code 3 when Python is missing', () => {
+        mockInterpreters({});
+        expectExitCode(
+          thrownBy(() => utils.getCompiledCommandToRun(pySolution)),
+          3
+        );
+      });
+
       it('should look the interpreter up once per process', () => {
         mockInterpreters({ python3: 'Python 3.11.2\n' });
         utils.getCompiledCommandToRun(pySolution);
@@ -1363,16 +1428,6 @@ describe('utils.ts', () => {
     it('logError should call fmt.error', () => {
       utils.logError('message');
       expect(fmtErrorMock()).toHaveBeenCalled();
-    });
-
-    it('logErrorAndExit should call process.exit', () => {
-      try {
-        utils.logErrorAndExit('fatal');
-      } catch (e) {
-        expect(e instanceof Error).toBe(true);
-        expect((e as Error).message).toBe('process.exit called');
-      }
-      expect(mockExit).toHaveBeenCalledWith(1);
     });
 
     it('logErrorAndThrow should throw', () => {

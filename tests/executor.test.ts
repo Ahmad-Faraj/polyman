@@ -1063,3 +1063,54 @@ describe('CommandExecutor', () => {
     });
   });
 });
+
+describe('signal handlers', () => {
+  /**
+   * Loads a fresh executor module with `process.on` captured, so its signal
+   * handlers can be called directly without being registered on the test
+   * process.
+   */
+  const loadHandlers = async () => {
+    const handlers = new Map<string, (...args: unknown[]) => void>();
+    const onSpy = vi.spyOn(process, 'on').mockImplementation(((
+      event: string,
+      handler: (...args: unknown[]) => void
+    ) => {
+      handlers.set(event, handler);
+      return process;
+    }) as typeof process.on);
+    vi.resetModules();
+    await import('../src/executor');
+    onSpy.mockRestore();
+    return handlers;
+  };
+
+  let exitSpy: MockInstance<typeof process.exit>;
+
+  beforeEach(() => {
+    exitSpy = vi
+      .spyOn(process, 'exit')
+      .mockImplementation((() => undefined) as typeof process.exit);
+  });
+
+  afterEach(() => {
+    exitSpy.mockRestore();
+  });
+
+  it.each([
+    ['SIGINT', 130],
+    ['SIGTERM', 143],
+  ])('should exit with the right code on %s', async (signal, code) => {
+    const handlers = await loadHandlers();
+    handlers.get(signal)?.();
+    await vi.waitFor(() => expect(exitSpy).toHaveBeenCalled());
+    expect(exitSpy).toHaveBeenCalledWith(code);
+  });
+
+  it('should exit with 1 on an uncaught exception', async () => {
+    const handlers = await loadHandlers();
+    handlers.get('uncaughtException')?.(new Error('boom'));
+    await vi.waitFor(() => expect(exitSpy).toHaveBeenCalled());
+    expect(exitSpy).toHaveBeenCalledWith(1);
+  });
+});

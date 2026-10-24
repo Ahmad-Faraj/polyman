@@ -71,6 +71,7 @@
    - [Testing Components](#testing-components)
    - [Full Verification](#full-verification)
    - [Running Without a Terminal](#running-without-a-terminal)
+   - [Exit Codes](#exit-codes)
 
 10. [Remote Operations (Polygon Integration)](#remote-operations-polygon-integration)
     - [Setup and Registration](#setup-and-registration)
@@ -1886,7 +1887,34 @@ POLYMAN_AGENT=1 polyman remote push . --yes --name two-sum < /dev/null
 NO_COLOR=1 polyman verify > verify.log 2>&1
 ```
 
-Exit codes: `0` success, `1` failure, `2` the command needed input it could not ask for.
+The exit code tells a script what kind of failure happened, see [Exit Codes](#exit-codes).
+
+### Exit Codes
+
+Every command ends with one of these codes, so a script or an agent can decide what to do next without reading the output:
+
+| Code  | Meaning | Examples | What to do |
+| ----- | ------- | -------- | ---------- |
+| `0`   | The command did what was asked | `verify` passed | Continue |
+| `1`   | The command ran, but the problem is wrong | A test fails validation, a solution does not match its tag, a checker test fails, a compile error | Read the output (or the `--json` report) and fix the problem |
+| `2`   | Usage error | No `Config.json` here or it is not valid JSON, an invalid `compiler` or `cppStandard`, `Config.json` names a file that does not exist, an unknown solution name, an invalid package type, a prompt was needed but stdin is not a terminal | Fix the command or `Config.json` |
+| `3`   | Environment error | Polygon credentials are not registered, Python 3 is not installed, Node.js is too old | Fix the machine, retrying will not help |
+| `4`   | Remote error | A Polygon API call or the network failed, some items were not uploaded by `remote push`, `download-testlib` could not reach GitHub | Retry once, then look at the message |
+| `130` | Cancelled | Ctrl+C (SIGINT) | Nothing, the user stopped it |
+| `143` | Terminated | SIGTERM, for example a CI job that timed out | Nothing, the runner stopped it |
+
+Any other failure, for example an error polyman did not expect, ends with `1`. The error message is printed last, on its own line, with a `Hint:` line under it when polyman knows the fix. With `--json`, the `exitCode` field of the `new`, `download-testlib` and `list` reports is the same code.
+
+```bash
+polyman verify
+case $? in
+  0) echo "ready to push" ;;
+  1) echo "the problem needs a fix" ;;
+  2) echo "check the command or Config.json" ;;
+  3) echo "check the machine setup" ;;
+  4) echo "Polygon or the network failed, try again" ;;
+esac
+```
 
 ---
 
