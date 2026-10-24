@@ -79,6 +79,7 @@ export async function aiLoginAction(
     if (problem) throw new PolymanError(problem, 2);
     seen.push(key);
 
+    warnOpenFolder(store);
     store.setKey(preset.id, key, extra);
     fmt.success(
       `${fmt.checkmark()} Saved the ${preset.label} key ${maskKey(key)} in ${store.path}`
@@ -100,6 +101,7 @@ export async function aiLogoutAction(
   const store = io.store ?? new KeyStore();
   await withRedaction(store, [], () => {
     const preset = requirePreset(providerId);
+    warnOpenFolder(store);
     if (store.removeKey(preset.id)) {
       fmt.success(`${fmt.checkmark()} Removed the ${preset.label} key.`);
     } else {
@@ -172,6 +174,7 @@ export async function aiUseAction(spec: string, io: AiIo = {}): Promise<void> {
       );
     }
     const preset = requirePreset(providerId);
+    warnOpenFolder(store);
     store.setDefault(preset.id, modelId);
     fmt.success(`${fmt.checkmark()} Default model: ${preset.id}/${modelId}`);
 
@@ -210,6 +213,20 @@ function requirePreset(providerId: string): Preset {
     );
   }
   return preset;
+}
+
+/**
+ * Warns once when the `.polyman` folder already exists and others can read
+ * it. The folder may be shared with other tools, so it is not changed; the
+ * `ai.json` file in it is always written with mode 0600.
+ */
+function warnOpenFolder(store: KeyStore): void {
+  const mode = store.openFolderMode();
+  if (mode === undefined) return;
+  fmt.warning(
+    `${fmt.warningIcon()} ${store.dir} has mode ${mode.toString(8).padStart(4, '0')}, so other users can open it. ` +
+      `ai.json in it stays 0600. To make the folder private: chmod 700 ${store.dir}`
+  );
 }
 
 function customSettings(

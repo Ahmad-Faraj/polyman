@@ -252,6 +252,54 @@ describe('KeyStore.write', () => {
   });
 });
 
+describe('KeyStore.openFolderMode', () => {
+  const makeDir = (dirMode: number) => {
+    mkdirSync(store.dir, { mode: dirMode });
+    chmodSync(store.dir, dirMode);
+  };
+
+  it('is undefined when the folder is missing', () => {
+    expect(store.openFolderMode()).toBeUndefined();
+  });
+
+  posixOnly('is undefined for a private folder (0700)', () => {
+    makeDir(0o700);
+    expect(store.openFolderMode()).toBeUndefined();
+  });
+
+  posixOnly('gives the mode when group or others have any bit', () => {
+    makeDir(0o755);
+    expect(store.openFolderMode()).toBe(0o755);
+    chmodSync(store.dir, 0o710);
+    expect(store.openFolderMode()).toBe(0o710);
+    chmodSync(store.dir, 0o701);
+    expect(store.openFolderMode()).toBe(0o701);
+  });
+
+  posixOnly('never changes the mode, and a write keeps it', () => {
+    makeDir(0o755);
+    store.setKey('deepseek', KEY);
+    expect(mode(store.dir)).toBe(0o755);
+    expect(mode(store.path)).toBe(0o600);
+  });
+
+  posixOnly('is undefined for the folder the store created', () => {
+    store.setKey('deepseek', KEY);
+    expect(store.openFolderMode()).toBeUndefined();
+  });
+
+  posixOnly('is undefined on Windows, where modes mean nothing', () => {
+    makeDir(0o755);
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform');
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    try {
+      expect(store.openFolderMode()).toBeUndefined();
+    } finally {
+      if (platform) Object.defineProperty(process, 'platform', platform);
+    }
+  });
+});
+
 describe('KeyStore keys', () => {
   it('saves and reads a key from the file', () => {
     store.setKey('deepseek', KEY);

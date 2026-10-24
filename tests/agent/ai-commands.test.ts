@@ -1,11 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'fs';
 import { tmpdir } from 'os';
@@ -38,6 +40,7 @@ vi.mock('fs', async importOriginal => {
 });
 
 const KEY = 'sk-deepseek-1234567890abcd';
+const posixOnly = process.platform === 'win32' ? it.skip : it;
 const ENV_KEY = 'sk-openai-env-0987654321';
 
 let home: string;
@@ -237,6 +240,78 @@ describe('ai login', () => {
     expect(printed()).not.toContain(KEY);
     expect(readdirSync(store.dir)).toEqual(['ai.json']);
     expect(readFileSync(store.path, 'utf-8')).toBe(before);
+  });
+});
+
+describe('a .polyman folder others can open', () => {
+  const WARNING = /other users can open it/;
+  const warnings = () => output.filter(line => WARNING.test(line)).length;
+  const mode = (path: string) => statSync(path).mode & 0o777;
+  const makeDir = (dirMode: number) => {
+    const dir = join(home, '.polyman');
+    mkdirSync(dir, { mode: dirMode });
+    chmodSync(dir, dirMode);
+    return dir;
+  };
+  const login = (store: KeyStore) =>
+    aiLoginAction(
+      'deepseek',
+      { keyStdin: true },
+      { store, readStdin: () => Promise.resolve(KEY) }
+    );
+
+  posixOnly(
+    'warns once for an existing 0755 folder and keeps its mode',
+    async () => {
+      const dir = makeDir(0o755);
+      const store = makeStore();
+      await login(store);
+      expect(warnings()).toBe(1);
+      expect(printed()).toContain(`${dir} has mode 0755`);
+      expect(printed()).toContain(`chmod 700 ${dir}`);
+      expect(printed()).not.toContain(KEY);
+      expect(mode(dir)).toBe(0o755);
+      expect(mode(store.path)).toBe(0o600);
+      expect(store.getKey('deepseek')?.key).toBe(KEY);
+    }
+  );
+
+  posixOnly('does not warn for an existing 0700 folder', async () => {
+    makeDir(0o700);
+    const store = makeStore();
+    await login(store);
+    expect(warnings()).toBe(0);
+    expect(mode(store.path)).toBe(0o600);
+  });
+
+  posixOnly('does not warn for the folder polyman creates', async () => {
+    const store = makeStore();
+    await login(store);
+    await aiUseAction('deepseek/deepseek-flash', { store });
+    expect(warnings()).toBe(0);
+    expect(mode(store.dir)).toBe(0o700);
+    expect(mode(store.path)).toBe(0o600);
+  });
+
+  posixOnly('also warns on ai use and ai logout', async () => {
+    makeDir(0o755);
+    const store = makeStore();
+    await aiUseAction('deepseek/deepseek-flash', { store });
+    expect(warnings()).toBe(1);
+    await aiLogoutAction('deepseek', { store });
+    expect(warnings()).toBe(2);
+  });
+
+  it('does not warn on Windows', async () => {
+    makeDir(0o755);
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform');
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    try {
+      await login(makeStore());
+    } finally {
+      if (platform) Object.defineProperty(process, 'platform', platform);
+    }
+    expect(warnings()).toBe(0);
   });
 });
 

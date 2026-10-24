@@ -2,7 +2,9 @@
  * Provider keys and AI settings in `~/.polyman/ai.json`.
  *
  * - The file is written with mode `0600`, and the folder is created with
- *   mode `0700`.
+ *   mode `0700`. A folder that already exists keeps its mode, since other
+ *   tools may share it; {@link KeyStore.openFolderMode} tells the caller
+ *   when it is open to others, so it can warn.
  * - The env var of a preset wins over the key in the file.
  * - A key is only handed out for a URL under the base URL of its own preset
  *   (or the base URL the user gave for `custom`).
@@ -19,6 +21,7 @@ import {
   readFileSync,
   renameSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'fs';
 import { homedir } from 'os';
@@ -228,6 +231,23 @@ export class KeyStore {
       rmSync(tmp, { force: true });
       throw error;
     }
+  }
+
+  /**
+   * The mode of the `.polyman` folder when it already exists and group or
+   * others have any permission on it (mode & 0o077), so the caller can warn.
+   * Returns `undefined` when the folder is missing or private, and always on
+   * Windows, where modes mean nothing. It never changes the mode.
+   */
+  openFolderMode(): number | undefined {
+    if (process.platform === 'win32') return undefined;
+    let mode: number;
+    try {
+      mode = statSync(this.dir).mode & 0o777;
+    } catch {
+      return undefined;
+    }
+    return (mode & 0o077) === 0 ? undefined : mode;
   }
 
   /** Changes the settings with `change`, then writes them. */
