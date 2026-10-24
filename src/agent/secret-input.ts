@@ -19,9 +19,22 @@ export type SecretInput = Pick<
 >;
 
 /**
+ * Complete CSI sequences: ESC [, parameter bytes, intermediate bytes, a final
+ * byte. This covers arrow keys, Delete, and the bracketed paste markers
+ * (ESC[200~ and ESC[201~).
+ */
+// eslint-disable-next-line no-control-regex
+const CSI_SEQUENCE = /\u001b\[[0-?]*[ -/]*[@-~]/g;
+
+/** Removes escape sequences from typed input, keeping the text around them. */
+function stripEscapes(text: string): string {
+  return text.replace(CSI_SEQUENCE, '');
+}
+
+/**
  * Asks for a secret on the terminal with echo off. Enter ends the input,
  * Backspace removes the last character, Ctrl+C cancels. Escape sequences
- * (arrow keys) are ignored.
+ * (arrow keys, Delete, paste markers) are removed from the input.
  */
 export function readHiddenLine(
   question: string,
@@ -53,8 +66,7 @@ export function readHiddenLine(
     };
 
     const onData = (chunk: Buffer | string) => {
-      const text = chunk.toString();
-      if (text.startsWith('\u001b')) return;
+      const text = stripEscapes(chunk.toString());
       for (const ch of text) {
         if (ch === '\r' || ch === '\n' || ch === '\u0004') {
           finish();

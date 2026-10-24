@@ -42,6 +42,35 @@ const sink = () => {
 const asInput = (tty: FakeTty) => tty as unknown as SecretInput;
 
 describe('readHiddenLine', () => {
+  it('ignores an arrow key in the middle of a chunk', async () => {
+    const tty = new FakeTty();
+    const result = readHiddenLine('Key: ', asInput(tty), sink().out);
+    tty.type('sk-abc\u001b[Adef12345\r');
+    await expect(result).resolves.toBe('sk-abcdef12345');
+  });
+
+  it('ignores Delete (ESC [ 3 ~) in the middle of a chunk', async () => {
+    const tty = new FakeTty();
+    const result = readHiddenLine('Key: ', asInput(tty), sink().out);
+    tty.type('sk-abc\u001b[3~def12345\r');
+    await expect(result).resolves.toBe('sk-abcdef12345');
+  });
+
+  it('takes a bracketed paste with Enter in the same chunk', async () => {
+    const tty = new FakeTty();
+    const result = readHiddenLine('Key: ', asInput(tty), sink().out);
+    tty.type('\u001b[200~sk-pasted-12345\u001b[201~\r');
+    await expect(result).resolves.toBe('sk-pasted-12345');
+  });
+
+  it('takes a bracketed paste with Enter in a separate chunk', async () => {
+    const tty = new FakeTty();
+    const result = readHiddenLine('Key: ', asInput(tty), sink().out);
+    tty.type('\u001b[200~sk-pasted-12345\u001b[201~');
+    tty.type('\r');
+    await expect(result).resolves.toBe('sk-pasted-12345');
+  });
+
   it('returns what was typed and never echoes it', async () => {
     const tty = new FakeTty();
     const { out, written } = sink();
