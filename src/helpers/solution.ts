@@ -14,6 +14,7 @@ import { executor } from '../executor';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { StringDecoder } from 'string_decoder';
 import { logError, throwError } from './utils';
 import {
   compileCPP,
@@ -1217,9 +1218,15 @@ function validateMainSolutionOutput(firstLine: string, testFile: string) {
   }
 }
 
+/** Chunk size used when scanning an output file for a non-blank character. */
+const BLANK_SCAN_CHUNK_BYTES = 64 * 1024;
+
 /**
  * Whether an output file holds nothing but whitespace. Reads the first line
- * first, so a normal output is not read in full.
+ * first, so a normal output is not read in full. When the first line is
+ * blank, the file is scanned in 64 KB chunks and the scan stops at the first
+ * non-whitespace character, so a huge output never has to fit in a string.
+ * Whitespace is what `String.prototype.trim` treats as whitespace.
  *
  * @private
  * @param {string} filePath - Output file to check
@@ -1227,7 +1234,27 @@ function validateMainSolutionOutput(firstLine: string, testFile: string) {
  */
 async function isBlankOutput(filePath: string): Promise<boolean> {
   if ((await readFirstLine(filePath)).trim() !== '') return false;
-  return fs.readFileSync(filePath, 'utf-8').trim() === '';
+
+  const handle = await fs.promises.open(filePath, 'r');
+  try {
+    const buffer = Buffer.alloc(BLANK_SCAN_CHUNK_BYTES);
+    // A decoder keeps a multi-byte character split across two chunks intact.
+    const decoder = new StringDecoder('utf8');
+    for (;;) {
+      const { bytesRead } = await handle.read(
+        buffer,
+        0,
+        BLANK_SCAN_CHUNK_BYTES,
+        null
+      );
+      if (bytesRead === 0) return decoder.end().trim() === '';
+      if (decoder.write(buffer.subarray(0, bytesRead)).trim() !== '') {
+        return false;
+      }
+    }
+  } finally {
+    await handle.close();
+  }
 }
 
 /**

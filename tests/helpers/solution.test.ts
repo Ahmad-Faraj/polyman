@@ -122,7 +122,37 @@ const mockedFsExistsSync = vi.mocked(fs.existsSync);
 const mockedFsMkdirSync = vi.mocked(fs.mkdirSync);
 const mockedFsUnlinkSync = vi.mocked(fs.unlinkSync);
 const mockedFsWriteFileSync = vi.mocked(fs.writeFileSync);
-const mockedFsReadFileSync = vi.mocked(fs.readFileSync);
+// The automock of 'fs' leaves `promises` undefined, so give it an `open` mock.
+const mockedFsOpen = vi.fn<typeof fs.promises.open>();
+Object.defineProperty(fs, 'promises', {
+  value: { open: mockedFsOpen },
+  configurable: true,
+});
+
+/**
+ * Makes `fs.promises.open` serve `contentOf(path)` through a fake handle that
+ * reads in the chunks the caller asks for, like a real file would.
+ */
+function mockFileContents(contentOf: (file: unknown) => string) {
+  mockedFsOpen.mockImplementation(file => {
+    const data = Buffer.from(contentOf(file), 'utf-8');
+    let position = 0;
+    const handle = {
+      read: vi.fn((buffer: Buffer, offset: number, length: number) => {
+        const bytesRead = data.copy(
+          buffer,
+          offset,
+          position,
+          position + length
+        );
+        position += bytesRead;
+        return Promise.resolve({ bytesRead, buffer });
+      }),
+      close: vi.fn(() => Promise.resolve()),
+    };
+    return Promise.resolve(handle as unknown as fs.promises.FileHandle);
+  });
+}
 
 // Same indirection as the executor proxy: `fmt` is the mocked formatter object,
 // and reading `log` through a function-typed local keeps `vi.mocked` lint-clean.
@@ -168,7 +198,7 @@ describe('solution.ts', () => {
     mockedReadConfigFile.mockReturnValue(makeConfig());
     mockedGetCompiledCommandToRun.mockReturnValue('./solution');
     mockedReadFirstLine.mockResolvedValue('');
-    mockedFsReadFileSync.mockReturnValue('');
+    mockFileContents(() => '');
   });
 
   afterEach(() => {
@@ -1430,9 +1460,7 @@ describe('solution.ts', () => {
         mockedReadFirstLine.mockImplementation(file =>
           Promise.resolve(isMainOutput(file) ? '' : '42')
         );
-        mockedFsReadFileSync.mockImplementation(file =>
-          isMainOutput(file) ? '' : '42\n'
-        );
+        mockFileContents(file => (isMainOutput(file) ? '' : '42\n'));
 
         const rejection = solution.startTheComparisonProcess(
           checkerConfig,
@@ -1452,9 +1480,7 @@ describe('solution.ts', () => {
         mockedReadFirstLine.mockImplementation(file =>
           Promise.resolve(isMainOutput(file) ? '' : '42')
         );
-        mockedFsReadFileSync.mockImplementation(file =>
-          isMainOutput(file) ? '\n  \n' : '42\n'
-        );
+        mockFileContents(file => (isMainOutput(file) ? '\n  \n' : '42\n'));
 
         await expect(
           solution.startTheComparisonProcess(checkerConfig, mainSol, otherSol, [
@@ -1468,9 +1494,7 @@ describe('solution.ts', () => {
         mockedReadFirstLine.mockImplementation(file =>
           Promise.resolve(isMainOutput(file) ? '' : '42')
         );
-        mockedFsReadFileSync.mockImplementation(file =>
-          isMainOutput(file) ? '\n42\n' : '42\n'
-        );
+        mockFileContents(file => (isMainOutput(file) ? '\n42\n' : '42\n'));
         mockedRunChecker.mockResolvedValue(undefined);
 
         await expect(
