@@ -19,6 +19,8 @@ import type {
   ListReport,
   LocalSolution,
   PathReport,
+  RemoteAction,
+  RemoteReport,
   RunReport,
   SelfTestCase,
   SelfTestReport,
@@ -83,7 +85,8 @@ type SimpleKind =
   | 'generate'
   | 'validate'
   | 'selftest'
-  | 'solution-test';
+  | 'solution-test'
+  | 'remote';
 
 interface SimpleOutput {
   kind: SimpleKind;
@@ -95,7 +98,12 @@ interface SimpleOutput {
   target: SelfTestTarget;
   cases: SelfTestCase[];
   mainSolution: string | null;
+  problemId: number | null;
+  actions: RemoteAction[];
 }
+
+/** Text that replaces a credential found in a report message. */
+const REDACTED = '[REDACTED]';
 
 interface ActiveReport {
   command: string;
@@ -118,6 +126,7 @@ interface ActiveReport {
 export class ReportCollector {
   private active: ActiveReport | null = null;
   private finished = false;
+  private secrets: string[] = [];
   private exitHookInstalled = false;
 
   /** Whether a JSON report is being collected. */
@@ -227,6 +236,48 @@ export class ReportCollector {
     if (this.active?.simple?.kind !== 'solution-test') return;
     this.active.simple.mainSolution = main.name;
     this.setRunSolutions([target]);
+  }
+
+  /**
+   * Begin collecting a report for a Polygon command (`remote pull`, ...).
+   * Only errors passed to `fail` / `addError` are kept, so the summary lines
+   * the human output prints with `fmt.error` do not end up in `errors`.
+   */
+  startRemote(command: string): void {
+    this.start(command, '', 'remote');
+    fmt.setErrorSink(null);
+  }
+
+  /** Sets the Polygon problem ID of a remote report. */
+  setProblemId(problemId: number): void {
+    if (!this.active?.simple) return;
+    this.active.simple.problemId = problemId;
+  }
+
+  /**
+   * Records one upload, download or change in a remote report. The error
+   * text is stored without colour codes.
+   */
+  addAction(entry: RemoteAction): void {
+    if (this.active?.simple?.kind !== 'remote') return;
+    const action: RemoteAction = {
+      component: entry.component,
+      name: entry.name,
+      action: entry.action,
+      ok: entry.ok,
+    };
+    if (entry.error !== undefined) {
+      action.error = stripAnsi(entry.error).trim();
+    }
+    this.active.simple.actions.push(action);
+  }
+
+  /**
+   * Remembers values (the Polygon API key and secret) that must never be
+   * printed. Every message in the JSON document has them replaced.
+   */
+  setSecrets(values: string[]): void {
+    this.secrets = values.filter(value => value.length > 0);
   }
 
   /** Sets the `path` of a path report. */
@@ -388,6 +439,7 @@ export class ReportCollector {
   reset(): void {
     this.active = null;
     this.finished = false;
+    this.secrets = [];
     fmt.setOutput('stdout');
     fmt.setErrorSink(null);
   }
@@ -412,6 +464,8 @@ export class ReportCollector {
               target: 'validator',
               cases: [],
               mainSolution: null,
+              problemId: null,
+              actions: [],
             },
       requestedSolution,
       requestedTag: null,
@@ -449,6 +503,15 @@ export class ReportCollector {
     return entry;
   }
 
+  /** Replaces every registered secret in `text`. */
+  private redact(text: string): string {
+    let clean = text;
+    for (const secret of this.secrets) {
+      clean = clean.split(secret).join(REDACTED);
+    }
+    return clean;
+  }
+
   private render(ok: boolean, exitCode: number): JsonReport {
     const active = this.active!;
     const base = {
@@ -462,7 +525,7 @@ export class ReportCollector {
         command: active.command,
         exitCode,
         durationMs: Math.max(0, Date.now() - active.simple.startedAt),
-        errors: ok ? [] : [...active.errors],
+        errors: ok ? [] : active.errors.map(error => this.redact(error)),
       };
       if (active.simple.kind === 'generate') {
         const generateReport: GenerateReport = {
@@ -506,6 +569,18 @@ export class ReportCollector {
           summary: summarize(tests),
         };
         return solutionTest;
+      }
+      if (active.simple.kind === 'remote') {
+        const remoteReport: RemoteReport = {
+          ...common,
+          problemId: active.simple.problemId,
+          actions: active.simple.actions.map(action =>
+            action.error === undefined
+              ? { ...action }
+              : { ...action, error: this.redact(action.error) }
+          ),
+        };
+        return remoteReport;
       }
       if (active.simple.kind === 'path') {
         const pathReport: PathReport = {

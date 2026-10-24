@@ -1447,8 +1447,12 @@ export const remotePullProblemAction = async (
     tests?: string;
     metadata?: boolean;
     info?: boolean;
+    json?: boolean;
   }
 ): Promise<void> => {
+  if (options?.json) {
+    report.startRemote('remote pull');
+  }
   fmt.section('⬇️  PULL PROBLEM FROM POLYGON');
 
   try {
@@ -1538,8 +1542,12 @@ export const remotePullProblemAction = async (
       fmt.warning(`  ⚠️  ${warning}`);
     }
     fmt.newLine();
+    report.finish(true);
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     fmt.errorBox('FAILED TO PULL PROBLEM!');
+    report.fail(message);
+    report.finish(false, exitCodeFor(error));
     throw error;
   }
 };
@@ -1576,8 +1584,12 @@ export const remotePushProblemAction = async (
     info?: boolean;
     yes?: boolean;
     name?: string;
+    json?: boolean;
   }
 ): Promise<void> => {
+  if (options?.json) {
+    report.startRemote('remote push');
+  }
   fmt.section('⬆️  PUSH PROBLEM TO POLYGON');
 
   const failures: string[] = [];
@@ -1631,6 +1643,7 @@ export const remotePushProblemAction = async (
         fmt.newLine();
         fmt.info('  Push cancelled.');
         fmt.newLine();
+        report.finish(true);
         return;
       }
 
@@ -1776,7 +1789,10 @@ export const remotePushProblemAction = async (
 
     pushedProblemId = problemId;
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     fmt.errorBox('FAILED TO PUSH PROBLEM!');
+    report.fail(message);
+    report.finish(false, exitCodeFor(error));
     throw error;
   }
 
@@ -1786,11 +1802,17 @@ export const remotePushProblemAction = async (
     fmt.error(`  ${failures.length} item(s) failed to upload:`);
     for (const failure of failures) {
       fmt.error(`   ${fmt.cross()} ${failure}`);
+      report.addError(failure);
     }
     fmt.info(
       `  ${fmt.infoIcon()} Problem ID: ${fmt.highlight(pushedProblemId.toString())}`
     );
-    throw new PolymanError('Some items were not uploaded to Polygon', 4);
+    const error = new PolymanError(
+      'Some items were not uploaded to Polygon',
+      4
+    );
+    report.finish(false, error.exitCode);
+    throw error;
   }
 
   fmt.successBox('PROBLEM PUSHED SUCCESSFULLY!');
@@ -1801,6 +1823,7 @@ export const remotePushProblemAction = async (
     `  ${fmt.infoIcon()} Don't forget to commit your changes on Polygon using: ${fmt.highlight('polyman remote commit')}`
   );
   fmt.newLine();
+  report.finish(true);
 };
 
 /**
@@ -1825,8 +1848,12 @@ export const remotePushProblemAction = async (
  * // Uses problem ID from Config.json
  */
 export const remoteViewProblemAction = async (
-  problemIdOrPath: string
+  problemIdOrPath: string,
+  options: { json?: boolean } = {}
 ): Promise<void> => {
+  if (options.json) {
+    report.startRemote('remote view');
+  }
   fmt.section('👁️  VIEW PROBLEM ON POLYGON');
 
   try {
@@ -1889,8 +1916,12 @@ export const remoteViewProblemAction = async (
 
     // Final success message
     fmt.successBox('PROBLEM DETAILS RETRIEVED!');
+    report.finish(true);
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     fmt.errorBox('FAILED TO VIEW PROBLEM!');
+    report.fail(message);
+    report.finish(false, exitCodeFor(error));
     throw error;
   }
 };
@@ -1915,8 +1946,12 @@ export const remoteViewProblemAction = async (
  */
 export const remoteCommitProblemAction = async (
   problemIdOrPath: string,
-  commitMessage: string
+  commitMessage: string,
+  options: { json?: boolean } = {}
 ): Promise<void> => {
+  if (options.json) {
+    report.startRemote('remote commit');
+  }
   fmt.section('💾 COMMIT CHANGES TO POLYGON');
 
   try {
@@ -1936,8 +1971,12 @@ export const remoteCommitProblemAction = async (
 
     // Final success message
     fmt.successBox('CHANGES COMMITTED SUCCESSFULLY!');
+    report.finish(true);
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     fmt.errorBox('FAILED TO COMMIT CHANGES!');
+    report.fail(message);
+    report.finish(false, exitCodeFor(error));
     throw error;
   }
 };
@@ -1966,8 +2005,12 @@ export const remoteCommitProblemAction = async (
  */
 export const remotePackageProblemAction = async (
   problemIdOrPath: string,
-  packageType: string
+  packageType: string,
+  options: { json?: boolean } = {}
 ): Promise<void> => {
+  if (options.json) {
+    report.startRemote('remote package');
+  }
   fmt.section('📦 BUILD AND DOWNLOAD PACKAGE');
 
   try {
@@ -2010,8 +2053,12 @@ export const remotePackageProblemAction = async (
     }
     // fmt.info(`  ${fmt.infoIcon()} You can download the package from Polygon`);
     fmt.newLine();
+    report.finish(true);
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     fmt.errorBox('PACKAGE OPERATION FAILED!');
+    report.fail(message);
+    report.finish(false, exitCodeFor(error));
     throw error;
   }
 };

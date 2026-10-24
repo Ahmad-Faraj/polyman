@@ -796,6 +796,113 @@ describe('report.ts', () => {
     });
   });
 
+  describe('remote reports', () => {
+    it('renders problemId and actions with the base fields', () => {
+      collector.startRemote('remote push');
+      collector.setProblemId(42);
+      collector.addAction({
+        component: 'solution',
+        name: 'main',
+        action: 'upload',
+        ok: true,
+      });
+      collector.addAction({
+        component: 'solution',
+        name: 'wa',
+        action: 'upload',
+        ok: false,
+        error: '\u001b[31mrejected\u001b[39m',
+      });
+      collector.finish(true);
+      expect(written()).toMatchObject({
+        schemaVersion: 1,
+        command: 'remote push',
+        ok: true,
+        exitCode: 0,
+        errors: [],
+        problemId: 42,
+        actions: [
+          { component: 'solution', name: 'main', action: 'upload', ok: true },
+          {
+            component: 'solution',
+            name: 'wa',
+            action: 'upload',
+            ok: false,
+            error: 'rejected',
+          },
+        ],
+      });
+      const doc = written() as { actions: object[] };
+      expect(doc.actions[0]).not.toHaveProperty('error');
+    });
+
+    it('keeps problemId null until it is known', () => {
+      collector.startRemote('remote commit');
+      collector.fail('API key not found');
+      collector.finish(false);
+      expect(written()).toMatchObject({
+        ok: false,
+        exitCode: 1,
+        problemId: null,
+        actions: [],
+        errors: ['API key not found'],
+      });
+    });
+
+    it('replaces the API key and secret in errors and actions', () => {
+      collector.startRemote('remote push');
+      collector.setSecrets(['KEY123', 'SECRET456']);
+      collector.addAction({
+        component: 'solution',
+        name: 'main',
+        action: 'upload',
+        ok: false,
+        error: 'bad apiKey=KEY123',
+      });
+      collector.fail('signature SECRET456 and KEY123');
+      collector.finish(false);
+      const text = String(writeSpy.mock.calls[0][1]);
+      expect(text).not.toContain('KEY123');
+      expect(text).not.toContain('SECRET456');
+      expect(written()).toMatchObject({
+        errors: ['signature [REDACTED] and [REDACTED]'],
+        actions: [{ error: 'bad apiKey=[REDACTED]' }],
+      });
+    });
+
+    it('does not capture fmt.error lines, only reported errors', () => {
+      collector.startRemote('remote push');
+      fmt.error('  2 item(s) failed to upload:');
+      collector.addError('solution wa: rejected');
+      collector.finish(false);
+      expect(written()).toMatchObject({ errors: ['solution wa: rejected'] });
+    });
+
+    it('ignores addAction and setProblemId for other reports', () => {
+      collector.startPath('new');
+      collector.setProblemId(1);
+      collector.addAction({ component: 'x', name: 'y', action: 'z', ok: true });
+      collector.finish(true);
+      expect(written()).not.toHaveProperty('actions');
+      expect(written()).not.toHaveProperty('problemId');
+    });
+
+    it('uses the exit code passed to finish', () => {
+      collector.startRemote('remote push');
+      collector.finish(false, 2);
+      expect(written()).toMatchObject({ ok: false, exitCode: 2 });
+    });
+
+    it('takes the exit code from the process exit hook', () => {
+      const onSpy = vi.spyOn(process, 'on');
+      collector.startRemote('remote pull');
+      const exitCall = onSpy.mock.calls.find(call => call[0] === 'exit');
+      const handler = exitCall![1] as (code: number) => void;
+      handler(4);
+      expect(written()).toMatchObject({ ok: false, exitCode: 4 });
+    });
+  });
+
   describe('finish', () => {
     it('writes the process exit code from the exit hook', () => {
       const onSpy = vi.spyOn(process, 'on');

@@ -23,6 +23,7 @@ import * as pulling from '../src/helpers/remote/pulling';
 import * as pushing from '../src/helpers/remote/pushing';
 import * as viewer from '../src/helpers/remote/viewer';
 import * as polygonModule from '../src/polygon';
+import { report } from '../src/report';
 import fs from 'fs';
 
 vi.mock('../src/helpers/create-template');
@@ -1658,6 +1659,179 @@ describe('steps.ts', () => {
       );
     });
   });
+  describe('uploadActions', () => {
+    it('marks every item ok when the step added no failures', () => {
+      expect(steps.uploadActions('solution', ['main', 'wa'], [])).toEqual([
+        { component: 'solution', name: 'main', action: 'upload', ok: true },
+        { component: 'solution', name: 'wa', action: 'upload', ok: true },
+      ]);
+    });
+
+    it('fails the item named in a failure and keeps the others ok', () => {
+      expect(
+        steps.uploadActions(
+          'solution',
+          ['main', 'wa'],
+          ['solution wa: Polygon API Error: x: y']
+        )
+      ).toEqual([
+        { component: 'solution', name: 'main', action: 'upload', ok: true },
+        {
+          component: 'solution',
+          name: 'wa',
+          action: 'upload',
+          ok: false,
+          error: 'Polygon API Error: x: y',
+        },
+      ]);
+    });
+
+    it('fails a testset for its sub-step failures and keeps their labels', () => {
+      expect(
+        steps.uploadActions(
+          'testset',
+          ['tests'],
+          ['testset tests script: bad', 'testset tests group g1: no']
+        )
+      ).toEqual([
+        {
+          component: 'testset',
+          name: 'tests',
+          action: 'upload',
+          ok: false,
+          error: 'testset tests script: bad; testset tests group g1: no',
+        },
+      ]);
+    });
+
+    it('matches a failure labelled with the component or the item name', () => {
+      expect(
+        steps.uploadActions('validator', ['val'], ['validator: not found'])
+      ).toEqual([
+        {
+          component: 'validator',
+          name: 'val',
+          action: 'upload',
+          ok: false,
+          error: 'not found',
+        },
+      ]);
+      expect(
+        steps.uploadActions('metadata', ['description', 'tags'], ['tags: no'])
+      ).toEqual([
+        {
+          component: 'metadata',
+          name: 'description',
+          action: 'upload',
+          ok: true,
+        },
+        {
+          component: 'metadata',
+          name: 'tags',
+          action: 'upload',
+          ok: false,
+          error: 'no',
+        },
+      ]);
+    });
+
+    it('adds failures that belong to no item as their own entries', () => {
+      expect(
+        steps.uploadActions('checker', ['chk'], ['checker test #2: rejected'])
+      ).toEqual([
+        { component: 'checker', name: 'chk', action: 'upload', ok: true },
+        {
+          component: 'checker',
+          name: 'checker test #2',
+          action: 'upload',
+          ok: false,
+          error: 'rejected',
+        },
+      ]);
+    });
+  });
+
+  describe('remote steps with a --json report', () => {
+    it('records the upload step actions in the report', async () => {
+      const addAction = vi.spyOn(report, 'addAction');
+      vi.mocked(pushing.uploadSolutions).mockImplementation(
+        async (_sdk, _id, _dir, _config, failures = []) => {
+          failures.push('solution wa: rejected');
+          return Promise.resolve(1);
+        }
+      );
+      const config = baseConfig({
+        solutions: [
+          { name: 'main', source: 'main.cpp', tag: 'MA' },
+          { name: 'wa', source: 'wa.cpp', tag: 'WA' },
+        ],
+      });
+      await steps.stepUploadSolutions(1, {} as any, 7, '/p', config, []);
+      expect(addAction.mock.calls.map(call => call[0])).toEqual([
+        { component: 'solution', name: 'main', action: 'upload', ok: true },
+        {
+          component: 'solution',
+          name: 'wa',
+          action: 'upload',
+          ok: false,
+          error: 'rejected',
+        },
+      ]);
+      addAction.mockRestore();
+    });
+
+    it('records a checker that failed to upload before rethrowing', async () => {
+      const addAction = vi.spyOn(report, 'addAction');
+      vi.mocked(pushing.uploadChecker).mockRejectedValue(new Error('gone'));
+      const config = baseConfig({
+        checker: { name: 'chk', source: 'chk.cpp' },
+      });
+      await expect(
+        steps.stepUploadChecker(1, {} as any, 7, '/p', config, [])
+      ).rejects.toThrow('gone');
+      expect(addAction).toHaveBeenCalledWith({
+        component: 'checker',
+        name: 'chk',
+        action: 'upload',
+        ok: false,
+        error: 'gone',
+      });
+      addAction.mockRestore();
+    });
+
+    it('registers the credentials as secrets', () => {
+      const setSecrets = vi.spyOn(report, 'setSecrets');
+      vi.mocked(remoteUtils.readCredentials).mockReturnValue({
+        apiKey: 'k',
+        secret: 's',
+      });
+      steps.stepReadCredentials(1);
+      expect(setSecrets).toHaveBeenCalledWith(['k', 's']);
+      setSecrets.mockRestore();
+    });
+
+    it('does not prompt for problem creation while --json is active', async () => {
+      vi.mocked(utils.stdinIsInteractive).mockReturnValue(true);
+      const isActive = vi.spyOn(report, 'isActive').mockReturnValue(true);
+      await expect(steps.stepPromptCreateProblem(1)).rejects.toThrow(
+        /--json is set, so polyman does not prompt; pass --yes/
+      );
+      isActive.mockRestore();
+    });
+
+    it('does not prompt for a problem name while --json is active', async () => {
+      vi.mocked(utils.stdinIsInteractive).mockReturnValue(true);
+      const isActive = vi.spyOn(report, 'isActive').mockReturnValue(true);
+      const sdk = {
+        listProblems: vi.fn().mockResolvedValue([]),
+      } as unknown as Parameters<typeof steps.stepGetValidProblemName>[1];
+      await expect(
+        steps.stepGetValidProblemName(1, sdk, undefined)
+      ).rejects.toBeInstanceOf(NonInteractiveError);
+      isActive.mockRestore();
+    });
+  });
+
   describe('stepPromptCreateProblem', () => {
     it('returns true without prompting when --yes is given', async () => {
       const result = await steps.stepPromptCreateProblem(1, { yes: true });

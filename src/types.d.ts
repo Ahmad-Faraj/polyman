@@ -1033,6 +1033,39 @@ interface SolutionTestReport extends Omit<RunReport, 'command'> {
   reason: string;
 }
 
+/**
+ * One upload, download, fetch or change inside a remote report.
+ * @interface RemoteAction
+ * @property {string} component - What kind of thing it is (solution, checker, testset, ...)
+ * @property {string} name - Which one (file name, language, testset name, ...)
+ * @property {string} action - What polyman did (upload, download, fetch, create, commit, build, ...)
+ * @property {boolean} ok - Whether it worked
+ * @property {string} [error] - Plain-text reason, only when ok is false
+ */
+interface RemoteAction {
+  component: string;
+  name: string;
+  action: string;
+  ok: boolean;
+  error?: string;
+}
+
+/**
+ * Report emitted by `polyman remote pull|push|view|commit|package --json`.
+ * @interface RemoteReport
+ * @property {number | null} problemId - Polygon problem ID, also for a new
+ *   problem; null only when the command failed before it knew the ID
+ * @property {RemoteAction[]} actions - One entry per upload, download or change
+ */
+interface RemoteReport extends ReportBase {
+  command: string;
+  exitCode: number;
+  durationMs: number;
+  errors: string[];
+  problemId: number | null;
+  actions: RemoteAction[];
+}
+
 type JsonReport =
   | RunReport
   | VerifyReport
@@ -1041,7 +1074,8 @@ type JsonReport =
   | GenerateReport
   | ValidateReport
   | SelfTestReport
-  | SolutionTestReport;
+  | SolutionTestReport
+  | RemoteReport;
 
 // ==================== Exports ====================
 
@@ -1116,6 +1150,8 @@ export {
   SelfTestCase,
   SelfTestReport,
   SolutionTestReport,
+  RemoteAction,
+  RemoteReport,
   JsonReport,
 };
 
