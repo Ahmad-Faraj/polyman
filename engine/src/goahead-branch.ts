@@ -29,7 +29,7 @@ export interface BranchFacts {
   mrs: BranchMr[];
   /** the issue the branch name points at (issueOfBranch), as GitLab has it, or null */
   issue: { iid: number; author: { username: string } } | null;
-  /** the day push events are read from, for the messages */
+  /** the day push events are read from (GitLab's `after`, which leaves that day out): a go-ahead from before the day after it fails */
   since: string;
 }
 
@@ -149,7 +149,14 @@ export async function checkBranch(
       continue;
     }
     issueNotes ??= await issueNotesOf(asked.iid);
-    const verdict = goAheadFor(push, issueNotes, step, config, previousPush(push.pusher, push.at));
+    let verdict = goAheadFor(push, issueNotes, step, config, previousPush(push.pusher, push.at));
+    // pushes are read from the day after `since` (GitLab's `after` leaves that
+    // day out), so a go-ahead from before then may have been used up by a push
+    // this can't see: it fails, as a commit in no recorded push does
+    if (verdict.ok && !(Date.parse(verdict.note.created_at) >= Date.parse(since) + 86_400_000)) {
+      const reason = `go-ahead in note ${verdict.note.id} is from ${verdict.note.created_at}, before the pushes read from ${since} on, so whether an earlier push already used it can't be told; it needs a new go-ahead`;
+      verdict = { ok: false, reason, proposal: verdict.proposal };
+    }
     const line = verdict.ok
       ? `push at ${push.at} by @${push.pusher} (${shas}): go-ahead in note ${verdict.note.id} on #${asked.iid} by @${verdict.note.author.username}`
       : `push at ${push.at} by @${push.pusher} (${shas}) on #${asked.iid}: ${verdict.reason}`;

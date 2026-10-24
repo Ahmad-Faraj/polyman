@@ -28,8 +28,12 @@ function repo(policy: boolean | string = true) {
   return { dir, base, head: git('rev-parse', 'HEAD') };
 }
 
-/** Answers like GitLab's API for the given paths (arrays are paged), or with the given error status. */
-function gitlab(routes: Record<string, unknown>, errors: Record<string, number> = {}) {
+/**
+ * Answers like GitLab's API for the given paths (arrays are paged), or with the
+ * given error status. With `after`, it leaves out records from that day and
+ * before, as GitLab's events API does.
+ */
+function gitlab(routes: Record<string, unknown>, errors: Record<string, number> = {}, after = false) {
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? '', 'http://x');
     if (errors[url.pathname]) {
@@ -42,7 +46,9 @@ function gitlab(routes: Record<string, unknown>, errors: Record<string, number> 
       return;
     }
     const page = url.searchParams.get('page') ?? '1';
-    res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(Array.isArray(body) && page !== '1' ? [] : body));
+    const from = url.searchParams.get('after');
+    const records = after && from && Array.isArray(body) ? body.filter((r: { created_at: string }) => r.created_at.slice(0, 10) > from) : body;
+    res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(Array.isArray(records) && page !== '1' ? [] : records));
   });
   return new Promise<{ url: string; close: () => void }>((ok) =>
     server.listen(0, '127.0.0.1', () => {
@@ -72,6 +78,8 @@ interface Case {
   /** API paths that answer with this error status */
   errors?: Record<string, number>;
   env?: Record<string, string>;
+  /** the events API leaves out what is before its `after` day, as GitLab's does */
+  windowed?: boolean;
 }
 
 async function run(c: Case) {
@@ -81,7 +89,7 @@ async function run(c: Case) {
     '/api/v4/projects/1/events': c.events(r),
     ...(c.issue === undefined ? {} : { '/api/v4/projects/1/issues/24': c.issue }),
     '/api/v4/projects/1/issues/24/notes': c.issueNotes ?? [],
-  }, c.errors);
+  }, c.errors, c.windowed);
   const child = spawn('node', [CLI], {
     cwd: r.dir,
     env: {
@@ -108,7 +116,7 @@ async function run(c: Case) {
   return { code, text };
 }
 
-const issue24 = { iid: 24, author: { username: 'Ahmad-Faraj' } };
+const issue24 = { iid: 24, author: { username: 'Ahmad-Faraj' }, created_at: '2026-10-17T09:00:00Z' };
 
 describe('autonomy:goahead:branch against a git repo and a stand-in for GitLab', () => {
   it("fails the #64 push: a review agent re-created a merged MR's branch with a commit nobody approved", async () => {
@@ -138,6 +146,55 @@ describe('autonomy:goahead:branch against a git repo and a stand-in for GitLab',
     expect(text).toContain('go-ahead in note 2 on #24 by @Mazen-Ghanaym');
     expect(text).toContain(`1 commit(s) on ${BRANCH} not on main, 1 agent push(es) no MR covers, risk high: each had its own go-ahead`);
     expect(code).toBe(0);
+  });
+
+  describe('reads pushes back to when the issue was created, so a go-ahead used on an old branch stays used', () => {
+    const DAY = 86_400_000;
+    const ago = (days: number) => new Date(Date.now() - days * DAY).toISOString();
+    const onBranch = (event: ReturnType<typeof push>, ref: string, created_at: string) => ({ ...event, created_at, push_data: { ...event.push_data, ref } });
+    const goAhead = (days: number) => [
+      { ...note(1, '00:00', BUILDER, 'Proposal for #24: the change'), created_at: ago(days + 1) },
+      { ...note(2, '00:00', 'Mazen-Ghanaym', `@${BUILDER} go-ahead`), created_at: ago(days) },
+    ];
+
+    it('fails 24-b when 24-a used the go-ahead five days ago, before the base commit', async () => {
+      const { code, text } = await run({
+        branch: '24-b',
+        windowed: true,
+        mrs: [],
+        issue: { ...issue24, created_at: ago(10) },
+        issueNotes: goAhead(8),
+        events: (r) => [onBranch(push('00:00', BUILDER, null, r.base), '24-a', ago(5)), onBranch(push('00:00', BUILDER, null, r.head), '24-b', ago(0))],
+      });
+      expect(text).toMatch(new RegExp(`no go-ahead mentioning @${BUILDER} between its previous push at ${ago(5).slice(0, 10)}T[\\d:.]+Z and the push`));
+      expect(code).toBe(1);
+    });
+
+    it('passes 24-b on its own go-ahead after the 24-a push', async () => {
+      const { code, text } = await run({
+        branch: '24-b',
+        windowed: true,
+        mrs: [],
+        issue: { ...issue24, created_at: ago(10) },
+        issueNotes: [...goAhead(8), { ...note(3, '00:00', 'Mazen-Ghanaym', `@${BUILDER} go-ahead`), created_at: ago(1) }],
+        events: (r) => [onBranch(push('00:00', BUILDER, null, r.base), '24-a', ago(5)), onBranch(push('00:00', BUILDER, null, r.head), '24-b', ago(0))],
+      });
+      expect(text).toContain('go-ahead in note 3 on #24 by @Mazen-Ghanaym');
+      expect(code).toBe(0);
+    });
+
+    it("fails a go-ahead older than the 120 days it reads, as a push it can't see may have used it", async () => {
+      const { code, text } = await run({
+        branch: '24-b',
+        windowed: true,
+        mrs: [],
+        issue: { ...issue24, created_at: ago(200) },
+        issueNotes: goAhead(150),
+        events: (r) => [onBranch(push('00:00', BUILDER, null, r.head), '24-b', ago(0))],
+      });
+      expect(text).toMatch(/go-ahead in note 2 is from .*, before the pushes read from \d{4}-\d\d-\d\d on, so whether an earlier push already used it can't be told; it needs a new go-ahead/);
+      expect(code).toBe(1);
+    });
   });
 
   it("leaves a branch with an open MR to that MR's pipeline", async () => {

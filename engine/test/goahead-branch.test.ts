@@ -129,6 +129,19 @@ describe('the go-ahead guard on a branch with no open MR (#64)', () => {
     expect(results[2].problems[0].text).toMatch(/between its previous push at 2026-10-18T14:11:00Z/);
   });
 
+  it("fails a go-ahead from before the pushes it read: a push it can't see may have used it up", async () => {
+    const notes = [note(1, '14:00:00', BUILDER, 'Proposal for #24: the change'), note(2, '14:05:00', 'Mazen-Ghanaym', `@${BUILDER} go-ahead`)];
+    const events = [event('14:11:00', BUILDER, null, AGENT, '24-b')];
+    // events read with after=2026-10-18 start on the 19th, so the 24-a push on the 18th could be missing
+    const result = await check({ branch: '24-b', mrs: [], events, since: '2026-10-18' }, notes);
+    expect(result.agentPushes.map((c) => c.verdict.ok)).toEqual([false]);
+    expect(result.problems[0].text).toBe(
+      `push at ${at('14:11:00')} by @${BUILDER} (561d61ce) on #24: go-ahead in note 2 is from ${at('14:05:00')}, before the pushes read from 2026-10-18 on, so whether an earlier push already used it can't be told; it needs a new go-ahead`,
+    );
+    // read from the day before, the same go-ahead counts
+    expect((await check({ branch: '24-b', mrs: [], events, since: '2026-10-17' }, notes)).problems).toEqual([]);
+  });
+
   it("doesn't count a push to a branch of another issue as using up the go-ahead", async () => {
     const notes = [note(1, '14:00:00', BUILDER, 'Proposal for #24: the change'), note(2, '14:05:00', 'Mazen-Ghanaym', `@${BUILDER} go-ahead`)];
     const events = [event('14:10:00', BUILDER, null, AGENT, '240-a'), event('14:11:00', BUILDER, null, AGENT, '24-b')];

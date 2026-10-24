@@ -34,7 +34,10 @@ guards every merge request.
 - `autonomy:goahead:branch` applies the same rules to a push to a branch with
   no open MR, which gets a branch pipeline instead of an MR pipeline (#64). The
   go-ahead has to be on the issue the branch is named after (`<iid>-...`),
-  and a push to any branch named after that issue uses it up. With no risk
+  and a push to any branch named after that issue uses it up. It reads push
+  events back to when the issue was created, at most 120 days, so an old push
+  on another branch of the issue still counts; a go-ahead older than what it
+  read fails, since a push it can't see may have used it. With no risk
   score the push is judged as high risk, so only `go_ahead.maintainers`
   count. A push an MR's own guard judged (made while an MR from the branch
   was open, or before one opened) is left to it, if that MR is still open or

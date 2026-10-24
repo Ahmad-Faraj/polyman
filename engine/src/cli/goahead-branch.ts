@@ -51,19 +51,24 @@ async function main() {
   const mrs = (await allPages<BranchMr & { source_project_id: number }>(gl, `/:project/merge_requests?state=all&source_branch=${encodeURIComponent(branch)}`)).filter(
     (mr) => String(mr.source_project_id) === project,
   );
-  // Pushes from two days before the commit the branch starts from, which is on
-  // the default branch, so no pusher sets its date.
-  const baseTime = Number(execFileSync('git', ['show', '-s', '--format=%ct', base], { encoding: 'utf8' }).trim()) * 1000;
-  if (!Number.isFinite(baseTime) || baseTime <= 0) throw new Error(`can't read the date of the base commit ${base}`);
-  const since = eventsSince(new Date().toISOString(), baseTime);
-  const events = await allPages<PushEvent>(gl, `/:project/events?action=pushed&after=${since}&sort=asc`, 100);
   const iid = issueOfBranch(branch);
   const issue = iid
-    ? await gl.get<{ iid: number; author: { username: string } }>(`/:project/issues/${iid}`).catch((err: unknown) => {
+    ? await gl.get<{ iid: number; author: { username: string }; created_at: string }>(`/:project/issues/${iid}`).catch((err: unknown) => {
         if (err instanceof GitLabError && err.status === 404) return null;
         throw err;
       })
     : null;
+  // Pushes from two days before the commit the branch starts from, which is on
+  // the default branch, so no pusher sets its date. With an issue, from before
+  // the issue too: its go-ahead can't be older than the issue, so every push
+  // that could have used it up, to any branch of the issue, is read. Both are
+  // capped at 120 days (eventsSince); a go-ahead older than that fails in checkBranch.
+  const baseTime = Number(execFileSync('git', ['show', '-s', '--format=%ct', base], { encoding: 'utf8' }).trim()) * 1000;
+  if (!Number.isFinite(baseTime) || baseTime <= 0) throw new Error(`can't read the date of the base commit ${base}`);
+  const issueTime = issue ? Date.parse(issue.created_at) : baseTime;
+  if (!Number.isFinite(issueTime)) throw new Error(`can't read when #${issue?.iid} was created`);
+  const since = eventsSince(new Date().toISOString(), Math.min(baseTime, issueTime));
+  const events = await allPages<PushEvent>(gl, `/:project/events?action=pushed&after=${since}&sort=asc`, 100);
 
   const check = await checkBranch({ branch, events, commits, mrs, issue, since }, config, repo, (n) => notesOf(gl, 'issue', n));
   if (check.openMr !== null) {
