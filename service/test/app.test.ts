@@ -225,6 +225,10 @@ describe('read-only routes', () => {
       utimesSync(file, same, same);
       const first = await app.inject('/app.js');
       expect(first.body).toBe('AAAA');
+      // ctime ticks coarsely on Linux (about 4 ms): wait until the clock is well past the first write's ctime,
+      // or both rewrites can land in one tick and carry the same size, mtime, inode and ctime
+      const firstCtime = statSync(file).ctimeMs;
+      while (Date.now() < firstCtime + 20) await new Promise((done) => setTimeout(done, 5));
       writeFileSync(file, 'BBBB');
       utimesSync(file, same, same);
       expect(statSync(file).mtimeMs).toBe(same.getTime());
