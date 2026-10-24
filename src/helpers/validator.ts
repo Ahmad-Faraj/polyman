@@ -207,18 +207,19 @@ export async function validateTestset(
       throw new Error(`Testset directory not found: ${testsDir}`);
     }
 
-    const testFiles = getTestFiles(testsDir);
+    // Only `test<N>.txt` (N a positive integer) is a test. Stray files such
+    // as `test2.txt.bak` or `test_notes.txt` are skipped, and a folder with
+    // only such files is reported like an empty one, not as a pass.
+    const tests = getTestFiles(testsDir).flatMap(testFile => {
+      const match = /^test([1-9]\d*)\.txt$/.exec(testFile);
+      return match ? [{ testFile, index: Number(match[1]) }] : [];
+    });
 
-    if (testFiles.length === 0) {
+    if (tests.length === 0) {
       throw new Error(`No test files found in testset: ${testsetName}`);
     }
 
-    for (const testFile of testFiles) {
-      // Only `test<N>.txt` is a numbered test; stray files such as
-      // `test2.txt.bak` or `test_notes.txt` must not map onto an index.
-      const match = /^test(\d+)\.txt$/.exec(testFile);
-      if (!match) continue;
-      const index = Number(match[1]);
+    for (const { testFile, index } of tests) {
       const testFilePath = path.join(testsDir, testFile);
       try {
         await runValidator(compiledPath, testFilePath, 'VALID');

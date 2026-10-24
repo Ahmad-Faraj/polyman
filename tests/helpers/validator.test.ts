@@ -521,6 +521,25 @@ describe('validator.ts', () => {
       );
     });
 
+    it.each([
+      [['test_notes.txt']],
+      [['test1.txt.bak']],
+      [['test0.txt', 'test01.txt', 'test_notes.txt', 'test1.txt.bak']],
+    ])(
+      'validateTestset fails like an empty folder when no file is test<N>.txt (%j)',
+      async files => {
+        mockedGetTestFiles.mockReturnValue(files);
+        mockedExecuteWithRedirect.mockResolvedValue(SUCCESS_RESULT);
+
+        await expect(
+          validator.validateTestset(mockValidator, 'tests')
+        ).rejects.toThrow('No test files found in testset: tests');
+
+        expect(mockedExecuteWithRedirect).not.toHaveBeenCalled();
+        expect(recorded()).toEqual([]);
+      }
+    );
+
     it('validateGroup records the group of each test', async () => {
       const mockTestset: LocalTestset = { name: 'tests', groups: [] };
       mockedGetTestIndicesForGroup.mockReturnValue([2, 3]);
