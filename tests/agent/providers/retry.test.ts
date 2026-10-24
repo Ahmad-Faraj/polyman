@@ -120,6 +120,72 @@ describe('withRetries: retryable errors', () => {
     });
   });
 
+  describe('429 with a retry-after header', () => {
+    function rateLimited(headers: Record<string, string>) {
+      const responses = [
+        () =>
+          new Response(
+            JSON.stringify({ error: { message: 'Rate limit reached' } }),
+            {
+              status: 429,
+              headers: { 'content-type': 'application/json', ...headers },
+            }
+          ),
+        () => fixtureResponse(readFixture('openai', 'text')),
+      ];
+      const fetchFn = vi.fn(() => {
+        const next = responses.shift();
+        if (!next) throw new Error('no response left');
+        return Promise.resolve(next());
+      });
+      const onRetry = vi.fn<(info: RetryInfo) => void>();
+      const provider = withRetries(
+        new OpenAICompatibleProvider({
+          baseUrl: 'https://api.example.com/v1',
+          apiKey: 'test-key',
+          fetch: fetchFn as never,
+        }),
+        { ...EXACT, onRetry }
+      );
+      return { fetchFn, onRetry, run: settle(collect(provider)) };
+    }
+
+    it.each([
+      ['retry-after: 3', { 'retry-after': '3' }, 3000],
+      ['retry-after-ms: 2500', { 'retry-after-ms': '2500' }, 2500],
+    ])('waits the %s, not the backoff', async (_name, headers, wait) => {
+      const { fetchFn, onRetry, run } = rateLimited(headers);
+
+      await vi.advanceTimersByTimeAsync(wait - 1);
+      expect(fetchFn).toHaveBeenCalledTimes(1);
+      expect(run.state.done).toBe(false);
+      expect(onRetry).toHaveBeenCalledTimes(1);
+      expect(onRetry.mock.calls[0]?.[0]).toMatchObject({
+        retry: 1,
+        delayMs: wait,
+      });
+
+      await vi.advanceTimersByTimeAsync(1);
+      await run.finished;
+      expect(fetchFn).toHaveBeenCalledTimes(2);
+      expect(run.state.error).toBeUndefined();
+      expect(run.state.value?.at(-1)).toEqual({
+        type: 'done',
+        stopReason: 'end',
+      });
+    });
+
+    it('retries at once on retry-after: 0', async () => {
+      const { fetchFn, onRetry, run } = rateLimited({ 'retry-after': '0' });
+
+      await vi.advanceTimersByTimeAsync(0);
+      await run.finished;
+      expect(fetchFn).toHaveBeenCalledTimes(2);
+      expect(onRetry.mock.calls[0]?.[0].delayMs).toBe(0);
+      expect(run.state.error).toBeUndefined();
+    });
+  });
+
   it('backs off 1s, 2s, 4s on server errors, then succeeds', async () => {
     const mock = new MockProvider([
       { error: err('server') },
