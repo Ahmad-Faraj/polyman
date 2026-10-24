@@ -81,6 +81,58 @@ describe('compile-cache.ts', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
+  describe('debugLog', () => {
+    const saved = process.env['POLYMAN_DEBUG'];
+    let stderrSpy: MockInstance<typeof process.stderr.write>;
+
+    beforeEach(() => {
+      stderrSpy = vi
+        .spyOn(process.stderr, 'write')
+        .mockImplementation(() => true);
+    });
+
+    afterEach(() => {
+      stderrSpy.mockRestore();
+      if (saved === undefined) delete process.env['POLYMAN_DEBUG'];
+      else process.env['POLYMAN_DEBUG'] = saved;
+    });
+
+    it.each([
+      ['unset', undefined],
+      ['0', '0'],
+      ['empty', ''],
+    ])('writes nothing when POLYMAN_DEBUG is %s', (_name, value) => {
+      if (value === undefined) delete process.env['POLYMAN_DEBUG'];
+      else process.env['POLYMAN_DEBUG'] = value;
+
+      cache.debugLog('msg');
+
+      expect(stderrSpy).not.toHaveBeenCalled();
+    });
+
+    it('writes the prefixed line when POLYMAN_DEBUG=1', () => {
+      process.env['POLYMAN_DEBUG'] = '1';
+
+      cache.debugLog('msg');
+
+      expect(stderrSpy).toHaveBeenCalledTimes(1);
+      expect(stderrSpy).toHaveBeenCalledWith('[polyman debug] msg\n');
+    });
+
+    it('logs a cache hit', async () => {
+      process.env['POLYMAN_DEBUG'] = '1';
+      const compile = fakeCompiler();
+      await cache.cachedCompile(request(), compile);
+      stderrSpy.mockClear();
+
+      await cache.cachedCompile(request(), compile);
+
+      expect(compile).toHaveBeenCalledTimes(1);
+      const lines = stderrSpy.mock.calls.map(([line]) => String(line));
+      expect(lines.some(line => line.includes('cache: hit'))).toBe(true);
+    });
+  });
+
   describe('cachedCompile', () => {
     it('compiles on a miss and restores the cached binary on a hit', async () => {
       const compile = fakeCompiler();
