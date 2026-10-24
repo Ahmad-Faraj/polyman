@@ -335,6 +335,43 @@ describe('pch.ts', () => {
       expect(again).not.toBeNull();
       expect(pchBuilds()).toHaveLength(2);
     });
+
+    it('still writes the mark when the bad .gch cannot be deleted', async () => {
+      const first = await pch.findPch(request());
+      expect(first).not.toBeNull();
+      const realRm = fs.rmSync;
+      const rmSpy = vi
+        .spyOn(fs, 'rmSync')
+        .mockImplementation((target, opts) => {
+          if (String(target).endsWith('stdc++.h.gch')) {
+            throw Object.assign(new Error('EBUSY: resource busy'), {
+              code: 'EBUSY',
+            });
+          }
+          return realRm(target, opts);
+        });
+      try {
+        expect(() => pch.markPchUnsupported(first!)).not.toThrow();
+        expect(fs.existsSync(markFile())).toBe(true);
+      } finally {
+        rmSpy.mockRestore();
+      }
+    });
+
+    it('rebuilds when an expired mark sits next to an existing .gch', async () => {
+      expect(await pch.findPch(request())).not.toBeNull();
+      expect(pchBuilds()).toHaveLength(1);
+      writeMark(
+        JSON.stringify({
+          at: Date.now() - pch.UNSUPPORTED_RETRY_MS - 1000,
+          version: version(),
+        })
+      );
+      pch.resetPchState();
+
+      expect(await pch.findPch(request())).not.toBeNull();
+      expect(pchBuilds()).toHaveLength(2);
+    });
   });
 
   describe('at most 2 keys', () => {
