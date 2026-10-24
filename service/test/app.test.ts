@@ -1,9 +1,16 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readdirSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { brotliDecompressSync, gunzipSync, gzipSync } from 'node:zlib';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import yazl from 'yazl';
-import { buildApp } from '../src/app.ts';
+import { acceptedEncoding, buildApp } from '../src/app.ts';
+
+// gzipSync runs for real; the spy only counts how often the service compresses
+vi.mock('node:zlib', async (importOriginal) => {
+  const real = await importOriginal<typeof import('node:zlib')>();
+  return { ...real, default: real, gzipSync: vi.fn(real.gzipSync) };
+});
 
 // A stand-in for polyman: prints two progress steps to stderr and a report
 // for the solutions in Config.json to stdout. It also records the environment
@@ -134,6 +141,132 @@ describe('read-only routes', () => {
     }
     // the page itself is always revalidated
     expect((await app.inject('/')).headers['cache-control']).toBe('no-cache');
+  });
+
+  describe('page files over 1 KB: compressed for a browser that accepts it, revalidated without a body', () => {
+    const css = '.card{color:red;padding:4px}\n'.repeat(200);
+    const url = '/style.css';
+    beforeAll(() => writeFileSync(join(base, 'public', 'style.css'), css));
+
+    it('sends gzip, or brotli when both are accepted, and says the answer varies by encoding', async () => {
+      const gz = await app.inject({ url, headers: { 'accept-encoding': 'gzip, deflate' } });
+      expect(gz.statusCode).toBe(200);
+      expect(gz.headers['content-encoding']).toBe('gzip');
+      expect(gz.headers['vary']).toBe('accept-encoding');
+      expect(gz.headers['content-type']).toContain('text/css');
+      expect(gz.rawPayload.length).toBeLessThan(css.length / 5);
+      expect(gunzipSync(gz.rawPayload).toString()).toBe(css);
+
+      const br = await app.inject({ url, headers: { 'accept-encoding': 'gzip, deflate, br, zstd' } });
+      expect(br.headers['content-encoding']).toBe('br');
+      expect(brotliDecompressSync(br.rawPayload).toString()).toBe(css);
+    });
+
+    it('sends the file as it is when no encoding is accepted, or the one that is offered is refused with q=0', async () => {
+      for (const accept of [undefined, 'identity', 'gzip;q=0, br;q=0']) {
+        const res = await app.inject({ url, headers: accept === undefined ? {} : { 'accept-encoding': accept } });
+        expect(res.headers['content-encoding']).toBeUndefined();
+        expect(res.headers['vary']).toBe('accept-encoding');
+        expect(res.body).toBe(css);
+      }
+    });
+
+    it('keeps a small file, a font and the no-cache rule as they were', async () => {
+      const small = await app.inject({ url: '/', headers: { 'accept-encoding': 'gzip, br' } });
+      expect(small.headers['content-encoding']).toBeUndefined();
+      expect(small.body).toBe('<h1>verify</h1>');
+      const font = await app.inject({ url: '/fonts/oxanium.woff2', headers: { 'accept-encoding': 'gzip, br' } });
+      expect(font.headers['content-encoding']).toBeUndefined();
+      expect(font.headers['etag']).toBeUndefined();
+      expect(font.headers['cache-control']).toBe('public, max-age=604800');
+      expect((await app.inject({ url, headers: { 'accept-encoding': 'gzip' } })).headers['cache-control']).toBe('no-cache');
+    });
+
+    it('answers a revalidation of an unchanged file with 304 and no body, in any encoding, and sends a changed file in full', async () => {
+      const first = await app.inject({ url, headers: { 'accept-encoding': 'gzip' } });
+      const etag = String(first.headers['etag']);
+      expect(etag).toMatch(/^W\/"[\w-]{22}"$/);
+      for (const accept of ['gzip', 'br', 'identity']) {
+        const again = await app.inject({ url, headers: { 'accept-encoding': accept, 'if-none-match': etag } });
+        expect(again.statusCode).toBe(304);
+        expect(again.rawPayload.length).toBe(0);
+        // a 304 carries the headers a cache needs to keep the file
+        expect(again.headers['etag']).toBe(etag);
+        expect(again.headers['vary']).toBe('accept-encoding');
+        expect(again.headers['cache-control']).toBe('no-cache');
+      }
+      expect((await app.inject({ url, headers: { 'if-none-match': `"other", ${etag}` } })).statusCode).toBe(304);
+      expect((await app.inject({ url, headers: { 'if-none-match': '"other"' } })).statusCode).toBe(200);
+
+      writeFileSync(join(base, 'public', 'style.css'), css + '.late{margin:0}\n');
+      const changed = await app.inject({ url, headers: { 'accept-encoding': 'gzip', 'if-none-match': etag } });
+      expect(changed.statusCode).toBe(200);
+      expect(changed.headers['etag']).not.toBe(etag);
+      expect(gunzipSync(changed.rawPayload).toString()).toBe(css + '.late{margin:0}\n');
+    });
+
+    it('compresses a file once however often it is asked for, and again only after the file changed', async () => {
+      const file = join(base, 'public', 'app.js');
+      const ask = () => app.inject({ url: '/app.js', headers: { 'accept-encoding': 'gzip' } });
+      writeFileSync(file, 'const x = 1; '.repeat(300));
+      vi.mocked(gzipSync).mockClear();
+      for (let i = 0; i < 3; i++) expect((await ask()).statusCode).toBe(200);
+      expect(gzipSync).toHaveBeenCalledTimes(1);
+      writeFileSync(file, 'const y = 2; '.repeat(300));
+      expect(gunzipSync((await ask()).rawPayload).toString()).toBe('const y = 2; '.repeat(300));
+      expect(gzipSync).toHaveBeenCalledTimes(2);
+    });
+
+    it('notices a file rewritten with the same size and the old mtime (cp -p, rsync -t, tar)', async () => {
+      const file = join(base, 'public', 'app.js');
+      // both versions get exactly the same mtime, as cp -p or tar leave it
+      const same = new Date('2020-01-01T00:00:00Z');
+      writeFileSync(file, 'AAAA');
+      utimesSync(file, same, same);
+      const first = await app.inject('/app.js');
+      expect(first.body).toBe('AAAA');
+      // ctime ticks coarsely on Linux (about 4 ms): wait until the clock is well past the first write's ctime,
+      // or both rewrites can land in one tick and carry the same size, mtime, inode and ctime
+      const firstCtime = statSync(file).ctimeMs;
+      while (Date.now() < firstCtime + 20) await new Promise((done) => setTimeout(done, 5));
+      writeFileSync(file, 'BBBB');
+      utimesSync(file, same, same);
+      expect(statSync(file).mtimeMs).toBe(same.getTime());
+      const second = await app.inject('/app.js');
+      expect(second.body).toBe('BBBB');
+      expect(second.headers['etag']).not.toBe(first.headers['etag']);
+    });
+
+    it('answers 503 without the file path when a page file is missing, also to a revalidation', async () => {
+      const file = join(base, 'public', 'style.css');
+      const before = await app.inject({ url, headers: { 'accept-encoding': 'gzip' } });
+      rmSync(file);
+      try {
+        for (const headers of [{}, { 'accept-encoding': 'gzip', 'if-none-match': String(before.headers['etag']) }]) {
+          const res = await app.inject({ url, headers });
+          expect(res.statusCode).toBe(503);
+          expect(res.body).toBe('page file unavailable');
+          expect(res.body).not.toContain(base);
+          expect(res.headers['cache-control']).toBe('no-store');
+          expect(res.headers['etag']).toBeUndefined();
+          expect(res.headers['content-encoding']).toBeUndefined();
+        }
+      } finally {
+        writeFileSync(file, css);
+      }
+    });
+  });
+
+  it('reads the accepted encodings: brotli before gzip, nothing for q=0 or an unknown one', () => {
+    expect(acceptedEncoding(undefined)).toBeUndefined();
+    expect(acceptedEncoding('')).toBeUndefined();
+    expect(acceptedEncoding('identity')).toBeUndefined();
+    expect(acceptedEncoding('gzip')).toBe('gzip');
+    expect(acceptedEncoding('GZIP, Deflate')).toBe('gzip');
+    expect(acceptedEncoding('gzip, deflate, br, zstd')).toBe('br');
+    expect(acceptedEncoding('br;q=0, gzip;q=0.5')).toBe('gzip');
+    expect(acceptedEncoding('gzip;q=0, br;q=0')).toBeUndefined();
+    expect(acceptedEncoding('zstd')).toBeUndefined();
   });
 
   it('serves the vendored component styles', async () => {
