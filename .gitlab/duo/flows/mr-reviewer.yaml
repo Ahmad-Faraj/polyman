@@ -14,6 +14,8 @@ components:
     inputs:
       - from: "context:project_id"
         as: "project_id"
+      - from: "context:goal"
+        as: "goal"
     toolset:
       - "get_merge_request"
       - "read_file"
@@ -33,6 +35,8 @@ components:
     inputs:
       - from: "context:project_id"
         as: "project_id"
+      - from: "context:goal"
+        as: "goal"
     toolset:
       - "get_merge_request"
       - "read_file"
@@ -51,6 +55,8 @@ components:
     inputs:
       - from: "context:project_id"
         as: "project_id"
+      - from: "context:goal"
+        as: "goal"
     toolset:
       - "get_merge_request"
       - "read_file"
@@ -357,7 +363,7 @@ prompts:
       user: |
         Project ID: {{project_id}}
 
-        The lead reviewer's instructions are in the conversation.
+        {{goal}}
     params:
       timeout: 600
 
@@ -405,7 +411,7 @@ prompts:
       user: |
         Project ID: {{project_id}}
 
-        The lead reviewer's instructions are in the conversation.
+        {{goal}}
     params:
       timeout: 600
 
@@ -449,7 +455,7 @@ prompts:
       user: |
         Project ID: {{project_id}}
 
-        The lead reviewer's instructions are in the conversation.
+        {{goal}}
     params:
       timeout: 600
 
