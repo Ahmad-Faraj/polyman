@@ -124,15 +124,24 @@ export class OpenAICompatibleProvider implements Provider {
       return `call_${this.generatedIds}`;
     });
     let sawDone = false;
-    for await (const sse of parseSse(response.body, signal)) {
-      if (sse.data === '[DONE]') {
-        sawDone = true;
-        break;
+    try {
+      for await (const sse of parseSse(response.body, signal)) {
+        if (sse.data === '[DONE]') {
+          sawDone = true;
+          break;
+        }
+        for (const event of turn.chunk(parseChunk(sse.data))) {
+          signal.throwIfAborted();
+          yield event;
+        }
       }
-      for (const event of turn.chunk(parseChunk(sse.data))) {
-        signal.throwIfAborted();
-        yield event;
-      }
+    } catch (err) {
+      signal.throwIfAborted();
+      if (err instanceof ProviderError) throw err;
+      throw new ProviderError(
+        'network',
+        `the stream broke: ${err instanceof Error ? err.message : String(err)}`
+      );
     }
     signal.throwIfAborted();
     if (!sawDone && turn.stopReason === undefined) {

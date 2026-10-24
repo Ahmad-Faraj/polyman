@@ -751,6 +751,45 @@ describe('OpenAICompatibleProvider: stream details', () => {
   });
 });
 
+describe('OpenAICompatibleProvider: broken streams', () => {
+  /** Gives each chunk in its own read, then fails the next read. */
+  const failingBody = (chunks: string[]) => () => {
+    const encoder = new TextEncoder();
+    let i = 0;
+    return new Response(
+      new ReadableStream<Uint8Array>({
+        pull(controller) {
+          const c = chunks[i++];
+          if (c === undefined) controller.error(new TypeError('terminated'));
+          else controller.enqueue(encoder.encode(c));
+        },
+      }),
+      { status: 200, headers: { 'content-type': 'text/event-stream' } }
+    );
+  };
+
+  it('turns a read error in the middle of the stream into a network error', async () => {
+    const chunk = `data: ${JSON.stringify(delta({ content: 'hi' }))}\n\n`;
+    const fetchFn = fakeFetch(failingBody([chunk]));
+    const error = await failure(collect(provider(fetchFn)));
+    expect(error.kind).toBe('network');
+    expect(error.retryable).toBe(true);
+    expect(error.message).toContain('the stream broke: terminated');
+  });
+
+  it('turns a read error before the first chunk into a network error', async () => {
+    const fetchFn = fakeFetch(failingBody([]));
+    const error = await failure(collect(provider(fetchFn)));
+    expect(error.kind).toBe('network');
+  });
+
+  it('keeps the server error of a bad chunk as it is', async () => {
+    const fetchFn = fakeFetch(failingBody(['data: not json\n\n']));
+    const error = await failure(collect(provider(fetchFn)));
+    expect(error.kind).toBe('server');
+  });
+});
+
 describe('parseToolArgs', () => {
   it.each<[string, unknown]>([
     ['', {}],
