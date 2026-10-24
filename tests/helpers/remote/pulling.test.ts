@@ -106,6 +106,60 @@ describe('pulling.ts', () => {
       expect(fs.writeFileSync).toHaveBeenCalled();
     });
 
+    it('keeps the Polygon sourceType of each solution', async () => {
+      mockSdk.getSolutions.mockResolvedValue([
+        {
+          name: 'main.cpp',
+          modificationTimeSeconds: 0,
+          length: 0,
+          sourceType: 'cpp.gcc14-64-msys2-g++23',
+          tag: 'MA',
+        },
+        {
+          name: 'second.cpp',
+          modificationTimeSeconds: 0,
+          length: 0,
+          sourceType: 'cpp.g++17',
+          tag: 'OK',
+        },
+      ]);
+      mockSdk.viewSolution.mockResolvedValue('code');
+
+      const result = await pulling.downloadSolutions(asSdk(mockSdk), 1, 'dir');
+
+      expect(result.data).toEqual([
+        {
+          name: 'main',
+          source: './solutions/main.cpp',
+          tag: 'MA',
+          sourceType: 'cpp.gcc14-64-msys2-g++23',
+        },
+        {
+          name: 'second',
+          source: './solutions/second.cpp',
+          tag: 'OK',
+          sourceType: 'cpp.g++17',
+        },
+      ]);
+    });
+
+    it('writes no sourceType when Polygon sends an empty one', async () => {
+      mockSdk.getSolutions.mockResolvedValue([
+        {
+          name: 'main.cpp',
+          modificationTimeSeconds: 0,
+          length: 0,
+          sourceType: '',
+          tag: 'MA',
+        },
+      ]);
+      mockSdk.viewSolution.mockResolvedValue('code');
+
+      const result = await pulling.downloadSolutions(asSdk(mockSdk), 1, 'dir');
+
+      expect(result.data[0]).not.toHaveProperty('sourceType');
+    });
+
     it('should download multiple solutions and skip ones that fail viewSolution', async () => {
       mockSdk.getSolutions.mockResolvedValue([
         {
@@ -517,6 +571,14 @@ describe('pulling.ts', () => {
       expect(result.data).toHaveLength(1);
       expect(result.data[0].name).toBe('gen');
       expect(result.data[0].source).toBe('./generators/gen.cpp');
+      expect(result.data[0].sourceType).toBe('cpp.g++17');
+      expect(result.sourceTypes).toEqual({
+        'gen.cpp': 'cpp.g++17',
+        'check.cpp': 'checker',
+        'val.cpp': 'validator',
+        'sol.cpp': 'solution.cpp',
+        'validator.cpp': 'cpp.g++17',
+      });
     });
 
     it('should skip the validator when it uses a .cc or .cxx extension', async () => {
@@ -579,7 +641,11 @@ describe('pulling.ts', () => {
       );
 
       expect(result.data).toEqual([
-        { name: 'gen', source: './generators/gen.cpp' },
+        {
+          name: 'gen',
+          source: './generators/gen.cpp',
+          sourceType: 'cpp.g++17',
+        },
       ]);
       expect(mockSdk.viewFile).toHaveBeenCalledTimes(1);
     });

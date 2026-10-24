@@ -13,8 +13,9 @@ import type {
   LocalSolution,
   LocalValidator,
   LocalTestset,
-  SolutionTag,
+  SolutionSourceType,
   StatementConfig,
+  TestlibSourceType,
 } from '../../types';
 import { fmt } from '../../formatter';
 import { normalizeLineEndingsFromRemoteToSystem } from './utils';
@@ -102,7 +103,7 @@ export async function downloadSolutions(
   problemId: number,
   problemDir: string
 ): Promise<{
-  data: Array<{ name: string; source: string; tag: SolutionTag }>;
+  data: Array<LocalSolution>;
   count: number;
   failures: PullFailure[];
   placeholder?: string;
@@ -138,6 +139,9 @@ export async function downloadSolutions(
           name: solution.name.replace(/\.[^.]+$/, ''),
           source: './solutions/' + solution.name,
           tag: solution.tag,
+          ...(solution.sourceType && {
+            sourceType: solution.sourceType as SolutionSourceType,
+          }),
         });
       } catch (error) {
         fmt.warning(
@@ -395,10 +399,12 @@ export async function downloadValidator(
  * @param {number} problemId - Problem ID
  * @param {string} problemDir - Target directory
  * @param {string[]} skipNames - Checker and validator names (without extension) to skip
- * @returns {Promise<{ data: Array<LocalGenerator>; count: number; failures: PullFailure[]; placeholder?: string }>}
+ * @returns {Promise<{ data: Array<LocalGenerator>; count: number; failures: PullFailure[]; placeholder?: string; sourceTypes: Record<string, string> }>}
  *   `failures` has one entry per file that could not be downloaded
  *   (Config.json does not list it). `placeholder` is a warning, set when the
- *   file list could not be fetched and Config.json lists no generators
+ *   file list could not be fetched and Config.json lists no generators.
+ *   `sourceTypes` maps every source file name on Polygon (generators, the
+ *   checker, the validator, ...) to its `sourceType`
  */
 export async function downloadGenerators(
   sdk: PolygonSDK,
@@ -410,13 +416,18 @@ export async function downloadGenerators(
   count: number;
   failures: PullFailure[];
   placeholder?: string;
+  sourceTypes: Record<string, string>;
 }> {
   const generatorsData: Array<LocalGenerator> = [];
   const failures: PullFailure[] = [];
+  const sourceTypes: Record<string, string> = {};
   let count = 0;
 
   try {
     const files = await sdk.getFiles(problemId);
+    for (const file of files.sourceFiles) {
+      if (file.sourceType) sourceTypes[file.name] = file.sourceType;
+    }
 
     // Download generators (skip solutions, checker, validator)
     for (const file of files.sourceFiles) {
@@ -444,6 +455,9 @@ export async function downloadGenerators(
         generatorsData.push({
           name: file.name.replace(/\.[^.]+$/, ''),
           source: './generators/' + file.name,
+          ...(file.sourceType && {
+            sourceType: file.sourceType as TestlibSourceType,
+          }),
         });
       } catch (error) {
         fmt.warning(
@@ -464,10 +478,11 @@ export async function downloadGenerators(
       count,
       failures,
       placeholder: `Could not fetch the problem files (${reason(error)}): Config.json lists no generators`,
+      sourceTypes,
     };
   }
 
-  return { data: generatorsData, count, failures };
+  return { data: generatorsData, count, failures, sourceTypes };
 }
 
 /**

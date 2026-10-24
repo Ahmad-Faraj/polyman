@@ -1082,6 +1082,50 @@ describe('utils.ts', () => {
         expect(utils.resolveCppStandard()).toBe('c++23');
       });
 
+      it('resolveCppStandard uses the fallback when the field is absent', () => {
+        (
+          readFileSyncMock as unknown as ReturnType<
+            typeof vi.fn<(...args: unknown[]) => string>
+          >
+        ).mockReturnValue('{"solutions": []}');
+        expect(utils.resolveCppStandard('c++17')).toBe('c++17');
+      });
+
+      it('resolveCppStandard prefers cppStandard over the fallback', () => {
+        (
+          readFileSyncMock as unknown as ReturnType<
+            typeof vi.fn<(...args: unknown[]) => string>
+          >
+        ).mockReturnValue(JSON.stringify({ cppStandard: 'c++20' }));
+        expect(utils.resolveCppStandard('c++17')).toBe('c++20');
+      });
+
+      it.each([
+        ['cpp.g++11', 'c++11'],
+        ['cpp.g++14', 'c++14'],
+        ['cpp.g++17', 'c++17'],
+        ['cpp.g++20', 'c++20'],
+        ['cpp.msys2-mingw64-9-g++17', 'c++17'],
+        ['cpp.gcc13-64-winlibs-g++20', 'c++20'],
+        ['cpp.gcc14-64-msys2-g++23', 'c++23'],
+        ['cpp.clang++17', 'c++17'],
+        ['cpp.clang++20', 'c++20'],
+      ])('cppStandardFromSourceType reads %s as %s', (sourceType, std) => {
+        expect(utils.cppStandardFromSourceType(sourceType)).toBe(std);
+      });
+
+      it.each([
+        undefined,
+        '',
+        'cpp.ms2017',
+        'cpp.ms2019',
+        'java21',
+        'python.3',
+        'c.gcc11',
+      ])('cppStandardFromSourceType gives no standard for %j', sourceType => {
+        expect(utils.cppStandardFromSourceType(sourceType)).toBeUndefined();
+      });
+
       it.each(['c++11', 'c++17', 'gnu++20', 'c++2b', 'c++26'])(
         'resolveCppStandard accepts %s',
         std => {

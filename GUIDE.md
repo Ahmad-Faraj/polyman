@@ -241,6 +241,15 @@ my-problem/
 
 `cppStandard` only affects local compilation (`generate`, `validate`, `run`, `verify`). The compiler used on Polygon is chosen per file through `sourceType` (see [Source Types](#source-types)).
 
+A C++ solution whose `sourceType` names a standard (`cpp.g++17`, `cpp.gcc14-64-msys2-g++23`, `cpp.clang++20`, ...) is built locally with that standard, so it gets the same build as on Polygon. For a solution, the `-std=` comes from the first of these that is set:
+
+1. a `-std=` item in `compiler.flags`,
+2. `cppStandard` in `Config.json`,
+3. the standard in the solution's `sourceType`,
+4. the default `c++23`.
+
+So `cppStandard` still sets one standard for every file when you want that. A `sourceType` with no standard in it (`cpp.ms2017`, `cpp.ms2019`) uses the default. Generators, the validator and the checker do not read `sourceType` locally, they use `cppStandard` or the default.
+
 `timeLimitMultipliers` also only affects local runs. Java and Python are slower than C++ at the same task (JVM startup, interpreter), so a correct `OK` solution can get TLE locally against a C++-sized limit and fail `polyman verify` even though the problem is fine. A factor scales `timeLimit` for that language only:
 
 ```json
@@ -386,7 +395,7 @@ Define all solutions with their expected behavior:
 - `cpp.ms2017`, `cpp.ms2019`
 - `cpp.clang++17`, `cpp.clang++20`
 
-`sourceType` is honored on `polyman remote push` for solutions, generators, the checker and the validator. C++ files without one are uploaded as `cpp.g++17`. Polygon retires compilers over time, so check the problem's compiler list in the Polygon UI if an upload is rejected.
+`sourceType` is honored on `polyman remote push` for solutions, generators, the checker and the validator. C++ files without one are uploaded as `cpp.g++17`. `polyman remote pull` writes each file's `sourceType` into `Config.json`, so a pull then a push keeps the same compilers. Locally, a C++ solution is built with the standard in its `sourceType` unless `cppStandard` or `compiler.flags` sets one (see [Optional Fields](#optional-fields)). Polygon retires compilers over time, so check the problem's compiler list in the Polygon UI if an upload is rejected.
 
 C++ sources may use the `.cpp`, `.cc` or `.cxx` extension.
 

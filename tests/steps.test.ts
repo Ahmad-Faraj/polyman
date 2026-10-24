@@ -1076,7 +1076,9 @@ describe('steps.ts', () => {
       validatorResult: object = {
         count: 1,
         data: { name: 'val', source: 'val.cpp' },
-      }
+      },
+      sourceTypes: Record<string, string> = {},
+      checkerCount = 1
     ) => {
       vi.mocked(remoteUtils.fetchProblemInfo).mockResolvedValue({
         name: 'p',
@@ -1093,7 +1095,7 @@ describe('steps.ts', () => {
         failures: [],
       } as any);
       vi.mocked(pulling.downloadChecker).mockResolvedValue({
-        count: 1,
+        count: checkerCount,
         data: checker,
         failures: [],
       } as any);
@@ -1105,6 +1107,7 @@ describe('steps.ts', () => {
         count: 2,
         data: [],
         failures: [],
+        sourceTypes,
       } as any);
       vi.mocked(pulling.downloadStatements).mockResolvedValue({
         count: 0,
@@ -1353,6 +1356,41 @@ describe('steps.ts', () => {
         expect.stringContaining('savePath'),
         ['val', 'chk']
       );
+    });
+
+    it('keeps the sourceType of a downloaded checker and validator', async () => {
+      await pullWithChecker(
+        { name: 'chk', source: './checker/chk.cpp', isStandard: false },
+        { count: 2, data: { name: 'val', source: './validator/val.cpp' } },
+        { 'chk.cpp': 'cpp.g++17', 'val.cpp': 'cpp.gcc14-64-msys2-g++23' }
+      );
+      const written = vi
+        .mocked(fs.writeFileSync)
+        .mock.calls.find(([file]) => String(file).endsWith('Config.json'));
+      const config = JSON.parse(written?.[1] as string) as {
+        checker: { sourceType?: string };
+        validator: { sourceType?: string };
+      };
+      expect(config.checker.sourceType).toBe('cpp.g++17');
+      expect(config.validator.sourceType).toBe('cpp.gcc14-64-msys2-g++23');
+    });
+
+    it('adds no sourceType to a checker or validator that was not downloaded', async () => {
+      await pullWithChecker(
+        { name: 'chk', source: 'chk.cpp', isStandard: true },
+        { count: 0, data: { name: 'val', source: 'val.cpp' }, missing: true },
+        { 'chk.cpp': 'cpp.g++17', 'val.cpp': 'cpp.g++17' },
+        0
+      );
+      const written = vi
+        .mocked(fs.writeFileSync)
+        .mock.calls.find(([file]) => String(file).endsWith('Config.json'));
+      const config = JSON.parse(written?.[1] as string) as {
+        checker: object;
+        validator: object;
+      };
+      expect(config.checker).not.toHaveProperty('sourceType');
+      expect(config.validator).not.toHaveProperty('sourceType');
     });
   });
 
