@@ -1,5 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import {
@@ -12,6 +20,22 @@ import {
 } from '../../src/agent/ai-commands';
 import { KeyStore } from '../../src/agent/providers/key-store';
 import { PolymanError } from '../../src/errors';
+
+const fsFault = vi.hoisted(() => ({ failRename: false }));
+
+// Lets a test make renameSync fail, to reach the error path of write().
+vi.mock('fs', async importOriginal => {
+  const actual = await importOriginal<typeof import('fs')>();
+  return {
+    ...actual,
+    renameSync: (...args: Parameters<typeof actual.renameSync>) => {
+      if (fsFault.failRename) {
+        throw Object.assign(new Error('rename failed'), { code: 'EIO' });
+      }
+      return actual.renameSync(...args);
+    },
+  };
+});
 
 const KEY = 'sk-deepseek-1234567890abcd';
 const ENV_KEY = 'sk-openai-env-0987654321';
@@ -34,6 +58,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  fsFault.failRename = false;
   rmSync(home, { recursive: true, force: true });
 });
 
@@ -192,6 +217,27 @@ describe('ai login', () => {
     expect(err.message).not.toContain(KEY);
     expect(printed()).not.toContain(KEY);
   });
+
+  it('fails in write() itself, leaves no temp file and keeps the old ai.json', async () => {
+    const store = makeStore();
+    store.setKey('openai', 'sk-old-key-1234567890');
+    const before = readFileSync(store.path, 'utf-8');
+    // read() works, so the failure comes from write().
+    fsFault.failRename = true;
+    const err = await caught(
+      aiLoginAction(
+        'deepseek',
+        {},
+        { store, promptHidden: () => Promise.resolve(KEY) }
+      )
+    );
+    fsFault.failRename = false;
+    expect(err.message).toContain('rename failed');
+    expect(err.message).not.toContain(KEY);
+    expect(printed()).not.toContain(KEY);
+    expect(readdirSync(store.dir)).toEqual(['ai.json']);
+    expect(readFileSync(store.path, 'utf-8')).toBe(before);
+  });
 });
 
 describe('ai logout', () => {
@@ -251,6 +297,35 @@ describe('ai list', () => {
     expect(err.exitCode).toBe(2);
     expect(`${err.message} ${err.hint ?? ''}`).not.toContain(KEY);
   });
+
+  it.each([
+    ['logout', (io: AiIo) => aiLogoutAction('deepseek', io)],
+    ['use', (io: AiIo) => aiUseAction('deepseek/deepseek-flash', io)],
+    ['models', (io: AiIo) => aiModelsAction('custom', io)],
+    [
+      'login',
+      (io: AiIo) =>
+        aiLoginAction(
+          'deepseek',
+          {},
+          { ...io, promptHidden: () => Promise.resolve(KEY) }
+        ),
+    ],
+  ])(
+    'ai %s fails with exit code 2 on a broken ai.json and leaves it alone',
+    async (_name, run) => {
+      const store = makeStore();
+      mkdirSync(store.dir, { recursive: true });
+      const content = `{"providers":{"x":{"apiKey":"${KEY}"`;
+      writeFileSync(store.path, content);
+      const err = await caught(run({ store }));
+      expect(err.exitCode).toBe(2);
+      expect(`${err.message} ${err.hint ?? ''}`).not.toContain(KEY);
+      expect(printed()).not.toContain(KEY);
+      expect(readFileSync(store.path, 'utf-8')).toBe(content);
+      expect(readdirSync(store.dir)).toEqual(['ai.json']);
+    }
+  );
 });
 
 describe('ai models', () => {
