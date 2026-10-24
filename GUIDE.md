@@ -1999,7 +1999,7 @@ Every command ends with one of these codes, so a script or an agent can decide w
 | `130` | Cancelled | Ctrl+C (SIGINT) | Nothing, the user stopped it |
 | `143` | Terminated | SIGTERM, for example a CI job that timed out | Nothing, the runner stopped it |
 
-Any other failure, for example an error polyman did not expect, ends with `1`. The error message is printed last, on its own line, with a `Hint:` line under it when polyman knows the fix. With `--json`, the `exitCode` field of the `new`, `download-testlib`, `list`, `generate`, `validate` and `test` reports is the same code.
+Any other failure, for example an error polyman did not expect, ends with `1`. The error message is printed last, on its own line, with a `Hint:` line under it when polyman knows the fix. With `--json`, the `exitCode` field of the `new`, `download-testlib`, `list`, `generate`, `validate`, `test` and `remote` reports is the same code.
 
 ```bash
 polyman verify
@@ -2369,6 +2369,51 @@ polyman remote package ./my-problem standard
 - Simple problems: 1-3 minutes
 - Complex problems with many tests: 5-10 minutes
 - Full packages: 10-15 minutes
+
+---
+
+### JSON Output for Remote Commands
+
+`remote pull`, `push`, `view`, `commit` and `package` accept `--json`. Same rule as `run` and `verify`: stdout carries exactly one JSON document, and every human line goes to stderr. The exit code is unchanged.
+
+```bash
+polyman remote push . --json > push.json
+polyman remote commit . "Fix validator" --json
+```
+
+Shape:
+
+```json
+{
+  "schemaVersion": 1,
+  "polymanVersion": "3.0.3",
+  "command": "remote push",
+  "ok": false,
+  "exitCode": 4,
+  "durationMs": 5321,
+  "errors": ["solution wa: Polygon API Error: ..."],
+  "problemId": 123456,
+  "actions": [
+    { "component": "solution", "name": "main", "action": "upload", "ok": true },
+    { "component": "solution", "name": "wa", "action": "upload", "ok": false, "error": "Polygon API Error: ..." }
+  ],
+  "warnings": []
+}
+```
+
+- Each upload, download, fetch or change is one entry in `actions`. `error` is there only when `ok` is false.
+- `exitCode` is the code the process exits with. A push where some items failed to upload exits 4.
+- `problemId` is always in the report. For a push that creates the problem, it is the new ID. It is `null` only when the command failed before it knew the ID.
+- `errors` is plain text. The API key and secret are replaced with `[REDACTED]` everywhere in the report.
+- With `--json`, `push` never prompts. To create a new problem, pass `--yes` (and `--name <slug>` if needed), or it exits 2.
+- `pull` lists the files it saved and each testset it tried.
+- `warnings` lists what did not fail the command but needs a look. For `pull`, it has one line for each placeholder put in `Config.json` instead of a file: the `acc.cpp` main solution (no solution downloaded), the standard `ncmp` checker, the `val.cpp` validator (none on Polygon, or the download failed) and an empty generator list (the file list could not be fetched). Placeholders alone keep `ok: true` and exit 0.
+- A file that `pull` could not download fails it, like a failed upload fails `push`. The pull still writes every other file and `Config.json`, then ends with `ok: false` and exit 4. Each such file is an `ok: false` `download` entry in `actions`, and one line in `errors` with the reason:
+  - a solution, a generator, a statement language, or all statements. `Config.json` does not list it;
+  - checker or validator tests. `Config.json` then has no `testsFilePath` for it, so its self-tests are skipped instead of pointing at a missing file;
+  - the description or the tags. `Config.json` then has no `description` (or `tags`) key, not an empty value, so a later `remote push` leaves the one on Polygon as it is.
+
+  The human output lists the same files under "PULL COMPLETED WITH ERRORS" and repeats the warnings at the end. A testset Polygon refused is an `ok: false` entry in `actions`, and a refused problem fetch fails the pull.
 
 ---
 

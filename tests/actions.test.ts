@@ -1473,13 +1473,16 @@ describe('actions.ts', () => {
       vi.mocked(steps.stepInitializeSDK).mockReturnValue({} as any);
       vi.mocked(steps.stepGetProblemId).mockReturnValue(123 as any);
       vi.mocked(steps.stepDownloadProblemFilesAndSetUpConfig).mockResolvedValue(
-        []
+        { warnings: [], failures: [] }
       );
     });
 
     it('should repeat the pull warnings after the success box', async () => {
       vi.mocked(steps.stepDownloadProblemFilesAndSetUpConfig).mockResolvedValue(
-        ['Polygon has no validator set for problem 123']
+        {
+          warnings: ['Polygon has no validator set for problem 123'],
+          failures: [],
+        }
       );
       await actions.remotePullProblemAction('123', './out', { all: true });
       const warning = vi
@@ -1497,6 +1500,59 @@ describe('actions.ts', () => {
     it('should not warn when the pull had no warnings', async () => {
       await actions.remotePullProblemAction('123', './out', { all: true });
       expect(formatter.fmt.warning).not.toHaveBeenCalled();
+    });
+
+    const refusedSolution = {
+      component: 'solution',
+      name: 'wa',
+      error: 'Polygon API Error: no access',
+      message:
+        'Could not download the solution wa.cpp (Polygon API Error: no access): Config.json does not list it',
+    };
+
+    it('should list failed downloads, fail with exit code 4 and skip the success box', async () => {
+      vi.mocked(steps.stepDownloadTests).mockResolvedValue(true);
+      vi.mocked(steps.stepDownloadProblemFilesAndSetUpConfig).mockResolvedValue(
+        { warnings: [], failures: [refusedSolution] }
+      );
+      const error = await failure(
+        actions.remotePullProblemAction('123', './out', { all: true })
+      );
+      expect(error).toBeInstanceOf(PolymanError);
+      expect((error as PolymanError).message).toBe(
+        'Some files were not downloaded from Polygon'
+      );
+      expect((error as PolymanError).exitCode).toBe(4);
+      expect(formatter.fmt.errorBox).toHaveBeenCalledWith(
+        'PULL COMPLETED WITH ERRORS'
+      );
+      expect(formatter.fmt.errorBox).not.toHaveBeenCalledWith(
+        'FAILED TO PULL PROBLEM!'
+      );
+      expect(formatter.fmt.error).toHaveBeenCalledWith(
+        expect.stringContaining(refusedSolution.message)
+      );
+      expect(formatter.fmt.successBox).not.toHaveBeenCalled();
+      // The pull does not stop early: the testsets are still downloaded.
+      expect(steps.stepDownloadTests).toHaveBeenCalled();
+      expect(process.exit).not.toHaveBeenCalled();
+    });
+
+    it('should still repeat the placeholder warnings when a download failed', async () => {
+      vi.mocked(steps.stepDownloadProblemFilesAndSetUpConfig).mockResolvedValue(
+        {
+          warnings: ['Polygon has no validator set for problem 123'],
+          failures: [refusedSolution],
+        }
+      );
+      const error = await failure(
+        actions.remotePullProblemAction('123', './out', { all: true })
+      );
+      expect((error as PolymanError).exitCode).toBe(4);
+      const warning = vi
+        .mocked(formatter.fmt.warning)
+        .mock.calls.find(c => String(c[0]).includes('no validator set'));
+      expect(warning).toBeDefined();
     });
 
     it('should pull all by default', async () => {

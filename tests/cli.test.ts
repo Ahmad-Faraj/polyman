@@ -530,11 +530,9 @@ describe('cli.ts', () => {
 
   it('should register remote view command', async () => {
     await loadCli(['remote', 'view', '42']);
-    expect(actions.remoteViewProblemAction).toHaveBeenCalledWith(
-      '42',
-      expect.anything(),
-      expect.anything()
-    );
+    expect(actions.remoteViewProblemAction).toHaveBeenCalledWith('42', {
+      json: false,
+    });
   });
 
   it('should register remote commit command', async () => {
@@ -542,8 +540,7 @@ describe('cli.ts', () => {
     expect(actions.remoteCommitProblemAction).toHaveBeenCalledWith(
       '42',
       'msg',
-      expect.anything(),
-      expect.anything()
+      { json: false }
     );
   });
 
@@ -552,8 +549,40 @@ describe('cli.ts', () => {
     expect(actions.remotePackageProblemAction).toHaveBeenCalledWith(
       '42',
       'standard',
-      expect.anything(),
-      expect.anything()
+      { json: false }
+    );
+  });
+
+  it('should pass --json to remote view, commit and package', async () => {
+    await loadCli(['remote', 'view', '42', '--json']);
+    expect(actions.remoteViewProblemAction).toHaveBeenCalledWith('42', {
+      json: true,
+    });
+    await loadCli(['remote', 'commit', '42', 'msg', '--json']);
+    expect(actions.remoteCommitProblemAction).toHaveBeenCalledWith(
+      '42',
+      'msg',
+      { json: true }
+    );
+    await loadCli(['remote', 'package', '42', 'full', '--json']);
+    expect(actions.remotePackageProblemAction).toHaveBeenCalledWith(
+      '42',
+      'full',
+      { json: true }
+    );
+  });
+
+  it('should pass --json to remote pull and push', async () => {
+    await loadCli(['remote', 'pull', '42', './out', '--json']);
+    expect(actions.remotePullProblemAction).toHaveBeenCalledWith(
+      '42',
+      './out',
+      expect.objectContaining({ json: true })
+    );
+    await loadCli(['remote', 'push', '.', '--yes', '--json']);
+    expect(actions.remotePushProblemAction).toHaveBeenCalledWith(
+      '.',
+      expect.objectContaining({ json: true, yes: true })
     );
   });
 

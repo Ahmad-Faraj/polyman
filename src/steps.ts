@@ -18,6 +18,7 @@ import type {
   ProblemInfo,
   Test,
   File,
+  RemoteAction,
 } from './types';
 import {
   readCredentials,
@@ -34,6 +35,7 @@ import {
   downloadStatements,
   fetchProblemMetadata,
   downloadTestsetAndBuildGenerationScripts,
+  type PullFailure,
 } from './helpers/remote/pulling';
 import {
   updateProblemInfo,
@@ -649,6 +651,31 @@ export async function stepVerifySolutionsAgainstMainCorrect(
 // ============================================================================
 
 /**
+ * Formats a thrown value as one line of plain text.
+ */
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Runs one remote operation and records it in the `--json` report: `ok`
+ * when it resolves, the error text when it throws (the error is rethrown).
+ */
+async function recordAction<T>(
+  entry: Omit<RemoteAction, 'ok' | 'error'>,
+  run: () => Promise<T>
+): Promise<T> {
+  try {
+    const result = await run();
+    report.addAction({ ...entry, ok: true });
+    return result;
+  } catch (error) {
+    report.addAction({ ...entry, ok: false, error: errorText(error) });
+    throw error;
+  }
+}
+
+/**
  * Step: Read API credentials
  */
 export function stepReadCredentials(stepNum: number): {
@@ -657,6 +684,7 @@ export function stepReadCredentials(stepNum: number): {
 } {
   fmt.step(stepNum, 'Reading API Credentials');
   const credentials = readCredentials();
+  report.setSecrets([credentials.apiKey, credentials.secret]);
   fmt.info(`  ${fmt.infoIcon()} Credentials loaded successfully`);
   fmt.stepComplete('Credentials verified');
   return credentials;
@@ -721,6 +749,7 @@ export function stepGetProblemId(
 ): number {
   fmt.step(stepNum, 'Resolving Problem ID');
   const problemId = getProblemId(problemIdOrPath);
+  report.setProblemId(problemId);
   fmt.info(
     `  ${fmt.infoIcon()} Problem ID: ${fmt.highlight(problemId.toString())}`
   );
@@ -737,7 +766,10 @@ export async function stepFetchProblemInfo(
   problemId: number
 ) {
   fmt.step(stepNum, 'Fetching Problem Information');
-  const info = await sdk.getProblemInfo(problemId);
+  const info = await recordAction(
+    { component: 'info', name: 'problem info', action: 'fetch' },
+    () => sdk.getProblemInfo(problemId)
+  );
 
   fmt.info(
     `  ${fmt.infoIcon()} Time Limit: ${fmt.highlight(info.timeLimit + 'ms')}`
@@ -759,6 +791,14 @@ export async function stepFetchStatements(
 ): Promise<Array<Statement & { language: string }>> {
   fmt.step(stepNum, 'Fetching Problem Statements');
   const statements = await fetchStatements(sdk, problemId);
+  for (const statement of statements) {
+    report.addAction({
+      component: 'statement',
+      name: statement.language,
+      action: 'fetch',
+      ok: true,
+    });
+  }
   logStatementsFetch(statements);
   fmt.stepComplete(
     statements.length > 0 ? 'Statements retrieved' : 'Statements check complete'
@@ -776,6 +816,14 @@ export async function stepFetchSolutions(
 ): Promise<Solution[]> {
   fmt.step(stepNum, 'Fetching Solutions');
   const solutions = await fetchSolutions(sdk, problemId);
+  for (const solution of solutions) {
+    report.addAction({
+      component: 'solution',
+      name: solution.name,
+      action: 'fetch',
+      ok: true,
+    });
+  }
   logSolutionsFetch(solutions);
   fmt.stepComplete(
     solutions.length > 0 ? 'Solutions retrieved' : 'Solutions check complete'
@@ -829,6 +877,14 @@ export async function stepFetchChecker(
 ): Promise<string> {
   fmt.step(stepNum, 'Fetching Checker');
   const checker = await fetchChecker(sdk, problemId);
+  if (checker) {
+    report.addAction({
+      component: 'checker',
+      name: checker,
+      action: 'fetch',
+      ok: true,
+    });
+  }
   logCheckerFetch(checker);
   fmt.stepComplete(checker ? 'Checker retrieved' : 'Checker check complete');
   return checker;
@@ -844,6 +900,14 @@ export async function stepFetchValidator(
 ): Promise<string> {
   fmt.step(stepNum, 'Fetching Validator');
   const validator = await fetchValidator(sdk, problemId);
+  if (validator) {
+    report.addAction({
+      component: 'validator',
+      name: validator,
+      action: 'fetch',
+      ok: true,
+    });
+  }
   logValidatorFetch(validator);
   fmt.stepComplete(
     validator ? 'Validator retrieved' : 'Validator check complete'
@@ -862,6 +926,14 @@ export function stepFetchGenerators(
 ): File[] {
   fmt.step(stepNum, 'Identifying Generators');
   const generators = identifyGenerators(files, checker, validator);
+  for (const generator of generators) {
+    report.addAction({
+      component: 'generator',
+      name: generator.name,
+      action: 'fetch',
+      ok: true,
+    });
+  }
   logGeneratorsIdentified(generators);
   fmt.stepComplete('Generators identified');
   return generators;
@@ -927,7 +999,10 @@ export async function stepCommitChanges(
 ): Promise<void> {
   fmt.step(stepNum, 'Committing Changes to Polygon');
   fmt.info(`  ${fmt.infoIcon()} Message: "${message}"`);
-  await sdk.commitChanges(problemId, { message });
+  await recordAction(
+    { component: 'problem', name: problemId.toString(), action: 'commit' },
+    () => sdk.commitChanges(problemId, { message })
+  );
   fmt.stepComplete('Changes committed');
 }
 
@@ -953,6 +1028,21 @@ export function stepValidatePackageType(stepNum: number, packageType: string) {
  * Step: Build package on Polygon and wait for completion
  */
 export async function stepBuildPackage(
+  stepNum: number,
+  sdk: PolygonSDK,
+  problemId: number,
+  packageType: string
+): Promise<{ id: number; state: string; comment: string }> {
+  return recordAction(
+    { component: 'package', name: packageType, action: 'build' },
+    () => buildPackageAndWait(stepNum, sdk, problemId, packageType)
+  );
+}
+
+/**
+ * Starts a package build and polls Polygon until it is READY or FAILED.
+ */
+async function buildPackageAndWait(
   stepNum: number,
   sdk: PolygonSDK,
   problemId: number,
@@ -1025,6 +1115,13 @@ export async function stepBuildPackage(
     throw new PolymanError('Package build timed out after 30 minutes', 4);
   }
 
+  if (latestPackage.state !== 'READY' && latestPackage.state !== 'FAILED') {
+    throw new PolymanError(
+      `Package build did not finish within the polling limit of 30 minutes (package ${latestPackage.id} is still ${latestPackage.state})`,
+      4
+    );
+  }
+
   if (latestPackage.state === 'READY') {
     fmt.stepComplete(`Package built successfully (ID: ${latestPackage.id})`);
   } else if (latestPackage.state === 'FAILED') {
@@ -1073,15 +1170,23 @@ export function stepCreatePulledProblemDirectory(
 /**
  * Step: Download all problem files from Polygon and create Config.json
  *
- * @returns {Promise<string[]>} Warnings about the pulled problem that the
- *   caller should repeat in its summary (for now: no validator on Polygon)
+ * @returns {Promise<{ warnings: string[]; failures: PullFailure[] }>}
+ *   `warnings` are the placeholders the caller should repeat in its summary:
+ *   no validator on Polygon, and each placeholder (solution, checker,
+ *   validator, generators) put in Config.json instead of a downloaded file.
+ *   They are also added to the `--json` report's `warnings`; they do not fail
+ *   the pull. `failures` has each file (solution, generator, checker or
+ *   validator tests, statement, description, tags) that could not be
+ *   downloaded and is left out of Config.json. Each one is recorded as a
+ *   failed `download` action; the caller fails the pull for them after the
+ *   other files are written.
  */
 export async function stepDownloadProblemFilesAndSetUpConfig(
   stepNum: number,
   sdk: PolygonSDK,
   problemId: number,
   savePath: string
-): Promise<string[]> {
+): Promise<{ warnings: string[]; failures: PullFailure[] }> {
   fmt.step(stepNum, 'Downloading Problem Files & Creating Config');
   const problemDir = path.resolve(process.cwd(), savePath);
   let downloadCount = 0;
@@ -1124,8 +1229,10 @@ export async function stepDownloadProblemFilesAndSetUpConfig(
     problemId: problemId,
     name: info.name,
     owner: info.owner,
-    description: metadata.description,
-    tags: metadata.tags,
+    ...(metadata.description !== undefined && {
+      description: metadata.description,
+    }),
+    ...(metadata.tags !== undefined && { tags: metadata.tags }),
     timeLimit: info.timeLimit,
     memoryLimit: info.memoryLimit,
     inputFile: info.inputFile,
@@ -1140,6 +1247,57 @@ export async function stepDownloadProblemFilesAndSetUpConfig(
 
   const configPath = path.join(problemDir, 'Config.json');
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
+
+  const downloaded = (component: string, name: string): void =>
+    report.addAction({ component, name, action: 'download', ok: true });
+  const failed = (failures: PullFailure[]): void => {
+    for (const failure of failures) {
+      report.addAction({
+        component: failure.component,
+        name: failure.name,
+        action: 'download',
+        ok: false,
+        error: failure.error,
+      });
+    }
+  };
+  // With no solution downloaded, `data` holds only a placeholder entry.
+  if (solutionsResult.count > 0) {
+    for (const solution of solutionsResult.data) {
+      downloaded('solution', solution.name);
+    }
+  }
+  failed(solutionsResult.failures);
+  if (checkerResult.count > 0) downloaded('checker', checkerResult.data.name);
+  failed(checkerResult.failures);
+  if (validatorResult.count > 0) {
+    downloaded('validator', validatorResult.data.name);
+  }
+  failed(validatorResult.failures);
+  for (const generator of generatorsResult.data) {
+    downloaded('generator', generator.name);
+  }
+  failed(generatorsResult.failures);
+  for (const language of Object.keys(statementsResult.config)) {
+    downloaded('statement', language);
+  }
+  failed(statementsResult.failures);
+  failed(metadata.failures);
+  if (validatorResult.missing) {
+    report.addAction({
+      component: 'validator',
+      name: validatorResult.data.name,
+      action: 'download',
+      ok: false,
+      error: 'Polygon has no validator set for this problem',
+    });
+  }
+  report.addAction({
+    component: 'config',
+    name: 'Config.json',
+    action: 'write',
+    ok: true,
+  });
 
   fmt.info(
     `  ${fmt.infoIcon()} Downloaded ${fmt.highlight(downloadCount.toString())} file(s)`
@@ -1156,12 +1314,30 @@ export async function stepDownloadProblemFilesAndSetUpConfig(
   fmt.stepComplete('Files downloaded & Config.json created');
 
   const warnings: string[] = [];
+  if (solutionsResult.placeholder) warnings.push(solutionsResult.placeholder);
+  if (checkerResult.placeholder) warnings.push(checkerResult.placeholder);
   if (validatorResult.missing) {
     warnings.push(
       `Polygon has no validator set for problem ${problemId}: val.cpp is listed in Config.json but not created, so verify will fail until you add it`
     );
+  } else if (validatorResult.placeholder) {
+    warnings.push(validatorResult.placeholder);
   }
-  return warnings;
+  if (generatorsResult.placeholder) {
+    warnings.push(generatorsResult.placeholder);
+  }
+  for (const warning of warnings) report.addWarning(warning);
+  return {
+    warnings,
+    failures: [
+      ...solutionsResult.failures,
+      ...checkerResult.failures,
+      ...validatorResult.failures,
+      ...generatorsResult.failures,
+      ...statementsResult.failures,
+      ...metadata.failures,
+    ],
+  };
 }
 
 /**
@@ -1233,6 +1409,12 @@ export async function stepDownloadTests(
 
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
 
+    report.addAction({
+      component: 'testset',
+      name: testset,
+      action: 'download',
+      ok: true,
+    });
     const totalTests = testsetConfig.manualTests?.length ?? manualCount;
     fmt.info(
       `  ${fmt.infoIcon()} Downloaded ${fmt.highlight(manualCount.toString())} manual test(s); ${totalTests} configured`
@@ -1244,6 +1426,13 @@ export async function stepDownloadTests(
     const why = printable(
       error instanceof Error ? error.message : String(error)
     );
+    report.addAction({
+      component: 'testset',
+      name: testset,
+      action: 'download',
+      ok: false,
+      error: why,
+    });
     fmt.warning(`  ⚠️  Could not fetch tests information: ${why}`);
     fmt.stepComplete('No tests to download');
     return false;
@@ -1269,6 +1458,15 @@ export function stepReadConfig(
   }
 
   const config = parseConfigAt(configPath);
+  // Config.json is user input: only a positive integer is a Polygon ID.
+  const configId: unknown = config.problemId;
+  if (
+    typeof configId === 'number' &&
+    Number.isInteger(configId) &&
+    configId > 0
+  ) {
+    report.setProblemId(configId);
+  }
 
   fmt.info(
     `  ${fmt.infoIcon()} Problem: ${fmt.highlight(config.name || 'Unnamed')}`
@@ -1291,7 +1489,10 @@ export async function stepUpdateProblemInfo(
 ): Promise<void> {
   fmt.step(stepNum, 'Updating Problem Information');
 
-  await updateProblemInfo(sdk, problemId, config);
+  await recordAction(
+    { component: 'info', name: 'problem info', action: 'update' },
+    () => updateProblemInfo(sdk, problemId, config)
+  );
 
   fmt.info(
     `  ${fmt.infoIcon()} Time Limit: ${fmt.highlight(config.timeLimit + 'ms')}`
@@ -1303,14 +1504,118 @@ export async function stepUpdateProblemInfo(
 }
 
 /**
+ * Turns the failures one upload step added into `--json` report actions.
+ *
+ * Each failure line has the form `<label>: <message>`. A failure belongs to
+ * exactly one item: the longest item name for which the line starts with
+ * `<component> <name>: `; for testsets, `<component> <name> ` followed by a
+ * sub-label (`script`, `group g1`); else `<name>: `; else `<component>: `
+ * (given to the first item).
+ * Every item gets one `upload` entry, failed when a failure belongs to it.
+ * Failures that belong to no item (e.g. `checker test #2`) get their own
+ * entry, named by their label.
+ *
+ * @param component - Component name used in the labels (`solution`, ...)
+ * @param names - The items the step tried to upload
+ * @param newFailures - Failure lines added during the step
+ * @returns The actions to record, in the order of `names`
+ */
+export function uploadActions(
+  component: string,
+  names: string[],
+  newFailures: string[]
+): RemoteAction[] {
+  // Longest name first, so `main 2` is tried before `main`.
+  const byLength = names
+    .map((name, index) => ({ name, index }))
+    .sort((a, b) => b.name.length - a.name.length);
+  const errors: string[][] = names.map(() => []);
+  const unmatched: { label: string; message: string }[] = [];
+  for (const line of newFailures) {
+    // Each failure goes to exactly one item, tried from the most specific
+    // form to the least specific one.
+    let owner: { index: number; message: string } | undefined;
+    for (const { name, index } of byLength) {
+      const prefix = `${component} ${name}: `;
+      if (line.startsWith(prefix)) {
+        owner = { index, message: line.slice(prefix.length) };
+        break;
+      }
+    }
+    // Only testsets have sub-labels (`testset tests script: ...`).
+    if (!owner && component === 'testset') {
+      for (const { name, index } of byLength) {
+        if (line.startsWith(`${component} ${name} `)) {
+          owner = { index, message: line };
+          break;
+        }
+      }
+    }
+    if (!owner) {
+      for (const { name, index } of byLength) {
+        const prefix = `${name}: `;
+        if (line.startsWith(prefix)) {
+          owner = { index, message: line.slice(prefix.length) };
+          break;
+        }
+      }
+    }
+    if (!owner && line.startsWith(`${component}: `) && names.length > 0) {
+      owner = { index: 0, message: line.slice(component.length + 2) };
+    }
+    if (owner) {
+      errors[owner.index]?.push(owner.message);
+      continue;
+    }
+    const split = line.indexOf(': ');
+    unmatched.push(
+      split < 0
+        ? { label: line, message: line }
+        : { label: line.slice(0, split), message: line.slice(split + 2) }
+    );
+  }
+  const actions: RemoteAction[] = names.map((name, index) => {
+    const own = errors[index] ?? [];
+    const action: RemoteAction = {
+      component,
+      name,
+      action: 'upload',
+      ok: own.length === 0,
+    };
+    if (own.length > 0) action.error = own.join('; ');
+    return action;
+  });
+  for (const failure of unmatched) {
+    actions.push({
+      component,
+      name: failure.label,
+      action: 'upload',
+      ok: false,
+      error: failure.message,
+    });
+  }
+  return actions;
+}
+
+/**
  * Ends an upload step. A step that added entries to `failures` ends with a
- * warning instead of the "uploaded" check mark.
+ * warning instead of the "uploaded" check mark. The step's items and
+ * failures are recorded as `--json` report actions.
  */
 function completeUploadStep(
   label: string,
   failures: string[],
-  failuresBefore: number
+  failuresBefore: number,
+  component: string,
+  names: string[]
 ): void {
+  for (const action of uploadActions(
+    component,
+    names,
+    failures.slice(failuresBefore)
+  )) {
+    report.addAction(action);
+  }
   const failed = failures.length - failuresBefore;
   if (failed > 0) {
     fmt.warning(`  ${label} with ${failed} failure(s)`);
@@ -1344,7 +1649,13 @@ export async function stepUploadSolutions(
   fmt.info(
     `  ${fmt.infoIcon()} Uploaded ${fmt.highlight(count.toString())} solution(s)`
   );
-  completeUploadStep('Solutions uploaded', failures, failuresBefore);
+  completeUploadStep(
+    'Solutions uploaded',
+    failures,
+    failuresBefore,
+    'solution',
+    (config.solutions ?? []).map(solution => solution.name)
+  );
 }
 
 /**
@@ -1367,7 +1678,16 @@ export async function stepUploadChecker(
     problemDir,
     config,
     failures
-  );
+  ).catch((error: unknown) => {
+    report.addAction({
+      component: 'checker',
+      name: config.checker.name,
+      action: 'upload',
+      ok: false,
+      error: errorText(error),
+    });
+    throw error;
+  });
 
   if (count > 0) {
     fmt.info(
@@ -1377,7 +1697,9 @@ export async function stepUploadChecker(
   completeUploadStep(
     config.checker.isStandard ? 'Standard Checker Updated' : 'Checker uploaded',
     failures,
-    failuresBefore
+    failuresBefore,
+    'checker',
+    [config.checker.name]
   );
 }
 
@@ -1411,7 +1733,9 @@ export async function stepUploadValidator(
   completeUploadStep(
     count > 0 ? 'Validator uploaded' : 'No validator to upload',
     failures,
-    failuresBefore
+    failuresBefore,
+    'validator',
+    config.validator ? [config.validator.name] : []
   );
 }
 
@@ -1440,7 +1764,13 @@ export async function stepUploadGenerators(
   fmt.info(
     `  ${fmt.infoIcon()} Uploaded ${fmt.highlight(count.toString())} generator(s)`
   );
-  completeUploadStep('Generators uploaded', failures, failuresBefore);
+  completeUploadStep(
+    'Generators uploaded',
+    failures,
+    failuresBefore,
+    'generator',
+    (config.generators ?? []).map(generator => generator.name)
+  );
 }
 
 /**
@@ -1468,7 +1798,13 @@ export async function stepUploadStatements(
   fmt.info(
     `  ${fmt.infoIcon()} Uploaded ${fmt.highlight(count.toString())} statement(s)`
   );
-  completeUploadStep('Statements uploaded', failures, failuresBefore);
+  completeUploadStep(
+    'Statements uploaded',
+    failures,
+    failuresBefore,
+    'statement',
+    Object.keys(config.statements ?? {})
+  );
 }
 
 /**
@@ -1493,7 +1829,16 @@ export async function stepUploadMetadata(
   if (config.tags && config.tags.length > 0) {
     fmt.info(`  ${fmt.infoIcon()} Tags: ${config.tags.join(', ')}`);
   }
-  completeUploadStep('Metadata uploaded', failures, failuresBefore);
+  const metadataNames: string[] = [];
+  if (config.description !== undefined) metadataNames.push('description');
+  if (config.tags) metadataNames.push('tags');
+  completeUploadStep(
+    'Metadata uploaded',
+    failures,
+    failuresBefore,
+    'metadata',
+    metadataNames
+  );
 }
 
 /**
@@ -1524,7 +1869,13 @@ export async function stepUploadTestsets(
   fmt.info(
     `  ${fmt.infoIcon()} Total tests configured: ${fmt.highlight(testsCount.toString())}`
   );
-  completeUploadStep('Testsets uploaded', failures, failuresBefore);
+  completeUploadStep(
+    'Testsets uploaded',
+    failures,
+    failuresBefore,
+    'testset',
+    (config.testsets ?? []).map(testset => testset.name)
+  );
 }
 
 /**
@@ -1534,6 +1885,16 @@ const PROBLEM_NAME_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 const PROBLEM_NAME_RULE =
   'Name must be lowercase, no spaces, only dashes allowed.';
+
+/**
+ * Says why polyman cannot prompt, or null when it can. A prompt needs a
+ * terminal on stdin, and with `--json` stdout carries only the report.
+ */
+function promptBlockedReason(): string | null {
+  if (!stdinIsInteractive()) return 'stdin is not a terminal';
+  if (report.isActive()) return '--json is set, so polyman does not prompt';
+  return null;
+}
 
 /**
  * Step: Prompt user to create new problem on Polygon
@@ -1561,9 +1922,10 @@ export async function stepPromptCreateProblem(
     return true;
   }
 
-  if (!stdinIsInteractive()) {
+  const blocked = promptBlockedReason();
+  if (blocked) {
     throw new NonInteractiveError(
-      'stdin is not a terminal; pass --yes (and --name <name>) to create a new Polygon problem non-interactively'
+      `${blocked}; pass --yes (and --name <name>) to create a new Polygon problem non-interactively`
     );
   }
 
@@ -1609,7 +1971,8 @@ export async function stepGetValidProblemName(
 ): Promise<string> {
   fmt.step(stepNum, 'Validate Problem Name');
 
-  const interactive = stdinIsInteractive();
+  const blocked = promptBlockedReason();
+  const interactive = blocked === null;
   const strict = options.explicitName !== undefined || !interactive;
   let problemName: string | undefined = options.explicitName ?? initialName;
   const prompt: { rl: ReadlineInterface | null } = { rl: null };
@@ -1668,7 +2031,7 @@ export async function stepGetValidProblemName(
       if (!isValidName) {
         if (!interactive) {
           throw new NonInteractiveError(
-            `stdin is not a terminal; pass --name <name> to create a new Polygon problem non-interactively. ${PROBLEM_NAME_RULE}`
+            `${blocked ?? 'cannot prompt'}; pass --name <name> to create a new Polygon problem non-interactively. ${PROBLEM_NAME_RULE}`
           );
         }
         problemName = await question(
@@ -1702,8 +2065,12 @@ export async function stepCreateProblemOnPolygon(
   fmt.step(stepNum, 'Creating New Problem on Polygon');
 
   try {
-    const createdProblem = await sdk.createProblem(problemName);
+    const createdProblem = await recordAction(
+      { component: 'problem', name: problemName, action: 'create' },
+      () => sdk.createProblem(problemName)
+    );
     const problemId = createdProblem.id;
+    report.setProblemId(problemId);
 
     fmt.success(
       `  ${fmt.checkmark()} Problem created successfully (ID: ${problemId})`
@@ -1743,6 +2110,12 @@ export function stepUpdateConfigWithProblemId(
   const configPath = path.join(problemDir, 'Config.json');
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
 
+  report.addAction({
+    component: 'config',
+    name: 'Config.json',
+    action: 'update',
+    ok: true,
+  });
   fmt.info(`  ${fmt.infoIcon()} Updated Config.json with problem ID and name`);
   fmt.stepComplete('Config.json updated');
 }

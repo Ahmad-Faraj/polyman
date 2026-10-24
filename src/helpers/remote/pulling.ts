@@ -62,12 +62,40 @@ function reason(error: unknown): string {
 }
 
 /**
+ * A file `remote pull` could not download. The pull still writes everything
+ * else, then ends with `ok: false` and a non-zero exit, like a failed upload
+ * in `remote push`.
+ *
+ * @property {string} component - Report component (solution, generator,
+ *   checker, validator, statement, metadata)
+ * @property {string} name - Which one, as named in the report actions
+ * @property {string} error - Plain-text reason from Polygon
+ * @property {string} message - Full line for the summary and the report
+ *   `errors`
+ */
+export interface PullFailure {
+  component: string;
+  name: string;
+  error: string;
+  message: string;
+}
+
+/** Removes the extension, as Config.json names solutions and generators. */
+function withoutExtension(name: string): string {
+  return name.replace(/\.[^.]+$/, '');
+}
+
+/**
  * Downloads all solutions from Polygon and returns metadata.
  *
  * @param {PolygonSDK} sdk - Polygon SDK instance
  * @param {number} problemId - Problem ID
  * @param {string} problemDir - Target directory for solutions
- * @returns {Promise<{ data: Array<LocalSolution>; count: number }>}
+ * @returns {Promise<{ data: Array<LocalSolution>; count: number; failures: PullFailure[]; placeholder?: string }>}
+ *   `failures` has one entry per solution that could not be downloaded
+ *   (Config.json does not list it). `placeholder` is a warning, set when no
+ *   solution was downloaded and Config.json lists the acc.cpp placeholder
+ *   instead
  */
 export async function downloadSolutions(
   sdk: PolygonSDK,
@@ -76,9 +104,13 @@ export async function downloadSolutions(
 ): Promise<{
   data: Array<{ name: string; source: string; tag: SolutionTag }>;
   count: number;
+  failures: PullFailure[];
+  placeholder?: string;
 }> {
   const solutionsData: Array<LocalSolution> = [];
+  const failures: PullFailure[] = [];
   let count = 0;
+  let listError = '';
 
   try {
     const solutions = await sdk.getSolutions(problemId);
@@ -111,9 +143,16 @@ export async function downloadSolutions(
         fmt.warning(
           `  ⚠️  Failed to download solution: ${printable(solution.name)} (${reason(error)})`
         );
+        failures.push({
+          component: 'solution',
+          name: withoutExtension(printable(solution.name)),
+          error: reason(error),
+          message: `Could not download the solution ${printable(solution.name)} (${reason(error)}): Config.json does not list it`,
+        });
       }
     }
-  } catch {
+  } catch (error) {
+    listError = reason(error);
     fmt.error(
       `  ${fmt.cross()} Could not download Solution, adding acc.cpp to be implemented`
     );
@@ -121,9 +160,18 @@ export async function downloadSolutions(
 
   if (solutionsData.length === 0) {
     solutionsData.push({ name: 'main', source: 'acc.cpp', tag: 'MA' as const });
+    const why = listError
+      ? `Could not download the solutions list (${listError})`
+      : 'No solution was downloaded from Polygon';
+    return {
+      data: solutionsData,
+      count,
+      failures,
+      placeholder: `${why}: acc.cpp is listed in Config.json as the main solution but not created`,
+    };
   }
 
-  return { data: solutionsData, count };
+  return { data: solutionsData, count, failures };
 }
 
 /**
@@ -132,7 +180,11 @@ export async function downloadSolutions(
  * @param {PolygonSDK} sdk - Polygon SDK instance
  * @param {number} problemId - Problem ID
  * @param {string} problemDir - Target directory for checker
- * @returns {Promise<{ data: LocalChecker; count: number }>}
+ * @returns {Promise<{ data: LocalChecker; count: number; failures: PullFailure[]; placeholder?: string }>}
+ *   `failures` has an entry when the checker tests could not be downloaded
+ *   (Config.json then has no `testsFilePath` for the checker).
+ *   `placeholder` is a warning, set when the download failed and Config.json
+ *   uses the standard ncmp checker instead
  */
 export async function downloadChecker(
   sdk: PolygonSDK,
@@ -141,7 +193,10 @@ export async function downloadChecker(
 ): Promise<{
   data: LocalChecker;
   count: number;
+  failures: PullFailure[];
+  placeholder?: string;
 }> {
+  const failures: PullFailure[] = [];
   let count = 0;
 
   try {
@@ -187,8 +242,14 @@ export async function downloadChecker(
           'utf-8'
         );
         count++;
-      } catch {
+      } catch (error) {
         fmt.warning('  ⚠️  Could not fetch checker tests');
+        failures.push({
+          component: 'checker',
+          name: 'checker tests',
+          error: reason(error),
+          message: `Could not download the checker tests (${reason(error)}): Config.json has no testsFilePath for the checker, so its self-tests are skipped`,
+        });
       }
     }
 
@@ -197,11 +258,13 @@ export async function downloadChecker(
         name: checkerName.replace(/\.[^.]+$/, ''),
         source: isStandard ? checkerName : './checker/' + checkerName,
         isStandard,
-        ...(!isStandard && {
-          testsFilePath: './checker/' + 'checker_tests.json',
-        }),
+        ...(!isStandard &&
+          failures.length === 0 && {
+            testsFilePath: './checker/' + 'checker_tests.json',
+          }),
       },
       count,
+      failures,
     };
   } catch (error) {
     fmt.error(
@@ -210,6 +273,8 @@ export async function downloadChecker(
     return {
       data: { name: 'ncmp', source: 'ncmp.cpp', isStandard: true },
       count: 0,
+      failures,
+      placeholder: `Could not download the checker (${reason(error)}): Config.json uses the standard checker ncmp.cpp instead`,
     };
   }
 }
@@ -220,8 +285,12 @@ export async function downloadChecker(
  * @param {PolygonSDK} sdk - Polygon SDK instance
  * @param {number} problemId - Problem ID
  * @param {string} problemDir - Target directory for validator
- * @returns {Promise<{ data: LocalValidator; count: number; missing?: boolean }>}
- *   `missing` is true when Polygon has no validator set for the problem
+ * @returns {Promise<{ data: LocalValidator; count: number; failures: PullFailure[]; missing?: boolean; placeholder?: string }>}
+ *   `failures` has an entry when the validator tests could not be
+ *   downloaded (Config.json then has no `testsFilePath` for the validator).
+ *   `missing` is true when Polygon has no validator set for the problem.
+ *   `placeholder` is a warning, set when the download failed and Config.json
+ *   lists the val.cpp placeholder instead
  */
 export async function downloadValidator(
   sdk: PolygonSDK,
@@ -230,8 +299,11 @@ export async function downloadValidator(
 ): Promise<{
   data: LocalValidator;
   count: number;
+  failures: PullFailure[];
   missing?: boolean;
+  placeholder?: string;
 }> {
+  const failures: PullFailure[] = [];
   let count = 0;
 
   try {
@@ -243,6 +315,7 @@ export async function downloadValidator(
       return {
         data: { name: 'validator', source: 'val.cpp' },
         count: 0,
+        failures,
         missing: true,
       };
     }
@@ -281,17 +354,26 @@ export async function downloadValidator(
         'utf-8'
       );
       count++;
-    } catch {
+    } catch (error) {
       fmt.warning('  ⚠️  Could not fetch validator tests');
+      failures.push({
+        component: 'validator',
+        name: 'validator tests',
+        error: reason(error),
+        message: `Could not download the validator tests (${reason(error)}): Config.json has no testsFilePath for the validator, so its self-tests are skipped`,
+      });
     }
 
     return {
       data: {
         name: validatorName.replace(/\.[^.]+$/, ''),
         source: './validator/' + validatorName,
-        testsFilePath: './validator/validator_tests.json',
+        ...(failures.length === 0 && {
+          testsFilePath: './validator/validator_tests.json',
+        }),
       },
       count,
+      failures,
     };
   } catch (error) {
     fmt.error(
@@ -300,6 +382,8 @@ export async function downloadValidator(
     return {
       data: { name: 'validator', source: 'val.cpp' },
       count: 0,
+      failures,
+      placeholder: `Could not download the validator (${reason(error)}): val.cpp is listed in Config.json but not created, so verify will fail until you add it`,
     };
   }
 }
@@ -311,7 +395,10 @@ export async function downloadValidator(
  * @param {number} problemId - Problem ID
  * @param {string} problemDir - Target directory
  * @param {string[]} skipNames - Checker and validator names (without extension) to skip
- * @returns {Promise<{ data: Array<LocalGenerator>; count: number }>}
+ * @returns {Promise<{ data: Array<LocalGenerator>; count: number; failures: PullFailure[]; placeholder?: string }>}
+ *   `failures` has one entry per file that could not be downloaded
+ *   (Config.json does not list it). `placeholder` is a warning, set when the
+ *   file list could not be fetched and Config.json lists no generators
  */
 export async function downloadGenerators(
   sdk: PolygonSDK,
@@ -321,8 +408,11 @@ export async function downloadGenerators(
 ): Promise<{
   data: Array<LocalGenerator>;
   count: number;
+  failures: PullFailure[];
+  placeholder?: string;
 }> {
   const generatorsData: Array<LocalGenerator> = [];
+  const failures: PullFailure[] = [];
   let count = 0;
 
   try {
@@ -359,13 +449,25 @@ export async function downloadGenerators(
         fmt.warning(
           `  ⚠️  Failed to download: ${printable(file.name)} (${reason(error)})`
         );
+        failures.push({
+          component: 'generator',
+          name: withoutExtension(printable(file.name)),
+          error: reason(error),
+          message: `Could not download the generator ${printable(file.name)} (${reason(error)}): Config.json does not list it`,
+        });
       }
     }
-  } catch {
+  } catch (error) {
     fmt.warning('  ⚠️  Could not fetch files');
+    return {
+      data: generatorsData,
+      count,
+      failures,
+      placeholder: `Could not fetch the problem files (${reason(error)}): Config.json lists no generators`,
+    };
   }
 
-  return { data: generatorsData, count };
+  return { data: generatorsData, count, failures };
 }
 
 /**
@@ -374,7 +476,9 @@ export async function downloadGenerators(
  * @param {PolygonSDK} sdk - Polygon SDK instance
  * @param {number} problemId - Problem ID
  * @param {string} problemDir - Target directory
- * @returns {Promise<{ config: Record<string, StatementConfig>; count: number; problemName: string }>}
+ * @returns {Promise<{ config: Record<string, StatementConfig>; count: number; problemName: string; failures: PullFailure[] }>}
+ *   `failures` has one entry per statement language that was skipped, and
+ *   one when the statements could not be downloaded
  */
 export async function downloadStatements(
   sdk: PolygonSDK,
@@ -384,8 +488,10 @@ export async function downloadStatements(
   config: Record<string, StatementConfig>;
   count: number;
   problemName: string;
+  failures: PullFailure[];
 }> {
   const statementsConfig: Record<string, StatementConfig> = {};
+  const failures: PullFailure[] = [];
   let count = 0;
   let problemName = 'problem';
 
@@ -399,6 +505,12 @@ export async function downloadStatements(
         fmt.warning(
           `  ⚠️  Skipping statement language ${printable(JSON.stringify(lang))} (${reason(error)})`
         );
+        failures.push({
+          component: 'statement',
+          name: printable(lang),
+          error: reason(error),
+          message: `Could not download the statement ${printable(JSON.stringify(lang))} (${reason(error)}): Config.json does not list it`,
+        });
         continue;
       }
       const langDir = path.join(problemDir, 'statements', lang);
@@ -491,11 +603,18 @@ export async function downloadStatements(
 
       statementsConfig[lang] = langConfig as unknown as StatementConfig;
     }
-  } catch {
+  } catch (error) {
     fmt.warning('  ⚠️  Could not fetch statements');
+    const listed = Object.keys(statementsConfig);
+    failures.push({
+      component: 'statement',
+      name: 'statements',
+      error: reason(error),
+      message: `Could not download the statements (${reason(error)}): Config.json lists ${listed.length > 0 ? 'only ' + listed.join(', ') : 'no statements'}`,
+    });
   }
 
-  return { config: statementsConfig, count, problemName };
+  return { config: statementsConfig, count, problemName, failures };
 }
 
 /**
@@ -503,28 +622,43 @@ export async function downloadStatements(
  *
  * @param {PolygonSDK} sdk - Polygon SDK instance
  * @param {number} problemId - Problem ID
- * @returns {Promise<{ description: string; tags: string[] }>}
+ * @returns {Promise<{ description?: string; tags?: string[]; failures: PullFailure[] }>}
+ *   A field that could not be downloaded is left out, so Config.json does not
+ *   get an empty value that a later push would upload over the real one.
+ *   `failures` has one entry per field that could not be downloaded.
  */
 export async function fetchProblemMetadata(
   sdk: PolygonSDK,
   problemId: number
-): Promise<{ description: string; tags: string[] }> {
-  let description = '';
-  let tags: string[] = [];
+): Promise<{ description?: string; tags?: string[]; failures: PullFailure[] }> {
+  const metadata: { description?: string; tags?: string[] } = {};
+  const failures: PullFailure[] = [];
 
   try {
-    description = await sdk.viewGeneralDescription(problemId);
-  } catch {
-    // Description is optional
+    metadata.description = await sdk.viewGeneralDescription(problemId);
+  } catch (error) {
+    fmt.warning(`  ⚠️  Could not fetch the description (${reason(error)})`);
+    failures.push({
+      component: 'metadata',
+      name: 'description',
+      error: reason(error),
+      message: `Could not download the description (${reason(error)}): Config.json has no description, so push will not change it on Polygon`,
+    });
   }
 
   try {
-    tags = await sdk.viewTags(problemId);
-  } catch {
-    // Tags are optional
+    metadata.tags = await sdk.viewTags(problemId);
+  } catch (error) {
+    fmt.warning(`  ⚠️  Could not fetch the tags (${reason(error)})`);
+    failures.push({
+      component: 'metadata',
+      name: 'tags',
+      error: reason(error),
+      message: `Could not download the tags (${reason(error)}): Config.json has no tags, so push will not change them on Polygon`,
+    });
   }
 
-  return { description, tags };
+  return { ...metadata, failures };
 }
 
 /**

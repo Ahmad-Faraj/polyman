@@ -101,6 +101,7 @@ import {
 } from './helpers/compile-cache';
 import { listPrebuiltTestlibs } from './helpers/prebuilt-testlib';
 import { validatorSelfTestWarning } from './helpers/validator-selftests';
+import type { PullFailure } from './helpers/remote/pulling';
 
 import { fmt } from './formatter';
 import { report } from './report';
@@ -1447,9 +1448,18 @@ export const remotePullProblemAction = async (
     tests?: string;
     metadata?: boolean;
     info?: boolean;
+    json?: boolean;
   }
 ): Promise<void> => {
+  if (options?.json) {
+    report.startRemote('remote pull');
+  }
   fmt.section('⬇️  PULL PROBLEM FROM POLYGON');
+
+  let pullWarnings: string[];
+  let pullFailures: PullFailure[];
+  let pullTests: boolean;
+  let defaultTestsDownloaded = false;
 
   try {
     let stepNum = 1;
@@ -1467,7 +1477,7 @@ export const remotePullProblemAction = async (
         options.info);
 
     const pullAll = !hasSpecificOptions || options?.all;
-    const pullTests = pullAll || options?.tests;
+    pullTests = Boolean(pullAll || options?.tests);
     const pullInfo = pullAll || options?.info;
 
     // step 1: Read API credentials
@@ -1489,15 +1499,16 @@ export const remotePullProblemAction = async (
 
     // step 6: Download problem files and create Config.json
     // Note: Currently pulls all files - selective pull will be implemented in future
-    const pullWarnings = await stepDownloadProblemFilesAndSetUpConfig(
+    const downloadResult = await stepDownloadProblemFilesAndSetUpConfig(
       stepNum++,
       sdk,
       problemId,
       savePath
     );
+    pullWarnings = downloadResult.warnings;
+    pullFailures = downloadResult.failures;
 
     // step 7: Download test files
-    let defaultTestsDownloaded = false;
     if (pullTests) {
       const testsets = options!.tests;
       if (!testsets) {
@@ -1515,33 +1526,54 @@ export const remotePullProblemAction = async (
         }
       }
     }
-
-    fmt.newLine();
-    fmt.successBox('PROBLEM PULLED SUCCESSFULLY!');
-    fmt.info(
-      `  ${fmt.infoIcon()} Problem saved to: ${fmt.highlight(savePath)}`
-    );
-    fmt.info(
-      `  ${fmt.infoIcon()} Review Config.json and update solution tags as needed`
-    );
-    if (pullTests && !options?.tests) {
-      if (defaultTestsDownloaded) {
-        fmt.info(
-          `  ${fmt.infoIcon()} Testsets downloaded: ${fmt.highlight('tests')}`
-        );
-      }
-      fmt.info(
-        `  ${fmt.infoIcon()} Other testsets were not pulled (Polygon's API cannot list them). Name them with ${fmt.highlight('-t a,b')}`
-      );
-    }
-    for (const warning of pullWarnings) {
-      fmt.warning(`  ⚠️  ${warning}`);
-    }
-    fmt.newLine();
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     fmt.errorBox('FAILED TO PULL PROBLEM!');
+    report.fail(message);
+    report.finish(false, exitCodeFor(error));
     throw error;
   }
+
+  fmt.newLine();
+  if (pullFailures.length > 0) {
+    // The other files are written; a file that could not be downloaded
+    // still fails the pull, like a failed upload fails `remote push`.
+    fmt.errorBox('PULL COMPLETED WITH ERRORS');
+    fmt.error(`  ${pullFailures.length} file(s) failed to download:`);
+    for (const failure of pullFailures) {
+      fmt.error(`   ${fmt.cross()} ${failure.message}`);
+      report.addError(failure.message);
+    }
+  } else {
+    fmt.successBox('PROBLEM PULLED SUCCESSFULLY!');
+  }
+  fmt.info(`  ${fmt.infoIcon()} Problem saved to: ${fmt.highlight(savePath)}`);
+  fmt.info(
+    `  ${fmt.infoIcon()} Review Config.json and update solution tags as needed`
+  );
+  if (pullTests && !options?.tests) {
+    if (defaultTestsDownloaded) {
+      fmt.info(
+        `  ${fmt.infoIcon()} Testsets downloaded: ${fmt.highlight('tests')}`
+      );
+    }
+    fmt.info(
+      `  ${fmt.infoIcon()} Other testsets were not pulled (Polygon's API cannot list them). Name them with ${fmt.highlight('-t a,b')}`
+    );
+  }
+  for (const warning of pullWarnings) {
+    fmt.warning(`  ⚠️  ${warning}`);
+  }
+  fmt.newLine();
+  if (pullFailures.length > 0) {
+    const error = new PolymanError(
+      'Some files were not downloaded from Polygon',
+      4
+    );
+    report.finish(false, error.exitCode);
+    throw error;
+  }
+  report.finish(true);
 };
 
 /**
@@ -1576,8 +1608,12 @@ export const remotePushProblemAction = async (
     info?: boolean;
     yes?: boolean;
     name?: string;
+    json?: boolean;
   }
 ): Promise<void> => {
+  if (options?.json) {
+    report.startRemote('remote push');
+  }
   fmt.section('⬆️  PUSH PROBLEM TO POLYGON');
 
   const failures: string[] = [];
@@ -1631,6 +1667,7 @@ export const remotePushProblemAction = async (
         fmt.newLine();
         fmt.info('  Push cancelled.');
         fmt.newLine();
+        report.finish(true);
         return;
       }
 
@@ -1776,7 +1813,10 @@ export const remotePushProblemAction = async (
 
     pushedProblemId = problemId;
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     fmt.errorBox('FAILED TO PUSH PROBLEM!');
+    report.fail(message);
+    report.finish(false, exitCodeFor(error));
     throw error;
   }
 
@@ -1786,11 +1826,17 @@ export const remotePushProblemAction = async (
     fmt.error(`  ${failures.length} item(s) failed to upload:`);
     for (const failure of failures) {
       fmt.error(`   ${fmt.cross()} ${failure}`);
+      report.addError(failure);
     }
     fmt.info(
       `  ${fmt.infoIcon()} Problem ID: ${fmt.highlight(pushedProblemId.toString())}`
     );
-    throw new PolymanError('Some items were not uploaded to Polygon', 4);
+    const error = new PolymanError(
+      'Some items were not uploaded to Polygon',
+      4
+    );
+    report.finish(false, error.exitCode);
+    throw error;
   }
 
   fmt.successBox('PROBLEM PUSHED SUCCESSFULLY!');
@@ -1801,6 +1847,7 @@ export const remotePushProblemAction = async (
     `  ${fmt.infoIcon()} Don't forget to commit your changes on Polygon using: ${fmt.highlight('polyman remote commit')}`
   );
   fmt.newLine();
+  report.finish(true);
 };
 
 /**
@@ -1825,8 +1872,12 @@ export const remotePushProblemAction = async (
  * // Uses problem ID from Config.json
  */
 export const remoteViewProblemAction = async (
-  problemIdOrPath: string
+  problemIdOrPath: string,
+  options: { json?: boolean } = {}
 ): Promise<void> => {
+  if (options.json) {
+    report.startRemote('remote view');
+  }
   fmt.section('👁️  VIEW PROBLEM ON POLYGON');
 
   try {
@@ -1889,8 +1940,12 @@ export const remoteViewProblemAction = async (
 
     // Final success message
     fmt.successBox('PROBLEM DETAILS RETRIEVED!');
+    report.finish(true);
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     fmt.errorBox('FAILED TO VIEW PROBLEM!');
+    report.fail(message);
+    report.finish(false, exitCodeFor(error));
     throw error;
   }
 };
@@ -1915,8 +1970,12 @@ export const remoteViewProblemAction = async (
  */
 export const remoteCommitProblemAction = async (
   problemIdOrPath: string,
-  commitMessage: string
+  commitMessage: string,
+  options: { json?: boolean } = {}
 ): Promise<void> => {
+  if (options.json) {
+    report.startRemote('remote commit');
+  }
   fmt.section('💾 COMMIT CHANGES TO POLYGON');
 
   try {
@@ -1936,8 +1995,12 @@ export const remoteCommitProblemAction = async (
 
     // Final success message
     fmt.successBox('CHANGES COMMITTED SUCCESSFULLY!');
+    report.finish(true);
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     fmt.errorBox('FAILED TO COMMIT CHANGES!');
+    report.fail(message);
+    report.finish(false, exitCodeFor(error));
     throw error;
   }
 };
@@ -1966,8 +2029,12 @@ export const remoteCommitProblemAction = async (
  */
 export const remotePackageProblemAction = async (
   problemIdOrPath: string,
-  packageType: string
+  packageType: string,
+  options: { json?: boolean } = {}
 ): Promise<void> => {
+  if (options.json) {
+    report.startRemote('remote package');
+  }
   fmt.section('📦 BUILD AND DOWNLOAD PACKAGE');
 
   try {
@@ -2010,8 +2077,12 @@ export const remotePackageProblemAction = async (
     }
     // fmt.info(`  ${fmt.infoIcon()} You can download the package from Polygon`);
     fmt.newLine();
+    report.finish(true);
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     fmt.errorBox('PACKAGE OPERATION FAILED!');
+    report.fail(message);
+    report.finish(false, exitCodeFor(error));
     throw error;
   }
 };

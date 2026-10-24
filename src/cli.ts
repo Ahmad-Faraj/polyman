@@ -568,6 +568,10 @@ remote
   )
   .option('-m, --metadata', 'Pull metadata (description and tags)')
   .option('-i, --info', 'Pull problem info (time/memory limits)')
+  .option(
+    '--json',
+    'Print a JSON report to stdout (human output goes to stderr)'
+  )
   .action(
     async (
       problemId: string,
@@ -582,6 +586,7 @@ remote
         tests?: string;
         metadata?: boolean;
         info?: boolean;
+        json?: boolean;
       }
     ) => {
       await remotePullProblemAction(problemId, directory, options);
@@ -611,6 +616,10 @@ remote
   .option('-i, --info', 'Update problem info (time/memory limits)')
   .option('-y, --yes', 'Create a new Polygon problem without confirmation')
   .option('-n, --name <name>', 'Name (slug) for a new Polygon problem')
+  .option(
+    '--json',
+    'Print a JSON report to stdout (human output goes to stderr)'
+  )
   .action(
     async (
       directory: string,
@@ -626,6 +635,7 @@ remote
         info?: boolean;
         yes?: boolean;
         name?: string;
+        json?: boolean;
       }
     ) => {
       await remotePushProblemAction(directory, options);
@@ -642,7 +652,13 @@ remote
 remote
   .command('view <problem-id>')
   .description('View problem details from Polygon')
-  .action(remoteViewProblemAction);
+  .option(
+    '--json',
+    'Print a JSON report to stdout (human output goes to stderr)'
+  )
+  .action(async (problemId: string, options: { json?: boolean }) => {
+    await remoteViewProblemAction(problemId, { json: options.json === true });
+  });
 
 /**
  * Command: remote commit <problem-id> <message>
@@ -654,7 +670,17 @@ remote
 remote
   .command('commit <problem-id> <message>')
   .description('Commit changes to Polygon problem')
-  .action(remoteCommitProblemAction);
+  .option(
+    '--json',
+    'Print a JSON report to stdout (human output goes to stderr)'
+  )
+  .action(
+    async (problemId: string, message: string, options: { json?: boolean }) => {
+      await remoteCommitProblemAction(problemId, message, {
+        json: options.json === true,
+      });
+    }
+  );
 
 /**
  * Command: remote package <problem-id> <type>
@@ -666,7 +692,17 @@ remote
 remote
   .command('package <problem-id> <type>')
   .description('Build problem package on Polygon')
-  .action(remotePackageProblemAction);
+  .option(
+    '--json',
+    'Print a JSON report to stdout (human output goes to stderr)'
+  )
+  .action(
+    async (problemId: string, type: string, options: { json?: boolean }) => {
+      await remotePackageProblemAction(problemId, type, {
+        json: options.json === true,
+      });
+    }
+  );
 
 // ============================================================================
 // AI COMMANDS

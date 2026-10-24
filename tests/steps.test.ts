@@ -23,6 +23,7 @@ import * as pulling from '../src/helpers/remote/pulling';
 import * as pushing from '../src/helpers/remote/pushing';
 import * as viewer from '../src/helpers/remote/viewer';
 import * as polygonModule from '../src/polygon';
+import { report } from '../src/report';
 import fs from 'fs';
 
 vi.mock('../src/helpers/create-template');
@@ -883,6 +884,24 @@ describe('steps.ts', () => {
     });
   });
 
+  describe('stepFetchChecker and stepFetchValidator with no file', () => {
+    it('records no fetch action for an empty checker name', async () => {
+      const addAction = vi.spyOn(report, 'addAction');
+      vi.mocked(viewer.fetchChecker).mockResolvedValue('');
+      await steps.stepFetchChecker(1, {} as any, 5);
+      expect(addAction).not.toHaveBeenCalled();
+      addAction.mockRestore();
+    });
+
+    it('records no fetch action for an empty validator name', async () => {
+      const addAction = vi.spyOn(report, 'addAction');
+      vi.mocked(viewer.fetchValidator).mockResolvedValue('');
+      await steps.stepFetchValidator(1, {} as any, 5);
+      expect(addAction).not.toHaveBeenCalled();
+      addAction.mockRestore();
+    });
+  });
+
   describe('stepFetchGenerators', () => {
     it('should call identifyGenerators', () => {
       vi.mocked(viewer.identifyGenerators).mockReturnValue([
@@ -1063,25 +1082,31 @@ describe('steps.ts', () => {
       vi.mocked(pulling.downloadSolutions).mockResolvedValue({
         count: 1,
         data: [],
+        failures: [],
       } as any);
       vi.mocked(pulling.downloadChecker).mockResolvedValue({
         count: 1,
         data: checker,
+        failures: [],
       } as any);
-      vi.mocked(pulling.downloadValidator).mockResolvedValue(
-        validatorResult as any
-      );
+      vi.mocked(pulling.downloadValidator).mockResolvedValue({
+        failures: [],
+        ...validatorResult,
+      } as any);
       vi.mocked(pulling.downloadGenerators).mockResolvedValue({
         count: 2,
         data: [],
+        failures: [],
       } as any);
       vi.mocked(pulling.downloadStatements).mockResolvedValue({
         count: 0,
         config: {},
+        failures: [],
       } as any);
       vi.mocked(pulling.fetchProblemMetadata).mockResolvedValue({
         description: 'd',
         tags: ['t'],
+        failures: [],
       } as any);
       vi.mocked(fs.writeFileSync).mockImplementation(() => undefined);
 
@@ -1113,16 +1138,16 @@ describe('steps.ts', () => {
     });
 
     it('should return no warnings when the validator was pulled', async () => {
-      const warnings = await pullWithChecker({
+      const result = await pullWithChecker({
         name: 'wcmp',
         source: 'wcmp.cpp',
         isStandard: true,
       });
-      expect(warnings).toEqual([]);
+      expect(result).toEqual({ warnings: [], failures: [] });
     });
 
     it('should return a warning when Polygon has no validator', async () => {
-      const warnings = await pullWithChecker(
+      const { warnings, failures } = await pullWithChecker(
         { name: 'wcmp', source: 'wcmp.cpp', isStandard: true },
         {
           count: 0,
@@ -1132,6 +1157,180 @@ describe('steps.ts', () => {
       );
       expect(warnings).toHaveLength(1);
       expect(warnings[0]).toContain('no validator set for problem 7');
+      expect(failures).toEqual([]);
+    });
+
+    const failure = (component: string, name: string, error: string) => ({
+      component,
+      name,
+      error,
+      message: `Could not download ${component} ${name} (${error})`,
+    });
+
+    it('returns each failed file download as a failure, not a warning, and records it as a failed action', async () => {
+      const addAction = vi.spyOn(report, 'addAction');
+      const addWarning = vi.spyOn(report, 'addWarning');
+      vi.mocked(remoteUtils.fetchProblemInfo).mockResolvedValue({
+        name: 'p',
+        owner: 'o',
+        timeLimit: 1000,
+        memoryLimit: 256,
+        inputFile: 'stdin',
+        outputFile: 'stdout',
+        interactive: false,
+      } as any);
+      vi.mocked(pulling.downloadSolutions).mockResolvedValue({
+        count: 1,
+        data: [{ name: 'main', source: './solutions/main.cpp', tag: 'MA' }],
+        failures: [failure('solution', 'wa', 'no access')],
+      } as any);
+      vi.mocked(pulling.downloadChecker).mockResolvedValue({
+        count: 1,
+        data: { name: 'chk', source: './checker/chk.cpp', isStandard: false },
+        failures: [failure('checker', 'checker tests', 'boom')],
+      } as any);
+      vi.mocked(pulling.downloadValidator).mockResolvedValue({
+        count: 1,
+        data: { name: 'val', source: './validator/val.cpp' },
+        failures: [failure('validator', 'validator tests', 'boom')],
+      } as any);
+      vi.mocked(pulling.downloadGenerators).mockResolvedValue({
+        count: 0,
+        data: [],
+        failures: [failure('generator', 'gen', 'boom')],
+      } as any);
+      vi.mocked(pulling.downloadStatements).mockResolvedValue({
+        count: 0,
+        config: {},
+        failures: [failure('statement', 'statements', 'boom')],
+      } as any);
+      vi.mocked(pulling.fetchProblemMetadata).mockResolvedValue({
+        failures: [failure('metadata', 'tags', 'boom')],
+      } as any);
+      vi.mocked(fs.writeFileSync).mockImplementation(() => undefined);
+
+      const result = await steps.stepDownloadProblemFilesAndSetUpConfig(
+        1,
+        {} as any,
+        7,
+        'savePath'
+      );
+
+      const recorded = addAction.mock.calls.map(call => call[0]);
+      addAction.mockRestore();
+      addWarning.mockRestore();
+      expect(result.warnings).toEqual([]);
+      expect(addWarning).not.toHaveBeenCalled();
+      expect(result.failures.map(f => f.name)).toEqual([
+        'wa',
+        'checker tests',
+        'validator tests',
+        'gen',
+        'statements',
+        'tags',
+      ]);
+      const failedAction = (
+        component: string,
+        name: string,
+        error: string
+      ) => ({
+        component,
+        name,
+        action: 'download',
+        ok: false,
+        error,
+      });
+      expect(recorded).toEqual([
+        { component: 'solution', name: 'main', action: 'download', ok: true },
+        failedAction('solution', 'wa', 'no access'),
+        { component: 'checker', name: 'chk', action: 'download', ok: true },
+        failedAction('checker', 'checker tests', 'boom'),
+        { component: 'validator', name: 'val', action: 'download', ok: true },
+        failedAction('validator', 'validator tests', 'boom'),
+        failedAction('generator', 'gen', 'boom'),
+        failedAction('statement', 'statements', 'boom'),
+        failedAction('metadata', 'tags', 'boom'),
+        { component: 'config', name: 'Config.json', action: 'write', ok: true },
+      ]);
+    });
+
+    it('keeps a placeholder in warnings next to a failed file download', async () => {
+      vi.mocked(remoteUtils.fetchProblemInfo).mockResolvedValue({
+        name: 'p',
+        owner: 'o',
+        timeLimit: 1000,
+        memoryLimit: 256,
+        inputFile: 'stdin',
+        outputFile: 'stdout',
+        interactive: false,
+      } as any);
+      vi.mocked(pulling.downloadSolutions).mockResolvedValue({
+        count: 0,
+        data: [{ name: 'acc', source: './solutions/acc.cpp', tag: 'MA' }],
+        failures: [failure('solution', 'wa', 'no access')],
+        placeholder: 'acc.cpp placeholder',
+      } as any);
+      vi.mocked(pulling.downloadChecker).mockResolvedValue({
+        count: 0,
+        data: { name: 'wcmp', source: 'wcmp.cpp', isStandard: true },
+        failures: [],
+      } as any);
+      vi.mocked(pulling.downloadValidator).mockResolvedValue({
+        count: 1,
+        data: { name: 'val', source: './validator/val.cpp' },
+        failures: [],
+      } as any);
+      vi.mocked(pulling.downloadGenerators).mockResolvedValue({
+        count: 0,
+        data: [],
+        failures: [],
+      } as any);
+      vi.mocked(pulling.downloadStatements).mockResolvedValue({
+        count: 0,
+        config: {},
+        failures: [],
+      } as any);
+      vi.mocked(pulling.fetchProblemMetadata).mockResolvedValue({
+        failures: [],
+      } as any);
+      vi.mocked(fs.writeFileSync).mockImplementation(() => undefined);
+
+      const result = await steps.stepDownloadProblemFilesAndSetUpConfig(
+        1,
+        {} as any,
+        7,
+        'savePath'
+      );
+
+      expect(result.warnings).toEqual(['acc.cpp placeholder']);
+      expect(result.failures.map(f => f.message)).toEqual([
+        'Could not download solution wa (no access)',
+      ]);
+    });
+
+    it('records a failed validator download when Polygon has none', async () => {
+      const addAction = vi.spyOn(report, 'addAction');
+      await pullWithChecker(
+        { name: 'wcmp', source: 'wcmp.cpp', isStandard: true },
+        {
+          count: 0,
+          data: { name: 'validator', source: 'val.cpp' },
+          missing: true,
+        }
+      );
+      const recorded = addAction.mock.calls.map(call => call[0]);
+      addAction.mockRestore();
+      expect(recorded).toEqual([
+        { component: 'checker', name: 'wcmp', action: 'download', ok: true },
+        {
+          component: 'validator',
+          name: 'validator',
+          action: 'download',
+          ok: false,
+          error: 'Polygon has no validator set for this problem',
+        },
+        { component: 'config', name: 'Config.json', action: 'write', ok: true },
+      ]);
     });
 
     it('should not download a custom checker as a generator', async () => {
@@ -1192,6 +1391,26 @@ describe('steps.ts', () => {
       );
       expect(fs.writeFileSync).toHaveBeenCalled();
       expect(result).toBe(true);
+    });
+
+    it('records a successful testset download', async () => {
+      const addAction = vi.spyOn(report, 'addAction');
+      vi.mocked(fs.existsSync).mockReturnValue(true);
+      vi.mocked(fs.readFileSync).mockReturnValue(
+        JSON.stringify(baseConfig({ testsets: [] }))
+      );
+      vi.mocked(
+        pulling.downloadTestsetAndBuildGenerationScripts
+      ).mockResolvedValue({
+        testset: { name: 'tests', generatorScript: { commands: [] } },
+        manualCount: 0,
+      } as any);
+      vi.mocked(fs.writeFileSync).mockImplementation(() => undefined);
+      await steps.stepDownloadTests(1, {} as any, 7, 'tests', 'savePath');
+      expect(addAction.mock.calls.map(call => call[0])).toEqual([
+        { component: 'testset', name: 'tests', action: 'download', ok: true },
+      ]);
+      addAction.mockRestore();
     });
 
     it('should update existing testset in config', async () => {
@@ -1556,6 +1775,15 @@ describe('steps.ts', () => {
       );
     });
 
+    it('records no upload action when Config.json has no validator', async () => {
+      const addAction = vi.spyOn(report, 'addAction');
+      vi.mocked(pushing.uploadValidator).mockResolvedValue(0);
+      const config = baseConfig({ validator: undefined });
+      await steps.stepUploadValidator(1, {} as any, 7, '/dir', config);
+      expect(addAction).not.toHaveBeenCalled();
+      addAction.mockRestore();
+    });
+
     it('should report uploaded when count > 0', async () => {
       vi.mocked(pushing.uploadValidator).mockResolvedValue(1);
       const config = baseConfig();
@@ -1658,6 +1886,228 @@ describe('steps.ts', () => {
       );
     });
   });
+  describe('uploadActions', () => {
+    it('marks every item ok when the step added no failures', () => {
+      expect(steps.uploadActions('solution', ['main', 'wa'], [])).toEqual([
+        { component: 'solution', name: 'main', action: 'upload', ok: true },
+        { component: 'solution', name: 'wa', action: 'upload', ok: true },
+      ]);
+    });
+
+    it('fails the item named in a failure and keeps the others ok', () => {
+      expect(
+        steps.uploadActions(
+          'solution',
+          ['main', 'wa'],
+          ['solution wa: Polygon API Error: x: y']
+        )
+      ).toEqual([
+        { component: 'solution', name: 'main', action: 'upload', ok: true },
+        {
+          component: 'solution',
+          name: 'wa',
+          action: 'upload',
+          ok: false,
+          error: 'Polygon API Error: x: y',
+        },
+      ]);
+    });
+
+    it('fails a testset for its sub-step failures and keeps their labels', () => {
+      expect(
+        steps.uploadActions(
+          'testset',
+          ['tests'],
+          ['testset tests script: bad', 'testset tests group g1: no']
+        )
+      ).toEqual([
+        {
+          component: 'testset',
+          name: 'tests',
+          action: 'upload',
+          ok: false,
+          error: 'testset tests script: bad; testset tests group g1: no',
+        },
+      ]);
+    });
+
+    it('matches a failure labelled with the component or the item name', () => {
+      expect(
+        steps.uploadActions('validator', ['val'], ['validator: not found'])
+      ).toEqual([
+        {
+          component: 'validator',
+          name: 'val',
+          action: 'upload',
+          ok: false,
+          error: 'not found',
+        },
+      ]);
+      expect(
+        steps.uploadActions('metadata', ['description', 'tags'], ['tags: no'])
+      ).toEqual([
+        {
+          component: 'metadata',
+          name: 'description',
+          action: 'upload',
+          ok: true,
+        },
+        {
+          component: 'metadata',
+          name: 'tags',
+          action: 'upload',
+          ok: false,
+          error: 'no',
+        },
+      ]);
+    });
+
+    it('does not blame an item whose name is a prefix of the failed one', () => {
+      expect(
+        steps.uploadActions(
+          'solution',
+          ['main', 'main 2'],
+          ['solution main 2: boom']
+        )
+      ).toEqual([
+        { component: 'solution', name: 'main', action: 'upload', ok: true },
+        {
+          component: 'solution',
+          name: 'main 2',
+          action: 'upload',
+          ok: false,
+          error: 'boom',
+        },
+      ]);
+    });
+
+    it('blames the real item when its name contains ": "', () => {
+      expect(
+        steps.uploadActions('solution', ['a: b', 'ok'], ['solution a: b: boom'])
+      ).toEqual([
+        {
+          component: 'solution',
+          name: 'a: b',
+          action: 'upload',
+          ok: false,
+          error: 'boom',
+        },
+        { component: 'solution', name: 'ok', action: 'upload', ok: true },
+      ]);
+    });
+
+    it('tries the longest name first when one name prefixes another', () => {
+      expect(
+        steps.uploadActions('solution', ['a', 'a: b'], ['solution a: b: boom'])
+      ).toEqual([
+        { component: 'solution', name: 'a', action: 'upload', ok: true },
+        {
+          component: 'solution',
+          name: 'a: b',
+          action: 'upload',
+          ok: false,
+          error: 'boom',
+        },
+      ]);
+    });
+
+    it('adds failures that belong to no item as their own entries', () => {
+      expect(
+        steps.uploadActions('checker', ['chk'], ['checker test #2: rejected'])
+      ).toEqual([
+        { component: 'checker', name: 'chk', action: 'upload', ok: true },
+        {
+          component: 'checker',
+          name: 'checker test #2',
+          action: 'upload',
+          ok: false,
+          error: 'rejected',
+        },
+      ]);
+    });
+  });
+
+  describe('remote steps with a --json report', () => {
+    it('records the upload step actions in the report', async () => {
+      const addAction = vi.spyOn(report, 'addAction');
+      vi.mocked(pushing.uploadSolutions).mockImplementation(
+        async (_sdk, _id, _dir, _config, failures = []) => {
+          failures.push('solution wa: rejected');
+          return Promise.resolve(1);
+        }
+      );
+      const config = baseConfig({
+        solutions: [
+          { name: 'main', source: 'main.cpp', tag: 'MA' },
+          { name: 'wa', source: 'wa.cpp', tag: 'WA' },
+        ],
+      });
+      await steps.stepUploadSolutions(1, {} as any, 7, '/p', config, []);
+      expect(addAction.mock.calls.map(call => call[0])).toEqual([
+        { component: 'solution', name: 'main', action: 'upload', ok: true },
+        {
+          component: 'solution',
+          name: 'wa',
+          action: 'upload',
+          ok: false,
+          error: 'rejected',
+        },
+      ]);
+      addAction.mockRestore();
+    });
+
+    it('records a checker that failed to upload before rethrowing', async () => {
+      const addAction = vi.spyOn(report, 'addAction');
+      vi.mocked(pushing.uploadChecker).mockRejectedValue(new Error('gone'));
+      const config = baseConfig({
+        checker: { name: 'chk', source: 'chk.cpp' },
+      });
+      await expect(
+        steps.stepUploadChecker(1, {} as any, 7, '/p', config, [])
+      ).rejects.toThrow('gone');
+      expect(addAction).toHaveBeenCalledWith({
+        component: 'checker',
+        name: 'chk',
+        action: 'upload',
+        ok: false,
+        error: 'gone',
+      });
+      addAction.mockRestore();
+    });
+
+    it('registers the credentials as secrets', () => {
+      const setSecrets = vi.spyOn(report, 'setSecrets');
+      vi.mocked(remoteUtils.readCredentials).mockReturnValue({
+        apiKey: 'k',
+        secret: 's',
+      });
+      steps.stepReadCredentials(1);
+      expect(setSecrets).toHaveBeenCalledWith(['k', 's']);
+      setSecrets.mockRestore();
+    });
+
+    it('does not prompt for problem creation while --json is active', async () => {
+      vi.mocked(utils.stdinIsInteractive).mockReturnValue(true);
+      const isActive = vi.spyOn(report, 'isActive').mockReturnValue(true);
+      await expect(steps.stepPromptCreateProblem(1)).rejects.toThrow(
+        /--json is set, so polyman does not prompt; pass --yes/
+      );
+      isActive.mockRestore();
+    });
+
+    it('does not prompt for a problem name while --json is active', async () => {
+      vi.mocked(utils.stdinIsInteractive).mockReturnValue(true);
+      const isActive = vi.spyOn(report, 'isActive').mockReturnValue(true);
+      const sdk = {
+        listProblems: vi.fn().mockResolvedValue([]),
+      } as unknown as Parameters<typeof steps.stepGetValidProblemName>[1];
+      await expect(
+        steps.stepGetValidProblemName(1, sdk, undefined)
+      ).rejects.toBeInstanceOf(NonInteractiveError);
+      isActive.mockRestore();
+    });
+  });
+
   describe('stepPromptCreateProblem', () => {
     it('returns true without prompting when --yes is given', async () => {
       const result = await steps.stepPromptCreateProblem(1, { yes: true });
