@@ -1209,6 +1209,7 @@ describe('steps.ts', () => {
         count: 0,
         data: [],
         failures: [failure('generator', 'gen', 'boom')],
+        sourceTypes: {},
       } as any);
       vi.mocked(pulling.downloadStatements).mockResolvedValue({
         count: 0,
@@ -1295,6 +1296,7 @@ describe('steps.ts', () => {
         count: 0,
         data: [],
         failures: [],
+        sourceTypes: {},
       } as any);
       vi.mocked(pulling.downloadStatements).mockResolvedValue({
         count: 0,

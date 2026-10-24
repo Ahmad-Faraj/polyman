@@ -557,7 +557,11 @@ describe('remote commands with --json', () => {
         action: { component: 'generator', name: 'gen2', error: noAccess },
         config: (config: ConfigFile) =>
           expect(config.generators).toEqual([
-            { name: 'gen', source: './generators/gen.cpp' },
+            {
+              name: 'gen',
+              source: './generators/gen.cpp',
+              sourceType: 'cpp.g++17',
+            },
           ]),
       },
       {
