@@ -7,8 +7,19 @@
 export type ContentPart =
   /** Plain text from the user or the model. */
   | { type: 'text'; text: string }
-  /** Model reasoning. Shown in the UI, never sent back to the provider. */
-  | { type: 'reasoning'; text: string }
+  /**
+   * Model reasoning, shown in the UI. Only Anthropic needs it back: a part
+   * with a `signature` or `redacted` data is sent back unchanged, the rest is
+   * never sent back.
+   */
+  | {
+      type: 'reasoning';
+      text: string;
+      /** Anthropic thinking block signature. */
+      signature?: string;
+      /** Opaque data of an Anthropic `redacted_thinking` block. */
+      redacted?: string;
+    }
   /** The model asks to run a tool. `args` is the parsed JSON arguments. */
   | { type: 'tool_call'; id: string; name: string; args: unknown }
   /** The outcome of a tool call, matched to it by `callId`. */

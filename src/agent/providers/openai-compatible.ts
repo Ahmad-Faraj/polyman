@@ -324,7 +324,8 @@ function errorMessage(body: string): string {
   return body.trim().slice(0, 500);
 }
 
-function isContextError(message: string): boolean {
+/** Whether an error message says the prompt is too long. */
+export function isContextError(message: string): boolean {
   return /context[_ ]length|context window|maximum context|too many tokens|prompt is too long/i.test(
     message
   );
