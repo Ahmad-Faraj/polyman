@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -7,6 +8,7 @@ import {
   describePath,
   exitCodeOf,
   hashTree,
+  isEntry,
   judgeResult,
   mainSolution,
   outcomeOf,
@@ -19,7 +21,10 @@ import {
   RUNS,
   runMain,
   startsWithBitsStdcpp,
+  stderrTail,
 } from './pch-check.mjs';
+
+const SCRIPT = path.resolve('corpus/pch-check.mjs');
 
 const debug = lines => lines.map(l => `[polyman debug] ${l}`).join('\n');
 const run = name => RUNS.find(r => r.name === name);
@@ -393,6 +398,41 @@ describe('exit codes', () => {
     } finally {
       error.mockRestore();
     }
+  });
+});
+
+describe('the entry guard', () => {
+  let dir;
+  afterEach(() => {
+    if (dir) fs.rmSync(dir, { recursive: true, force: true });
+    dir = undefined;
+  });
+
+  it('runs the check when started through a symlink', () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pch-entry-'));
+    const link = path.join(dir, 'pch-check.mjs');
+    fs.symlinkSync(SCRIPT, link);
+    expect(isEntry(link, new URL(`file://${SCRIPT}`).href)).toBe(true);
+    // a bad argument must give 2, not a quiet 0 that skipped the check
+    const result = spawnSync(process.execPath, [link, '--nope'], {
+      encoding: 'utf8',
+    });
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('Unknown argument: --nope');
+  });
+
+  it('is false for another file or no file', () => {
+    expect(isEntry(path.resolve('package.json'))).toBe(false);
+    expect(isEntry(undefined)).toBe(false);
+    expect(isEntry('/no/such/file.mjs')).toBe(false);
+  });
+});
+
+describe('stderrTail', () => {
+  it('keeps the last lines and accepts a null stderr', () => {
+    expect(stderrTail('a\nb\nc', 2)).toBe('b\nc');
+    expect(stderrTail(null)).toBe('');
+    expect(stderrTail(undefined)).toBe('');
   });
 });
 

@@ -90,6 +90,11 @@ node corpus/pch-check.mjs --problem sum-parity --clang clang++-17 --keep
 
 In CI it runs as `corpus:pch`, on the same pipelines as `corpus`.
 
+Known limits: `main()` is tested on its pieces (path parsing, run folders, judging each
+result, exit codes) and on a bad argument, not end to end. A full run needs g++ and clang++,
+so the exit 0 and 1 outcomes, a missing compiler, a failing `generate` and `--keep` are
+proved by the `corpus:pch` job itself, not by a unit test.
+
 ## Polygon round trip
 
 `polygon-roundtrip.mjs` pushes a corpus problem to Polygon with `polyman remote push`, reads it

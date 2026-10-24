@@ -442,7 +442,7 @@ function main(argv) {
         failures.push(`${run.name}: ${problem}`);
       }
       if (problems.length && result.status !== 0)
-        console.log(result.stderr.split('\n').slice(-20).join('\n'));
+        console.log(stderrTail(result.stderr));
     }
   } finally {
     if (args.keep) console.log(`\nkept ${work}`);
@@ -462,6 +462,30 @@ function main(argv) {
   return failures;
 }
 
+/**
+ * The last lines of a run's stderr. spawnSync gives null when the process
+ * did not start, and that must not hide the real failure.
+ */
+export function stderrTail(stderr, lines = 20) {
+  return String(stderr ?? '')
+    .split('\n')
+    .slice(-lines)
+    .join('\n');
+}
+
+/**
+ * Whether this file is the script node started. Both sides go through
+ * realpath, so a symlinked path still runs the check instead of exiting 0.
+ */
+export function isEntry(argv1, moduleUrl = import.meta.url) {
+  if (!argv1) return false;
+  try {
+    return fs.realpathSync(argv1) === fs.realpathSync(fileURLToPath(moduleUrl));
+  } catch {
+    return false;
+  }
+}
+
 /** Runs the check on argv and gives its exit code. */
 export function runMain(argv) {
   try {
@@ -472,5 +496,4 @@ export function runMain(argv) {
   }
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url))
-  process.exitCode = runMain(process.argv.slice(2));
+if (isEntry(process.argv[1])) process.exitCode = runMain(process.argv.slice(2));
