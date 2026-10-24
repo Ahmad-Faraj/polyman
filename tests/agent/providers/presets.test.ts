@@ -231,7 +231,52 @@ describe('validatePreset', () => {
       { baseUrl: 'https://api.demo.test/v1#f' },
       /hash/,
     ],
+    [
+      'an empty user info in the base URL',
+      { baseUrl: 'https://@api.demo.test/v1' },
+      /user info/,
+    ],
+    [
+      'a bare ? in the base URL',
+      { baseUrl: 'https://api.demo.test/v1?' },
+      /query/,
+    ],
+    [
+      'a bare # in the base URL',
+      { baseUrl: 'https://api.demo.test/v1#' },
+      /hash/,
+    ],
+    [
+      'a trailing slash before a bare ?#',
+      { baseUrl: 'https://API.demo.test/v1/?#' },
+      /query/,
+    ],
     ['a trailing slash', { baseUrl: 'https://api.demo.test/v1/' }, /end with/],
+    [
+      'a trailing backslash',
+      { baseUrl: 'https://api.demo.test/v1\\' },
+      /written as/,
+    ],
+    [
+      'a scheme in capitals',
+      { baseUrl: 'HTTPS://api.demo.test/v1' },
+      /written as/,
+    ],
+    [
+      'a host in capitals',
+      { baseUrl: 'https://API.demo.test/v1' },
+      /written as/,
+    ],
+    [
+      'spaces around the base URL',
+      { baseUrl: ' https://api.demo.test/v1 ' },
+      /written as/,
+    ],
+    [
+      'the default port in the base URL',
+      { baseUrl: 'https://api.demo.test:443/v1' },
+      /written as/,
+    ],
     ['a key without an env var', { envVar: '' }, /needs an env var/],
     [
       'a lowercase env var',

@@ -367,20 +367,7 @@ export function validatePreset(preset: Preset): string[] {
       );
     }
   } else {
-    if (!isHttpUrl(preset.baseUrl)) {
-      problems.push(`${where}: baseUrl is not an http(s) URL`);
-    } else if (
-      new URL(preset.baseUrl).protocol === 'http:' &&
-      new URL(preset.baseUrl).hostname !== 'localhost'
-    ) {
-      problems.push(`${where}: only a localhost server may use http`);
-    } else if (hasUserInfoQueryOrHash(new URL(preset.baseUrl))) {
-      problems.push(
-        `${where}: baseUrl must not have user info, a query or a hash`
-      );
-    } else if (preset.baseUrl.endsWith('/')) {
-      problems.push(`${where}: baseUrl must not end with /`);
-    }
+    problems.push(...baseUrlProblems(preset.baseUrl, where));
   }
   if (preset.keyRequired && !ENV_VAR.test(preset.envVar)) {
     problems.push(`${where}: a preset that needs a key needs an env var`);
@@ -415,8 +402,29 @@ export function validatePreset(preset: Preset): string[] {
   return problems;
 }
 
-function hasUserInfoQueryOrHash(url: URL): boolean {
-  return Boolean(url.username || url.password || url.search || url.hash);
+/**
+ * Checks a preset base URL. The URL parser drops a bare `?`, `#` or `@`,
+ * lowercases the scheme and host, trims spaces and turns `\` into `/`, so
+ * every check also looks at the raw string, and the raw string must be the
+ * normal form the parser gives back.
+ */
+function baseUrlProblems(baseUrl: string, where: string): string[] {
+  if (!isHttpUrl(baseUrl)) return [`${where}: baseUrl is not an http(s) URL`];
+  const url = new URL(baseUrl);
+  if (url.protocol === 'http:' && url.hostname !== 'localhost') {
+    return [`${where}: only a localhost server may use http`];
+  }
+  if (/[@?#]/.test(baseUrl) || url.username || url.password) {
+    return [`${where}: baseUrl must not have user info, a query or a hash`];
+  }
+  if (baseUrl.endsWith('/')) {
+    return [`${where}: baseUrl must not end with /`];
+  }
+  const normal = url.href.replace(/\/$/, '');
+  if (baseUrl !== normal) {
+    return [`${where}: baseUrl must be written as ${normal}`];
+  }
+  return [];
 }
 
 function isHttpUrl(value: string): boolean {
