@@ -241,6 +241,14 @@ What we can say today, all public: 2,167 npm downloads from the first publish on
 
 Team: Hamza Hassanain (polyman's author), Mazen Ghanayem, Ahmed Faraj.
 
+### Who uses it
+
+- [Repovive](https://repovive.com), backed by Y Combinator, used polyman to prepare contest problems. For example, Graph Tiling, [problem F of Repovive Standard Round 3](https://repovive.com/contests/8/problems/F).
+- Hamza Hassanain also used it for problems he set outside Repovive.
+- Ahmed Faraj and Mazen Ghanayem used it to prepare problems for the ICPC Arab regional (ACPC).
+
+<!-- #42: name the two downstream projects here only after their maintainers agree, and add replies from the Codeforces post only when people confirm they used it. -->
+
 <div align="center">
 
 <img src="logo.png" alt="Polyman Logo" width="200"/>
