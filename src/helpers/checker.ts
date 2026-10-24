@@ -124,6 +124,25 @@ export function checkerVerdictForExitCode(exitCode: number): CheckerVerdict {
 }
 
 /**
+ * Names the verdict a checker gave for the self-test report: like
+ * {@link checkerVerdictForExitCode}, but `null` for an exit code that is
+ * neither OK, WA, PE nor a crash (see {@link isCrashedExitCode}), such as 4,
+ * 5, 7, 8 or 16 to 127. Those are other testlib verdicts, and calling them
+ * CRASHED would be wrong.
+ */
+function reportedVerdictForExitCode(exitCode: number): CheckerVerdict | null {
+  if (
+    exitCode === 0 ||
+    exitCode === TESTLIB_WA_EXIT_CODE ||
+    exitCode === TESTLIB_PE_EXIT_CODE ||
+    isCrashedExitCode(exitCode)
+  ) {
+    return checkerVerdictForExitCode(exitCode);
+  }
+  return null;
+}
+
+/**
  * Writes an expected checker verdict with its full name, so the short forms
  * `WA` and `PE` (any letter case) compare with what the checker gave.
  */
@@ -155,7 +174,7 @@ export class PresentationError extends Error {
  * @param {string} outputFilePath - Path to participant's output file
  * @param {string} answerFilePath - Path to jury's answer file
  * @param {CheckerVerdict} expectedVerdict - Expected verdict: OK, WRONG_ANSWER (or WA), PRESENTATION_ERROR (or PE), CRASHED (exit code 3 or a code testlib does not define, see isCrashedExitCode)
- * @param {Function} [observe] - Called with the verdict the checker gave and its stderr, before it is compared with `expectedVerdict`
+ * @param {Function} [observe] - Called with the verdict the checker gave (`null` when its exit code is not OK, WA, PE or a crash, for example 4, 5, 7, 8 or 16 to 127), its stderr and its exit code, before it is compared with `expectedVerdict`
  *
  * @throws {PresentationError} If the checker was expected to return OK and exited with testlib's presentation-error code (2)
  * @throws {Error} If checker verdict doesn't match expected verdict (WRONG_ANSWER expects exit code 1, PRESENTATION_ERROR expects exit code 2, CRASHED expects exit code 3 or an undefined code)
@@ -176,7 +195,11 @@ export async function runChecker(
   outputFilePath: string,
   answerFilePath: string,
   expectedVerdict: CheckerVerdict,
-  observe?: (actual: CheckerVerdict, message: string) => void
+  observe?: (
+    actual: CheckerVerdict | null,
+    message: string,
+    exitCode: number
+  ) => void
 ) {
   let didCatchInvalid = false;
   let failureExitCode = 0;
@@ -199,8 +222,9 @@ export async function runChecker(
       onError: result => {
         checkerFailed = true;
         observe?.(
-          checkerVerdictForExitCode(result.exitCode),
-          result.stderr.trim()
+          reportedVerdictForExitCode(result.exitCode),
+          result.stderr.trim(),
+          result.exitCode
         );
         if (expectedVerdict.toUpperCase() === 'OK') {
           const message = result.stderr || 'Expected OK but got WA';
@@ -232,7 +256,7 @@ export async function runChecker(
       },
     }
   );
-  if (!checkerFailed) observe?.('OK', successStderr);
+  if (!checkerFailed) observe?.('OK', successStderr, 0);
 
   if (String(expectedVerdict).toUpperCase() === 'CRASHED') {
     if (!didCatchInvalid) {
@@ -396,8 +420,9 @@ export async function runCheckerTests(checker: LocalChecker) {
       const outputFilePath = path.join(testsDir, `test${index + 1}_output.txt`);
       const answerFilePath = path.join(testsDir, `test${index + 1}_answer.txt`);
       const expected = normalizeCheckerVerdict(test.expectedVerdict);
-      let actual = 'ERROR';
+      let actual: string | null = 'ERROR';
       let detail = '';
+      let checkerExitCode: number | undefined;
 
       try {
         await runChecker(
@@ -406,15 +431,19 @@ export async function runCheckerTests(checker: LocalChecker) {
           outputFilePath,
           answerFilePath,
           test.expectedVerdict,
-          (verdict, message) => {
+          (verdict, message, exitCode) => {
             actual = verdict;
             detail = message;
+            checkerExitCode = exitCode;
           }
         );
         report.recordSelfTestCase({
           index: index + 1,
           expected,
           actual,
+          ...(actual === null && checkerExitCode !== undefined
+            ? { exitCode: checkerExitCode }
+            : {}),
           ok: true,
           message: detail,
         });
@@ -425,6 +454,9 @@ export async function runCheckerTests(checker: LocalChecker) {
           index: index + 1,
           expected,
           actual,
+          ...(actual === null && checkerExitCode !== undefined
+            ? { exitCode: checkerExitCode }
+            : {}),
           ok: false,
           message: (error as Error).message,
         });

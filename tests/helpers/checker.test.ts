@@ -1058,6 +1058,105 @@ describe('checker.ts', () => {
       ]);
     });
 
+    it.each([4, 5, 8, 127])(
+      'should record actual null and exitCode %i when CRASHED is expected and the checker exits with it',
+      async exitCode => {
+        const recordSpy = vi
+          .spyOn(report, 'recordSelfTestCase')
+          .mockImplementation(() => {});
+        installReadFileMock(() => ({
+          err: null,
+          data: JSON.stringify({
+            tests: [
+              {
+                index: 1,
+                input: '',
+                output: '',
+                answer: '',
+                expectedVerdict: 'CRASHED',
+              },
+            ],
+          }),
+        }));
+        mockedGetCompiledCommandToRun.mockReturnValue('./c.exe');
+        mockedExecute.mockImplementation(
+          (_cmd: string, options: ExecutionOptions) => {
+            const result = makeExecResult({
+              stderr: 'some verdict',
+              exitCode,
+              success: false,
+            });
+            options.onError?.(result);
+            return Promise.resolve(result);
+          }
+        );
+
+        await expect(
+          checker.runCheckerTests({
+            name: 'c',
+            source: 'c.cpp',
+            testsFilePath: 't.json',
+          })
+        ).rejects.toThrow('Some checker tests failed');
+
+        expect(recordSpy).toHaveBeenCalledTimes(1);
+        expect(recordSpy).toHaveBeenCalledWith({
+          index: 1,
+          expected: 'CRASHED',
+          actual: null,
+          exitCode,
+          ok: false,
+          message: `Expected CRASHED but got exit code ${exitCode}`,
+        });
+      }
+    );
+
+    it('should record actual CRASHED without exitCode for a crash exit code', async () => {
+      const recordSpy = vi
+        .spyOn(report, 'recordSelfTestCase')
+        .mockImplementation(() => {});
+      installReadFileMock(() => ({
+        err: null,
+        data: JSON.stringify({
+          tests: [
+            {
+              index: 1,
+              input: '',
+              output: '',
+              answer: '',
+              expectedVerdict: 'CRASHED',
+            },
+          ],
+        }),
+      }));
+      mockedGetCompiledCommandToRun.mockReturnValue('./c.exe');
+      mockedExecute.mockImplementation(
+        (_cmd: string, options: ExecutionOptions) => {
+          const result = makeExecResult({
+            stderr: 'fail',
+            exitCode: 3,
+            success: false,
+          });
+          options.onError?.(result);
+          return Promise.resolve(result);
+        }
+      );
+
+      await checker.runCheckerTests({
+        name: 'c',
+        source: 'c.cpp',
+        testsFilePath: 't.json',
+      });
+
+      expect(recordSpy).toHaveBeenCalledWith({
+        index: 1,
+        expected: 'CRASHED',
+        actual: 'CRASHED',
+        ok: true,
+        message: 'fail',
+      });
+    });
+
     it('should record ERROR as the actual verdict when the checker cannot run', async () => {
       const recordSpy = vi
         .spyOn(report, 'recordSelfTestCase')
@@ -1143,16 +1242,49 @@ describe('checker.ts', () => {
       ).rejects.toBeInstanceOf(checker.PresentationError);
       expect(observe).toHaveBeenCalledWith(
         'PRESENTATION_ERROR',
-        'wrong output format'
+        'wrong output format',
+        2
       );
     });
+
+    it.each([
+      [4, null],
+      [5, null],
+      [7, null],
+      [8, null],
+      [16, null],
+      [127, null],
+      [3, 'CRASHED'],
+      [139, 'CRASHED'],
+      [1, 'WRONG_ANSWER'],
+    ])(
+      'should report exit code %i as verdict %s with the exit code',
+      async (exitCode, verdict) => {
+        mockedExecute.mockImplementation(
+          (_cmd: string, options: ExecutionOptions) => {
+            const result = makeExecResult({
+              stderr: 'msg\n',
+              exitCode,
+              success: false,
+            });
+            options.onError?.(result);
+            return Promise.resolve(result);
+          }
+        );
+        const observe = vi.fn();
+        await checker
+          .runChecker('./c', 'i', 'o', 'a', 'CRASHED', observe)
+          .catch(() => undefined);
+        expect(observe).toHaveBeenCalledWith(verdict, 'msg', exitCode);
+      }
+    );
 
     it('should report OK once when the checker accepts', async () => {
       mockedExecute.mockResolvedValue(makeExecResult());
       const observe = vi.fn();
       await checker.runChecker('./c', 'i', 'o', 'a', 'OK', observe);
       expect(observe).toHaveBeenCalledTimes(1);
-      expect(observe).toHaveBeenCalledWith('OK', '');
+      expect(observe).toHaveBeenCalledWith('OK', '', 0);
     });
   });
 });

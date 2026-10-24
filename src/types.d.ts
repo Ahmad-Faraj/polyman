@@ -984,8 +984,11 @@ type SelfTestTarget = 'validator' | 'checker';
  * @property {string} expected - Verdict the tests file asks for (the checker
  *   short forms `WA` / `PE` are written as `WRONG_ANSWER` /
  *   `PRESENTATION_ERROR`)
- * @property {string} actual - Verdict the program gave, or `ERROR` when it
- *   could not run at all
+ * @property {string | null} actual - Verdict the program gave, or `ERROR` when
+ *   it could not run at all. `null` for a checker that exited with a code that
+ *   is not OK, WA, PE or a crash (4, 5, 7, 8, 16 to 127): see `exitCode`
+ * @property {number} [exitCode] - Exit code of the checker. Only set when
+ *   `actual` is `null`
  * @property {boolean} ok - Whether polyman accepted the case
  * @property {string} message - What the program printed to stderr, or why the
  *   case failed
@@ -993,7 +996,8 @@ type SelfTestTarget = 'validator' | 'checker';
 interface SelfTestCase {
   index: number;
   expected: string;
-  actual: string;
+  actual: string | null;
+  exitCode?: number;
   ok: boolean;
   message: string;
 }

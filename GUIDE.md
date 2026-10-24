@@ -1667,7 +1667,7 @@ All three forms accept `--json`. Like `run --json`, stdout carries exactly one J
 }
 ```
 
-`index` is the position of the case in the tests file. The checker short forms `WA` and `PE` are written as `WRONG_ANSWER` and `PRESENTATION_ERROR`. `actual` is `ERROR` when the program could not run at all. `cases` is empty when the self-tests are skipped (standard checker, or no `testsFilePath`).
+`index` is the position of the case in the tests file. The checker short forms `WA` and `PE` are written as `WRONG_ANSWER` and `PRESENTATION_ERROR`. `actual` is `ERROR` when the program could not run at all. A checker case has `exitCode`, the exit code the checker returned, only when `actual` is `null` (other cases have no `exitCode`). For a checker, `actual` is `OK` for exit code 0, `WRONG_ANSWER` for 1, `PRESENTATION_ERROR` for 2 and `CRASHED` for a crash code (3, a signal exit of 128 and up, or an `exit(N)` with N in 6 or 9 to 15). For the other testlib exit codes (4, 5, 7, 8 and 16 to 127) `actual` is `null`, so a self-test that expects `CRASHED` and gets, say, exit code 4 reports `"actual": null, "exitCode": 4, "ok": false`. `cases` is empty when the self-tests are skipped (standard checker, or no `testsFilePath`).
 
 `test <solution> --json` gives the `run` report of that solution, with each verdict judged by the checker against the main solution, plus `mainSolution`, `matchesTag` and `reason`:
 
