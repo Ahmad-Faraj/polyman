@@ -1596,7 +1596,7 @@ polyman test wa-solution
 
 1. Generates tests if needed, runs the main solution to get jury answers, then runs the target solution
 2. Uses the checker to compare outputs and confirms the target solution behaves as its tag advertises (e.g., a `WA`-tagged solution passes when it gets WA or PE on at least one test, as on Polygon)
-3. If the main solution prints nothing on a test where the target solution prints output, it stops with an error that names the main solution. The main output is the answer for the checker, so an empty main output would only show up as a wrong verdict on the other solution. `verify` does the same check
+3. If the main solution prints nothing on every test while the target solution prints output on some test, it stops with an error that names the main solution. This is usually a build or flag problem (for example `freopen` under `#ifndef ONLINE_JUDGE`). The main output is the answer for the checker, so it would only show up as a wrong verdict on the other solution. An empty answer on some tests is fine, those tests go to the checker as usual. `verify` does the same check
 
 **Use Case:** Verify that WA/TL/RE solutions actually fail as expected.
 

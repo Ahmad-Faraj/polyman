@@ -1454,22 +1454,64 @@ describe('solution.ts', () => {
       const otherSol: LocalSolution = { name: 'other', source: '', tag: 'OK' };
       const checkerConfig: LocalChecker = { name: 'chk', source: 'chk.cpp' };
       const isMainOutput = (file: unknown) => String(file).includes('/main/');
+      const compare = (target: LocalSolution = otherSol) =>
+        solution.startTheComparisonProcess(checkerConfig, mainSol, target, [
+          { name: 'tests' },
+        ]);
 
-      it('fails and names the main when it prints nothing and the other solution prints output', async () => {
-        mockedGetTestFiles.mockReturnValue(['test1.txt']);
+      /** Serves `outputs[name][testFile]` for both readFirstLine and open. */
+      function mockOutputs(outputs: {
+        main: Record<string, string>;
+        other: Record<string, string>;
+      }) {
+        const contentOf = (file: unknown) => {
+          const name = String(file);
+          const byTest = isMainOutput(name) ? outputs.main : outputs.other;
+          const test = path.basename(name).replace(/^output_/, '');
+          return byTest[test] ?? '';
+        };
         mockedReadFirstLine.mockImplementation(file =>
-          Promise.resolve(isMainOutput(file) ? '' : '42')
+          Promise.resolve(contentOf(file).split(/\r?\n/)[0] ?? '')
         );
-        mockFileContents(file => (isMainOutput(file) ? '' : '42\n'));
+        mockFileContents(contentOf);
+      }
 
-        const rejection = solution.startTheComparisonProcess(
-          checkerConfig,
-          mainSol,
-          otherSol,
-          [{ name: 'tests' }]
-        );
+      it('sends a single empty answer to the checker like any other answer', async () => {
+        mockedGetTestFiles.mockReturnValue(['test1.txt', 'test2.txt']);
+        mockOutputs({
+          main: { 'test1.txt': '', 'test2.txt': '7\n' },
+          other: { 'test1.txt': '', 'test2.txt': '7\n' },
+        });
+        mockedRunChecker.mockResolvedValue(undefined);
+
+        await expect(compare()).resolves.toBeUndefined();
+        expect(mockedRunChecker).toHaveBeenCalledTimes(2);
+      });
+
+      it('does not fail when the main is empty on one test and the other prints output there', async () => {
+        mockedGetTestFiles.mockReturnValue(['test1.txt', 'test2.txt']);
+        mockOutputs({
+          main: { 'test1.txt': '', 'test2.txt': '7\n' },
+          other: { 'test1.txt': '42\n', 'test2.txt': '7\n' },
+        });
+        mockedRunChecker.mockRejectedValueOnce(new Error('Wrong Answer'));
+        mockedRunChecker.mockResolvedValue(undefined);
+        const wrongSol: LocalSolution = { ...otherSol, tag: 'WA' };
+
+        await expect(compare(wrongSol)).resolves.toBeUndefined();
+        expect(mockedRunChecker).toHaveBeenCalledTimes(2);
+      });
+
+      it('fails and names the main when it prints nothing on every test and the other prints output', async () => {
+        mockedGetTestFiles.mockReturnValue(['test1.txt', 'test2.txt']);
+        mockOutputs({
+          main: { 'test1.txt': '', 'test2.txt': '' },
+          other: { 'test1.txt': '', 'test2.txt': '42\n' },
+        });
+
+        const rejection = compare();
         await expect(rejection).rejects.toThrow(
-          'Main solution "main" printed nothing on test test1.txt in testset tests, but "other" printed output.'
+          'Main solution "main" printed nothing on every test (2 in total), but "other" printed output (first on test test2.txt in testset tests).'
         );
         await expect(rejection).rejects.toThrow(/ONLINE_JUDGE/);
         expect(mockedRunChecker).not.toHaveBeenCalled();
@@ -1477,44 +1519,54 @@ describe('solution.ts', () => {
 
       it('treats a main output of only whitespace as nothing', async () => {
         mockedGetTestFiles.mockReturnValue(['test1.txt']);
-        mockedReadFirstLine.mockImplementation(file =>
-          Promise.resolve(isMainOutput(file) ? '' : '42')
-        );
-        mockFileContents(file => (isMainOutput(file) ? '\n  \n' : '42\n'));
+        mockOutputs({
+          main: { 'test1.txt': '\n  \n' },
+          other: { 'test1.txt': '42\n' },
+        });
 
-        await expect(
-          solution.startTheComparisonProcess(checkerConfig, mainSol, otherSol, [
-            { name: 'tests' },
-          ])
-        ).rejects.toThrow(/Main solution "main" printed nothing/);
+        await expect(compare()).rejects.toThrow(
+          /Main solution "main" printed nothing on every test/
+        );
       });
 
       it('accepts a main output that starts with an empty line', async () => {
         mockedGetTestFiles.mockReturnValue(['test1.txt']);
-        mockedReadFirstLine.mockImplementation(file =>
-          Promise.resolve(isMainOutput(file) ? '' : '42')
-        );
-        mockFileContents(file => (isMainOutput(file) ? '\n42\n' : '42\n'));
+        mockOutputs({
+          main: { 'test1.txt': '\n42\n' },
+          other: { 'test1.txt': '42\n' },
+        });
         mockedRunChecker.mockResolvedValue(undefined);
 
-        await expect(
-          solution.startTheComparisonProcess(checkerConfig, mainSol, otherSol, [
-            { name: 'tests' },
-          ])
-        ).resolves.not.toThrow();
+        await expect(compare()).resolves.toBeUndefined();
         expect(mockedRunChecker).toHaveBeenCalledTimes(1);
       });
 
-      it('does not fail when both the main and the other solution print nothing', async () => {
-        mockedGetTestFiles.mockReturnValue(['test1.txt']);
+      it('does not fail when the main and the other solution print nothing on every test', async () => {
+        mockedGetTestFiles.mockReturnValue(['test1.txt', 'test2.txt']);
         mockedRunChecker.mockResolvedValue(undefined);
 
-        await expect(
-          solution.startTheComparisonProcess(checkerConfig, mainSol, otherSol, [
-            { name: 'tests' },
-          ])
-        ).resolves.not.toThrow();
-        expect(mockedRunChecker).toHaveBeenCalledTimes(1);
+        await expect(compare()).resolves.toBeUndefined();
+        expect(mockedRunChecker).toHaveBeenCalledTimes(2);
+      });
+
+      it('does not count a runtime error marker as output of the other solution', async () => {
+        mockedGetTestFiles.mockReturnValue(['test1.txt']);
+        mockOutputs({
+          main: { 'test1.txt': '' },
+          other: { 'test1.txt': 'Runtime Error: segfault' },
+        });
+        const crashingSol: LocalSolution = { ...otherSol, tag: 'RE' };
+
+        await expect(compare(crashingSol)).resolves.toBeUndefined();
+        expect(mockedRunChecker).not.toHaveBeenCalled();
+      });
+
+      it('does not count a missing output of the other solution as output', async () => {
+        mockedGetTestFiles.mockReturnValue(['test1.txt']);
+        mockedFsExistsSync.mockImplementation(file => isMainOutput(file));
+
+        await expect(compare()).resolves.toBeUndefined();
+        expect(mockedRunChecker).not.toHaveBeenCalled();
       });
     });
 

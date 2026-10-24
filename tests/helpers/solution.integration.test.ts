@@ -160,7 +160,7 @@ describe('solution.ts integration: ONLINE_JUDGE', () => {
         // verify now blames the main instead of the other solution.
         await expect(
           startTheComparisonProcess(checker, main, other, testsets)
-        ).rejects.toThrow(/Main solution "main" printed nothing on test/);
+        ).rejects.toThrow(/Main solution "main" printed nothing on every test/);
 
         // After: the flags changed, so the cached main is not reused.
         fs.rmSync(path.join(tmpDir, 'output.txt'));

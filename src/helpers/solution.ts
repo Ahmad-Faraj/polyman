@@ -979,6 +979,7 @@ export async function startTheComparisonProcess(
   try {
     const compiledCheckerPath = getCompiledCommandToRun(checker);
     const verdictTracker = createVerdictTracker();
+    await ensureMainPrintedOutput(mainSolution, targetSolution, testsets);
 
     for (const testset of testsets) {
       const mainOutputDir = ensureOutputDirectory(
@@ -1003,14 +1004,6 @@ export async function startTheComparisonProcess(
         ) {
           break;
         }
-        await ensureMainPrintedOutput(
-          mainSolution,
-          targetSolution,
-          testset.name,
-          testFile,
-          mainOutputDir,
-          targetOutputDir
-        );
 
         const inputFilePath = path.join(testsDir, testFile);
         const outputFilePath = path.join(targetOutputDir, `output_${testFile}`);
@@ -1258,46 +1251,87 @@ async function isBlankOutput(filePath: string): Promise<boolean> {
 }
 
 /**
- * Fails when the main solution printed nothing on a test where the target
- * solution printed output. The main output is the answer file for the
- * checker, so an empty main output (for example a main that writes to a
- * file under `#ifndef ONLINE_JUDGE`) would show up as a wrong verdict on
- * every other solution instead.
+ * Fails when the main solution printed nothing on every test while the
+ * target solution printed an answer on at least one test. This is what a
+ * broken build looks like (for example a main that writes to a file under
+ * `#ifndef ONLINE_JUDGE`): the main output is the answer file for the
+ * checker, so every other solution would get a wrong verdict instead.
+ * An empty answer on some tests is fine, those tests go to the checker as
+ * usual. A target output that is a TLE, MLE or RTE marker is not an answer.
+ * Runs after both solutions ran, before any test goes to the checker.
  *
  * @private
  * @param {LocalSolution} mainSolution - Main correct solution
  * @param {LocalSolution} targetSolution - Solution being checked
- * @param {string} testsetName - Testset of the test
- * @param {string} testFile - Test filename
- * @param {string} mainOutputDir - Main solution output directory
- * @param {string} targetOutputDir - Target solution output directory
+ * @param {LocalTestset[]} testsets - Testsets to look at
  *
- * @throws {Error} If the main output is blank and the target output is not
+ * @throws {Error} If the main output is blank on every test and the target
+ *   printed an answer on some test
  *
  * @example
- * await ensureMainPrintedOutput(main, other, 'tests', 'test1.txt', mainDir, otherDir);
+ * await ensureMainPrintedOutput(main, other, config.testsets);
  */
 async function ensureMainPrintedOutput(
   mainSolution: LocalSolution,
   targetSolution: LocalSolution,
-  testsetName: string,
-  testFile: string,
-  mainOutputDir: string,
-  targetOutputDir: string
+  testsets: LocalTestset[]
 ): Promise<void> {
-  const mainOutputPath = path.join(mainOutputDir, `output_${testFile}`);
-  const targetOutputPath = path.join(targetOutputDir, `output_${testFile}`);
+  let testCount = 0;
+  let targetAnsweredOn: string | undefined;
 
-  if (!(await isBlankOutput(mainOutputPath))) return;
-  if (await isBlankOutput(targetOutputPath)) return;
+  for (const testset of testsets) {
+    const mainOutputDir = ensureOutputDirectory(
+      mainSolution.name,
+      testset.name
+    );
+    const targetOutputDir = ensureOutputDirectory(
+      targetSolution.name,
+      testset.name
+    );
+    const testsDir = path.resolve(process.cwd(), 'testsets', testset.name);
+
+    for (const testFile of getTestFiles(testsDir)) {
+      const mainOutputPath = path.join(mainOutputDir, `output_${testFile}`);
+      // A missing main output is not "nothing printed", the per-test checks
+      // report it.
+      if (!fs.existsSync(mainOutputPath)) return;
+      if (!(await isBlankOutput(mainOutputPath))) return;
+      testCount++;
+
+      const targetOutputPath = path.join(targetOutputDir, `output_${testFile}`);
+      if (
+        targetAnsweredOn === undefined &&
+        (await printedAnswer(targetOutputPath))
+      ) {
+        targetAnsweredOn = `test ${testFile} in testset ${testset.name}`;
+      }
+    }
+  }
+
+  if (targetAnsweredOn === undefined) return;
 
   throw new Error(
-    `Main solution "${mainSolution.name}" printed nothing on test ${testFile} ` +
-      `in testset ${testsetName}, but "${targetSolution.name}" printed output. ` +
-      'The main output is the answer for the checker, so the main must write ' +
-      'its answer to stdout. Check that it does not write to a file ' +
+    `Main solution "${mainSolution.name}" printed nothing on every test ` +
+      `(${testCount} in total), but "${targetSolution.name}" printed output ` +
+      `(first on ${targetAnsweredOn}). The main output is the answer for ` +
+      'the checker, so this is likely a build or flag problem: check that ' +
+      'the main writes its answer to stdout and not to a file ' +
       '(for example freopen under #ifndef ONLINE_JUDGE).'
   );
+}
+
+/**
+ * Whether a solution output file holds a real answer: it exists, it is not
+ * blank, and it is not a TLE, MLE or RTE marker written by polyman.
+ *
+ * @private
+ * @param {string} filePath - Output file to check
+ * @returns {Promise<boolean>} True if the file holds an answer
+ */
+async function printedAnswer(filePath: string): Promise<boolean> {
+  if (!fs.existsSync(filePath)) return false;
+  if (shouldSkipCheckerComparison(await readFirstLine(filePath))) return false;
+  return !(await isBlankOutput(filePath));
 }
 
 /**
