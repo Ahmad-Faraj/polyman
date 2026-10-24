@@ -922,6 +922,20 @@ describe('retryAfter', () => {
     expect(retryAfter(new Headers({ 'retry-after': '1e12' }), now)).toBe(1e15);
   });
 
+  it('treats an empty retry-after-ms as missing', () => {
+    for (const blank of ['', '  ']) {
+      expect(
+        retryAfter(
+          new Headers({ 'retry-after-ms': blank, 'retry-after': '5' }),
+          now
+        )
+      ).toBe(5000);
+    }
+    expect(
+      retryAfter(new Headers({ 'retry-after-ms': '' }), now)
+    ).toBeUndefined();
+  });
+
   it('gives undefined when the header is missing or bad', () => {
     expect(retryAfter(new Headers(), now)).toBeUndefined();
     expect(

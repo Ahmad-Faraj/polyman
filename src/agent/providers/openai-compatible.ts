@@ -361,7 +361,9 @@ export function retryAfter(
   headers: Headers,
   now = Date.now()
 ): number | undefined {
-  const ms = Number(headers.get('retry-after-ms') ?? NaN);
+  // A blank header is missing: `Number('')` would be 0.
+  const msText = headers.get('retry-after-ms')?.trim() ?? '';
+  const ms = msText === '' ? NaN : Number(msText);
   if (Number.isFinite(ms) && ms >= 0) return ms;
 
   const value = headers.get('retry-after');
