@@ -360,6 +360,20 @@ describe('redact', () => {
       'Rate limit reached for gpt-4.1-mini in organization org-polymanTest';
     expect(redact(text, [])).toBe(text);
   });
+
+  // Long runs of key characters count as a token (40+ chars), so those inputs
+  // come back as `***`; what matters here is that it takes no time.
+  it.each([
+    ['letters', 'a'.repeat(100_000), '***'],
+    ['letters and dashes', 'a-'.repeat(50_000), '***-'],
+    ['dashes', '-'.repeat(100_000), '-'.repeat(100_000)],
+  ])('is fast on long input: %s', (_name, text, expected) => {
+    const start = performance.now();
+    const out = redact(text, []);
+    const elapsed = performance.now() - start;
+    expect(elapsed).toBeLessThan(200);
+    expect(out === expected).toBe(true);
+  });
 });
 
 describe('withRetries: context_too_long', () => {

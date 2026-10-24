@@ -299,7 +299,7 @@ export function redact(message: string, secrets: readonly string[]): string {
   return out
     .replace(/\b(?:sk|pk|rk|gsk|xai|key)[-_][\w*-]{4,}/gi, '***')
     .replace(/\bAIza[\w-]{10,}/g, '***')
-    .replace(/[\w-]*\*{3,}[\w*-]*/g, '***')
+    .replace(/[\w-]{0,64}\*{3,}[\w*-]*/g, '***')
     .replace(/\b[A-Za-z0-9_-]{40,}\b/g, '***');
 }
 
