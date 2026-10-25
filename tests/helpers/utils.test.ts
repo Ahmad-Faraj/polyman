@@ -244,6 +244,73 @@ describe('utils.ts', () => {
       const result = utils.getTestFiles('dir');
       expect(result).toEqual(['test2.txt', 'test10.txt']);
     });
+
+    /** Makes `fs.readdirSync` list the given names. */
+    function listDir(names: string[]): void {
+      (
+        readdirSyncMock as unknown as ReturnType<
+          typeof vi.fn<(p: string) => string[]>
+        >
+      ).mockReturnValue(names);
+    }
+
+    it('returns a normal test<N>.txt set in numeric order', () => {
+      listDir(['test3.txt', 'test1.txt', 'test11.txt', 'test2.txt']);
+      expect(utils.getTestFiles('dir')).toEqual([
+        'test1.txt',
+        'test2.txt',
+        'test3.txt',
+        'test11.txt',
+      ]);
+    });
+
+    it('puts test2.txt before test10.txt', () => {
+      listDir(['test10.txt', 'test9.txt', 'test100.txt', 'test2.txt']);
+      expect(utils.getTestFiles('dir')).toEqual([
+        'test2.txt',
+        'test9.txt',
+        'test10.txt',
+        'test100.txt',
+      ]);
+    });
+
+    it.each(['test1.txt.bak', 'test_notes.txt', 'test0.txt'])(
+      'skips %s',
+      stray => {
+        listDir(['test2.txt', stray, 'test1.txt']);
+        expect(utils.getTestFiles('dir')).toEqual(['test1.txt', 'test2.txt']);
+      }
+    );
+
+    it('returns nothing when no file is test<N>.txt', () => {
+      listDir(['test1.txt.bak', 'test_notes.txt', 'test0.txt', 'test01.txt']);
+      expect(utils.getTestFiles('dir')).toEqual([]);
+    });
+  });
+
+  describe('testFileIndex', () => {
+    it.each([
+      ['test1.txt', 1],
+      ['test2.txt', 2],
+      ['test10.txt', 10],
+      ['test123.txt', 123],
+    ])('%s is test %d', (name, index) => {
+      expect(utils.testFileIndex(name)).toBe(index);
+    });
+
+    it.each([
+      'test1.txt.bak',
+      'test_notes.txt',
+      'test0.txt',
+      'test01.txt',
+      'test.txt',
+      'test1.TXT',
+      'test1',
+      'output_test1.txt',
+      'testA.txt',
+    ])('%s is not a test', name => {
+      expect(utils.testFileIndex(name)).toBeNull();
+    });
   });
 
   describe('Compilation', () => {

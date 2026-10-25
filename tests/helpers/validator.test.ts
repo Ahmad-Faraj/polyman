@@ -183,10 +183,15 @@ function readFileImpl(
 }
 
 describe('validator.ts', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     mockedPathResolve.mockImplementation((...args: string[]) => args.join('/'));
     mockedPathJoin.mockImplementation((...args: string[]) => args.join('/'));
+    // The real "is this a test file" rule, shared with `run` and `verify`.
+    const actualUtils = await vi.importActual<typeof utils>(
+      '../../src/helpers/utils'
+    );
+    mockedUtils['testFileIndex'].mockImplementation(actualUtils.testFileIndex);
   });
 
   afterEach(() => {
