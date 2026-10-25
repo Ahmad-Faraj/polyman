@@ -116,7 +116,7 @@ jobs:
         run: echo "polyman-cli@$RELEASE_VERSION on next judges as well as latest or better. A reviewer of the npm-latest environment approves the promote job of this run to make it latest - $RUN_URL" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Upload the release check
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-check
           path: corpus/out/
@@ -140,7 +140,7 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm i --no-save --legacy-peer-deps --no-audit --no-fund @stryker-mutator/core@9 @stryker-mutator/vitest-runner@9
       - run: ./node_modules/.bin/stryker run corpus/stryker.config.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-mutation-report
           path: corpus/out/mutation/index.html
@@ -195,13 +195,13 @@ jobs:
           cache: 'npm'
       - name: Download the release check
         continue-on-error: true
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: release-check
           path: check/
       - name: Download the mutation report
         continue-on-error: true
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: release-mutation-report
           path: mutation/
