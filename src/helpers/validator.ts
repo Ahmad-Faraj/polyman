@@ -180,7 +180,8 @@ export async function validateSingleTest(
         message: errorText(error),
       });
       throw new Error(
-        `Test ${testIndex} failed validation:\n\t${errorText(error)}`
+        `Test ${testIndex} failed validation:\n\t${errorText(error)}`,
+        { cause: error }
       );
     }
   } catch (error) {

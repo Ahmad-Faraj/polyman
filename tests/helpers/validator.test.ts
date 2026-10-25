@@ -304,6 +304,9 @@ describe('validator.ts', () => {
       await expect(
         validator.validateSingleTest(mockValidator, 'testsets', 5)
       ).rejects.toThrow('Test 5 failed validation');
+      await expect(
+        validator.validateSingleTest(mockValidator, 'testsets', 5)
+      ).rejects.toHaveProperty('cause');
     });
   });
 

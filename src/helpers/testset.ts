@@ -186,7 +186,7 @@ export function describeTestsets(
   testsets: LocalTestset[]
 ): { name: string; tests: number; groups: string[] }[] {
   return testsets.map(testset => {
-    let count = 0;
+    let count: number;
     try {
       const lines = parseGeneratorScript(readScriptText(testset));
       const manuals = testset.manualTests ?? [];

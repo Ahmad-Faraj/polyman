@@ -966,9 +966,8 @@ describe('solution.ts', () => {
     });
 
     it('should throw if execution fails', async () => {
-      mockedExecuteWithRedirect.mockRejectedValue(
-        new Error('Execution failed')
-      );
+      const failure = new Error('Execution failed');
+      mockedExecuteWithRedirect.mockRejectedValue(failure);
       await expect(
         solution.runSolutionOnSingleTest(
           mockSolution,
@@ -977,6 +976,14 @@ describe('solution.ts', () => {
           1
         )
       ).rejects.toThrow('Execution failed');
+      await expect(
+        solution.runSolutionOnSingleTest(
+          mockSolution,
+          mockConfig,
+          'testsets',
+          1
+        )
+      ).rejects.toHaveProperty('cause', failure);
     });
 
     it('should handle runtime error (onError callback)', async () => {
