@@ -430,12 +430,19 @@ function bashScript(models: CommandModel[]): string {
 // ZSH
 // ============================================================================
 
+/**
+ * One `name:description` entry for zsh's `_describe`. A `:` in the name
+ * would end it early, so it is escaped as `\:`, and a backslash is escaped
+ * first so it cannot escape the next character.
+ */
+export function zshDescribeEntry(name: string, description: string): string {
+  return `${name.replace(/\\/g, '\\\\').replace(/:/g, '\\:')}:${description}`;
+}
+
 /** Formats `name:description` entries for zsh's `_describe`. */
 function zshDescribed(entries: { name: string; description: string }[]) {
   return entries
-    .map(entry =>
-      shellQuote(`${entry.name.replace(/:/g, '\\:')}:${entry.description}`)
-    )
+    .map(entry => shellQuote(zshDescribeEntry(entry.name, entry.description)))
     .join(' ');
 }
 

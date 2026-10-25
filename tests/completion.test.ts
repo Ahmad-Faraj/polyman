@@ -8,6 +8,7 @@ import {
   isCompletionKind,
   isShell,
   readCompletionNames,
+  zshDescribeEntry,
 } from '../src/completion';
 
 /** A small program shaped like polyman's real command tree. */
@@ -128,6 +129,23 @@ describe('completion.ts', () => {
       for (const shell of ['bash', 'zsh', 'fish']) {
         expect(generateCompletionScript(buildProgram(), shell)).toMatch(/\n$/);
       }
+    });
+  });
+
+  describe('zshDescribeEntry', () => {
+    it('escapes a colon in the name so the description starts after it', () => {
+      expect(zshDescribeEntry('a:b', 'desc')).toBe('a\\:b:desc');
+    });
+
+    it('escapes a backslash before the colon, so it cannot escape it', () => {
+      expect(zshDescribeEntry('a\\', 'desc')).toBe('a\\\\:desc');
+      expect(zshDescribeEntry('a\\:b', 'desc')).toBe('a\\\\\\:b:desc');
+    });
+
+    it('keeps the description as it is', () => {
+      expect(zshDescribeEntry('run', 'Run: a solution')).toBe(
+        'run:Run: a solution'
+      );
     });
   });
 
