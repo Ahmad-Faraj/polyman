@@ -1,6 +1,6 @@
 # Known advisories and updates for the npm dependencies and the actions the
-# workflows use. Each update is its own pull request, so no dependency moves
-# as a side effect of other work.
+# workflows use. Minor and patch updates come grouped in one pull request
+# per ecosystem, so there is one PR to check per week, not ten.
 version: 2
 updates:
   - package-ecosystem: npm
@@ -8,8 +8,30 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    groups:
+      npm-minor-and-patch:
+        update-types: [minor, patch]
+    ignore:
+      # polyman still supports Node 20.19 (package.json engines). These
+      # majors need Node 22.12 or change the API the executor depends on,
+      # so they wait for the release that drops Node 20.
+      - dependency-name: commander
+        update-types: [version-update:semver-major]
+      - dependency-name: execa
+        update-types: [version-update:semver-major]
+      - dependency-name: chalk
+        update-types: [version-update:semver-major]
+      - dependency-name: vitest
+        update-types: [version-update:semver-major]
+      - dependency-name: '@vitest/*'
+        update-types: [version-update:semver-major]
+      - dependency-name: '@types/node'
+        update-types: [version-update:semver-major]
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    groups:
+      actions:
+        patterns: ['*']

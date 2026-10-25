@@ -40,8 +40,8 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       new: ${{ steps.npm.outputs.new }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 20.x
           registry-url: https://registry.npmjs.org
@@ -92,7 +92,7 @@ jobs:
       POLYGON_API_KEY: ${{ secrets.POLYGON_API_KEY }}
       POLYGON_API_SECRET: ${{ secrets.POLYGON_API_SECRET }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: apt-get update -qq && apt-get install -y -qq default-jdk-headless python-is-python3 >/dev/null
       - name: Install next and latest from npm
         run: |
@@ -136,7 +136,7 @@ jobs:
       # tests/actions.test.ts sets TZ at runtime, which Stryker's workers don't see
       TZ: Asia/Kolkata
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: npm ci --no-audit --no-fund
       - run: npm i --no-save --legacy-peer-deps --no-audit --no-fund @stryker-mutator/core@9 @stryker-mutator/vitest-runner@9
       - run: ./node_modules/.bin/stryker run corpus/stryker.config.json
@@ -157,7 +157,7 @@ jobs:
       name: npm-latest
       url: https://www.npmjs.com/package/polyman-cli
     steps:
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 20.x
           registry-url: https://registry.npmjs.org
@@ -188,8 +188,8 @@ jobs:
     env:
       RELEASE_VERSION: ${{ needs.publish.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 20.x
           cache: 'npm'
