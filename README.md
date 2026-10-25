@@ -464,7 +464,7 @@ Every solution needs a tag indicating its expected behavior:
 | ---- | ------------------ | -------------------------------------- |
 | `MA` | Main Correct       | **Required** - Reference solution      |
 | `OK` | Correct            | Alternative correct approach           |
-| `WA` | Wrong Answer       | Should fail on some tests              |
+| `WA` | Wrong Answer       | Should get WA or PE on some tests      |
 | `TL` | Time Limit         | Should timeout on some tests           |
 | `TO` | Time/OK            | May TLE but is algorithmically correct |
 | `ML` | Memory Limit       | Should exceed memory                   |

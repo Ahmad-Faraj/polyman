@@ -813,7 +813,7 @@ export async function runSolutionOnAllTestsets(
  * @example
  * // From actions.ts testWhat command
  * await testSolutionAgainstMainCorrect('wa-solution');
- * // Validates that wa-solution gets WA on at least one test
+ * // Validates that wa-solution gets WA or PE on at least one test
  */
 export async function testSolutionAgainstMainCorrect(solutionName: string) {
   try {
@@ -1484,12 +1484,17 @@ function validateExpectedVerdicts(
     !verdictTracker.didPE
   ) {
     throw new Error(
-      `Solution ${fmt.highlight(targetSolution.name)} marked as ${fmt.highlight(targetSolution.tag)} but did not get ${fmt.bold('Wrong Answer')} on any test`
+      `Solution ${fmt.highlight(targetSolution.name)} marked as ${fmt.highlight(targetSolution.tag)} but did not get ${fmt.bold('Wrong Answer')} or ${fmt.bold('Presentation Error')} on any test`
     );
   }
   if (targetSolution.tag === 'PE' && !verdictTracker.didPE) {
     throw new Error(
       `Solution ${fmt.highlight(targetSolution.name)} marked as ${fmt.highlight(targetSolution.tag)} but did not get ${fmt.bold('Presentation Error')} on any test`
+    );
+  }
+  if (targetSolution.tag === 'RE' && !verdictTracker.didRTE) {
+    throw new Error(
+      `Solution ${fmt.highlight(targetSolution.name)} marked as ${fmt.highlight(targetSolution.tag)} but did not get ${fmt.bold('Runtime Error')} on any test`
     );
   }
   if (

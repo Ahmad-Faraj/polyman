@@ -379,7 +379,7 @@ Define all solutions with their expected behavior:
 | ---- | ------------------ | ------------------------------------------------- |
 | `MA` | Main Correct       | **Required**. The reference solution (must exist) |
 | `OK` | Correct            | Alternative correct solution                      |
-| `WA` | Wrong Answer       | Should get Wrong Answer on some tests             |
+| `WA` | Wrong Answer       | Should get WA or PE on some tests (as on Polygon) |
 | `TL` | Time Limit         | Should exceed time limit on some tests            |
 | `TO` | Time/OK            | May TLE but is algorithmically correct            |
 | `ML` | Memory Limit       | Should exceed memory limit                        |
@@ -1287,7 +1287,7 @@ print(result)
 ### ✅ Do's:
 
 1. **Test main solution** thoroughly
-2. **Verify WA solutions** actually get WA
+2. **Verify WA solutions** actually get WA (or PE)
 3. **Verify TL solutions** actually TLE
 4. **Use appropriate language** for each solution type
 5. **Include alternative correct solutions** if possible
@@ -1760,7 +1760,7 @@ On success `solutions[]` has one entry per solution that ran:
 }
 ```
 
-`matchesTag` is the tag-conformance verdict and `reason` explains it. Per-test verdicts are `OK`, `WA`, `TLE`, `MLE`, `RTE`; `WA` is assigned by the checker in the comparison step. A solution that ran but was never compared (verification stopped first) is reported with `matchesTag: false` and the reason `Not evaluated: verification stopped before comparison`.
+`matchesTag` is the tag-conformance verdict and `reason` explains it. Per-test verdicts are `OK`, `WA`, `PE`, `TLE`, `MLE`, `RTE`; `WA` and `PE` are assigned by the checker in the comparison step. A solution that ran but was never compared (verification stopped first) is reported with `matchesTag: false` and the reason `Not evaluated: verification stopped before comparison`.
 
 **What Happens:**
 
@@ -1810,7 +1810,7 @@ This is the **most comprehensive command**. It runs all steps in order:
 
 11. **Step 11: Verify Solution Behaviors**
     - Confirms MA solution passes all tests
-    - Confirms WA solutions get WA on some tests
+    - Confirms WA solutions get WA or PE on some tests
     - Confirms TL solutions get TL on some tests
     - Confirms other solution tags match behavior
 
@@ -2785,7 +2785,7 @@ Solution main marked as MA but got Wrong Answer
 **Problem:** WA solution passes all tests
 
 ```
-Solution wa-solution marked as WA but passed all tests
+Solution wa-solution marked as WA but did not get Wrong Answer or Presentation Error on any test
 ```
 
 **Solution:**

@@ -45,7 +45,7 @@ The per-solution version of `polyman verify`. Validates that the named solution 
    - `RE` → must crash on at least one test.
    - `PE` → must produce PE on at least one test.
    - `RJ` → must fail somehow on at least one test.
-   - `TO` → permissive; no strict assertion.
+   - `TO` → may TLE, not required to; WA, PE, MLE or a crash still fails it.
 
 Faster than `polyman verify` when you're iterating on a single solution.
 
