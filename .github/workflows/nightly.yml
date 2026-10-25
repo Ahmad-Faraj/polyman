@@ -38,7 +38,7 @@ jobs:
       POLYGON_API_KEY: ${{ secrets.POLYGON_API_KEY }}
       POLYGON_API_SECRET: ${{ secrets.POLYGON_API_SECRET }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: npm ci --no-audit --no-fund
       - run: apt-get update -qq && apt-get install -y -qq default-jdk-headless python-is-python3 >/dev/null
       - run: npm i --prefix /tmp/published --no-audit --no-fund polyman-cli@"$POLYMAN_VERSION"
@@ -70,7 +70,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: 20.x
@@ -119,7 +119,7 @@ jobs:
       POLYGON_API_KEY: ${{ secrets.POLYGON_API_KEY }}
       POLYGON_API_SECRET: ${{ secrets.POLYGON_API_SECRET }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: npm ci --no-audit --no-fund
       - run: npm run build
       - run: node corpus/polygon-roundtrip.mjs --all

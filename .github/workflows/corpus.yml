@@ -43,7 +43,7 @@ jobs:
     timeout-minutes: 60
     container: node:20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: npm ci --no-audit --no-fund
       - run: apt-get update -qq && apt-get install -y -qq default-jdk-headless python-is-python3 >/dev/null
       - run: npm run build
@@ -79,7 +79,7 @@ jobs:
             python-alias: 'no'
             allow-failure: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: npm ci --no-audit --no-fund
       - run: apt-get update -qq && apt-get install -y -qq default-jdk-headless >/dev/null
       - if: matrix.python-alias == 'yes'
@@ -105,7 +105,7 @@ jobs:
     timeout-minutes: 60
     container: node:20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: npm ci --no-audit --no-fund
       - run: apt-get update -qq && apt-get install -y -qq clang >/dev/null
       - run: npm run build
@@ -130,6 +130,6 @@ jobs:
     timeout-minutes: 60
     container: node:20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: apt-get update -qq && apt-get install -y -qq default-jdk-headless >/dev/null
       - run: node corpus/truth.mjs --check
