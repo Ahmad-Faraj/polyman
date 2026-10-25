@@ -223,6 +223,19 @@ my-problem/
 - Use `"stdin"`/`"stdout"` for standard I/O problems
 - Set `interactive: true` only for interactive problems (Interactive Problems Are Not Supported Yet)
 
+#### File Input and Output
+
+Some Polygon problems read `input.txt` and write `output.txt` instead of stdin and stdout. `remote pull` saves these names in `inputFile` and `outputFile`, and `run`, `test` and `verify` use them when they run solutions:
+
+- `"stdin"`, `"stdout"` or an empty value means the standard stream (case does not matter). This is what Polygon uses by default, and solutions run exactly as before: in the problem folder, with the test on stdin and stdout as the output.
+- When `inputFile` is a file name, each solution runs on each test in its own new temp folder. polyman copies the test there under that name. stdin is empty, like on Polygon, so a solution that reads stdin on such a problem gets no input.
+- When `outputFile` is a file name, polyman reads that file from the temp folder as the solution's output. stdout is thrown away. If the solution does not create the file, its output is empty.
+- The two fields work on their own, for example `"inputFile": "input.txt"` with `"outputFile": "stdout"`.
+- Nothing is written to the problem folder. The output goes to `solutions-outputs/` as usual, and the temp folder is removed after each test. Time and memory limits are the same as for stdin/stdout problems.
+- The value must be a plain file name like `input.txt`, not a path. A value like `../input.txt` stops the run with exit code `2`.
+
+The output of the main solution is the answer file for the checker. So on a file problem, a main that prints to stdout instead of `outputFile` has an empty output, and `verify` stops with `Main solution "..." printed nothing on every test`.
+
 #### Optional Fields
 
 ```json

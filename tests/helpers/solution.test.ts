@@ -846,6 +846,68 @@ describe('solution.ts', () => {
     });
   });
 
+  describe('solutionFileIO', () => {
+    it('treats stdin and stdout (any case, with spaces) as the standard streams', () => {
+      expect(
+        solution.solutionFileIO({ inputFile: 'stdin', outputFile: 'stdout' })
+      ).toEqual({});
+      expect(
+        solution.solutionFileIO({
+          inputFile: ' STDIN ',
+          outputFile: 'Stdout',
+        })
+      ).toEqual({});
+    });
+
+    it('treats an empty or missing value as the standard stream', () => {
+      expect(
+        solution.solutionFileIO({ inputFile: '', outputFile: '' })
+      ).toEqual({});
+      expect(solution.solutionFileIO({})).toEqual({});
+    });
+
+    it('returns the file names of a file problem', () => {
+      expect(
+        solution.solutionFileIO({
+          inputFile: 'input.txt',
+          outputFile: 'output.txt',
+        })
+      ).toEqual({ inputFile: 'input.txt', outputFile: 'output.txt' });
+    });
+
+    it('handles input and output on their own', () => {
+      expect(
+        solution.solutionFileIO({ inputFile: 'in.txt', outputFile: 'stdout' })
+      ).toEqual({ inputFile: 'in.txt' });
+      expect(
+        solution.solutionFileIO({ inputFile: 'stdin', outputFile: 'out.txt' })
+      ).toEqual({ outputFile: 'out.txt' });
+    });
+
+    it('does not take stdout as an input file name or stdin as an output one', () => {
+      expect(
+        solution.solutionFileIO({ inputFile: 'stdout', outputFile: 'stdin' })
+      ).toEqual({ inputFile: 'stdout', outputFile: 'stdin' });
+    });
+
+    it.each(['../input.txt', 'dir/input.txt', 'dir\\input.txt', '.', '..'])(
+      'rejects %j, it is not a plain file name',
+      name => {
+        let caught: unknown;
+        try {
+          solution.solutionFileIO({ inputFile: 'stdin', outputFile: name });
+        } catch (error) {
+          caught = error;
+        }
+        expect(caught).toBeInstanceOf(PolymanError);
+        expect((caught as PolymanError).exitCode).toBe(2);
+        expect((caught as PolymanError).message).toMatch(
+          /outputFile must be "stdout" or a plain file name/
+        );
+      }
+    );
+  });
+
   describe('runSolutionOnSingleTest', () => {
     const mockSolution: LocalSolution = {
       name: 'main',
@@ -869,6 +931,38 @@ describe('solution.ts', () => {
       expect(call).toBeDefined();
       const options = call[1];
       expect(options).toMatchObject({ timeout: 1000, memoryLimitMB: 256 });
+    });
+
+    it('runs a stdin/stdout problem in the problem folder with the test on stdin', async () => {
+      mockedExecuteWithRedirect.mockResolvedValue(okResult);
+
+      await solution.runSolutionOnSingleTest(
+        mockSolution,
+        mockConfig,
+        'testsets',
+        1
+      );
+
+      const [, options, input, output] =
+        mockedExecuteWithRedirect.mock.calls[0];
+      expect(options.cwd).toBeUndefined();
+      expect(input).toMatch(/testsets\/testsets\/test1\.txt$/);
+      expect(output).toMatch(
+        /solutions-outputs\/main\/testsets\/output_test1\.txt$/
+      );
+      expect(vi.mocked(fs.mkdtempSync)).not.toHaveBeenCalled();
+    });
+
+    it('fails before running when inputFile is a path, not a file name', async () => {
+      await expect(
+        solution.runSolutionOnSingleTest(
+          mockSolution,
+          makeConfig({ inputFile: '../input.txt' }),
+          'testsets',
+          1
+        )
+      ).rejects.toThrow(/inputFile must be "stdin" or a plain file name/);
+      expect(mockedExecuteWithRedirect).not.toHaveBeenCalled();
     });
 
     it('should throw if execution fails', async () => {

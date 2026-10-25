@@ -11,6 +11,7 @@ import ConfigFile, {
   TestVerdict,
 } from '../types';
 import { executor } from '../executor';
+import type { ExecutionOptions } from '../executor';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -307,9 +308,99 @@ function logTimeLimitForSolution(limit: SolutionTimeLimit): void {
 }
 
 /**
+ * The files a solution reads and writes instead of stdin and stdout, from
+ * `inputFile` and `outputFile` in Config.json. A field that is missing, empty,
+ * `stdin` or `stdout` (any case) means the standard stream, so it is left out.
+ *
+ * @interface SolutionFileIO
+ * @property {string} [inputFile] - File the test is copied to before the run
+ * @property {string} [outputFile] - File read back as the solution's output
+ */
+export interface SolutionFileIO {
+  inputFile?: string;
+  outputFile?: string;
+}
+
+/**
+ * Returns the file name for one `inputFile`/`outputFile` value, or undefined
+ * when the value means the standard stream.
+ *
+ * @throws {PolymanError} If the value is not a plain file name
+ */
+function fileIOName(
+  field: 'inputFile' | 'outputFile',
+  value: string | undefined,
+  stream: 'stdin' | 'stdout'
+): string | undefined {
+  const name = (value ?? '').trim();
+  if (name === '' || name.toLowerCase() === stream) {
+    return undefined;
+  }
+  if (/[\\/]/.test(name) || name === '.' || name === '..') {
+    throw new PolymanError(
+      `Config.json ${field} must be "${stream}" or a plain file name like "input.txt", got "${name}"`,
+      2
+    );
+  }
+  return name;
+}
+
+/**
+ * Reads which files the solutions use for input and output.
+ * Polygon uses `stdin` and `stdout` for the standard streams.
+ *
+ * @param {Pick<ConfigFile, 'inputFile' | 'outputFile'>} config - Config.json values
+ * @returns {SolutionFileIO} The file names, empty for a stdin/stdout problem
+ *
+ * @throws {PolymanError} If `inputFile` or `outputFile` is not a plain file name
+ *
+ * @example
+ * solutionFileIO({ inputFile: 'input.txt', outputFile: 'stdout' });
+ * // { inputFile: 'input.txt' }
+ */
+export function solutionFileIO(
+  config: Partial<Pick<ConfigFile, 'inputFile' | 'outputFile'>>
+): SolutionFileIO {
+  const inputFile = fileIOName('inputFile', config.inputFile, 'stdin');
+  const outputFile = fileIOName('outputFile', config.outputFile, 'stdout');
+  return {
+    ...(inputFile !== undefined ? { inputFile } : {}),
+    ...(outputFile !== undefined ? { outputFile } : {}),
+  };
+}
+
+/**
+ * Removes a temp run folder. Errors are ignored: on Windows a killed process
+ * can hold a file for a moment, and a leftover temp folder is harmless.
+ */
+function removeRunDirectory(runDir: string): void {
+  try {
+    fs.rmSync(runDir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 100,
+    });
+  } catch {
+    // Leave it to the OS temp cleanup.
+  }
+}
+
+/**
  * Runs a compiled solution on a test input file.
  * Executes solution with time/memory limits, handles output files, and error scenarios.
  * Creates output file with either solution output or error message (TLE, MLE, RTE).
+ *
+ * For a stdin/stdout problem the solution runs in the current folder, reads the
+ * test on stdin and its stdout is the output.
+ * When `io` names an input or output file, the solution runs in its own new
+ * temp folder instead, like on Polygon:
+ *   - `io.inputFile`: the test is copied there under that name, and stdin is
+ *     empty.
+ *   - `io.outputFile`: that file is read back as the output (empty if the
+ *     solution did not create it), and stdout is thrown away.
+ * Nothing is written to the problem folder except the output under
+ * `solutions-outputs/`, and the temp folder is removed after the run.
  *
  * @private
  * @param {LocalSolution} solution - Solution configuration
@@ -318,6 +409,8 @@ function logTimeLimitForSolution(limit: SolutionTimeLimit): void {
  * @param {number} memoryLimitMB - Memory limit in megabytes
  * @param {string} inputFile - Name of test input file
  * @param {string} testsetName - Name of testset containing the test
+ * @param {SolutionFileIO} io - Input/output files from {@link solutionFileIO}
+ * @param {string} [groupName] - Group of the test, for the report
  *
  * @throws {Error} If runtime error occurs
  * @throws {Error} If time limit exceeded
@@ -330,7 +423,8 @@ function logTimeLimitForSolution(limit: SolutionTimeLimit): void {
  *   2000,
  *   256,
  *   'test1.txt',
- *   'testsets'
+ *   'testsets',
+ *   {}
  * );
  */
 async function runSolution(
@@ -340,6 +434,7 @@ async function runSolution(
   memoryLimitMB: number,
   inputFile: string,
   testsetName: string,
+  io: SolutionFileIO,
   groupName?: string
 ) {
   const outputFilePath = path.resolve(
@@ -372,28 +467,73 @@ async function runSolution(
       message,
     });
   };
-  await executor.executeWithRedirect(
-    compiledPath,
-    {
-      timeout,
-      memoryLimitMB,
-      silent: true,
-      onError: result => {
-        record('RTE', `Runtime Error: ${result.stderr}`);
-        writeErrorOutputAndThrow(outputFilePath, result.stderr);
-      },
-      onTimeout: () => {
-        record('TLE', `Time Limit Exceeded after ${timeout}ms`);
-        writeTimeoutOutputAndThrow(outputFilePath, timeout);
-      },
-      onMemoryExceeded: () => {
-        record('MLE', `Memory Limit Exceeded (${memoryLimitMB} MB)`);
-        writeMemoryOutputAndThrow(outputFilePath, memoryLimitMB);
-      },
+  const options: ExecutionOptions = {
+    timeout,
+    memoryLimitMB,
+    silent: true,
+    onError: result => {
+      record('RTE', `Runtime Error: ${result.stderr}`);
+      writeErrorOutputAndThrow(outputFilePath, result.stderr);
     },
-    inputFilePath,
-    outputFilePath
-  );
+    onTimeout: () => {
+      record('TLE', `Time Limit Exceeded after ${timeout}ms`);
+      writeTimeoutOutputAndThrow(outputFilePath, timeout);
+    },
+    onMemoryExceeded: () => {
+      record('MLE', `Memory Limit Exceeded (${memoryLimitMB} MB)`);
+      writeMemoryOutputAndThrow(outputFilePath, memoryLimitMB);
+    },
+  };
+
+  if (io.inputFile === undefined && io.outputFile === undefined) {
+    await executor.executeWithRedirect(
+      compiledPath,
+      options,
+      inputFilePath,
+      outputFilePath
+    );
+    record('OK', '');
+    return;
+  }
+
+  // File input/output: run in a new temp folder, so the solution's files never
+  // land in the problem folder and no file is left from an earlier test.
+  // The solution's working folder is `work/`; the empty stdin and the
+  // thrown-away stdout live next to it, so they never clash with its files.
+  const runDir = fs.mkdtempSync(path.join(os.tmpdir(), 'polyman-run-'));
+  try {
+    const workDir = path.join(runDir, 'work');
+    fs.mkdirSync(workDir);
+
+    let stdinPath = inputFilePath;
+    if (io.inputFile !== undefined) {
+      fs.copyFileSync(inputFilePath, path.join(workDir, io.inputFile));
+      stdinPath = path.join(runDir, 'stdin.txt');
+      fs.writeFileSync(stdinPath, '');
+    }
+    const stdoutPath =
+      io.outputFile !== undefined
+        ? path.join(runDir, 'stdout.txt')
+        : outputFilePath;
+
+    await executor.executeWithRedirect(
+      compiledPath,
+      { ...options, cwd: workDir },
+      stdinPath,
+      stdoutPath
+    );
+
+    if (io.outputFile !== undefined) {
+      const producedPath = path.join(workDir, io.outputFile);
+      if (fs.existsSync(producedPath)) {
+        fs.copyFileSync(producedPath, outputFilePath);
+      } else {
+        fs.writeFileSync(outputFilePath, '');
+      }
+    }
+  } finally {
+    removeRunDirectory(runDir);
+  }
   record('OK', '');
 }
 
@@ -566,6 +706,7 @@ export async function runSolutionOnSingleTest(
 
   const limit = solutionTimeLimit(config, solution);
   logTimeLimitForSolution(limit);
+  const io = solutionFileIO(config);
 
   try {
     const compiledPath = getCompiledCommandToRun(solution);
@@ -579,7 +720,8 @@ export async function runSolutionOnSingleTest(
       limit.timeLimit,
       config.memoryLimit,
       testFile,
-      testsetName
+      testsetName,
+      io
     );
 
     fmt.log(`    ${fmt.dim('→')} Test ${testIndex} completed successfully`);
@@ -617,6 +759,7 @@ export async function runSolutionOnTestset(
 
   const limit = solutionTimeLimit(config, solution);
   logTimeLimitForSolution(limit);
+  const io = solutionFileIO(config);
 
   try {
     const compiledPath = getCompiledCommandToRun(solution);
@@ -636,7 +779,8 @@ export async function runSolutionOnTestset(
           limit.timeLimit,
           config.memoryLimit,
           testFile,
-          testsetName
+          testsetName,
+          io
         );
       } catch (error) {
         const message =
@@ -700,6 +844,7 @@ export async function runSolutionOnGroup(
 
   const limit = solutionTimeLimit(config, solution);
   logTimeLimitForSolution(limit);
+  const io = solutionFileIO(config);
 
   try {
     const compiledPath = getCompiledCommandToRun(solution);
@@ -723,6 +868,7 @@ export async function runSolutionOnGroup(
           config.memoryLimit,
           testFile,
           testset.name,
+          io,
           groupName
         );
       } catch (error) {
