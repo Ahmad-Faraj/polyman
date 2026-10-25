@@ -1,5 +1,25 @@
 # Changelog
 
+## 3.1.0
+
+- polyman builds a precompiled `<bits/stdc++.h>` once per compiler and flags and reuses it for every C++ compile that starts with `#include <bits/stdc++.h>`. It lives in the user cache (`POLYMAN_CACHE_DIR` moves it), is not used with clang, Apple's `g++` or `--no-cache`, and a compile that fails with it is retried without it. Turn it off with `POLYMAN_PCH=0`. See [GUIDE.md](GUIDE.md) (#113, !282).
+- `--json` for `generate`, `validate`, `test validator`, `test checker`, `test <solution>`, and for `remote pull`, `push`, `view`, `commit` and `package` (#69, !319; #70, !320; #72, !321).
+- New `polyman ai` commands: `login <provider>` (hidden prompt or `--key-stdin`), `logout`, `list`, `models` and `use <provider/model>`. Keys are saved in `~/.polyman/ai.json` with mode 0600, and polyman warns when `~/.polyman` is readable by others (#81, !318).
+- Provider support for the coming agent: an OpenAI-compatible provider, a native Anthropic provider, presets for the common providers, model capabilities with a chat-only fallback, and retries with rate limits and clear auth errors (#75, !306; #76, !309; #77, !314; #78, !313; #79, !316; #80, !317).
+- C++ solutions are compiled with `-DONLINE_JUDGE`, like on Codeforces, unless `compiler.flags` already defines it. `test` and `verify` stop with an error when the main solution prints nothing on every test while another solution prints output (#114, !307).
+- `remote pull` writes each file's `sourceType` into `Config.json`, so a pull then a push keeps the same compilers, and a C++ solution is built locally with the standard in its `sourceType` unless `cppStandard` or `compiler.flags` sets one (#109, !308).
+- `Config.schema.json` lists the newer C++ source types (`cpp.msys2-mingw64-9-g++17`, `cpp.gcc13-64-winlibs-g++20`, `cpp.gcc14-64-msys2-g++23`), and the template docs explain `-DONLINE_JUDGE` and where the `-std=` value comes from (!310).
+- `verify` warns, and lists it under `warnings` in the `--json` report, when the validator has no `INVALID` self-test (#111, !265).
+- A checker self-test that expects `CRASHED` passes only on a crash exit code, and a checker killed by a signal counts as `CRASHED` on every platform (#116, !330).
+- A PE-tagged solution fails `verify` when it gets no `PRESENTATION_ERROR`; a WA tag passes on WA or PE, as on Polygon (#60, !266; #112, !267).
+- `remote push` reads every manual test before uploading and waits for every upload, so a missing file or a failed upload is reported instead of stopping the push halfway (#115, !305).
+- `remote pull` warns when Polygon has no validator for the problem, and `verify` lists every source file from `Config.json` that is missing in one error before compiling (#108, !263).
+- `remote pull` says which testsets it downloaded and how to get the others with `-t` (#110, !264).
+- A Java solution's public class is renamed between its file name and `Main` on pull and push (#10, !261).
+- Generator scripts: list iterations are joined like FreeMarker and two commands on one line are rejected, an empty generator name is reported with its line number, multi-output ranges and the total number of tests are limited, and scripts are parsed in linear time (#59, !262; #105, !251; #101, !240; #102, !247).
+- The remaining `process.exit` calls are errors with exit codes: `2` for config and usage errors, `3` for missing credentials or Python, `4` for Polygon and network failures (#68, !311).
+- `--help` and `-h` print help and exit without running the command, so `polyman new x --help` no longer creates `x/` (!339).
+
 ## 3.0.3
 
 - Every command now ends with an exit code that says what kind of failure happened: `1` the problem is wrong, `2` usage error (bad `Config.json`, unknown name, missing input), `3` environment error (no Polygon credentials, no Python 3, old Node.js), `4` Polygon or network error, `130`/`143` on SIGINT/SIGTERM. The error message is printed once, at the end. See [GUIDE.md](GUIDE.md#exit-codes) (#68).
