@@ -522,7 +522,7 @@ describe('cli.ts', () => {
       .mockImplementation((() => undefined) as never);
     const errSpy = vi
       .spyOn(process.stderr, 'write')
-      .mockImplementation((() => true) as never);
+      .mockImplementation(() => true);
     try {
       await loadCli(['remote', 'push', '123456', './my-problem']);
     } catch {
@@ -616,9 +616,8 @@ describe('cli.ts', () => {
     } catch {
       // commander may throw when exit is stubbed
     }
-    const { fmt } = (await import(
-      '../src/formatter'
-    )) as typeof import('../src/formatter');
+    const { fmt } =
+      (await import('../src/formatter')) as typeof import('../src/formatter');
     const theme = vi.mocked(help.printComprehensiveHelp).mock.calls[0]?.[1];
     const light = createTheme('light', new Chalk({ level: 3 }));
     expect(theme?.name).toBe('light');
@@ -650,9 +649,8 @@ describe('cli.ts', () => {
       makeError: (errors: typeof import('../src/errors')) => unknown
     ) => {
       vi.resetModules();
-      const errors = (await import(
-        '../src/errors'
-      )) as typeof import('../src/errors');
+      const errors =
+        (await import('../src/errors')) as typeof import('../src/errors');
       vi.mocked(actions.generateTestsAction).mockRejectedValueOnce(
         makeError(errors)
       );

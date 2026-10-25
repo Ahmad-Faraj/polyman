@@ -152,7 +152,7 @@ describe('remote commands with --json', () => {
   beforeEach(() => {
     resetSdk();
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'polyman-remote-json-'));
-    writeSpy = vi.spyOn(fs, 'writeSync').mockImplementation((() => 0) as never);
+    writeSpy = vi.spyOn(fs, 'writeSync').mockImplementation(() => 0);
     exitSpy = vi
       .spyOn(process, 'exit')
       .mockImplementation((() => undefined) as never);

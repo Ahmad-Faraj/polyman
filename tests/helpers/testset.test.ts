@@ -143,7 +143,7 @@ describe('testset.ts', () => {
       ]);
       vi.mocked(generator.executeResolvedTests).mockResolvedValue();
 
-      await testset.generateSingleTest({ name: 'main' } as LocalTestset, 2, []);
+      await testset.generateSingleTest({ name: 'main' }, 2, []);
       expect(generator.executeResolvedTests).toHaveBeenCalledWith(
         [expect.objectContaining({ index: 2 })],
         [],
@@ -160,7 +160,7 @@ describe('testset.ts', () => {
         },
       ]);
       await expect(
-        testset.generateSingleTest({ name: 'main' } as LocalTestset, 99, [])
+        testset.generateSingleTest({ name: 'main' }, 99, [])
       ).rejects.toThrow(/Test 99 not found/);
     });
   });
@@ -185,11 +185,7 @@ describe('testset.ts', () => {
         },
       ]);
       vi.mocked(generator.executeResolvedTests).mockResolvedValue();
-      await testset.generateTestsForGroup(
-        { name: 'main' } as LocalTestset,
-        'g1',
-        []
-      );
+      await testset.generateTestsForGroup({ name: 'main' }, 'g1', []);
       const passed = vi.mocked(generator.executeResolvedTests).mock.calls[0][0];
       expect(passed.map(t => t.index)).toEqual([1, 3]);
     });
@@ -206,11 +202,7 @@ describe('testset.ts', () => {
         },
       ]);
       vi.mocked(generator.executeResolvedTests).mockResolvedValue();
-      await testset.generateTestsForGroup(
-        { name: 'main' } as LocalTestset,
-        'all',
-        []
-      );
+      await testset.generateTestsForGroup({ name: 'main' }, 'all', []);
       const passed = vi.mocked(generator.executeResolvedTests).mock.calls[0][0];
       expect(passed).toHaveLength(2);
     });
@@ -224,11 +216,7 @@ describe('testset.ts', () => {
         },
       ]);
       await expect(
-        testset.generateTestsForGroup(
-          { name: 'main' } as LocalTestset,
-          'missing',
-          []
-        )
+        testset.generateTestsForGroup({ name: 'main' }, 'missing', [])
       ).rejects.toThrow(/No tests found in group/);
     });
   });

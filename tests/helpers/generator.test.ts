@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/unbound-method */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as generator from '../../src/helpers/generator';
 import { executor } from '../../src/executor';

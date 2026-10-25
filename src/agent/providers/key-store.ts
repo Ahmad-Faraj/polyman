@@ -423,7 +423,7 @@ function parseSettings(raw: unknown, path: string): AiSettings {
     for (const [key, value] of Object.entries(overrides)) {
       if (UNSAFE_KEYS.has(key) || !isRecord(value)) continue;
       // capabilities.ts checks each field before it uses it.
-      settings.overrides[key] = value as Partial<ModelCapabilities>;
+      settings.overrides[key] = value;
     }
   }
   const accepted = raw['acceptedPrivacyNotice'];

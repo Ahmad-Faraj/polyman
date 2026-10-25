@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/unbound-method */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type ConfigFile from '../../src/types';
 import type { CheckerVerdict, LocalChecker } from '../../src/types';
@@ -68,9 +69,8 @@ vi.mock('path', async importOriginal => {
 
 // Typed handles for mocked modules / functions. `vi.mocked()` returns the
 // same value with mock-typing layered on top, so calls like
-// `mockedExecute.mockResolvedValue(...)` are typed and bound. We pull out
-// individual methods via bracket notation to avoid `unbound-method` warnings
-// from typescript-eslint while preserving the original signatures.
+// `mockedExecute.mockResolvedValue(...)` are typed and bound. The module
+// functions do not use `this`, so `unbound-method` is off for this file.
 const mockedExecutor = vi.mocked(executor, { partial: true });
 const mockedExecute = mockedExecutor['execute'];
 const mockedCleanup = mockedExecutor['cleanup'];
@@ -134,17 +134,19 @@ type ReadFileSimulator = (filePath: string) => {
 };
 
 function installReadFileMock(simulator: ReadFileSimulator): void {
-  mockedFsReadFile.mockImplementation(((
-    filePath: fs.PathOrFileDescriptor,
-    optionsOrCb: unknown,
-    maybeCb?: unknown
-  ) => {
-    const callback = (
-      typeof optionsOrCb === 'function' ? optionsOrCb : maybeCb
-    ) as (err: NodeJS.ErrnoException | null, data: string) => void;
-    const result = simulator(String(filePath));
-    callback(result.err, result.data);
-  }) as unknown as typeof fs.readFile);
+  mockedFsReadFile.mockImplementation(
+    (
+      filePath: fs.PathOrFileDescriptor,
+      optionsOrCb: unknown,
+      maybeCb?: unknown
+    ) => {
+      const callback = (
+        typeof optionsOrCb === 'function' ? optionsOrCb : maybeCb
+      ) as (err: NodeJS.ErrnoException | null, data: string) => void;
+      const result = simulator(String(filePath));
+      callback(result.err, result.data);
+    }
+  );
 }
 
 describe('checker.ts', () => {
@@ -882,7 +884,7 @@ describe('checker.ts', () => {
       );
 
       installReadFileMock(() => ({
-        err: new Error('ENOENT') as NodeJS.ErrnoException,
+        err: new Error('ENOENT'),
         data: '',
       }));
 

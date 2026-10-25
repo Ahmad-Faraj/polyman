@@ -36,7 +36,7 @@ describe('report.ts', () => {
   };
 
   beforeEach(() => {
-    writeSpy = vi.spyOn(fs, 'writeSync').mockImplementation((() => 0) as never);
+    writeSpy = vi.spyOn(fs, 'writeSync').mockImplementation(() => 0);
     vi.spyOn(console, 'log').mockImplementation(() => {});
     vi.spyOn(console, 'error').mockImplementation(() => {});
     collector = new ReportCollector();

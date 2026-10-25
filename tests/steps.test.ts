@@ -298,7 +298,7 @@ describe('steps.ts', () => {
       await steps.stepCompileGeneratorsForSingleTest(
         1,
         config,
-        { name: 'tests' } as any,
+        { name: 'tests' },
         2
       );
       expect(generator.compileGeneratorsForTests).toHaveBeenCalledWith(
@@ -311,12 +311,7 @@ describe('steps.ts', () => {
   describe('stepGenerateSingleTest', () => {
     it('should call generateSingleTest', async () => {
       const config = baseConfig();
-      await steps.stepGenerateSingleTest(
-        1,
-        config,
-        { name: 'tests' } as any,
-        2
-      );
+      await steps.stepGenerateSingleTest(1, config, { name: 'tests' }, 2);
       expect(testset.generateSingleTest).toHaveBeenCalledWith(
         { name: 'tests' },
         2,
@@ -354,7 +349,7 @@ describe('steps.ts', () => {
       await steps.stepCompileGeneratorsForGroup(
         1,
         config,
-        { name: 'tests' } as any,
+        { name: 'tests' },
         'a'
       );
       expect(generator.compileGeneratorsForTests).toHaveBeenCalledWith(
@@ -391,7 +386,7 @@ describe('steps.ts', () => {
       await steps.stepCompileGeneratorsForGroup(
         1,
         config,
-        { name: 'tests' } as any,
+        { name: 'tests' },
         'all'
       );
       expect(generator.compileGeneratorsForTests).toHaveBeenCalledWith(
@@ -404,12 +399,7 @@ describe('steps.ts', () => {
   describe('stepGenerateTestsForGroup', () => {
     it('should call generateTestsForGroup', async () => {
       const config = baseConfig();
-      await steps.stepGenerateTestsForGroup(
-        1,
-        config,
-        { name: 'tests' } as any,
-        'g'
-      );
+      await steps.stepGenerateTestsForGroup(1, config, { name: 'tests' }, 'g');
       expect(testset.generateTestsForGroup).toHaveBeenCalledWith(
         { name: 'tests' },
         'g',
@@ -435,7 +425,7 @@ describe('steps.ts', () => {
       const config = baseConfig();
       await steps.stepCompileGeneratorsForTestset(1, config, {
         name: 'tests',
-      } as any);
+      });
       expect(generator.compileGeneratorsForTests).toHaveBeenCalledWith(
         tests,
         config.generators
@@ -448,7 +438,7 @@ describe('steps.ts', () => {
       const config = baseConfig();
       await steps.stepGenerateTestsForTestset(1, config, {
         name: 'tests',
-      } as any);
+      });
       expect(testset.generateTestsForTestset).toHaveBeenCalledWith(
         { name: 'tests' },
         config.generators
@@ -843,7 +833,7 @@ describe('steps.ts', () => {
 
   describe('stepFetchStatements', () => {
     it('should fetch statements', async () => {
-      vi.mocked(viewer.fetchStatements).mockResolvedValue([] as any);
+      vi.mocked(viewer.fetchStatements).mockResolvedValue([]);
       const result = await steps.stepFetchStatements(1, {} as any, 5);
       expect(result).toEqual([]);
       expect(viewer.logStatementsFetch).toHaveBeenCalled();
@@ -885,7 +875,7 @@ describe('steps.ts', () => {
         resourceFiles: [],
         sourceFiles: [],
         auxFiles: [],
-      } as any);
+      });
       await steps.stepFetchFiles(1, {} as any, 5);
       expect(formatter.fmt.stepComplete).toHaveBeenCalledWith(
         'Files check complete'
@@ -950,7 +940,7 @@ describe('steps.ts', () => {
       ] as any);
       const result = steps.stepFetchGenerators(
         1,
-        { resourceFiles: [], sourceFiles: [], auxFiles: [] } as any,
+        { resourceFiles: [], sourceFiles: [], auxFiles: [] },
         'wcmp',
         'val.cpp'
       );
@@ -973,7 +963,7 @@ describe('steps.ts', () => {
         {} as any,
         [],
         [],
-        { resourceFiles: [], sourceFiles: [], auxFiles: [] } as any,
+        { resourceFiles: [], sourceFiles: [], auxFiles: [] },
         [],
         '',
         '',
@@ -1126,7 +1116,7 @@ describe('steps.ts', () => {
         count: 1,
         data: [],
         failures: [],
-      } as any);
+      });
       vi.mocked(pulling.downloadChecker).mockResolvedValue({
         count: checkerCount,
         data: checker,
@@ -1142,7 +1132,7 @@ describe('steps.ts', () => {
         failures: [],
         resources: [],
         sourceTypes,
-      } as any);
+      });
       vi.mocked(pulling.downloadStatements).mockResolvedValue({
         count: 0,
         config: {},
@@ -1152,7 +1142,7 @@ describe('steps.ts', () => {
         description: 'd',
         tags: ['t'],
         failures: [],
-      } as any);
+      });
       vi.mocked(fs.writeFileSync).mockImplementation(() => undefined);
 
       return steps.stepDownloadProblemFilesAndSetUpConfig(
@@ -1233,12 +1223,12 @@ describe('steps.ts', () => {
         count: 1,
         data: { name: 'chk', source: './checker/chk.cpp', isStandard: false },
         failures: [failure('checker', 'checker tests', 'boom')],
-      } as any);
+      });
       vi.mocked(pulling.downloadValidator).mockResolvedValue({
         count: 1,
         data: { name: 'val', source: './validator/val.cpp' },
         failures: [failure('validator', 'validator tests', 'boom')],
-      } as any);
+      });
       vi.mocked(pulling.downloadGenerators).mockResolvedValue({
         count: 1,
         data: [],
@@ -1248,7 +1238,7 @@ describe('steps.ts', () => {
         ],
         resources: ['testlib.h'],
         sourceTypes: {},
-      } as any);
+      });
       vi.mocked(pulling.downloadStatements).mockResolvedValue({
         count: 0,
         config: {},
@@ -1256,7 +1246,7 @@ describe('steps.ts', () => {
       } as any);
       vi.mocked(pulling.fetchProblemMetadata).mockResolvedValue({
         failures: [failure('metadata', 'tags', 'boom')],
-      } as any);
+      });
       vi.mocked(fs.writeFileSync).mockImplementation(() => undefined);
 
       const result = await steps.stepDownloadProblemFilesAndSetUpConfig(
@@ -1333,19 +1323,19 @@ describe('steps.ts', () => {
         count: 0,
         data: { name: 'wcmp', source: 'wcmp.cpp', isStandard: true },
         failures: [],
-      } as any);
+      });
       vi.mocked(pulling.downloadValidator).mockResolvedValue({
         count: 1,
         data: { name: 'val', source: './validator/val.cpp' },
         failures: [],
-      } as any);
+      });
       vi.mocked(pulling.downloadGenerators).mockResolvedValue({
         count: 0,
         data: [],
         failures: [],
         resources: [],
         sourceTypes: {},
-      } as any);
+      });
       vi.mocked(pulling.downloadStatements).mockResolvedValue({
         count: 0,
         config: {},
@@ -1353,7 +1343,7 @@ describe('steps.ts', () => {
       } as any);
       vi.mocked(pulling.fetchProblemMetadata).mockResolvedValue({
         failures: [],
-      } as any);
+      });
       vi.mocked(fs.writeFileSync).mockImplementation(() => undefined);
 
       const result = await steps.stepDownloadProblemFilesAndSetUpConfig(
@@ -1672,12 +1662,12 @@ describe('steps.ts', () => {
 
   describe('failed uploads', () => {
     it('should not report solutions as uploaded when a solution failed', async () => {
-      vi.mocked(pushing.uploadSolutions).mockImplementation(((
-        ..._args: unknown[]
-      ) => {
-        (_args[4] as string[]).push('solution java-sol: boom');
-        return Promise.resolve(0);
-      }) as any);
+      vi.mocked(pushing.uploadSolutions).mockImplementation(
+        (..._args: unknown[]) => {
+          (_args[4] as string[]).push('solution java-sol: boom');
+          return Promise.resolve(0);
+        }
+      );
       const failures: string[] = [];
       await steps.stepUploadSolutions(
         1,
@@ -1695,12 +1685,12 @@ describe('steps.ts', () => {
     });
 
     it('should not report the checker as uploaded when a checker test failed', async () => {
-      vi.mocked(pushing.uploadChecker).mockImplementation(((
-        ..._args: unknown[]
-      ) => {
-        (_args[4] as string[]).push('checker tests: boom');
-        return Promise.resolve(1);
-      }) as any);
+      vi.mocked(pushing.uploadChecker).mockImplementation(
+        (..._args: unknown[]) => {
+          (_args[4] as string[]).push('checker tests: boom');
+          return Promise.resolve(1);
+        }
+      );
       const failures: string[] = [];
       await steps.stepUploadChecker(
         1,
@@ -1717,12 +1707,12 @@ describe('steps.ts', () => {
     });
 
     it('should not report the validator as uploaded when it recorded a failure', async () => {
-      vi.mocked(pushing.uploadValidator).mockImplementation(((
-        ..._args: unknown[]
-      ) => {
-        (_args[4] as string[]).push('x: boom');
-        return Promise.resolve(1);
-      }) as any);
+      vi.mocked(pushing.uploadValidator).mockImplementation(
+        (..._args: unknown[]) => {
+          (_args[4] as string[]).push('x: boom');
+          return Promise.resolve(1);
+        }
+      );
       const failures: string[] = [];
       await steps.stepUploadValidator(
         1,
@@ -1740,12 +1730,12 @@ describe('steps.ts', () => {
     });
 
     it('should not report the missing validator as uploaded when it recorded a failure', async () => {
-      vi.mocked(pushing.uploadValidator).mockImplementation(((
-        ..._args: unknown[]
-      ) => {
-        (_args[4] as string[]).push('x: boom');
-        return Promise.resolve(0);
-      }) as any);
+      vi.mocked(pushing.uploadValidator).mockImplementation(
+        (..._args: unknown[]) => {
+          (_args[4] as string[]).push('x: boom');
+          return Promise.resolve(0);
+        }
+      );
       const failures: string[] = [];
       await steps.stepUploadValidator(
         1,
@@ -1763,12 +1753,12 @@ describe('steps.ts', () => {
     });
 
     it('should not report statements as uploaded when it recorded a failure', async () => {
-      vi.mocked(pushing.uploadStatements).mockImplementation(((
-        ..._args: unknown[]
-      ) => {
-        (_args[4] as string[]).push('x: boom');
-        return Promise.resolve(0);
-      }) as any);
+      vi.mocked(pushing.uploadStatements).mockImplementation(
+        (..._args: unknown[]) => {
+          (_args[4] as string[]).push('x: boom');
+          return Promise.resolve(0);
+        }
+      );
       const failures: string[] = [];
       await steps.stepUploadStatements(
         1,
@@ -1786,12 +1776,12 @@ describe('steps.ts', () => {
     });
 
     it('should not report generators as uploaded when it recorded a failure', async () => {
-      vi.mocked(pushing.uploadGenerators).mockImplementation(((
-        ..._args: unknown[]
-      ) => {
-        (_args[4] as string[]).push('x: boom');
-        return Promise.resolve(0);
-      }) as any);
+      vi.mocked(pushing.uploadGenerators).mockImplementation(
+        (..._args: unknown[]) => {
+          (_args[4] as string[]).push('x: boom');
+          return Promise.resolve(0);
+        }
+      );
       const failures: string[] = [];
       await steps.stepUploadGenerators(
         1,
@@ -1825,12 +1815,12 @@ describe('steps.ts', () => {
     });
 
     it('should not report testsets as uploaded when it recorded a failure', async () => {
-      vi.mocked(pushing.uploadTestsets).mockImplementation(((
-        ..._args: unknown[]
-      ) => {
-        (_args[4] as string[]).push('x: boom');
-        return Promise.resolve({ testsCount: 0, manualsCount: 0 });
-      }) as any);
+      vi.mocked(pushing.uploadTestsets).mockImplementation(
+        (..._args: unknown[]) => {
+          (_args[4] as string[]).push('x: boom');
+          return Promise.resolve({ testsCount: 0, manualsCount: 0 });
+        }
+      );
       const failures: string[] = [];
       await steps.stepUploadTestsets(
         1,

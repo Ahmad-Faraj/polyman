@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/unbound-method */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as validator from '../../src/helpers/validator';
 import { executor } from '../../src/executor';

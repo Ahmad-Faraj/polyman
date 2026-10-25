@@ -418,7 +418,7 @@ function parseChunk(data: string): Chunk {
     );
   }
   checkChunkShape(json);
-  return json as Chunk;
+  return json;
 }
 
 /**
@@ -609,8 +609,7 @@ function toStopReason(reason: string): StopReason {
 
 /** The result of {@link parseToolArgs}. */
 export type ParsedArgs =
-  | { ok: true; value: unknown }
-  | { ok: false; error: string };
+  { ok: true; value: unknown } | { ok: false; error: string };
 
 /**
  * Parses tool arguments once. Empty arguments are `{}`. With `repair`, it

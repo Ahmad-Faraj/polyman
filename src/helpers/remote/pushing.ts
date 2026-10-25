@@ -343,9 +343,7 @@ export async function uploadValidator(
             let index: number = 1;
             for (const [position, test] of testsData.tests.entries()) {
               if (test.input && test.expectedVerdict) {
-                const validatorVerdict = test.expectedVerdict as
-                  | 'VALID'
-                  | 'INVALID';
+                const validatorVerdict = test.expectedVerdict;
                 // One rejected test must not stop the rest from uploading.
                 try {
                   await sdk.saveValidatorTest(

@@ -135,10 +135,7 @@ type JavaSourceType = 'java8' | 'java21';
  * @typedef PythonSourceType
  */
 type PythonSourceType =
-  | 'python.2'
-  | 'python.3'
-  | 'python.pypy2'
-  | 'python.pypy3';
+  'python.2' | 'python.3' | 'python.pypy2' | 'python.pypy3';
 
 /**
  * All supported source types for solutions.

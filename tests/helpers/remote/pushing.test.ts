@@ -106,7 +106,7 @@ function mockReadFileSyncWith(impl: ReadFileCallback): void {
   // `fs.readFileSync` is heavily overloaded; the cast below narrows our
   // text-only mock to a single signature compatible with the union return
   // type expected by vi.mocked.
-  mockedReadFileSync.mockImplementation(impl as typeof fs.readFileSync);
+  mockedReadFileSync.mockImplementation(impl);
 }
 
 const mockConfig: ConfigFile = asConfig({
