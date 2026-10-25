@@ -579,7 +579,7 @@ describe('ciRun: the GitHub Actions run', () => {
     expect(ciRun({})).toBeNull();
     expect(ciRun({ ...env, GITHUB_ACTIONS: undefined })).toBeNull();
     expect(ciRun({ ...env, GITHUB_RUN_ID: '' })).toBeNull();
-    // GitLab's variables are not read any more
+    // variables from other CI systems are not read
     expect(
       ciRun({ CI_PIPELINE_URL: 'https://gitlab.com/x/-/pipelines/1' })
     ).toBeNull();

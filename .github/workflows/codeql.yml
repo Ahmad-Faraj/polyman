@@ -1,5 +1,5 @@
-# CodeQL code scanning for the TypeScript and the corpus scripts. Replaces
-# GitLab SAST; results show under Security > Code scanning.
+# CodeQL code scanning for the TypeScript and the corpus scripts. Results
+# show under Security > Code scanning.
 name: CodeQL
 
 on:

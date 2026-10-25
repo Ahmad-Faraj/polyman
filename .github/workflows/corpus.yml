@@ -3,7 +3,7 @@
 # Runs on every push to the default branch, and on pull requests that change
 # polyman's code, the corpus or the dependencies.
 #
-# The Linux jobs run in the official node images, like the GitLab jobs did:
+# The Linux jobs run in the official node images:
 # they have g++ and python3 but no `python` command, and each job installs
 # what its lane needs with apt-get.
 name: Corpus
@@ -30,10 +30,8 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  # polyman gives each compile 10 s and starts them all at once, so on a
-  # 2-vCPU runner sum-parity's 7 compiles wait for a CPU and cross the limit
-  # (#88). The verify service already uses 60 s. Keep this until #88 compiles
-  # a few at a time.
+  # polyman gives each compile 10 s. On a 2-vCPU runner, sum-parity's 7
+  # compiles can wait for a CPU and cross that limit, so the corpus uses 60 s.
   POLYMAN_COMPILE_TIMEOUT_MS: '60000'
 
 jobs:

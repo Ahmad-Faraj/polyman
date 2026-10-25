@@ -1,6 +1,6 @@
 # Known advisories and updates for the npm dependencies and the actions the
-# workflows use. Replaces GitLab Dependency Scanning. Each update is its own
-# pull request, so no dependency moves as a side effect of other work.
+# workflows use. Each update is its own pull request, so no dependency moves
+# as a side effect of other work.
 version: 2
 updates:
   - package-ecosystem: npm

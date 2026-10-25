@@ -309,7 +309,7 @@ export function combineShards(shards, total) {
 
 const md = text => String(text).replace(/[|`\\]/g, c => `\\${c}`);
 
-/** A short page for the merge request: the numbers, then every mutant the judges miss. */
+/** A short page for the pull request: the numbers, then every mutant the judges miss. */
 export function summaryMarkdown(results, meta = {}) {
   const counts = tally(results);
   const s = counts.Survived;
