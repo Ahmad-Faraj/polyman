@@ -23,15 +23,15 @@ const FILES = readdirSync(DIR).filter(f => /\.ya?ml$/.test(f));
 const ALLOWED_ACTIONS = new Set([
   'actions/checkout@v7',
   'actions/setup-node@v7',
-  'actions/setup-java@v4',
+  'actions/setup-java@v6',
   'actions/setup-python@v7',
-  'actions/upload-artifact@v4',
-  'actions/download-artifact@v4',
+  'actions/upload-artifact@v7',
+  'actions/download-artifact@v8',
   'actions/upload-pages-artifact@v5',
   'actions/deploy-pages@v5',
-  'codecov/codecov-action@v4',
-  'github/codeql-action/init@v3',
-  'github/codeql-action/analyze@v3',
+  'codecov/codecov-action@v7',
+  'github/codeql-action/init@v4',
+  'github/codeql-action/analyze@v4',
 ]);
 
 const jobs = (wf: Workflow) => asMap(wf['jobs'], 'jobs');
@@ -205,7 +205,7 @@ describe('security scanning', () => {
       expect.arrayContaining(['push', 'pull_request', 'schedule'])
     );
     const init = stepsOf(jobOf(wf, 'analyze')).find(
-      s => s['uses'] === 'github/codeql-action/init@v3'
+      s => s['uses'] === 'github/codeql-action/init@v4'
     );
     expect(asMap(init?.['with'])['languages']).toBe('javascript-typescript');
     expect(asMap(jobOf(wf, 'analyze')['permissions'])['security-events']).toBe(
