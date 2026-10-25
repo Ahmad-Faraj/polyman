@@ -1,5 +1,0 @@
-# what running polyman in a sample leaves behind
-samples/*/.polyman/
-samples/*/testlib.h
-samples/*/testsets/
-samples/*/solutions-outputs/

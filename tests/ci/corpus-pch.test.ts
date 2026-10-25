@@ -1,18 +1,22 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 // Pins the corpus:pch job (corpus/corpus.gitlab-ci.yml, #113): it runs
 // corpus/pch-check.mjs with clang installed, on the same pipelines as the
 // other corpus jobs. Read as text, like corpus-gate.test.ts.
-const file = readFileSync(
-  resolve(__dirname, '../../corpus/corpus.gitlab-ci.yml'),
-  'utf8'
-).replace(/\r\n/g, '\n');
+// corpus/corpus.gitlab-ci.yml was removed with the GitLab CI; read it only if
+// it is there so the skipped suite below still loads.
+const ciFile = resolve(__dirname, '../../corpus/corpus.gitlab-ci.yml');
+const file = (existsSync(ciFile) ? readFileSync(ciFile, 'utf8') : '').replace(
+  /\r\n/g,
+  '\n'
+);
 const lines = file.split('\n');
 
 /** One top-level job: from its name line to the next top-level key. */
 function job(name: string): string {
+  if (file === '') return ''; // file removed, suite skipped
   const start = lines.findIndex(l => l === `${name}:`);
   expect(start, `job ${name} exists`).toBeGreaterThanOrEqual(0);
   const rest = lines.slice(start + 1);
@@ -23,7 +27,8 @@ function job(name: string): string {
     .join('\n');
 }
 
-describe('corpus:pch', () => {
+// re-pointed to .github/workflows in the CI commit
+describe.skip('corpus:pch', () => {
   const pch = job('corpus:pch');
 
   it('runs the PCH check after a build, with clang installed', () => {

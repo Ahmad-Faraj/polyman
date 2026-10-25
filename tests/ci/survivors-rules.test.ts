@@ -1,14 +1,14 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 // Pins the rules of the survivors jobs in corpus/corpus.gitlab-ci.yml: a merge to the
 // default branch runs them only when an input changed; non-push pipelines always run
 // them. Neither js-yaml nor yaml is a direct dependency, so the file is read as text.
-const file = readFileSync(
-  resolve(__dirname, '../../corpus/corpus.gitlab-ci.yml'),
-  'utf8'
-);
+// corpus/corpus.gitlab-ci.yml was removed with the GitLab CI; read it only if
+// it is there so the skipped suite below still loads.
+const ciFile = resolve(__dirname, '../../corpus/corpus.gitlab-ci.yml');
+const file = existsSync(ciFile) ? readFileSync(ciFile, 'utf8') : '';
 const lines = file.split(/\r?\n/);
 
 interface Rule {
@@ -43,6 +43,7 @@ function parseChanges(value: string): string[] {
 }
 
 function rulesOf(job: string): Rule[] {
+  if (file === '') return []; // file removed, suite skipped
   const start = lines.findIndex(l => l === `${job}:`);
   expect(start, `job ${job} exists`).toBeGreaterThanOrEqual(0);
   let i = start + 1;
@@ -114,7 +115,8 @@ const JOBS = ['.corpus-survivors', 'corpus:survivors:mutants'];
 
 const quoted = (v?: string) => (v ? v.replace(/^'|'$/g, '') : v);
 
-describe('survivors job rules', () => {
+// re-pointed to .github/workflows in the CI commit
+describe.skip('survivors job rules', () => {
   for (const job of JOBS) {
     describe(job, () => {
       const rules = rulesOf(job);

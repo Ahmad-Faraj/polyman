@@ -62,8 +62,6 @@ module.exports = defineConfig([
       'docs/**',
       '.claude/**',
       '*.config.js',
-      'engine/**', // has its own type check and tests (engine/package.json)
-      'service/**', // has its own type check and tests (service/package.json)
     ],
   },
 ]);
