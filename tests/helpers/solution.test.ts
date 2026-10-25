@@ -2179,8 +2179,12 @@ describe('solution.ts', () => {
           'ML',
           'marked as ML but did not get Memory Limit Exceeded on any test',
         ],
-        ['WA', 'marked as WA but did not get Wrong Answer on any test'],
+        [
+          'WA',
+          'marked as WA but did not get Wrong Answer or Presentation Error on any test',
+        ],
         ['PE', 'marked as PE but did not get Presentation Error on any test'],
+        ['RE', 'marked as RE but did not get Runtime Error on any test'],
         ['RJ', 'marked as RJ but passed all tests correctly'],
       ];
       for (const [tag, message] of mustFail) {

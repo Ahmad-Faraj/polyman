@@ -1484,12 +1484,17 @@ function validateExpectedVerdicts(
     !verdictTracker.didPE
   ) {
     throw new Error(
-      `Solution ${fmt.highlight(targetSolution.name)} marked as ${fmt.highlight(targetSolution.tag)} but did not get ${fmt.bold('Wrong Answer')} on any test`
+      `Solution ${fmt.highlight(targetSolution.name)} marked as ${fmt.highlight(targetSolution.tag)} but did not get ${fmt.bold('Wrong Answer')} or ${fmt.bold('Presentation Error')} on any test`
     );
   }
   if (targetSolution.tag === 'PE' && !verdictTracker.didPE) {
     throw new Error(
       `Solution ${fmt.highlight(targetSolution.name)} marked as ${fmt.highlight(targetSolution.tag)} but did not get ${fmt.bold('Presentation Error')} on any test`
+    );
+  }
+  if (targetSolution.tag === 'RE' && !verdictTracker.didRTE) {
+    throw new Error(
+      `Solution ${fmt.highlight(targetSolution.name)} marked as ${fmt.highlight(targetSolution.tag)} but did not get ${fmt.bold('Runtime Error')} on any test`
     );
   }
   if (

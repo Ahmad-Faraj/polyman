@@ -2761,7 +2761,7 @@ Solution main marked as MA but got Wrong Answer
 **Problem:** WA solution passes all tests
 
 ```
-Solution wa-solution marked as WA but did not get Wrong Answer on any test
+Solution wa-solution marked as WA but did not get Wrong Answer or Presentation Error on any test
 ```
 
 **Solution:**

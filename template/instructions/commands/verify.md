@@ -52,7 +52,7 @@ Fails on the first step that errors. The error names the failing component and (
   ],
   "solutions": [
     { "name": "acc", "tag": "MA", "matchesTag": true, "reason": "Main solution ran on every test", "tests": [ { "testset": "tests", "index": 1, "verdict": "OK", "timeMs": 3, "message": "" } ] },
-    { "name": "wa", "tag": "WA", "matchesTag": false, "reason": "Solution wa marked as WA but did not get Wrong Answer on any test", "tests": [ { "testset": "tests", "index": 1, "verdict": "OK", "timeMs": 3, "message": "" } ] }
+    { "name": "wa", "tag": "WA", "matchesTag": false, "reason": "Solution wa marked as WA but did not get Wrong Answer or Presentation Error on any test", "tests": [ { "testset": "tests", "index": 1, "verdict": "OK", "timeMs": 3, "message": "" } ] }
   ]
 }
 ```
