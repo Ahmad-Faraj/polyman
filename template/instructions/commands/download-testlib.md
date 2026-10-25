@@ -25,8 +25,12 @@ The command also prints platform-specific instructions for installing `testlib.h
 - After upgrading polyman to a new major version, in case the bundled testlib is updated.
 - If `polyman generate` errors with `testlib.h: No such file or directory`.
 
+## When `testlib.h` already exists
+
+If `testlib.h` is already in the current directory and is different from the upstream one, the command does not replace it and exits 2. A problem pulled with `polyman remote pull` can have Polygon's own `testlib.h` (and other headers) next to `Config.json`; keep it, so the problem builds like it does on Polygon. Delete `testlib.h` first only if you really want the upstream version.
+
 ## What NOT to do
 
-- Don't modify `testlib.h` after downloading. polyman expects the upstream version.
-- Don't rerun if it's already there and working — it's harmless but pointless.
+- Don't modify `testlib.h` after downloading. polyman expects the upstream version, or the one pulled from Polygon.
+- Don't rerun if it's already there and working. It is a no-op for the same file and refuses a different one.
 - Don't commit `testlib.h` if your project policy excludes vendored upstream — polyman will re-download on demand.

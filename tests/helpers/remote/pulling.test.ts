@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { MockedFunction } from 'vitest';
 import * as pulling from '../../../src/helpers/remote/pulling';
 import fs from 'fs';
+import path from 'path';
 import { fmt } from '../../../src/formatter';
 import type { PolygonSDK } from '../../../src/polygon';
 import type { StatementConfig } from '../../../src/types';
@@ -747,6 +748,114 @@ describe('pulling.ts', () => {
 
       expect(result.count).toBe(0);
       expect(result.data).toEqual([]);
+    });
+
+    const resource = (name: string) => ({
+      name,
+      modificationTimeSeconds: 0,
+      length: 0,
+    });
+
+    it('writes a testlib.h resource file next to Config.json', async () => {
+      mockSdk.getFiles.mockResolvedValue({
+        sourceFiles: [],
+        resourceFiles: [resource('testlib.h'), resource('common.h')],
+        auxFiles: [],
+      });
+      mockSdk.viewFile.mockImplementation(
+        (_id: number, _type: string, name: string) =>
+          Promise.resolve(`// Polygon ${name}\n`)
+      );
+
+      const result = await pulling.downloadGenerators(
+        asSdk(mockSdk),
+        1,
+        'dir',
+        []
+      );
+
+      expect(mockSdk.viewFile).toHaveBeenCalledWith(1, 'resource', 'testlib.h');
+      expect(mockSdk.viewFile).toHaveBeenCalledWith(1, 'resource', 'common.h');
+      expect(fs.writeFileSync).toHaveBeenCalledWith(
+        path.join('dir', 'testlib.h'),
+        '// Polygon testlib.h\n',
+        'utf-8'
+      );
+      expect(fs.writeFileSync).toHaveBeenCalledWith(
+        path.join('dir', 'common.h'),
+        '// Polygon common.h\n',
+        'utf-8'
+      );
+      expect(result.resources).toEqual(['testlib.h', 'common.h']);
+      expect(result.count).toBe(2);
+      // A resource file is not a generator.
+      expect(result.data).toEqual([]);
+      expect(result.failures).toEqual([]);
+    });
+
+    it('returns a failed resource file download as a pull failure', async () => {
+      mockSdk.getFiles.mockResolvedValue({
+        sourceFiles: [],
+        resourceFiles: [resource('testlib.h'), resource('common.h')],
+        auxFiles: [],
+      });
+      mockSdk.viewFile.mockImplementation(
+        (_id: number, _type: string, name: string) =>
+          name === 'testlib.h'
+            ? Promise.reject(new Error('Polygon API Error: no access'))
+            : Promise.resolve('code')
+      );
+
+      const result = await pulling.downloadGenerators(
+        asSdk(mockSdk),
+        1,
+        'dir',
+        []
+      );
+
+      expect(result.resources).toEqual(['common.h']);
+      expect(result.failures).toEqual([
+        {
+          component: 'resource',
+          name: 'testlib.h',
+          error: 'Polygon API Error: no access',
+          message:
+            'Could not download the resource file testlib.h (Polygon API Error: no access): it is not in the problem folder',
+        },
+      ]);
+      expect(fs.writeFileSync).not.toHaveBeenCalledWith(
+        path.join('dir', 'testlib.h'),
+        expect.anything(),
+        expect.anything()
+      );
+    });
+
+    it.each([
+      '../testlib.h',
+      'sub/x.h',
+      '..\\x.h',
+      'Config.json',
+      'config.JSON',
+    ])('does not write a resource file named %s', async name => {
+      mockSdk.getFiles.mockResolvedValue({
+        sourceFiles: [],
+        resourceFiles: [resource(name)],
+        auxFiles: [],
+      });
+      mockSdk.viewFile.mockResolvedValue('code');
+
+      const result = await pulling.downloadGenerators(
+        asSdk(mockSdk),
+        1,
+        'dir',
+        []
+      );
+
+      expect(fs.writeFileSync).not.toHaveBeenCalled();
+      expect(mockSdk.viewFile).not.toHaveBeenCalled();
+      expect(result.resources).toEqual([]);
+      expect(result.failures).toHaveLength(1);
+      expect(result.failures[0].component).toBe('resource');
     });
 
     it('should handle files without sourceType safely', async () => {

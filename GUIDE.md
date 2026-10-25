@@ -1420,6 +1420,8 @@ polyman download-testlib
 
 **Note:** Required for compiling validators, checkers, and generators.
 
+**Note:** If `testlib.h` already exists in the current directory and is different from the upstream one (line endings aside), it is not replaced and the command exits 2. It may be the `testlib.h` that `remote pull` downloaded from Polygon, and the problem should be built with that one. Delete it first if you want the upstream version.
+
 ---
 
 ### List Commands
@@ -2028,7 +2030,7 @@ Every command ends with one of these codes, so a script or an agent can decide w
 | ----- | ------- | -------- | ---------- |
 | `0`   | The command did what was asked | `verify` passed | Continue |
 | `1`   | The command ran, but the problem is wrong | A test fails validation, a solution does not match its tag, a checker test fails, a compile error | Read the output (or the `--json` report) and fix the problem |
-| `2`   | Usage error | No `Config.json` here or it is not valid JSON, an invalid `compiler` or `cppStandard`, `Config.json` names a file that does not exist, an unknown solution name, an invalid package type, a prompt was needed but stdin is not a terminal | Fix the command or `Config.json` |
+| `2`   | Usage error | No `Config.json` here or it is not valid JSON, an invalid `compiler` or `cppStandard`, `Config.json` names a file that does not exist, an unknown solution name, an invalid package type, a prompt was needed but stdin is not a terminal, `download-testlib` found a different `testlib.h` in the current directory | Fix the command or `Config.json` |
 | `3`   | Environment error | Polygon credentials are not registered, Python 3 is not installed, Node.js is too old | Fix the machine, retrying will not help |
 | `4`   | Remote error | A Polygon API call or the network failed, some items were not uploaded by `remote push`, `download-testlib` could not reach GitHub | Retry once, then look at the message |
 | `130` | Cancelled | Ctrl+C (SIGINT) | Nothing, the user stopped it |
@@ -2171,6 +2173,7 @@ polyman remote pull 123456 ./my-problem
    - **Checker** (with self-tests)
    - **Validator** (with self-tests)
    - **Generators** (all source files)
+   - **Resource files** (testlib.h and headers the sources include), saved next to `Config.json`
    - **Statements** (all languages as .tex files)
    - **Tests** (manual tests only)
    - **Metadata** (description, tags)
@@ -2197,6 +2200,8 @@ polyman remote pull 123456 ./my-problem -t samples,tests
 # Pull everything (default)
 polyman remote pull 123456 ./my-problem --all
 ```
+
+**Note on resource files:** Polygon keeps files like `testlib.h` or a shared header under "Resource files". `pull` saves each of them in the problem folder, next to `Config.json`, where `download-testlib` puts `testlib.h` and where `#include "..."` finds them. So a problem that has its own `testlib.h` on Polygon is built locally with the same one. The summary lists them on a "Resource files" line, and with `--json` each one is a `resource` entry in `actions`. A resource file that fails to download fails the pull (see [JSON Output for Remote Commands](#json-output-for-remote-commands)). `polyman download-testlib` does not replace a `testlib.h` that is different from the upstream one, so a pulled `testlib.h` is kept. Delete it first if you want the upstream version.
 
 **Note on testsets:** when `-t` is not given, `pull` downloads only the testset named `tests`. Its summary lists the testsets it downloaded and reminds you that others must be named with `-t a,b`, because Polygon's API cannot list a problem's testsets. For a problem with a second testset (for example `generate`), run `polyman remote pull 123456 ./my-problem -t tests,generate`.
 
@@ -2470,9 +2475,10 @@ Shape:
 - `errors` is plain text. The API key and secret are replaced with `[REDACTED]` everywhere in the report.
 - With `--json`, `push` never prompts. To create a new problem, pass `--yes` (and `--name <slug>` if needed), or it exits 2.
 - `pull` lists the files it saved and each testset it tried.
-- `warnings` lists what did not fail the command but needs a look. For `pull`, it has one line for each placeholder put in `Config.json` instead of a file: the `acc.cpp` main solution (no solution downloaded), the standard `ncmp` checker, the `val.cpp` validator (none on Polygon, or the download failed) and an empty generator list (the file list could not be fetched). Placeholders alone keep `ok: true` and exit 0.
+- `warnings` lists what did not fail the command but needs a look. For `pull`, it has one line for each placeholder put in `Config.json` instead of a file: the `acc.cpp` main solution (no solution downloaded), the standard `ncmp` checker, the `val.cpp` validator (none on Polygon, or the download failed) and an empty generator list with no resource files (the file list could not be fetched). Placeholders alone keep `ok: true` and exit 0.
 - A file that `pull` could not download fails it, like a failed upload fails `push`. The pull still writes every other file and `Config.json`, then ends with `ok: false` and exit 4. Each such file is an `ok: false` `download` entry in `actions`, and one line in `errors` with the reason:
   - a solution, a generator, a statement language, or all statements. `Config.json` does not list it;
+  - a resource file (for example `testlib.h`). It is not written to the problem folder;
   - checker or validator tests. `Config.json` then has no `testsFilePath` for it, so its self-tests are skipped instead of pointing at a missing file;
   - the description or the tags. `Config.json` then has no `description` (or `tags`) key, not an empty value, so a later `remote push` leaves the one on Polygon as it is.
 

@@ -429,6 +429,39 @@ describe('remote commands with --json', () => {
       ]);
     });
 
+    it("saves the problem's resource files next to Config.json and lists them", async () => {
+      sdk['getFiles'].mockResolvedValue({
+        resourceFiles: [{ name: 'testlib.h' }],
+        sourceFiles: [{ name: 'gen.cpp', sourceType: 'cpp.g++17' }],
+        auxFiles: [],
+      });
+      sdk['viewFile'].mockImplementation((...args: unknown[]) =>
+        Promise.resolve(
+          args[1] === 'resource' ? '// Polygon testlib\n' : 'int main() {}\n'
+        )
+      );
+      const out = path.join(tmp, 'pulled');
+
+      await actions.remotePullProblemAction('7', out, { json: true });
+
+      const doc = written();
+      expect(doc).toMatchObject({ ok: true, exitCode: 0, errors: [] });
+      expect(doc.actions).toContainEqual({
+        component: 'resource',
+        name: 'testlib.h',
+        action: 'download',
+        ok: true,
+      });
+      expect(fs.readFileSync(path.join(out, 'testlib.h'), 'utf-8')).toBe(
+        '// Polygon testlib\n'
+      );
+      const human = vi
+        .mocked(console.error)
+        .mock.calls.map(call => call.join(' '))
+        .join('\n');
+      expect(human).toContain('Resource files (next to Config.json)');
+    });
+
     it('records no solution download when Polygon has no solutions', async () => {
       sdk['getSolutions'].mockResolvedValue([]);
       const out = path.join(tmp, 'pulled');
@@ -478,7 +511,7 @@ describe('remote commands with --json', () => {
         kind: 'the generators',
         setUp: () => sdk['getFiles'].mockImplementation(refused),
         warning:
-          'Could not fetch the problem files (Polygon API Error: no access): Config.json lists no generators',
+          'Could not fetch the problem files (Polygon API Error: no access): Config.json lists no generators and no resource files were downloaded',
       },
     ])(
       'lists a placeholder for $kind as a warning and still exits 0',
@@ -563,6 +596,29 @@ describe('remote commands with --json', () => {
               sourceType: 'cpp.g++17',
             },
           ]),
+      },
+      {
+        kind: 'one resource file',
+        setUp: () => {
+          sdk['getFiles'].mockResolvedValue({
+            resourceFiles: [{ name: 'testlib.h' }, { name: 'common.h' }],
+            sourceFiles: [{ name: 'gen.cpp', sourceType: 'cpp.g++17' }],
+            auxFiles: [],
+          });
+          sdk['viewFile'].mockImplementation(
+            refusedFor('testlib.h', '// header\n')
+          );
+        },
+        error:
+          'Could not download the resource file testlib.h (Polygon API Error: no access): it is not in the problem folder',
+        action: { component: 'resource', name: 'testlib.h', error: noAccess },
+        config: () => {
+          const dir = path.join(tmp, 'pulled');
+          expect(fs.existsSync(path.join(dir, 'testlib.h'))).toBe(false);
+          expect(fs.readFileSync(path.join(dir, 'common.h'), 'utf-8')).toBe(
+            '// header\n'
+          );
+        },
       },
       {
         kind: 'the checker tests',

@@ -1473,7 +1473,7 @@ describe('actions.ts', () => {
       vi.mocked(steps.stepInitializeSDK).mockReturnValue({} as any);
       vi.mocked(steps.stepGetProblemId).mockReturnValue(123 as any);
       vi.mocked(steps.stepDownloadProblemFilesAndSetUpConfig).mockResolvedValue(
-        { warnings: [], failures: [] }
+        { warnings: [], failures: [], resources: [] }
       );
     });
 
@@ -1482,6 +1482,7 @@ describe('actions.ts', () => {
         {
           warnings: ['Polygon has no validator set for problem 123'],
           failures: [],
+          resources: [],
         }
       );
       await actions.remotePullProblemAction('123', './out', { all: true });
@@ -1502,6 +1503,26 @@ describe('actions.ts', () => {
       expect(formatter.fmt.warning).not.toHaveBeenCalled();
     });
 
+    it('lists the pulled resource files in the summary', async () => {
+      vi.mocked(steps.stepDownloadProblemFilesAndSetUpConfig).mockResolvedValue(
+        { warnings: [], failures: [], resources: ['testlib.h', 'common.h'] }
+      );
+      await actions.remotePullProblemAction('123', './out', { all: true });
+      const line = vi
+        .mocked(formatter.fmt.info)
+        .mock.calls.map(c => String(c[0]))
+        .find(text => text.includes('Resource files'));
+      expect(line).toContain('testlib.h, common.h');
+    });
+
+    it('does not print a resource files line when there are none', async () => {
+      await actions.remotePullProblemAction('123', './out', { all: true });
+      const lines = vi
+        .mocked(formatter.fmt.info)
+        .mock.calls.map(c => String(c[0]));
+      expect(lines.some(text => text.includes('Resource files'))).toBe(false);
+    });
+
     const refusedSolution = {
       component: 'solution',
       name: 'wa',
@@ -1513,7 +1534,7 @@ describe('actions.ts', () => {
     it('should list failed downloads, fail with exit code 4 and skip the success box', async () => {
       vi.mocked(steps.stepDownloadTests).mockResolvedValue(true);
       vi.mocked(steps.stepDownloadProblemFilesAndSetUpConfig).mockResolvedValue(
-        { warnings: [], failures: [refusedSolution] }
+        { warnings: [], failures: [refusedSolution], resources: [] }
       );
       const error = await failure(
         actions.remotePullProblemAction('123', './out', { all: true })
@@ -1543,6 +1564,7 @@ describe('actions.ts', () => {
         {
           warnings: ['Polygon has no validator set for problem 123'],
           failures: [refusedSolution],
+          resources: [],
         }
       );
       const error = await failure(
@@ -2268,6 +2290,23 @@ describe('actions.ts', () => {
       );
       expect(exitCodeFor(error)).toBe(4);
       expect(doc()).toMatchObject({ ok: false, exitCode: 4 });
+    });
+
+    it('download-testlib --json reports exit code 2 when it keeps an existing testlib.h', async () => {
+      vi.mocked(steps.stepDownloadTestlib).mockResolvedValue('code');
+      vi.mocked(steps.stepSaveTestlibToDirectory).mockImplementationOnce(() => {
+        throw new PolymanError('testlib.h was not replaced', 2);
+      });
+      const error = await failure(
+        actions.downloadTestlibAction({ json: true })
+      );
+      expect(exitCodeFor(error)).toBe(2);
+      expect(doc()).toMatchObject({
+        ok: false,
+        exitCode: 2,
+        errors: ['testlib.h was not replaced'],
+      });
+      expect(formatter.fmt.successBox).not.toHaveBeenCalled();
     });
 
     it('list without --json writes no report', () => {
