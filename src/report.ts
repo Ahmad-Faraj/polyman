@@ -45,6 +45,26 @@ export function stripAnsi(text: string): string {
   return text.replace(ANSI_PATTERN, '');
 }
 
+/**
+ * Writes all of `text` to `fd`. On macOS Node keeps a piped stdout
+ * non-blocking, so one `writeSync` can write only the first part, or fail
+ * with EAGAIN while the pipe is full. On Linux the pipe is blocking and this
+ * is a single write.
+ */
+export function writeAllSync(fd: number, text: string): void {
+  const data = Buffer.from(text);
+  let offset = 0;
+  while (offset < data.length) {
+    try {
+      offset += fs.writeSync(fd, data, offset);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EAGAIN') throw error;
+      // The reader has not drained the pipe yet, wait a moment.
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1);
+    }
+  }
+}
+
 function readPolymanVersion(): string {
   try {
     const raw = fs.readFileSync(
@@ -432,7 +452,7 @@ export class ReportCollector {
       }
     }
     const document = this.render(ok, exitCode);
-    fs.writeSync(process.stdout.fd, `${JSON.stringify(document, null, 2)}\n`);
+    writeAllSync(process.stdout.fd, `${JSON.stringify(document, null, 2)}\n`);
   }
 
   /** Discards any collected state and restores the formatter (tests). */
