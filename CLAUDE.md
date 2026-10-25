@@ -103,17 +103,17 @@ When debugging a failing problem run, the layer to look at is usually `executor.
 
 Every solution has a `tag` (`SolutionTag` in `types.d.ts`):
 
-| Tag  | Means                       | `verify` expects                            |
-| ---- | --------------------------- | ------------------------------------------- |
-| `MA` | Main correct (reference)    | Pass every test. Exactly one required.      |
-| `OK` | Alternative correct         | Pass every test.                            |
-| `WA` | Wrong answer                | Fail at least one test with WA.             |
-| `TL` | Time limit exceeded         | TLE on at least one test.                   |
-| `TO` | TLE-or-OK                   | May TLE; not required to fail.              |
-| `ML` | Memory limit exceeded       | MLE on at least one test.                   |
-| `RE` | Runtime error               | Crash on at least one test.                 |
-| `PE` | Presentation error          | PE on at least one test.                    |
-| `RJ` | Rejected (any failure)      | Fail somehow on at least one test.          |
+| Tag  | Means                    | `verify` expects                                                  |
+| ---- | ------------------------ | ----------------------------------------------------------------- |
+| `MA` | Main correct (reference) | Pass every test. Exactly one required.                            |
+| `OK` | Alternative correct      | Pass every test.                                                  |
+| `WA` | Wrong answer             | WA or PE on at least one test (as on Polygon).                    |
+| `TL` | Time limit exceeded      | TLE on at least one test.                                         |
+| `TO` | TLE-or-OK                | May TLE; not required to fail. Any WA, PE, MLE or crash fails it. |
+| `ML` | Memory limit exceeded    | MLE on at least one test.                                         |
+| `RE` | Runtime error            | Crash on at least one test.                                       |
+| `PE` | Presentation error       | PE on at least one test.                                          |
+| `RJ` | Rejected (any failure)   | Fail somehow on at least one test.                                |
 
 `verify` fails the whole problem if a solution does not match its tag. This is enforced in `helpers/solution.ts` via the `VerdictTracker` interface.
 

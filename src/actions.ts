@@ -811,7 +811,7 @@ export const runSolutionAction = async (
  * // From CLI: polyman test wa-solution
  * await testWhatAction('wa-solution');
  * // Runs wa-solution and main solution, compares with checker
- * // Validates that wa-solution gets WA on at least one test
+ * // Validates that wa-solution gets WA or PE on at least one test
  */
 export const testWhatAction = async (
   what: string,

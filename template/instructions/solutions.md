@@ -10,7 +10,7 @@ Solutions are reference and adversarial implementations of the problem. Every so
 | `OK` | Alternative correct    | Passes every test.                             |
 | `WA` | Wrong answer           | WA or PE on at least one test (as on Polygon). |
 | `TL` | Time limit exceeded    | TLE on at least one test.                      |
-| `TO` | TLE-or-OK              | Algorithmically correct, may TLE — not strict. Use sparingly. |
+| `TO` | TLE-or-OK              | Algorithmically correct, may TLE (not required to). WA, PE, MLE or a crash fails it. Use sparingly. |
 | `ML` | Memory limit exceeded  | MLE on at least one test.                      |
 | `RE` | Runtime error          | Crashes on at least one test.                  |
 | `PE` | Presentation error     | PE on at least one test.                       |

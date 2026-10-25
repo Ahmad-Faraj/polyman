@@ -90,7 +90,7 @@ Each helper module owns a single domain. Function-level documentation is on Type
 - **`src/helpers/generator.ts`** — Generator compilation and test file production. Drives Polygon-format scripts: parses, resolves to concrete test indices, then runs each generator (or copies each manual test) into the testset's output directory.
 - **`src/helpers/validator.ts`** — Validator compilation, validation of generated test inputs, and validator self-testing against `validator_tests.json`.
 - **`src/helpers/checker.ts`** — Checker compilation (custom or standard from `assets/checkers/`), checker invocation, and checker self-testing. Owns the verdict mapping from checker stdout to `CheckerVerdict`.
-- **`src/helpers/solution.ts`** — Solution compilation, execution against a testset, and verdict comparison. Responsible for enforcing the solution-tag contract (e.g. WA solutions must produce WA on at least one test).
+- **`src/helpers/solution.ts`** — Solution compilation, execution against a testset, and verdict comparison. Responsible for enforcing the solution-tag contract (e.g. a WA solution must produce WA or PE on at least one test, as on Polygon).
 - **`src/helpers/create-template.ts`** — Materialises the bundled `template/` tree into a new problem directory when `polyman new` runs.
 - **`src/helpers/testlib-download.ts`** — Fetches `testlib.h` from the upstream GitHub repo for the `polyman download-testlib` command.
 - **`src/helpers/testset.ts`** — Testset and group resolution: given filters from CLI options, returns the matching testsets, groups, and indices.
@@ -263,7 +263,7 @@ The validator is a C++ program built against testlib that reads a test input on 
 
 ## Solution Testing
 
-Each solution is compiled, then run against every test in the active testset under the configured time and memory limits. The runner inspects the first line of the captured output for the sentinel verdicts `Time Limit Exceeded`, `Memory Limit Exceeded`, and `Runtime Error`; otherwise it invokes the checker on the (input, output, answer) triple to obtain `OK`/`WA`/`PE`. Aggregated `VerdictTracker` flags (`didWA`, `didTLE`, `didMLE`, `didRTE`) are then matched against the solution's declared `SolutionTag` so that, e.g., a `WA` solution must fail at least one test and a `MA` solution must pass them all.
+Each solution is compiled, then run against every test in the active testset under the configured time and memory limits. The runner inspects the first line of the captured output for the sentinel verdicts `Time Limit Exceeded`, `Memory Limit Exceeded`, and `Runtime Error`; otherwise it invokes the checker on the (input, output, answer) triple to obtain `OK`/`WA`/`PE`. Aggregated `VerdictTracker` flags (`didWA`, `didPE`, `didTLE`, `didMLE`, `didRTE`) are then matched against the solution's declared `SolutionTag` so that, e.g., a `WA` solution must get WA or PE on at least one test (as on Polygon) and a `MA` solution must pass them all.
 
 ---
 

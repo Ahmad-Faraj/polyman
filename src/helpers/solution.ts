@@ -813,7 +813,7 @@ export async function runSolutionOnAllTestsets(
  * @example
  * // From actions.ts testWhat command
  * await testSolutionAgainstMainCorrect('wa-solution');
- * // Validates that wa-solution gets WA on at least one test
+ * // Validates that wa-solution gets WA or PE on at least one test
  */
 export async function testSolutionAgainstMainCorrect(solutionName: string) {
   try {
