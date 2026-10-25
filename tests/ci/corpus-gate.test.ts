@@ -115,7 +115,7 @@ describe('Windows and macOS lanes (ci.yml)', () => {
     const job = jobOf(ci, 'windows');
     expect(job['runs-on']).toBe('windows-latest');
     const steps = stepsOf(job);
-    const node = steps.find(s => s['uses'] === 'actions/setup-node@v4');
+    const node = steps.find(s => s['uses'] === 'actions/setup-node@v7');
     expect(asMap(node?.['with'])['node-version']).toBe('22.x');
     expect(steps.map(s => s['run'])).toContain(
       'npx vitest run --reporter=default --reporter=junit --outputFile.junit=junit-windows.xml'

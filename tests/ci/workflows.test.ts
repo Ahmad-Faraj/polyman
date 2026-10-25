@@ -21,14 +21,14 @@ const DIR = resolve(__dirname, '../../.github/workflows');
 const FILES = readdirSync(DIR).filter(f => /\.ya?ml$/.test(f));
 
 const ALLOWED_ACTIONS = new Set([
-  'actions/checkout@v4',
-  'actions/setup-node@v4',
+  'actions/checkout@v7',
+  'actions/setup-node@v7',
   'actions/setup-java@v4',
-  'actions/setup-python@v5',
+  'actions/setup-python@v7',
   'actions/upload-artifact@v4',
   'actions/download-artifact@v4',
-  'actions/upload-pages-artifact@v3',
-  'actions/deploy-pages@v4',
+  'actions/upload-pages-artifact@v5',
+  'actions/deploy-pages@v5',
   'codecov/codecov-action@v4',
   'github/codeql-action/init@v3',
   'github/codeql-action/analyze@v3',
