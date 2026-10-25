@@ -67,7 +67,10 @@ program
   .version(pkg.version)
   .helpOption(false)
   .option('-h, --help', 'display help for command', () => {
+    // The callback fires while commander parses, before any action, so stop
+    // here: otherwise `polyman new x --help` prints help and then creates x/.
     printComprehensiveHelp(program);
+    process.exit(0);
   })
   // Commands that compile sources accept `--no-cache`; commander stores it as
   // `cache: false` on the command that runs.

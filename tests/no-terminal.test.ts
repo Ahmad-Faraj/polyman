@@ -7,7 +7,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { spawnSync } from 'child_process';
-import { mkdtempSync, rmSync } from 'fs';
+import { existsSync, mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join, resolve } from 'path';
 
@@ -148,6 +148,40 @@ describe('exit codes', () => {
       const result = polyman(['remote', 'list'], work, join(work, 'no-creds'));
       expect(result.status).toBe(3);
       expect(result.out).toContain('polyman remote register');
+    },
+    TIMEOUT_MS + 5_000
+  );
+});
+
+describe('--help', () => {
+  it.each([['--help'], ['-h']])(
+    'polyman %s prints help and exits 0',
+    flag => {
+      const result = polyman([flag], work);
+      expect(result.status).toBe(0);
+      expect(result.out).toContain('polyman - ');
+    },
+    TIMEOUT_MS + 5_000
+  );
+
+  it(
+    'new x --help prints help and does not create x',
+    () => {
+      const result = polyman(['new', 'help-target', '--help'], work);
+      expect(result.status).toBe(0);
+      expect(result.out).toContain('new <directory>');
+      expect(existsSync(join(work, 'help-target'))).toBe(false);
+    },
+    TIMEOUT_MS + 5_000
+  );
+
+  it.each([['--help'], ['-h']])(
+    'verify %s prints help and does not run verify',
+    flag => {
+      const result = polyman(['verify', flag], problem);
+      expect(result.status).toBe(0);
+      expect(result.out).toContain('polyman - ');
+      expect(result.out).not.toContain('VERIFICATION');
     },
     TIMEOUT_MS + 5_000
   );
