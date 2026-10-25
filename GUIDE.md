@@ -1,6 +1,6 @@
 # Polyman Complete User Guide
 
-**Version 1.0.0** | A comprehensive guide for creating competitive programming problems using Polyman CLI
+**Version 3.1.0** | A comprehensive guide for creating competitive programming problems using Polyman CLI
 
 ---
 
@@ -973,7 +973,9 @@ Create `validator_tests.json`:
 
 **Why INVALID self-tests matter:** every test generated for the problem is checked with `VALID`-style input, so a validator that accepts everything (for example one that reads to EOF and returns) passes all of them. Only an INVALID self-test, an input the validator must reject, proves it rejects anything. `polyman verify` prints a warning, and lists it under `warnings` in the `--json` report, when the validator has no self-test with the `INVALID` verdict. It is a warning, not a failure: verification still passes.
 
-### ✅ Do's:
+### Do's and Don'ts
+
+**✅ Do's:**
 
 1. **Validate all constraints** mentioned in the problem statement
 2. **Check format exactly** (spaces, newLines, EOF)
@@ -982,7 +984,7 @@ Create `validator_tests.json`:
 5. **Test validator** with both valid and invalid inputs
 6. **Use strict validation** for interactive problems
 
-### ❌ Don'ts:
+**❌ Don'ts:**
 
 1. **Don't skip validation** of any constraint
 2. **Don't allow extra whitespace** unless problem allows it
@@ -1096,7 +1098,9 @@ Create `checker_tests.json`:
 ]
 ```
 
-### ✅ Do's:
+### Do's and Don'ts
+
+**✅ Do's:**
 
 1. **Use standard checkers** when possible (`wcmp` for most problems)
 2. **Read from correct streams** (inf, ans, ouf)
@@ -1105,7 +1109,7 @@ Create `checker_tests.json`:
 5. **Test checker** with various outputs
 6. **Be lenient with formatting** unless problem requires strict format
 
-### ❌ Don'ts:
+**❌ Don'ts:**
 
 1. **Don't use `_fail`** for contestant errors (use `_wa` or `_pe`)
 2. **Don't read from wrong streams**
@@ -1205,7 +1209,9 @@ int main(int argc, char* argv[]) {
 | `rnd.next(s)`     | Random element from string | `rnd.next("abc")`     |
 | `rnd.wnext(n, w)` | Weighted random [0, n)     | `rnd.wnext(100, 3)`   |
 
-### ✅ Do's:
+### Do's and Don'ts
+
+**✅ Do's:**
 
 1. **Use command-line arguments** for test parameters
 2. **Ensure deterministic generation** (same args → same test)
@@ -1214,7 +1220,7 @@ int main(int argc, char* argv[]) {
 5. **Test generator outputs** with validator
 6. **Document generator parameters** in comments
 
-### ❌ Don'ts:
+**❌ Don'ts:**
 
 1. **Don't use `rand()`** - use testlib's `rnd`
 2. **Don't generate invalid tests**
@@ -1297,7 +1303,9 @@ for i in range(n * m):  # O(n*m) when O(1) is possible
 print(result)
 ```
 
-### ✅ Do's:
+### Do's and Don'ts
+
+**✅ Do's:**
 
 1. **Test main solution** thoroughly
 2. **Verify WA solutions** actually get WA (or PE)
@@ -1305,7 +1313,7 @@ print(result)
 4. **Use appropriate language** for each solution type
 5. **Include alternative correct solutions** if possible
 
-### ❌ Don'ts:
+**❌ Don'ts:**
 
 
 1. **Don't have bugs** in MA solution
@@ -2241,20 +2249,20 @@ Upload your local problem changes to Polygon.
 #### Basic Push
 
 ```bash
-polyman remote push <problem-id> <directory>
+polyman remote push <directory>
 ```
 
 **Example:**
 
 ```bash
-polyman remote push 123456 ./my-problem
+polyman remote push ./my-problem
 ```
 
 **What Happens:**
 
 1. **Step 1:** Reads API credentials
 2. **Step 2:** Initializes Polygon SDK
-3. **Step 3:** Reads `Config.json` to get problem ID
+3. **Step 3:** Reads `Config.json` to get problem ID (`problemId`; if it is missing, push offers to create a new problem)
 4. **Step 4:** Updates problem information (time/memory limits, I/O files)
 5. **Step 5:** Uploads solutions with tags
 6. **Step 6:** Uploads and sets checker
@@ -2282,16 +2290,16 @@ Push only specific components:
 
 ```bash
 # Push only solutions and checker
-polyman remote push 123456 ./my-problem -s -c
+polyman remote push ./my-problem -s -c
 
 # Push only tests
-polyman remote push 123456 ./my-problem -t
+polyman remote push ./my-problem -t
 
 # Push everything except tests
-polyman remote push 123456 ./my-problem -s -c -v -g -S -m -i
+polyman remote push ./my-problem -s -c -v -g -S -m -i
 
 # Push everything (default)
-polyman remote push 123456 ./my-problem --all
+polyman remote push ./my-problem --all
 ```
 
 **Available Options:**
@@ -2512,7 +2520,7 @@ cd my-problem
 polyman download-testlib
 # ... edit files ...
 polyman verify
-polyman remote push 123456 ./my-problem            # or -sct for selective
+polyman remote push .            # or -sct for selective
 polyman remote commit . "Updated solutions and added stress tests"
 
 # Build a package
@@ -2530,13 +2538,13 @@ polyman remote package . standard
 1. **Test locally before pushing**
    ```bash
    polyman verify  # Always verify before pushing
-   polyman remote push . .
+   polyman remote push .
    ```
 
 2. **Use selective push for quick updates**
    ```bash
-   polyman remote push . . -s   # Only updated solutions
-   polyman remote push . . -t   # Only updated tests
+   polyman remote push . -s   # Only updated solutions
+   polyman remote push . -t   # Only updated tests
    ```
 
 3. **Commit frequently with descriptive messages**
@@ -2931,8 +2939,8 @@ ls -la <file-path>
 cat Config.json | grep problemId
 
 # Try selective push to isolate issue
-polyman remote push . . -s  # Just solutions
-polyman remote push . . -c  # Just checker
+polyman remote push . -s  # Just solutions
+polyman remote push . -c  # Just checker
 ```
 
 #### Package Build Timeout

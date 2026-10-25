@@ -384,14 +384,15 @@ polyman verify
 ### Work with Polygon
 
 ```bash
-# Setup (one-time)
-polyman remote register
+# Setup (one-time), with the key and secret from Polygon's settings
+polyman remote register <api-key> <secret>
 
 # Pull problem
 polyman remote pull 123456 ./my-problem
+cd my-problem
 
-# Work locally, then push back
-polyman remote push . .
+# Work locally, then push back (the problem ID comes from Config.json)
+polyman remote push .
 polyman remote commit . "Updated solutions"
 ```
 
@@ -414,14 +415,17 @@ polyman remote commit . "Updated solutions"
 
 ### Polygon Commands
 
-| Command                              | Purpose              |
-| ------------------------------------ | -------------------- |
-| `polyman remote register`            | Save API credentials |
-| `polyman remote list`                | List your problems   |
-| `polyman remote pull <id> <dir>`     | Download problem     |
-| `polyman remote push <id> <dir>`     | Upload changes       |
-| `polyman remote commit <id> "msg"`   | Commit changes       |
-| `polyman remote package <id> <type>` | Build package        |
+| Command                                  | Purpose              |
+| ---------------------------------------- | -------------------- |
+| `polyman remote register <key> <secret>` | Save API credentials |
+| `polyman remote list`                    | List your problems   |
+| `polyman remote pull <id> <dir>`         | Download problem     |
+| `polyman remote push <dir>`              | Upload changes       |
+| `polyman remote view <id>`               | Show problem details |
+| `polyman remote commit <id> "msg"`       | Commit changes       |
+| `polyman remote package <id> <type>`     | Build package        |
+
+`<id>` is a Polygon problem ID or a problem directory whose `Config.json` has `problemId`, so `polyman remote commit . "msg"` works inside a pulled problem.
 
 For detailed usage, see [GUIDE.md](GUIDE.md#cli-commands-reference).
 

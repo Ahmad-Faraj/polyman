@@ -703,7 +703,7 @@ These credentials are stored locally for future use.
 ### Push Your Problem
 
 ```bash
-polyman remote push . . -a
+polyman remote push . -a
 ```
 
 If your `Config.json` has no problem ID, this creates a new problem on Polygon and writes the ID back to `Config.json`.

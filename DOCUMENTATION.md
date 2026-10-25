@@ -524,7 +524,7 @@ Success! Problem ready for local work
 ```
 User Command
     ↓
-polyman remote push . ./my-problem
+polyman remote push ./my-problem
     ↓
 remotePushProblemAction
     ↓
