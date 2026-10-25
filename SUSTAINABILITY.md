@@ -1,5 +1,21 @@
 # What the agents cost the planet
 
+## What we cut, layer by layer
+
+Each row says what was compared, how, when and on how many runs, and whether the output stayed the same. Grams per runner-hour are this page's 7.56 g (Cloud Carbon Footprint coefficients, us-east1, "How it's calculated").
+
+| Layer | Change | Measured result | Same output? | How, when, n |
+|---|---|---|---|---|
+| Agent flows: the reviewer | the reviewer on `main` ([!336](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/336)), after the 18 Oct cuts and the changes measured below | median credits per review 13.1 for the original reviews against 7.8 and 8.1 in two runs, about 40% less | 13 of the 17 original P1/P2 findings found at P1/P2 in each run, no false P1 | the same 5 frozen MRs reviewed again on identical diffs, two runs, 24 Oct; calls counted from each session's checkpoints, credits as calls / 3.6 ["The reviewer on `main`"] |
+| Agent flows: tokens and calls | the 18 Oct cuts (!98, !100, !102, !106) | a full review 40 → 21 model calls, 1.69M → 493k input tokens, about 11.1 → 5.8 credits (medians) | no: they cost depth, so !116 put testing back (7.6 credits) | 72 full reviews before, 9 after, different and mostly small MRs, 18 Oct ["What the cuts did"] |
+| CI | `corpus:survivors` reuses the unmutated build's g++ binaries ([!237](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/237), 21 Oct) | survivors runner time per pipeline, median 185.1 → 65.2 runner-minutes (-64.8%, 95% interval -62.0% to -66.4%), about 15.1 g less per pipeline; at worst (fastest before against slowest after) 55.2 runner-minutes, 7.0 g | 116 of 116 mutant outcomes identical, mutant by mutant, in the 3 measured pipelines | jobs API durations of the 8 shards; 30 `main` pipelines before (20 Oct 17:40 to 21 Oct 18:08 UTC) against 8 after, every after-run faster than every before-run (Mann-Whitney p = 4.1e-8); before and after ran at different hours on shared runners. The bar was set before the code was written; on the 5 before-pipelines with the same inputs the cut was -57.6% |
+| CI | `main` pushes that change none of the survivors' inputs skip them ([!238](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/238), 21 Oct) | replayed on the 29 `main` pushes before it: 20 would have skipped, 3,806.8 runner-minutes; live, 3 of the first 7 `main` pushes skipped (to 22 Oct 02:55 UTC), e.g. the docs-only [pipeline 2973864410](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/pipelines/2973864410) | a skipped run judges nothing; every CI file is on the input list, and the nightly runs survivors regardless | a replay of the rules on the earlier pushes' changed files, not a measurement; live count from the jobs API |
+| CI | every pipeline reports its own runner footprint (`autonomy:sci:pipeline`, [!252](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/252), 22 Oct) | !252's own MR pipeline: 16 jobs, 24.8 runner-minutes, 3.13 gCO2e ([job](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17380816777)); the first `main` run: 33 jobs, 111.7 runner-minutes, 14.08 gCO2e ([job](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17391984728)) | a report, not a cut | job durations from the GitLab API in a `.post` job, the same runner coefficients; the `main` figure matched a separate count from the jobs API |
+| The verify service | build testlib.o and `<bits/stdc++.h>` once per image, not per request ([!248](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/248), 22 Oct) | -57.4% CPU per verify (95% interval -59.7% to -54.9%), lower in 45 of 45 pairs; on Cloud Run the candidate check's 5 golden calls took a median of 9.4 s against 18.3 s for the revision before | 90 of 90 verifies byte-identical (tests, outputs, binaries, verdict JSON) | the two CI-built images run locally, 9 problems x 5 repetitions, paired n=45, user+system CPU of every process; latency from Cloud Run's request logs, n=5 each |
+| The polyman CLI | a precompiled `<bits/stdc++.h>` per compiler and flags ([!282](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/merge_requests/282), shipped in 3.1.0) | CPU per cold verify -28% (bootstrap 95% CI -33% to -24%); per edit-and-reverify -18% (-21% to -15%) | identical verdicts, tests, outputs and binaries in all 65 runs | polyman 3.1.0 from npm, PCH on against `POLYMAN_PCH=0` with the same binary, on a 2-core i7-5600U laptop with g++ 13.3, 25 Oct; paired n=15 over 5 problems for each. Limits: one laptop, n=3 per problem and case, files on tmpfs; Windows and macOS were not measured again on 3.1.0 (the prototype was checked there for identical verdicts). On a full disk the PCH build fails cleanly, the compile goes on without it and the verify passes |
+
+What these cuts cost is counted too: the warm verify instance adds 92-146 gCO2e a day during judging ["The warm verify instance"], and the agents' own grams are in every section below.
+
 ## SCI at a glance
 
 **SCI = ((E × I) + M) per R** (Software Carbon Intensity, ISO/IEC 21031:2024). Every figure here is from a section further down, named in brackets.
@@ -85,7 +101,7 @@ A review is only part of a fix. Functional unit two: **one judge-found bug fixed
 
 | Issue | MR | Sessions (issue-builder + reviews) | Model calls | Credits (estimated) | gCO2e, low-high (ledger) |
 |---|---|---|---|---|---|
-| #22 | !26 | 5 (2 + 3) | 31 | 8.0 | 4.7-40.0 |
+| #22 | !26 | 5 (2 + 3) | 31 | 8.6 | 4.7-40.0 |
 | #12 | !50 | 3 (2 + 1) | 32 | 8.9 | 5.5-47.4 |
 | #13 | !51 | 5 (2 + 3) | 58 | 16.1 | 10.0-85.9 |
 | #4 | !54 | 3 (2 + 1) | 24 | 6.7 | 4.3-35.7 |
@@ -378,8 +394,5 @@ real requests, not on the numbers in this table. Until then the warm instance's 
 
 ## What's not here yet
 
-<!-- PCH (precompiled <bits/stdc++.h>, shipped in 3.1.0): its CPU saving per verify goes here only after the release:next-check confirming run. Until then, no number. -->
-
 - A same-task test of tiering: the same MRs reviewed with tiering off (all high)
   and on. The tier table compares different MRs at different tiers.
-- The verify service on Cloud Run (its energy per request).
