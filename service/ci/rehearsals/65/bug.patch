@@ -1,10 +1,10 @@
 diff --git a/service/src/app.ts b/service/src/app.ts
-index fdba237..1c319a4 100644
+index dd65fd6..ade5c63 100644
 --- a/service/src/app.ts
 +++ b/service/src/app.ts
-@@ -53,6 +53,20 @@ const STATIC: Record<string, string> = {
- };
- const TYPES: Record<string, string> = { html: 'text/html; charset=utf-8', js: 'text/javascript; charset=utf-8', css: 'text/css; charset=utf-8' };
+@@ -78,6 +78,20 @@ export function acceptedEncoding(header: string | undefined): 'br' | 'gzip' | un
+   return ok.has('br') ? 'br' : ok.has('gzip') ? 'gzip' : undefined;
+ }
  
 +/**
 + * Whether a POST to the API may run. A verification holds a whole instance
@@ -23,7 +23,7 @@ index fdba237..1c319a4 100644
  export function buildApp(opts: AppOptions) {
    const maxUploadBytes = opts.maxUploadBytes ?? 20 * 1024 * 1024;
    const maxProblems = opts.maxProblems ?? 26;
-@@ -62,6 +76,12 @@ export function buildApp(opts: AppOptions) {
+@@ -87,6 +101,12 @@ export function buildApp(opts: AppOptions) {
    const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? 'info' }, bodyLimit: 1024 * 1024, requestTimeout: 120_000 });
    app.register(multipart, { limits: { files: 1, fileSize: maxUploadBytes, fields: 0, parts: 1 } });
  
