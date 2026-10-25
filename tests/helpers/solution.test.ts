@@ -1505,7 +1505,8 @@ describe('solution.ts', () => {
       const mainSol: LocalSolution = { name: 'main', source: '', tag: 'MA' };
       const otherSol: LocalSolution = { name: 'other', source: '', tag: 'OK' };
       const checkerConfig: LocalChecker = { name: 'chk', source: 'chk.cpp' };
-      const isMainOutput = (file: unknown) => String(file).includes('/main/');
+      const isMainOutput = (file: unknown) =>
+        String(file).replace(/\\/g, '/').includes('/main/');
       const compare = (target: LocalSolution = otherSol) =>
         solution.startTheComparisonProcess(checkerConfig, mainSol, target, [
           { name: 'tests' },
@@ -1625,7 +1626,7 @@ describe('solution.ts', () => {
         // test1: main blank, test2: main output file is missing. The other
         // solution prints 42 on both.
         const isMissingMain = (file: unknown) =>
-          isMainOutput(file) && String(file).endsWith('/output_test2.txt');
+          isMainOutput(file) && /[/\\]output_test2\.txt$/.test(String(file));
         mockedGetTestFiles.mockReturnValue(['test1.txt', 'test2.txt']);
         mockedFsExistsSync.mockImplementation(file => !isMissingMain(file));
         // Like the real readFirstLine, reading a missing file rejects.
@@ -1641,7 +1642,7 @@ describe('solution.ts', () => {
 
         const rejection = compare();
         await expect(rejection).rejects.toThrow(
-          /^Error during solution comparison process: ENOENT: no such file or directory, open '.*\/main\/tests\/output_test2\.txt'$/
+          /^Error during solution comparison process: ENOENT: no such file or directory, open '.*[/\\]main[/\\]tests[/\\]output_test2\.txt'$/
         );
         await expect(rejection).rejects.not.toThrow(/printed nothing/);
         // test1 went to the checker before the per-test check hit test2.
@@ -1660,7 +1661,7 @@ describe('solution.ts', () => {
 
         beforeEach(() => {
           mockedGetTestFiles.mockImplementation(dir =>
-            String(dir).endsWith('/ts1')
+            /[/\\]ts1$/.test(String(dir))
               ? ['test1.txt', 'test2.txt']
               : ['test3.txt']
           );
