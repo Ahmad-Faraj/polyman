@@ -128,7 +128,7 @@ type CppSourceType =
  * Java compiler types supported by Polygon.
  * @typedef JavaSourceType
  */
-type JavaSourceType = 'java.8' | 'java.11' | 'java.17' | 'java.21';
+type JavaSourceType = 'java8' | 'java21';
 
 /**
  * Python interpreter types supported by Polygon.
@@ -157,7 +157,7 @@ type TestlibSourceType = CppSourceType;
 /**
  * Advanced properties for resource files (e.g., IOI-style graders).
  * @interface ResourceAdvancedProperties
- * @property {string} forTypes - File types pattern (e.g., 'cpp.*', 'java.11')
+ * @property {string} forTypes - File types pattern (e.g., 'cpp.*', 'java21')
  * @property {boolean} main - Reserved field, currently always false
  * @property {('COMPILE' | 'RUN')[]} stages - When resource is used
  * @property {('VALIDATOR' | 'INTERACTOR' | 'CHECKER' | 'SOLUTION')[]} assets - What can use this resource
@@ -414,7 +414,7 @@ interface TimeLimitMultipliers {
  * @property {string} inputFile - Input file name
  * @property {string} outputFile - Output file name
  * @property {boolean} interactive - Whether problem is interactive
- * @property {string} [cppStandard] - C++ standard for local compilation, passed as `-std=` (default `c++23`)
+ * @property {string} [cppStandard] - C++ standard for local compilation, passed as `-std=` (default: the standard in a C++ solution's `sourceType`, else `c++23`)
  * @property {string[]} [tags] - Problem tags/categories
  * @property {string} [description] - General problem description
  * @property {string} [tutorial] - General tutorial text
@@ -508,7 +508,9 @@ interface CompilerConfig {
  * @property {string} name - Solution name/identifier
  * @property {string} source - Path to solution source file
  * @property {SolutionTag} tag - Expected behavior tag
- * @property {SolutionSourceType} [sourceType] - Language/compiler (C++, Java, or Python)
+ * @property {SolutionSourceType} [sourceType] - Language/compiler (C++, Java, or Python).
+ *   For C++, the standard in it (`cpp.g++17` gives `c++17`) is also used
+ *   locally when `Config.json` sets no `cppStandard`
  */
 interface LocalSolution {
   name: string;
@@ -796,7 +798,7 @@ interface VerdictTracker {
  * after the checker has judged its output).
  * @typedef TestVerdict
  */
-type TestVerdict = 'OK' | 'WA' | 'TLE' | 'MLE' | 'RTE';
+type TestVerdict = 'OK' | 'WA' | 'PE' | 'TLE' | 'MLE' | 'RTE';
 
 /**
  * One executed test inside a JSON report.
@@ -872,15 +874,218 @@ interface RunReport extends ReportBase {
 /**
  * Report emitted by `polyman verify --json`.
  * @interface VerifyReport
+ * @property {string[]} warnings - Non-fatal findings, empty when there are none
  */
 interface VerifyReport extends ReportBase {
   command: 'verify';
   failedStep: string | null;
   steps: StepResult[];
+  warnings: string[];
   solutions: SolutionResult[];
 }
 
-type JsonReport = RunReport | VerifyReport;
+/**
+ * Report emitted by `polyman new <dir> --json` and
+ * `polyman download-testlib --json`.
+ * @interface PathReport
+ * @property {string} path - Absolute path of the created directory or file
+ */
+interface PathReport extends ReportBase {
+  command: string;
+  exitCode: number;
+  durationMs: number;
+  errors: string[];
+  path: string;
+}
+
+/**
+ * Report emitted by `polyman list <what> --json`.
+ * @interface ListReport
+ * @property {unknown[]} items - The listed entries as data
+ */
+interface ListReport extends ReportBase {
+  command: string;
+  exitCode: number;
+  durationMs: number;
+  errors: string[];
+  items: unknown[];
+}
+
+/**
+ * One test inside a generate report.
+ * @interface GeneratedTestResult
+ * @property {string} testset - Testset the test belongs to
+ * @property {number} index - Polygon test index (the N in test<N>.txt)
+ * @property {'manual' | 'generator'} source - Where the input came from
+ * @property {string} [generator] - Generator name, only for generated tests
+ * @property {string[]} [args] - Generator arguments, only for generated tests
+ * @property {boolean} ok - Whether the input file was written
+ * @property {string} [error] - Failure detail, only when ok is false
+ */
+interface GeneratedTestResult {
+  testset: string;
+  index: number;
+  source: 'manual' | 'generator';
+  generator?: string;
+  args?: string[];
+  ok: boolean;
+  error?: string;
+}
+
+/**
+ * Report emitted by `polyman generate --json`.
+ * @interface GenerateReport
+ */
+interface GenerateReport extends ReportBase {
+  command: 'generate';
+  exitCode: number;
+  durationMs: number;
+  errors: string[];
+  tests: GeneratedTestResult[];
+}
+
+/**
+ * One test inside a validate report.
+ * @interface ValidatedTestResult
+ * @property {string} testset - Testset the test belongs to
+ * @property {string} [group] - Group name, only when the run targeted a group
+ * @property {number} index - Polygon test index (the N in test<N>.txt)
+ * @property {boolean} valid - Whether the validator accepted the input
+ * @property {string} message - Validator message (empty when valid)
+ */
+interface ValidatedTestResult {
+  testset: string;
+  group?: string;
+  index: number;
+  valid: boolean;
+  message: string;
+}
+
+/**
+ * Report emitted by `polyman validate --json`.
+ * @interface ValidateReport
+ */
+interface ValidateReport extends ReportBase {
+  command: 'validate';
+  exitCode: number;
+  durationMs: number;
+  errors: string[];
+  tests: ValidatedTestResult[];
+}
+
+/**
+ * Which program a self-test report is about.
+ * @typedef SelfTestTarget
+ */
+type SelfTestTarget = 'validator' | 'checker';
+
+/**
+ * One validator or checker self-test inside a {@link SelfTestReport}.
+ * @interface SelfTestCase
+ * @property {number} index - 1-based position of the case in the tests file
+ * @property {string} expected - Verdict the tests file asks for (the checker
+ *   short forms `WA` / `PE` are written as `WRONG_ANSWER` /
+ *   `PRESENTATION_ERROR`)
+ * @property {string | null} actual - Verdict the program gave, or `ERROR` when
+ *   it could not run at all. `null` for a checker that exited with a code that
+ *   is not OK, WA, PE or a crash (4, 5, 7, 8, 16 to 127): see `exitCode`
+ * @property {number} [exitCode] - Exit code of the checker. Only set when
+ *   `actual` is `null`
+ * @property {boolean} ok - Whether polyman accepted the case
+ * @property {string} message - What the program printed to stderr, or why the
+ *   case failed
+ */
+interface SelfTestCase {
+  index: number;
+  expected: string;
+  actual: string | null;
+  exitCode?: number;
+  ok: boolean;
+  message: string;
+}
+
+/**
+ * Report emitted by `polyman test validator --json` and
+ * `polyman test checker --json`.
+ * @interface SelfTestReport
+ * @property {SelfTestCase[]} cases - Empty when the self-tests were skipped
+ *   (standard checker, or no `testsFilePath`)
+ */
+interface SelfTestReport extends ReportBase {
+  command: string;
+  exitCode: number;
+  durationMs: number;
+  errors: string[];
+  target: SelfTestTarget;
+  cases: SelfTestCase[];
+}
+
+/**
+ * Report emitted by `polyman test <solution> --json`: the run report of the
+ * target solution, each test judged by the checker against the main
+ * solution's output, plus whether the verdicts match the solution's tag.
+ * @interface SolutionTestReport
+ * @property {string | null} mainSolution - Name of the MA solution, null when
+ *   the command stopped before finding it
+ * @property {boolean} matchesTag - Whether the verdicts satisfy the tag
+ * @property {string} reason - Human explanation of matchesTag
+ */
+interface SolutionTestReport extends Omit<RunReport, 'command'> {
+  command: 'test';
+  exitCode: number;
+  durationMs: number;
+  mainSolution: string | null;
+  matchesTag: boolean;
+  reason: string;
+}
+
+/**
+ * One upload, download, fetch or change inside a remote report.
+ * @interface RemoteAction
+ * @property {string} component - What kind of thing it is (solution, checker, testset, ...)
+ * @property {string} name - Which one (file name, language, testset name, ...)
+ * @property {string} action - What polyman did (upload, download, fetch, create, commit, build, ...)
+ * @property {boolean} ok - Whether it worked
+ * @property {string} [error] - Plain-text reason, only when ok is false
+ */
+interface RemoteAction {
+  component: string;
+  name: string;
+  action: string;
+  ok: boolean;
+  error?: string;
+}
+
+/**
+ * Report emitted by `polyman remote pull|push|view|commit|package --json`.
+ * @interface RemoteReport
+ * @property {number | null} problemId - Polygon problem ID, also for a new
+ *   problem; null only when the command failed before it knew the ID
+ * @property {RemoteAction[]} actions - One entry per upload, download or change
+ * @property {string[]} warnings - Things that did not fail the command but
+ *   need a look, for example a placeholder `pull` put in Config.json
+ *   instead of a file it could not download
+ */
+interface RemoteReport extends ReportBase {
+  command: string;
+  exitCode: number;
+  durationMs: number;
+  errors: string[];
+  problemId: number | null;
+  actions: RemoteAction[];
+  warnings: string[];
+}
+
+type JsonReport =
+  | RunReport
+  | VerifyReport
+  | PathReport
+  | ListReport
+  | GenerateReport
+  | ValidateReport
+  | SelfTestReport
+  | SolutionTestReport
+  | RemoteReport;
 
 // ==================== Exports ====================
 
@@ -945,6 +1150,18 @@ export {
   SolutionResult,
   RunReport,
   VerifyReport,
+  PathReport,
+  ListReport,
+  GeneratedTestResult,
+  GenerateReport,
+  ValidatedTestResult,
+  ValidateReport,
+  SelfTestTarget,
+  SelfTestCase,
+  SelfTestReport,
+  SolutionTestReport,
+  RemoteAction,
+  RemoteReport,
   JsonReport,
 };
 

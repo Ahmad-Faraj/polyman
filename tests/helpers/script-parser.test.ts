@@ -68,6 +68,20 @@ describe('parseGeneratorScript - errors', () => {
     expect(() => parser.parseGeneratorScript('gen.cpp 1 > 1')).toThrow();
   });
 
+  it('rejects a generator name that is an empty quoted token', () => {
+    for (const script of ['"" > 1', "'' > 1", '" > $']) {
+      expect(() => parser.parseGeneratorScript(script)).toThrow(
+        'Empty generator command on line 1'
+      );
+    }
+  });
+
+  it('reports the line number of an empty generator name', () => {
+    expect(() =>
+      parser.parseGeneratorScript('gen 1 > 1\n\n"" > 2\ngen 3 > 3')
+    ).toThrow('Empty generator command on line 3');
+  });
+
   it('rejects missing > target', () => {
     expect(() => parser.parseGeneratorScript('gen 1 2 3')).toThrow(
       /Missing '> target'/
@@ -161,6 +175,408 @@ describe('parseGeneratorScript - comments and FreeMarker', () => {
       ].join('\n')
     );
     expect(out.map(l => l.group)).toEqual(['samples', 'main', 'main']);
+  });
+});
+
+describe('parseGeneratorScript - FreeMarker expansion (corpus/scripts)', () => {
+  const argsOf = (script: string) =>
+    parser.parseGeneratorScript(script).map(l => l.args.join(' '));
+
+  it('list.txt: expands a range with ${i}', () => {
+    expect(argsOf('<#list 1..3 as i>\ngen ${i} > $\n</#list>\n')).toEqual([
+      '1',
+      '2',
+      '3',
+    ]);
+  });
+
+  it('expression.txt: evaluates ${i*10}', () => {
+    expect(argsOf('<#list 1..3 as i>\ngen ${i*10} > $\n</#list>\n')).toEqual([
+      '10',
+      '20',
+      '30',
+    ]);
+  });
+
+  it('assign.txt: substitutes an assigned variable', () => {
+    expect(argsOf('<#assign n = 7>\ngen ${n} > $\n')).toEqual(['7']);
+  });
+
+  it('sequence.txt: expands a list over a sequence', () => {
+    expect(
+      argsOf('<#list [5, 50, 500] as n>\ngen ${n} > $\n</#list>\n')
+    ).toEqual(['5', '50', '500']);
+  });
+
+  it('nested.txt: expands nested lists in order', () => {
+    expect(
+      argsOf(
+        [
+          '<#list 1..2 as i>',
+          '<#list 1..2 as j>',
+          'gen ${i} ${j} > $',
+          '</#list>',
+          '</#list>',
+          '',
+        ].join('\n')
+      )
+    ).toEqual(['1 1', '1 2', '2 1', '2 2']);
+  });
+
+  it('supports + - * % parentheses and unary minus', () => {
+    expect(
+      argsOf('<#assign n = 7>\ngen ${(n+1)*2} ${n%4} ${n-10} ${-n} ${2*-n} > $')
+    ).toEqual(['16 3 -3 -7 -14']);
+  });
+
+  it('evaluates expressions in list bounds and sequences', () => {
+    expect(
+      argsOf('<#assign n = 2>\n<#list n..n*2 as i>\ngen ${i} > $\n</#list>')
+    ).toEqual(['2', '3', '4']);
+    expect(argsOf('<#list [1+1, 3*3] as n>\ngen ${n} > $\n</#list>')).toEqual([
+      '2',
+      '9',
+    ]);
+  });
+
+  it('expands an empty sequence to nothing', () => {
+    expect(
+      argsOf('<#list [] as n>\ngen ${n} > $\n</#list>\ngen 1 > $')
+    ).toEqual(['1']);
+  });
+
+  it('scopes the loop variable to its list', () => {
+    expect(() =>
+      parser.parseGeneratorScript(
+        '<#list 1..2 as i>\ngen ${i} > $\n</#list>\ngen ${i} > $'
+      )
+    ).toThrow(/Undefined variable "i" in \${i} on line 4/);
+  });
+
+  it('keeps @group comments working inside a list', () => {
+    const out = parser.parseGeneratorScript(
+      '<#-- @group g -->\n<#list 1..2 as i>\ngen ${i} > $\n</#list>'
+    );
+    expect(out.map(l => l.group)).toEqual(['g', 'g']);
+  });
+});
+
+describe('parseGeneratorScript - unsupported FreeMarker is rejected', () => {
+  it('names an unsupported directive and its line', () => {
+    expect(() =>
+      parser.parseGeneratorScript('gen 1 > $\n<#if true>\ngen 2 > $\n</#if>')
+    ).toThrow('Unsupported FreeMarker directive <#if> on line 2');
+  });
+
+  it('names an unsupported macro call', () => {
+    expect(() => parser.parseGeneratorScript('<@m/>\ngen 1 > $')).toThrow(
+      'Unsupported FreeMarker directive <@m> on line 1'
+    );
+  });
+
+  it('rejects division instead of guessing', () => {
+    expect(() =>
+      parser.parseGeneratorScript('<#list 1..3 as i>\ngen ${i/2} > $\n</#list>')
+    ).toThrow('Unsupported expression ${i/2} on line 2');
+  });
+
+  it('rejects an undefined variable', () => {
+    expect(() => parser.parseGeneratorScript('gen ${n} > $')).toThrow(
+      'Undefined variable "n" in ${n} on line 1'
+    );
+  });
+
+  it('never passes ${...} through literally', () => {
+    expect(() => parser.parseGeneratorScript('gen ${"a"} > $')).toThrow(
+      'Unsupported expression ${"a"} on line 1'
+    );
+    expect(() => parser.parseGeneratorScript('gen ${1.5} > $')).toThrow(
+      /Unsupported expression/
+    );
+    expect(() => parser.parseGeneratorScript('gen ${i > $')).toThrow(
+      'Unterminated "${" on line 1'
+    );
+  });
+
+  it('rejects modulo by zero and unsupported list forms', () => {
+    expect(() => parser.parseGeneratorScript('gen ${5%0} > $')).toThrow(
+      /Modulo by zero/
+    );
+    expect(() =>
+      parser.parseGeneratorScript('<#list xs as i>\ngen ${i} > $\n</#list>')
+    ).toThrow(/Unsupported expression <#list xs as i> on line 1/);
+    expect(() =>
+      parser.parseGeneratorScript('<#list 1..2>\ngen 1 > $\n</#list>')
+    ).toThrow(/Unsupported <#list> form on line 1/);
+  });
+
+  it('rejects unbalanced list tags', () => {
+    expect(() => parser.parseGeneratorScript('gen 1 > $\n</#list>')).toThrow(
+      'Unexpected </#list> on line 2'
+    );
+    expect(() =>
+      parser.parseGeneratorScript('<#list 1..2 as i>\ngen 1 > $')
+    ).toThrow('Unclosed <#list> on line 1');
+  });
+
+  it('rejects an unsupported <#assign> form', () => {
+    expect(() => parser.parseGeneratorScript('<#assign n>\ngen 1 > $')).toThrow(
+      /Unsupported <#assign> form on line 1/
+    );
+  });
+});
+
+describe('parseGeneratorScript - list size limit', () => {
+  it('exports the limit as a named constant', () => {
+    expect(parser.MAX_LIST_ITEMS).toBe(10000);
+  });
+
+  it('rejects a huge range quickly, naming the list and line', () => {
+    const start = Date.now();
+    expect(() =>
+      parser.parseGeneratorScript(
+        'gen 1 > $\n<#list 1..1000000000 as i>\ngen ${i} > $\n</#list>'
+      )
+    ).toThrow(/<#list 1\.\.1000000000 as i> on line 2 expands to more than/);
+    expect(Date.now() - start).toBeLessThan(1000);
+  });
+
+  it('rejects nested lists whose product exceeds the limit', () => {
+    const start = Date.now();
+    expect(() =>
+      parser.parseGeneratorScript(
+        '<#list 1..100000 as i>\n<#list 1..100000 as j>\ngen ${i} ${j} > $\n</#list>\n</#list>'
+      )
+    ).toThrow(/expands to more than 10000 items/);
+    expect(() =>
+      parser.parseGeneratorScript(
+        '<#list 1..1000 as i>\n<#list 1..1000 as j>\ngen ${i} > $\n</#list>\n</#list>'
+      )
+    ).toThrow(/<#list 1\.\.1000 as j> on line 2 expands to more than/);
+    expect(Date.now() - start).toBeLessThan(2000);
+  });
+
+  it('rejects a huge descending range', () => {
+    expect(() =>
+      parser.parseGeneratorScript(
+        '<#list 1000000000..1 as i>\ngen 1 > $\n</#list>'
+      )
+    ).toThrow(/on line 1 expands to more than/);
+  });
+
+  it('still allows a list of exactly the limit', () => {
+    const out = parser.parseGeneratorScript(
+      `<#list 1..${parser.MAX_LIST_ITEMS} as i>\ngen ${'${i}'} > $\n</#list>`
+    );
+    expect(out).toHaveLength(parser.MAX_LIST_ITEMS);
+  });
+});
+
+describe('parseGeneratorScript - ${} inside @group comments', () => {
+  it('rejects an interpolation in a group name', () => {
+    expect(() =>
+      parser.parseGeneratorScript('gen 1 > $\n<#-- @group g${i} -->\ngen 2 > $')
+    ).toThrow('Unsupported expression ${i} in @group on line 2');
+  });
+
+  it('rejects it inside a list too', () => {
+    expect(() =>
+      parser.parseGeneratorScript(
+        '<#list 1..2 as i>\n<#-- @group g${i} -->\ngen ${i} > $\n</#list>'
+      )
+    ).toThrow('Unsupported expression ${i} in @group on line 2');
+  });
+
+  it('still ignores ${} in ordinary comments', () => {
+    expect(
+      parser.parseGeneratorScript('<#-- note ${x} -->\ngen 1 > $')
+    ).toHaveLength(1);
+  });
+});
+
+describe('parseGeneratorScript - #{} and square-bracket tags are rejected', () => {
+  it('rejects #{...} numeric interpolation', () => {
+    expect(() =>
+      parser.parseGeneratorScript('gen 1 > $\ngen #{1} > $')
+    ).toThrow('Unsupported FreeMarker construct #{...} on line 2');
+  });
+
+  it('rejects [#list ...] square-bracket directives', () => {
+    expect(() =>
+      parser.parseGeneratorScript('[#list 1..3 as i]\ngen ${i} > $\n[/#list]')
+    ).toThrow('Unsupported FreeMarker construct [#list');
+    expect(() => parser.parseGeneratorScript('gen 1 > $\n[/#list]')).toThrow(
+      /\[\/#list.* on line 2/
+    );
+  });
+
+  it('rejects [@macro] calls', () => {
+    expect(() => parser.parseGeneratorScript('[@m/]\ngen 1 > $')).toThrow(
+      'Unsupported FreeMarker construct [@m (square-bracket syntax) on line 1'
+    );
+  });
+});
+
+describe('parseGeneratorScript - expression edge cases', () => {
+  const argsOf = (script: string) =>
+    parser.parseGeneratorScript(script).map(l => l.args.join(' '));
+
+  it('reports integer overflow', () => {
+    expect(() =>
+      parser.parseGeneratorScript('gen ${99999999999*99999999999} > $')
+    ).toThrow(/Integer overflow/);
+  });
+
+  it('handles unary plus and stacked signs', () => {
+    expect(argsOf('gen ${+3} ${+-3} ${-+3} ${- -3} > $')).toEqual([
+      '3 -3 -3 3',
+    ]);
+  });
+
+  it('rejects malformed expressions', () => {
+    for (const expr of ['(1+2', '', '1+']) {
+      expect(() => parser.parseGeneratorScript(`gen \${${expr}} > $`)).toThrow(
+        /Unsupported expression/
+      );
+    }
+  });
+
+  it('rejects a stray </#assign>', () => {
+    expect(() =>
+      parser.parseGeneratorScript('<#assign n = 1>\n</#assign>\ngen 1 > $')
+    ).toThrow('Unsupported FreeMarker directive </#assign> on line 2');
+  });
+
+  it('expands a CRLF script with a list and reports ${} on the right line', () => {
+    expect(argsOf('<#list 1..2 as i>\r\ngen ${i} > $\r\n</#list>\r\n')).toEqual(
+      ['1', '2']
+    );
+    expect(() =>
+      parser.parseGeneratorScript(
+        '<#list 1..2 as i>\r\ngen 1 > $\r\n</#list>\r\ngen ${} > $\r\n'
+      )
+    ).toThrow(/Unsupported expression \${} on line 4/);
+  });
+});
+
+describe('parseGeneratorScript - FreeMarker edge cases (review of !83)', () => {
+  const argsOf = (script: string) =>
+    parser.parseGeneratorScript(script).map(l => l.args.join(' '));
+
+  it('rejects a list of 10001 items but accepts 10000', () => {
+    expect(() =>
+      parser.parseGeneratorScript(
+        '<#list 1..10001 as i>\ngen ${i} > $\n</#list>'
+      )
+    ).toThrow(/<#list 1\.\.10001 as i> on line 1 expands to more than 10000/);
+    expect(
+      parser.parseGeneratorScript(
+        '<#list 1..10000 as i>\ngen ${i} > $\n</#list>'
+      )
+    ).toHaveLength(10000);
+  });
+
+  it('counts an outer and inner list together against the limit', () => {
+    // 100 outer + 100 * 100 inner iterations = 10100 > 10000.
+    expect(() =>
+      parser.parseGeneratorScript(
+        '<#list 1..100 as i>\n<#list 1..100 as j>\ngen ${i} ${j} > $\n</#list>\n</#list>'
+      )
+    ).toThrow(/expands to more than 10000 items in total/);
+    // 99 outer + 99 * 100 inner iterations = 9999 <= 10000.
+    expect(
+      parser.parseGeneratorScript(
+        '<#list 1..99 as i>\n<#list 1..100 as j>\ngen ${i} ${j} > $\n</#list>\n</#list>'
+      )
+    ).toHaveLength(9900);
+  });
+
+  it('follows the sign of the dividend for a negative modulo', () => {
+    expect(argsOf('gen ${-7%3} ${7%-3} ${-7%-3} > $')).toEqual(['-1 1 -1']);
+  });
+
+  it('keeps an <#assign> inside a list global', () => {
+    expect(
+      argsOf(
+        '<#list 1..2 as i>\n<#assign last = i*10>\n</#list>\ngen ${last} > $'
+      )
+    ).toEqual(['20']);
+  });
+
+  it('lets <#assign> reassign a variable', () => {
+    expect(
+      argsOf('<#assign n = 1>\ngen ${n} > $\n<#assign n = n+1>\ngen ${n} > $')
+    ).toEqual(['1', '2']);
+  });
+
+  it('lets a loop variable shadow a global, then restores the global', () => {
+    expect(
+      argsOf(
+        '<#assign i = 100>\n<#list 1..2 as i>\ngen ${i} > $\n</#list>\ngen ${i} > $'
+      )
+    ).toEqual(['1', '2', '100']);
+  });
+
+  it('rejects a trailing comma or an empty item in a sequence', () => {
+    for (const items of ['1,2,', '1,,2']) {
+      expect(() =>
+        parser.parseGeneratorScript(
+          `<#list [${items}] as n>\ngen \${n} > $\n</#list>`
+        )
+      ).toThrow(/Unsupported expression <#list \[.*\] as n> on line 1/);
+    }
+  });
+
+  it('rejects > inside an expression', () => {
+    expect(() =>
+      parser.parseGeneratorScript('<#list 1..2 as i>\ngen ${i>1} > $\n</#list>')
+    ).toThrow(/Unsupported expression \${i>1} on line 2/);
+  });
+
+  it('treats a } after an expression as plain text', () => {
+    expect(argsOf('gen ${(1)} } > $')).toEqual(['1 }']);
+  });
+
+  it('rejects braces inside an expression', () => {
+    expect(() => parser.parseGeneratorScript('gen ${ {1} } > $')).toThrow(
+      'Unsupported expression ${{1} on line 1'
+    );
+  });
+});
+
+describe('parseGeneratorScript - one command per line (Polygon)', () => {
+  const body = 'gen-equal ${i} 5 > $';
+
+  it('rejects a list body on one line, like Polygon', () => {
+    expect(() =>
+      parser.parseGeneratorScript(`<#list 1..3 as i>${body}</#list>`)
+    ).toThrow("Line should end with '> testIndex'.");
+  });
+
+  it('expands the same body on its own lines to 3 tests', () => {
+    const out = parser.parseGeneratorScript(
+      `<#list 1..3 as i>\n${body}\n</#list>`
+    );
+    expect(out).toHaveLength(3);
+    expect(out.map(l => l.args.join(' '))).toEqual(['1 5', '2 5', '3 5']);
+  });
+
+  it('rejects two commands on one line without a list', () => {
+    expect(() =>
+      parser.parseGeneratorScript('gen-equal 1 5 > $gen-equal 2 5 > $')
+    ).toThrow("Line should end with '> testIndex'.");
+  });
+
+  it('names the line of the offending command', () => {
+    expect(() =>
+      parser.parseGeneratorScript('gen 1 > $\ngen 2 > $gen 3 > $')
+    ).toThrow(/\(line 2: /);
+  });
+
+  it('ignores a > inside a quoted argument', () => {
+    const out = parser.parseGeneratorScript('gen "a>b" > $');
+    expect(out).toHaveLength(1);
+    expect(out[0].args).toEqual(['a>b']);
   });
 });
 
@@ -372,6 +788,40 @@ describe('readScriptText', () => {
       'utf-8'
     );
   });
+
+  it('refuses a scriptFile outside baseDir without reading it', () => {
+    const ts: LocalTestset = {
+      name: 'tests',
+      generatorScript: { scriptFile: '../x' },
+    };
+    exists(true);
+    expect(() => parser.readScriptText(ts, '/path/to/problem')).toThrow(
+      /Refusing path/
+    );
+    expect(fs.readFileSync).not.toHaveBeenCalled();
+  });
+
+  it('refuses an absolute scriptFile outside baseDir', () => {
+    const ts: LocalTestset = {
+      name: 'tests',
+      generatorScript: { scriptFile: '/etc/passwd' },
+    };
+    exists(true);
+    expect(() => parser.readScriptText(ts, '/path/to/problem')).toThrow(
+      /Refusing path/
+    );
+    expect(fs.readFileSync).not.toHaveBeenCalled();
+  });
+
+  it('still reads a scriptFile whose name starts with two dots', () => {
+    const ts: LocalTestset = {
+      name: 'tests',
+      generatorScript: { scriptFile: '..x.txt' },
+    };
+    exists(true);
+    vi.mocked(fs.readFileSync).mockReturnValue('gen 1 > 1');
+    expect(parser.readScriptText(ts, '/path/to/problem')).toBe('gen 1 > 1');
+  });
 });
 
 describe('toPolygonScript', () => {
@@ -425,6 +875,115 @@ describe('toPolygonScript', () => {
   it('leaves unknown generator tokens alone', () => {
     expect(parser.toPolygonScript('other 1 > $', generators)).toBe(
       'other 1 > $'
+    );
+  });
+});
+
+describe('parseGeneratorScript - test count limits', () => {
+  it('exports the limit as 10000', () => {
+    expect(parser.MAX_SCRIPT_TESTS).toBe(10000);
+  });
+
+  it('rejects a huge range at once, naming the line', () => {
+    const start = performance.now();
+    expect(() => parser.parseGeneratorScript('gen 1 > {1-100000000}')).toThrow(
+      /line 1 expands to more than 10000 tests/
+    );
+    expect(performance.now() - start).toBeLessThan(1000);
+  });
+
+  it('names the right line for a huge range further down', () => {
+    expect(() =>
+      parser.parseGeneratorScript('gen 1 > 1\n\ngen 2 > {1-100000000}')
+    ).toThrow(/line 3/);
+  });
+
+  it('accepts a range of exactly the limit and rejects one above it', () => {
+    const out = parser.parseGeneratorScript('gen 1 > {1-10000}');
+    expect(out).toHaveLength(1);
+    const output = out[0].output;
+    expect(output.kind).toBe('multi');
+    if (output.kind === 'multi') expect(output.indices).toHaveLength(10000);
+
+    expect(() => parser.parseGeneratorScript('gen 1 > {1-10001}')).toThrow(
+      /more than 10000 tests \(limit 10000\)/
+    );
+  });
+
+  it('counts ranges and single indices together within one target', () => {
+    expect(() =>
+      parser.parseGeneratorScript('gen 1 > {1-6000,7001-13000}')
+    ).toThrow(/line 1 expands to more than 10000 tests/);
+    expect(() =>
+      parser.parseGeneratorScript('gen 1 > {1-10000,10001}')
+    ).toThrow(/line 1 expands to more than 10000 tests/);
+  });
+
+  it('rejects many targets whose total is above the limit', () => {
+    const script = [
+      'gen 1 > {1-5000}',
+      'gen 2 > {5001-10000}',
+      'gen 3 > {10001-10002}',
+    ].join('\n');
+    expect(() => parser.parseGeneratorScript(script)).toThrow(
+      /Script expands to more than 10000 tests.*line 3/
+    );
+  });
+
+  it('accepts a script of exactly the limit', () => {
+    const script = ['gen 1 > {1-5000}', 'gen 2 > {5001-10000}'].join('\n');
+    expect(parser.parseGeneratorScript(script)).toHaveLength(2);
+  });
+
+  it('counts single-target lines and names the line that exceeds', () => {
+    const lines = Array.from({ length: 10001 }, () => 'gen 1 > $');
+    expect(() => parser.parseGeneratorScript(lines.join('\n'))).toThrow(
+      /Script expands to more than 10000 tests.*line 10001/
+    );
+    expect(
+      parser.parseGeneratorScript(lines.slice(0, 10000).join('\n'))
+    ).toHaveLength(10000);
+  });
+});
+
+describe('line lookup on big scripts', () => {
+  const bigLine = 'gen ${1+1} ${2+2} ${3+3} ${4+4} ${5+5} > $';
+  const bigScript = (): string => {
+    const lines: string[] = [];
+    let size = 0;
+    while (size < 250 * 1024) {
+      lines.push(bigLine);
+      size += bigLine.length + 1;
+    }
+    return lines.join('\n');
+  };
+
+  it('parses a 250 KB script of ${...} lines in under a second', () => {
+    const script = bigScript();
+    expect(script.length).toBeGreaterThanOrEqual(250 * 1024);
+    const start = performance.now();
+    const parsed = parser.parseGeneratorScript(script);
+    const elapsed = performance.now() - start;
+    expect(parsed.length).toBeGreaterThan(5000);
+    expect(parsed.length).toBeLessThanOrEqual(10000);
+    expect(elapsed).toBeLessThan(1000);
+  });
+
+  it('reports the exact line of a bad expression late in a big script', () => {
+    const script = bigScript() + '\ngen ${i/2} > $';
+    const lastLine = script.split('\n').length;
+    expect(lastLine).toBeGreaterThan(5000);
+    expect(() => parser.parseGeneratorScript(script)).toThrow(
+      `on line ${lastLine}`
+    );
+    expect(() => parser.parseGeneratorScript(script)).toThrow(/\$\{i\/2\}/);
+  });
+
+  it('reports the exact line of an unterminated ${ late in a big script', () => {
+    const script = bigScript() + '\ngen ${1+1 > $';
+    const lastLine = script.split('\n').length;
+    expect(() => parser.parseGeneratorScript(script)).toThrow(
+      `Unterminated "\${" on line ${lastLine}`
     );
   });
 });

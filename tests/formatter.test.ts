@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { fmt, Formatter } from '../src/formatter';
+import { fmt, Formatter, themes, type Theme } from '../src/formatter';
 import chalk from 'chalk';
 
 describe('Formatter', () => {
@@ -185,6 +185,119 @@ describe('Formatter', () => {
     it('should print error box', () => {
       fmt.errorBox('Nay');
       expect(consoleSpy).toHaveBeenCalledTimes(5);
+    });
+  });
+
+  describe('themes', () => {
+    it('uses the dark theme by default', () => {
+      const local = new Formatter();
+      expect(local.getTheme().name).toBe('dark');
+      local.info('i');
+      local.warning('w');
+      expect(consoleSpy).toHaveBeenCalledWith(chalk.white('i'));
+      expect(consoleSpy).toHaveBeenCalledWith(chalk.yellow('w'));
+      expect(local.primary('p')).toBe(chalk.hex('#1E88E5')('p'));
+      expect(local.highlight('h')).toBe(chalk.bold.blue('h'));
+    });
+
+    it('applies the light theme after setTheme("light")', () => {
+      const local = new Formatter();
+      local.setTheme('light');
+      expect(local.getTheme()).toBe(themes.light);
+
+      local.info('i');
+      local.log('l');
+      local.warning('w');
+      expect(consoleSpy).toHaveBeenCalledWith(themes.light.info('i'));
+      expect(consoleSpy).toHaveBeenCalledWith(themes.light.muted('l'));
+      expect(consoleSpy).toHaveBeenCalledWith(themes.light.warning('w'));
+      expect(local.checkmark()).toBe(themes.light.success('✓'));
+      expect(local.primary('p')).toBe(themes.light.primary('p'));
+    });
+
+    it('gives the light theme the same keys and its own text colours', () => {
+      const keys = Object.keys(themes.dark) as (keyof Theme)[];
+      expect(Object.keys(themes.light).sort()).toEqual([...keys].sort());
+      const lightOnly: (keyof Theme)[] = [
+        'name',
+        'warning',
+        'info',
+        'muted',
+        'stepTitle',
+        'accent',
+        'primary',
+      ];
+      for (const key of lightOnly) {
+        expect(themes.light[key]).not.toBe(themes.dark[key]);
+      }
+    });
+
+    it('avoids white and gray text in the light theme', () => {
+      expect(themes.light.info).not.toBe(chalk.white);
+      expect(themes.light.muted).not.toBe(chalk.gray);
+      expect(themes.light.warning).not.toBe(chalk.yellow);
+    });
+
+    it('styles headings, steps and boxes from the light theme', () => {
+      const local = new Formatter();
+      local.setTheme('light');
+      local.section('T');
+      local.step(2, 'S');
+      local.stepComplete('ok');
+      expect(consoleSpy).toHaveBeenCalledWith(themes.light.heading('  T'));
+      expect(consoleSpy).toHaveBeenCalledWith(
+        themes.light.heading('┌─ Step 2: ') + themes.light.stepTitle('S')
+      );
+      expect(consoleSpy).toHaveBeenCalledWith(themes.light.success('└─ ✓ ok'));
+    });
+
+    it('switches back to dark', () => {
+      const local = new Formatter();
+      local.setTheme('light');
+      local.setTheme('dark');
+      local.info('i');
+      expect(consoleSpy).toHaveBeenCalledWith(chalk.white('i'));
+    });
+
+    it('throws on an unknown theme name', () => {
+      const local = new Formatter();
+      expect(() => local.setTheme('neon')).toThrow(/Unknown theme "neon"/);
+      expect(local.getTheme().name).toBe('dark');
+    });
+
+    it('applies a registered custom theme', () => {
+      const local = new Formatter();
+      const custom: Theme = { ...themes.dark, success: chalk.magenta };
+      local.registerTheme('custom', custom);
+      local.setTheme('custom');
+      local.success('s');
+      expect(consoleSpy).toHaveBeenCalledWith(chalk.magenta('s'));
+    });
+
+    it('accepts a theme object directly', () => {
+      const local = new Formatter();
+      const custom: Theme = { ...themes.dark, error: chalk.cyan };
+      local.setTheme(custom);
+      local.error('e');
+      expect(consoleSpy).toHaveBeenCalledWith(chalk.cyan('e'));
+    });
+
+    it('does not let a built-in theme be replaced', () => {
+      const local = new Formatter();
+      expect(() => local.registerTheme('dark', themes.light)).toThrow(
+        /built-in/
+      );
+    });
+
+    it('keeps theme state per formatter instance', () => {
+      const a = new Formatter();
+      const b = new Formatter();
+      a.setTheme('light');
+      expect(b.getTheme().name).toBe('dark');
+      expect(fmt.getTheme().name).toBe('dark');
+      const custom: Theme = { ...themes.dark };
+      a.registerTheme('only-a', custom);
+      expect(() => b.setTheme('only-a')).toThrow(/Unknown theme/);
     });
   });
 });

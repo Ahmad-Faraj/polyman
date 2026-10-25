@@ -11,13 +11,18 @@ import ConfigFile, {
   TestVerdict,
 } from '../types';
 import { executor } from '../executor';
+import type { ExecutionOptions } from '../executor';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
+import { StringDecoder } from 'string_decoder';
 import { logError, throwError } from './utils';
 import {
   compileCPP,
   compileJava,
+  cppStandardFromSourceType,
   isCppSource,
+  resolveCppStandard,
   readConfigFile,
   readFirstLine,
   getTestFiles,
@@ -25,7 +30,8 @@ import {
 } from './utils';
 import { fmt } from '../formatter';
 import { report } from '../report';
-import { ensureCheckerExists, runChecker } from './checker';
+import { ensureCheckerExists, PresentationError, runChecker } from './checker';
+import { LimitExceededError, PolymanError } from '../errors';
 import type { LocalChecker } from '../types';
 import { getTestIndicesForGroup } from './testset';
 
@@ -57,7 +63,7 @@ export function validateSolutionsExist(
  * @param {string} solutionName - Name of solution to find, or 'all' for all solutions
  * @returns {LocalSolution[]} Array of matching solutions
  *
- * @throws {Error} If no solutions match the name
+ * @throws {PolymanError} With exit code 2 if no solutions match the name
  *
  * @example
  * const matching = findMatchingSolutions(config.solutions, 'main');
@@ -72,8 +78,9 @@ export function findMatchingSolutions(
   );
 
   if (matching.length === 0) {
-    throw new Error(
-      `Solution named "${solutionName}" not found or no solutions defined.`
+    throw new PolymanError(
+      `Solution named "${solutionName}" not found or no solutions defined.`,
+      2
     );
   }
 
@@ -120,7 +127,8 @@ export interface SolutionTimeLimit {
  * Works out which language a solution runs as locally. Only the file
  * extension decides, with the same checks `getCompiledCommandToRun` uses to
  * pick the program, so the factor always matches how the file is really run.
- * `sourceType` is ignored here: it only picks the compiler on Polygon.
+ * `sourceType` is ignored here: it does not change the language, it can only
+ * pick the C++ standard (see {@link compileSolution}).
  *
  * @param {LocalSolution} solution - Solution configuration
  * @returns {SolutionLanguage | undefined} The language, or undefined if polyman cannot tell
@@ -300,9 +308,99 @@ function logTimeLimitForSolution(limit: SolutionTimeLimit): void {
 }
 
 /**
+ * The files a solution reads and writes instead of stdin and stdout, from
+ * `inputFile` and `outputFile` in Config.json. A field that is missing, empty,
+ * `stdin` or `stdout` (any case) means the standard stream, so it is left out.
+ *
+ * @interface SolutionFileIO
+ * @property {string} [inputFile] - File the test is copied to before the run
+ * @property {string} [outputFile] - File read back as the solution's output
+ */
+export interface SolutionFileIO {
+  inputFile?: string;
+  outputFile?: string;
+}
+
+/**
+ * Returns the file name for one `inputFile`/`outputFile` value, or undefined
+ * when the value means the standard stream.
+ *
+ * @throws {PolymanError} If the value is not a plain file name
+ */
+function fileIOName(
+  field: 'inputFile' | 'outputFile',
+  value: string | undefined,
+  stream: 'stdin' | 'stdout'
+): string | undefined {
+  const name = (value ?? '').trim();
+  if (name === '' || name.toLowerCase() === stream) {
+    return undefined;
+  }
+  if (/[\\/]/.test(name) || name === '.' || name === '..') {
+    throw new PolymanError(
+      `Config.json ${field} must be "${stream}" or a plain file name like "input.txt", got "${name}"`,
+      2
+    );
+  }
+  return name;
+}
+
+/**
+ * Reads which files the solutions use for input and output.
+ * Polygon uses `stdin` and `stdout` for the standard streams.
+ *
+ * @param {Pick<ConfigFile, 'inputFile' | 'outputFile'>} config - Config.json values
+ * @returns {SolutionFileIO} The file names, empty for a stdin/stdout problem
+ *
+ * @throws {PolymanError} If `inputFile` or `outputFile` is not a plain file name
+ *
+ * @example
+ * solutionFileIO({ inputFile: 'input.txt', outputFile: 'stdout' });
+ * // { inputFile: 'input.txt' }
+ */
+export function solutionFileIO(
+  config: Partial<Pick<ConfigFile, 'inputFile' | 'outputFile'>>
+): SolutionFileIO {
+  const inputFile = fileIOName('inputFile', config.inputFile, 'stdin');
+  const outputFile = fileIOName('outputFile', config.outputFile, 'stdout');
+  return {
+    ...(inputFile !== undefined ? { inputFile } : {}),
+    ...(outputFile !== undefined ? { outputFile } : {}),
+  };
+}
+
+/**
+ * Removes a temp run folder. Errors are ignored: on Windows a killed process
+ * can hold a file for a moment, and a leftover temp folder is harmless.
+ */
+function removeRunDirectory(runDir: string): void {
+  try {
+    fs.rmSync(runDir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 100,
+    });
+  } catch {
+    // Leave it to the OS temp cleanup.
+  }
+}
+
+/**
  * Runs a compiled solution on a test input file.
  * Executes solution with time/memory limits, handles output files, and error scenarios.
  * Creates output file with either solution output or error message (TLE, MLE, RTE).
+ *
+ * For a stdin/stdout problem the solution runs in the current folder, reads the
+ * test on stdin and its stdout is the output.
+ * When `io` names an input or output file, the solution runs in its own new
+ * temp folder instead, like on Polygon:
+ *   - `io.inputFile`: the test is copied there under that name, and stdin is
+ *     empty.
+ *   - `io.outputFile`: that file is read back as the output (empty if the
+ *     solution did not create it), and stdout is thrown away.
+ * Nothing is written to the problem folder except the output under
+ * `solutions-outputs/`, and the temp folder is removed after the run.
  *
  * @private
  * @param {LocalSolution} solution - Solution configuration
@@ -311,6 +409,8 @@ function logTimeLimitForSolution(limit: SolutionTimeLimit): void {
  * @param {number} memoryLimitMB - Memory limit in megabytes
  * @param {string} inputFile - Name of test input file
  * @param {string} testsetName - Name of testset containing the test
+ * @param {SolutionFileIO} io - Input/output files from {@link solutionFileIO}
+ * @param {string} [groupName] - Group of the test, for the report
  *
  * @throws {Error} If runtime error occurs
  * @throws {Error} If time limit exceeded
@@ -323,7 +423,8 @@ function logTimeLimitForSolution(limit: SolutionTimeLimit): void {
  *   2000,
  *   256,
  *   'test1.txt',
- *   'testsets'
+ *   'testsets',
+ *   {}
  * );
  */
 async function runSolution(
@@ -333,6 +434,7 @@ async function runSolution(
   memoryLimitMB: number,
   inputFile: string,
   testsetName: string,
+  io: SolutionFileIO,
   groupName?: string
 ) {
   const outputFilePath = path.resolve(
@@ -365,28 +467,73 @@ async function runSolution(
       message,
     });
   };
-  await executor.executeWithRedirect(
-    compiledPath,
-    {
-      timeout,
-      memoryLimitMB,
-      silent: true,
-      onError: result => {
-        record('RTE', `Runtime Error: ${result.stderr}`);
-        writeErrorOutputAndThrow(outputFilePath, result.stderr);
-      },
-      onTimeout: () => {
-        record('TLE', `Time Limit Exceeded after ${timeout}ms`);
-        writeTimeoutOutputAndThrow(outputFilePath, timeout);
-      },
-      onMemoryExceeded: () => {
-        record('MLE', `Memory Limit Exceeded (${memoryLimitMB} MB)`);
-        writeMemoryOutputAndThrow(outputFilePath, memoryLimitMB);
-      },
+  const options: ExecutionOptions = {
+    timeout,
+    memoryLimitMB,
+    silent: true,
+    onError: result => {
+      record('RTE', `Runtime Error: ${result.stderr}`);
+      writeErrorOutputAndThrow(outputFilePath, result.stderr);
     },
-    inputFilePath,
-    outputFilePath
-  );
+    onTimeout: () => {
+      record('TLE', `Time Limit Exceeded after ${timeout}ms`);
+      writeTimeoutOutputAndThrow(outputFilePath, timeout);
+    },
+    onMemoryExceeded: () => {
+      record('MLE', `Memory Limit Exceeded (${memoryLimitMB} MB)`);
+      writeMemoryOutputAndThrow(outputFilePath, memoryLimitMB);
+    },
+  };
+
+  if (io.inputFile === undefined && io.outputFile === undefined) {
+    await executor.executeWithRedirect(
+      compiledPath,
+      options,
+      inputFilePath,
+      outputFilePath
+    );
+    record('OK', '');
+    return;
+  }
+
+  // File input/output: run in a new temp folder, so the solution's files never
+  // land in the problem folder and no file is left from an earlier test.
+  // The solution's working folder is `work/`; the empty stdin and the
+  // thrown-away stdout live next to it, so they never clash with its files.
+  const runDir = fs.mkdtempSync(path.join(os.tmpdir(), 'polyman-run-'));
+  try {
+    const workDir = path.join(runDir, 'work');
+    fs.mkdirSync(workDir);
+
+    let stdinPath = inputFilePath;
+    if (io.inputFile !== undefined) {
+      fs.copyFileSync(inputFilePath, path.join(workDir, io.inputFile));
+      stdinPath = path.join(runDir, 'stdin.txt');
+      fs.writeFileSync(stdinPath, '');
+    }
+    const stdoutPath =
+      io.outputFile !== undefined
+        ? path.join(runDir, 'stdout.txt')
+        : outputFilePath;
+
+    await executor.executeWithRedirect(
+      compiledPath,
+      { ...options, cwd: workDir },
+      stdinPath,
+      stdoutPath
+    );
+
+    if (io.outputFile !== undefined) {
+      const producedPath = path.join(workDir, io.outputFile);
+      if (fs.existsSync(producedPath)) {
+        fs.copyFileSync(producedPath, outputFilePath);
+      } else {
+        fs.writeFileSync(outputFilePath, '');
+      }
+    }
+  } finally {
+    removeRunDirectory(runDir);
+  }
   record('OK', '');
 }
 
@@ -441,9 +588,16 @@ function ensureOutputDirectory(
 /**
  * Compiles a solution based on file extension.
  * Supports C++ (.cpp), Python (.py), and Java (.java).
+ * C++ is compiled with `-DONLINE_JUDGE`, like Codeforces does.
  * For interpreted languages, returns the interpreter command.
  *
+ * The C++ standard comes from, in order: a `-std=` item in
+ * `compiler.flags`, `cppStandard` in `Config.json`, the standard named in
+ * the solution's `sourceType` (`cpp.g++17` gives `c++17`), then
+ * the default `c++23`.
+ *
  * @param {string} sourcePath - Path to solution source file
+ * @param {string} [sourceType] - The solution's Polygon `sourceType`
  * @returns {Promise<void>} Resolves when compilation completes
  *
  * @throws {Error} If compilation fails
@@ -457,9 +611,15 @@ function ensureOutputDirectory(
  * await compileSolution('Solution.py')
  * // No compilation needed (interpreted)
  */
-export async function compileSolution(sourcePath: string): Promise<void> {
+export async function compileSolution(
+  sourcePath: string,
+  sourceType?: string
+): Promise<void> {
   if (isCppSource(sourcePath)) {
-    await compileCPP(sourcePath);
+    await compileCPP(sourcePath, {
+      cppStandard: resolveCppStandard(cppStandardFromSourceType(sourceType)),
+      onlineJudge: true,
+    });
     return;
   }
 
@@ -478,22 +638,45 @@ export async function compileSolution(sourcePath: string): Promise<void> {
 }
 
 /**
- * Compiles all matching solutions.
- * Compiles each solution based on file extension.
+ * Compiles all solutions, at most `limit` at a time.
+ * A compile starts only when a slot is free, so its timeout covers the time
+ * it spends compiling and not the time it waits for a CPU. Compilation order
+ * follows the order of `solutions`.
  *
  * @param {LocalSolution[]} solutions - Array of solutions to compile
+ * @param {number} [limit=os.availableParallelism()] - Most compiles running at once (at least 1)
  * @returns {Promise<void>} Resolves when all compilations complete
  *
- * @throws {Error} If any compilation fails
+ * @throws {Error} If any compilation fails; no new compile starts after that
  *
  * @example
  * await compileAllSolutions(config.solutions);
- * // Compiles all solutions in parallel
+ * // Compiles all solutions, one per CPU at a time
  */
 export async function compileAllSolutions(
-  solutions: LocalSolution[]
+  solutions: LocalSolution[],
+  limit: number = os.availableParallelism()
 ): Promise<void> {
-  await Promise.all(solutions.map(s => compileSolution(s.source)));
+  const workers = Math.max(
+    1,
+    Math.min(Math.floor(limit) || 1, solutions.length)
+  );
+  let next = 0;
+  let failed = false;
+
+  const worker = async (): Promise<void> => {
+    while (!failed && next < solutions.length) {
+      const solution = solutions[next++];
+      try {
+        await compileSolution(solution.source, solution.sourceType);
+      } catch (err) {
+        failed = true;
+        throw err;
+      }
+    }
+  };
+
+  await Promise.all(Array.from({ length: workers }, () => worker()));
 }
 
 /**
@@ -523,6 +706,7 @@ export async function runSolutionOnSingleTest(
 
   const limit = solutionTimeLimit(config, solution);
   logTimeLimitForSolution(limit);
+  const io = solutionFileIO(config);
 
   try {
     const compiledPath = getCompiledCommandToRun(solution);
@@ -536,7 +720,8 @@ export async function runSolutionOnSingleTest(
       limit.timeLimit,
       config.memoryLimit,
       testFile,
-      testsetName
+      testsetName,
+      io
     );
 
     fmt.log(`    ${fmt.dim('→')} Test ${testIndex} completed successfully`);
@@ -574,6 +759,7 @@ export async function runSolutionOnTestset(
 
   const limit = solutionTimeLimit(config, solution);
   logTimeLimitForSolution(limit);
+  const io = solutionFileIO(config);
 
   try {
     const compiledPath = getCompiledCommandToRun(solution);
@@ -593,7 +779,8 @@ export async function runSolutionOnTestset(
           limit.timeLimit,
           config.memoryLimit,
           testFile,
-          testsetName
+          testsetName,
+          io
         );
       } catch (error) {
         const message =
@@ -657,6 +844,7 @@ export async function runSolutionOnGroup(
 
   const limit = solutionTimeLimit(config, solution);
   logTimeLimitForSolution(limit);
+  const io = solutionFileIO(config);
 
   try {
     const compiledPath = getCompiledCommandToRun(solution);
@@ -680,6 +868,7 @@ export async function runSolutionOnGroup(
           config.memoryLimit,
           testFile,
           testset.name,
+          io,
           groupName
         );
       } catch (error) {
@@ -770,7 +959,7 @@ export async function runSolutionOnAllTestsets(
  * @example
  * // From actions.ts testWhat command
  * await testSolutionAgainstMainCorrect('wa-solution');
- * // Validates that wa-solution gets WA on at least one test
+ * // Validates that wa-solution gets WA or PE on at least one test
  */
 export async function testSolutionAgainstMainCorrect(solutionName: string) {
   try {
@@ -952,6 +1141,7 @@ export async function startTheComparisonProcess(
   try {
     const compiledCheckerPath = getCompiledCommandToRun(checker);
     const verdictTracker = createVerdictTracker();
+    await ensureMainPrintedOutput(mainSolution, targetSolution, testsets);
 
     for (const testset of testsets) {
       const mainOutputDir = ensureOutputDirectory(
@@ -998,17 +1188,22 @@ export async function startTheComparisonProcess(
             ''
           );
         } catch (error) {
+          if (error instanceof LimitExceededError) throw error;
           const msg = error instanceof Error ? error.message : String(error);
           logError(`${testFile} in testset ${testset.name}: ${msg}`, 4);
+          const isPE = error instanceof PresentationError;
           report.updateTestVerdict(
             targetSolution,
             testset.name,
             parseTestIndex(testFile),
-            'WA',
+            isPE ? 'PE' : 'WA',
             msg
           );
-          verdictTracker.didWA = true;
-          break;
+          if (isPE) {
+            verdictTracker.didPE = true;
+          } else {
+            verdictTracker.didWA = true;
+          }
         }
       }
     }
@@ -1178,6 +1373,129 @@ function validateMainSolutionOutput(firstLine: string, testFile: string) {
   }
 }
 
+/** Chunk size used when scanning an output file for a non-blank character. */
+const BLANK_SCAN_CHUNK_BYTES = 64 * 1024;
+
+/**
+ * Whether an output file holds nothing but whitespace. Reads the first line
+ * first, so a normal output is not read in full. When the first line is
+ * blank, the file is scanned in 64 KB chunks and the scan stops at the first
+ * non-whitespace character, so a huge output never has to fit in a string.
+ * Whitespace is what `String.prototype.trim` treats as whitespace.
+ *
+ * @private
+ * @param {string} filePath - Output file to check
+ * @returns {Promise<boolean>} True if the file is empty or only whitespace
+ */
+async function isBlankOutput(filePath: string): Promise<boolean> {
+  if ((await readFirstLine(filePath)).trim() !== '') return false;
+
+  const handle = await fs.promises.open(filePath, 'r');
+  try {
+    const buffer = Buffer.alloc(BLANK_SCAN_CHUNK_BYTES);
+    // A decoder keeps a multi-byte character split across two chunks intact.
+    const decoder = new StringDecoder('utf8');
+    for (;;) {
+      const { bytesRead } = await handle.read(
+        buffer,
+        0,
+        BLANK_SCAN_CHUNK_BYTES,
+        null
+      );
+      if (bytesRead === 0) return decoder.end().trim() === '';
+      if (decoder.write(buffer.subarray(0, bytesRead)).trim() !== '') {
+        return false;
+      }
+    }
+  } finally {
+    await handle.close();
+  }
+}
+
+/**
+ * Fails when the main solution printed nothing on every test while the
+ * target solution printed an answer on at least one test. This is what a
+ * broken build looks like (for example a main that writes to a file under
+ * `#ifndef ONLINE_JUDGE`): the main output is the answer file for the
+ * checker, so every other solution would get a wrong verdict instead.
+ * An empty answer on some tests is fine, those tests go to the checker as
+ * usual. A target output that is a TLE, MLE or RTE marker is not an answer.
+ * Runs after both solutions ran, before any test goes to the checker.
+ *
+ * @private
+ * @param {LocalSolution} mainSolution - Main correct solution
+ * @param {LocalSolution} targetSolution - Solution being checked
+ * @param {LocalTestset[]} testsets - Testsets to look at
+ *
+ * @throws {Error} If the main output is blank on every test and the target
+ *   printed an answer on some test
+ *
+ * @example
+ * await ensureMainPrintedOutput(main, other, config.testsets);
+ */
+async function ensureMainPrintedOutput(
+  mainSolution: LocalSolution,
+  targetSolution: LocalSolution,
+  testsets: LocalTestset[]
+): Promise<void> {
+  let testCount = 0;
+  let targetAnsweredOn: string | undefined;
+
+  for (const testset of testsets) {
+    const mainOutputDir = ensureOutputDirectory(
+      mainSolution.name,
+      testset.name
+    );
+    const targetOutputDir = ensureOutputDirectory(
+      targetSolution.name,
+      testset.name
+    );
+    const testsDir = path.resolve(process.cwd(), 'testsets', testset.name);
+
+    for (const testFile of getTestFiles(testsDir)) {
+      const mainOutputPath = path.join(mainOutputDir, `output_${testFile}`);
+      // A missing main output is not "nothing printed", the per-test checks
+      // report it.
+      if (!fs.existsSync(mainOutputPath)) return;
+      if (!(await isBlankOutput(mainOutputPath))) return;
+      testCount++;
+
+      const targetOutputPath = path.join(targetOutputDir, `output_${testFile}`);
+      if (
+        targetAnsweredOn === undefined &&
+        (await printedAnswer(targetOutputPath))
+      ) {
+        targetAnsweredOn = `test ${testFile} in testset ${testset.name}`;
+      }
+    }
+  }
+
+  if (targetAnsweredOn === undefined) return;
+
+  throw new Error(
+    `Main solution "${mainSolution.name}" printed nothing on every test ` +
+      `(${testCount} in total), but "${targetSolution.name}" printed output ` +
+      `(first on ${targetAnsweredOn}). The main output is the answer for ` +
+      'the checker, so this is likely a build or flag problem: check that ' +
+      'the main writes its answer to stdout and not to a file ' +
+      '(for example freopen under #ifndef ONLINE_JUDGE).'
+  );
+}
+
+/**
+ * Whether a solution output file holds a real answer: it exists, it is not
+ * blank, and it is not a TLE, MLE or RTE marker written by polyman.
+ *
+ * @private
+ * @param {string} filePath - Output file to check
+ * @returns {Promise<boolean>} True if the file holds an answer
+ */
+async function printedAnswer(filePath: string): Promise<boolean> {
+  if (!fs.existsSync(filePath)) return false;
+  if (shouldSkipCheckerComparison(await readFirstLine(filePath))) return false;
+  return !(await isBlankOutput(filePath));
+}
+
 /**
  * Validates target solution output against expected solution tag.
  * Updates verdict tracker and throws if behavior doesn't match tag.
@@ -1238,7 +1556,8 @@ function shouldSkipCheckerComparison(firstLine: string): boolean {
  * @throws {Error} If TLE observed but solution not marked with TL/TO tag
  * @throws {Error} If MLE observed but solution not marked with ML tag
  * @throws {Error} If RTE observed but solution not marked with RE/RJ tag
- * @throws {Error} If WA observed but solution not marked with WA/RJ tag
+ * @throws {Error} If WA or PE observed but solution not marked with WA/PE/RJ tag
+ * @throws {Error} If PE solution didn't get a presentation error on any test
  * @throws {Error} If no errors but solution marked as RJ
  * @throws {Error} If TL solution didn't timeout on any test
  * @throws {Error} If ML solution didn't exceed memory on any test
@@ -1278,6 +1597,14 @@ function validateExpectedVerdicts(
     }
   }
 
+  if (verdictTracker.didPE) {
+    if (!isWATag(targetSolution.tag)) {
+      throw new Error(
+        `Solution ${fmt.highlight(targetSolution.name)} marked as ${fmt.highlight(targetSolution.tag)} but got ${fmt.bold('Presentation Error')} on some tests`
+      );
+    }
+  }
+
   if (verdictTracker.didWA) {
     if (!isWATag(targetSolution.tag)) {
       throw new Error(
@@ -1297,9 +1624,23 @@ function validateExpectedVerdicts(
     );
   }
 
-  if (targetSolution.tag === 'WA' && !verdictTracker.didWA) {
+  if (
+    targetSolution.tag === 'WA' &&
+    !verdictTracker.didWA &&
+    !verdictTracker.didPE
+  ) {
     throw new Error(
-      `Solution ${fmt.highlight(targetSolution.name)} marked as ${fmt.highlight(targetSolution.tag)} but did not get ${fmt.bold('Wrong Answer')} on any test`
+      `Solution ${fmt.highlight(targetSolution.name)} marked as ${fmt.highlight(targetSolution.tag)} but did not get ${fmt.bold('Wrong Answer')} or ${fmt.bold('Presentation Error')} on any test`
+    );
+  }
+  if (targetSolution.tag === 'PE' && !verdictTracker.didPE) {
+    throw new Error(
+      `Solution ${fmt.highlight(targetSolution.name)} marked as ${fmt.highlight(targetSolution.tag)} but did not get ${fmt.bold('Presentation Error')} on any test`
+    );
+  }
+  if (targetSolution.tag === 'RE' && !verdictTracker.didRTE) {
+    throw new Error(
+      `Solution ${fmt.highlight(targetSolution.name)} marked as ${fmt.highlight(targetSolution.tag)} but did not get ${fmt.bold('Runtime Error')} on any test`
     );
   }
   if (
@@ -1307,7 +1648,8 @@ function validateExpectedVerdicts(
     !verdictTracker.didTLE &&
     !verdictTracker.didMLE &&
     !verdictTracker.didRTE &&
-    !verdictTracker.didWA
+    !verdictTracker.didWA &&
+    !verdictTracker.didPE
   ) {
     throw new Error(
       `Solution ${fmt.highlight(targetSolution.name)} marked as ${fmt.highlight(targetSolution.tag)} but passed all tests correctly`

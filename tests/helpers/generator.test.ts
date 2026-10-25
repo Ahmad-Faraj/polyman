@@ -1,8 +1,12 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as generator from '../../src/helpers/generator';
 import { executor } from '../../src/executor';
 import * as utils from '../../src/helpers/utils';
+import { LimitExceededError, PolymanError } from '../../src/errors';
 import fs from 'fs';
+import path from 'path';
+import { fmt } from '../../src/formatter';
+import { report } from '../../src/report';
 import type {
   LocalGenerator,
   LocalTestset,
@@ -45,8 +49,39 @@ vi.mock('../../src/formatter', () => ({
 
 vi.mock('fs');
 
+// `fmt.error` as a typed mock, taken from the mocked formatter module.
+const fmtError = () => vi.mocked(fmt)['error'];
+
 beforeEach(() => {
   vi.clearAllMocks();
+});
+
+async function errorOf(promise: Promise<unknown>): Promise<unknown> {
+  try {
+    await promise;
+  } catch (error) {
+    return error;
+  }
+  return undefined;
+}
+
+function exitCodeOf(fn: () => unknown): unknown {
+  try {
+    fn();
+  } catch (error) {
+    return error instanceof PolymanError ? error.exitCode : error;
+  }
+  return undefined;
+}
+
+const genTest = (index: number, multi: number[] | null): ResolvedTest => ({
+  index,
+  source: {
+    kind: 'generator',
+    generator: 'gen',
+    args: [],
+    multiOutputs: multi,
+  },
 });
 
 describe('ensureGeneratorsExist', () => {
@@ -55,6 +90,11 @@ describe('ensureGeneratorsExist', () => {
       /No test generators/
     );
     expect(() => generator.ensureGeneratorsExist([])).toThrow();
+  });
+  it('reports a missing generators config as a usage error (code 2)', () => {
+    expect(exitCodeOf(() => generator.ensureGeneratorsExist(undefined))).toBe(
+      2
+    );
   });
   it('passes on non-empty', () => {
     expect(() =>
@@ -68,6 +108,14 @@ describe('compileGenerator', () => {
     await expect(
       generator.compileGenerator({ name: 'g', source: '' })
     ).rejects.toThrow(/no source file/);
+  });
+
+  it('reports a generator without a source as a usage error (code 2)', async () => {
+    const error = await errorOf(
+      generator.compileGenerator({ name: 'g', source: '' })
+    );
+    expect(error).toBeInstanceOf(PolymanError);
+    expect((error as PolymanError).exitCode).toBe(2);
   });
 
   it('compiles via compileCPP', async () => {
@@ -138,6 +186,9 @@ describe('compileGeneratorsForTests', () => {
     await expect(
       generator.compileGeneratorsForTests(tests, [])
     ).rejects.toThrow(/"missing" not found/);
+    const error = await errorOf(generator.compileGeneratorsForTests(tests, []));
+    expect(error).toBeInstanceOf(PolymanError);
+    expect((error as PolymanError).exitCode).toBe(2);
   });
 });
 
@@ -155,6 +206,28 @@ describe('compileGeneratorsForTestsets', () => {
     expect(utils.compileCPP).toHaveBeenCalledTimes(2);
   });
 
+  it('refuses a scriptFile outside the problem folder', async () => {
+    // compileGeneratorsForTestsets passes no baseDir, so the guard resolves
+    // against the cwd.
+    await expect(
+      generator.compileGeneratorsForTestsets(
+        [{ name: 'a', generatorScript: { scriptFile: '../x.txt' } }],
+        [{ name: 'gen', source: 'gen.cpp' }]
+      )
+    ).rejects.toThrow(/outside the problem folder/);
+    expect(utils.compileCPP).not.toHaveBeenCalled();
+  });
+
+  it('reads an in-folder scriptFile', async () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue('gen 1 > 1');
+    await generator.compileGeneratorsForTestsets(
+      [{ name: 'a', generatorScript: { scriptFile: 'scripts/a.txt' } }],
+      [{ name: 'gen', source: 'gen.cpp' }]
+    );
+    expect(utils.compileCPP).toHaveBeenCalledWith('gen.cpp');
+  });
+
   it('throws when a script references an undefined generator', async () => {
     await expect(
       generator.compileGeneratorsForTestsets(
@@ -162,6 +235,13 @@ describe('compileGeneratorsForTestsets', () => {
         []
       )
     ).rejects.toThrow(/"unknown" not found/);
+    const error = await errorOf(
+      generator.compileGeneratorsForTestsets(
+        [{ name: 'a', generatorScript: { script: 'unknown 1 > 1' } }],
+        []
+      )
+    );
+    expect((error as PolymanError).exitCode).toBe(2);
   });
 });
 
@@ -265,6 +345,331 @@ describe('executeResolvedTests', () => {
     await expect(
       generator.executeResolvedTests(tests, [], '/out')
     ).rejects.toThrow(/Some tests failed/);
+    const error = await errorOf(
+      generator.executeResolvedTests(tests, [], '/out')
+    );
+    expect(error).toBeInstanceOf(PolymanError);
+    expect((error as PolymanError).exitCode).toBe(1);
+  });
+
+  describe('limits', () => {
+    const redirect = () =>
+      vi.mocked(
+        (
+          executor as {
+            executeWithRedirect: typeof executor.executeWithRedirect;
+          }
+        ).executeWithRedirect
+      );
+    const execute = () =>
+      vi.mocked((executor as { execute: typeof executor.execute }).execute);
+    const okResult = { stdout: '', stderr: '', exitCode: 0, success: true };
+
+    it.each([
+      ['onTimeout', /Exceeded Time Limit/, /time limit/],
+      ['onMemoryExceeded', /Exceeded Memory Limit/, /memory limit/],
+    ] as const)(
+      'a single-output generator %s throws a PolymanError with code 1',
+      async (callback, printed, message) => {
+        const exitSpy = vi
+          .spyOn(process, 'exit')
+          .mockImplementation((() => undefined) as never);
+        redirect().mockImplementation((_cmd, options) => {
+          options[callback]?.(okResult);
+          return Promise.resolve(okResult);
+        });
+
+        const error = await errorOf(
+          generator.executeResolvedTests(
+            [genTest(1, null)],
+            [{ name: 'gen', source: 'gen.cpp' }],
+            '/out'
+          )
+        );
+
+        expect(error).toBeInstanceOf(LimitExceededError);
+        expect((error as PolymanError).exitCode).toBe(1);
+        expect((error as PolymanError).message).toMatch(message);
+        expect(fmtError()).toHaveBeenCalledWith(expect.stringMatching(printed));
+        expect(vi.mocked(executor)['cleanup']).toHaveBeenCalled();
+        expect(exitSpy).not.toHaveBeenCalled();
+        exitSpy.mockRestore();
+      }
+    );
+
+    it.each(['onTimeout', 'onMemoryExceeded'] as const)(
+      'a multi-output generator %s throws a PolymanError with code 1',
+      async callback => {
+        const exitSpy = vi
+          .spyOn(process, 'exit')
+          .mockImplementation((() => undefined) as never);
+        execute().mockImplementation((_cmd, options) => {
+          options[callback]?.(okResult);
+          return Promise.resolve(okResult);
+        });
+
+        const error = await errorOf(
+          generator.executeResolvedTests(
+            [genTest(1, [1, 2])],
+            [{ name: 'gen', source: 'gen.cpp' }],
+            '/out'
+          )
+        );
+
+        expect(error).toBeInstanceOf(LimitExceededError);
+        expect((error as PolymanError).exitCode).toBe(1);
+        expect(exitSpy).not.toHaveBeenCalled();
+        exitSpy.mockRestore();
+      }
+    );
+
+    it('stops at the first limit hit instead of counting it as a failed test', async () => {
+      redirect().mockImplementation((_cmd, options) => {
+        options.onTimeout?.(okResult);
+        return Promise.resolve(okResult);
+      });
+
+      const error = await errorOf(
+        generator.executeResolvedTests(
+          [genTest(1, null), genTest(2, null)],
+          [{ name: 'gen', source: 'gen.cpp' }],
+          '/out'
+        )
+      );
+
+      expect(error).toBeInstanceOf(LimitExceededError);
+      expect(redirect()).toHaveBeenCalledTimes(1);
+    });
+  });
+});
+
+describe('executeResolvedTests records each test for generate --json', () => {
+  const okResult = { stdout: '', stderr: '', exitCode: 0, success: true };
+  const gens: LocalGenerator[] = [{ name: 'gen', source: 'gen.cpp' }];
+  const redirect = () =>
+    vi.mocked(
+      (executor as { executeWithRedirect: typeof executor.executeWithRedirect })
+        .executeWithRedirect
+    );
+  const execute = () =>
+    vi.mocked((executor as { execute: typeof executor.execute }).execute);
+  let recordSpy: ReturnType<
+    typeof vi.spyOn<typeof report, 'recordGeneratedTest'>
+  >;
+  const recorded = () => recordSpy.mock.calls.map(call => call[0]);
+
+  beforeEach(() => {
+    recordSpy = vi
+      .spyOn(report, 'recordGeneratedTest')
+      .mockImplementation(() => {});
+    Object.defineProperty(fs, 'promises', {
+      configurable: true,
+      value: { copyFile: vi.fn().mockResolvedValue(undefined) },
+    });
+  });
+
+  afterEach(() => {
+    recordSpy.mockRestore();
+  });
+
+  it('records manual and generated tests with their source', async () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    redirect().mockResolvedValue(okResult);
+    const tests: ResolvedTest[] = [
+      { index: 1, source: { kind: 'manual', inputFile: './m.in' } },
+      {
+        index: 2,
+        source: {
+          kind: 'generator',
+          generator: 'gen',
+          args: ['5', 'x'],
+          multiOutputs: null,
+        },
+      },
+    ];
+
+    await generator.executeResolvedTests(tests, gens, '/out/x', 'main');
+
+    expect(recorded()).toEqual([
+      { testset: 'main', index: 1, source: 'manual', ok: true },
+      {
+        testset: 'main',
+        index: 2,
+        source: 'generator',
+        generator: 'gen',
+        args: ['5', 'x'],
+        ok: true,
+      },
+    ]);
+  });
+
+  it('uses the output directory name when no testset name is given', async () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    await generator.executeResolvedTests(
+      [{ index: 1, source: { kind: 'manual', inputFile: './m.in' } }],
+      [],
+      path.join('/p', 'testsets', 'tests')
+    );
+    expect(recorded()[0]).toMatchObject({ testset: 'tests', index: 1 });
+  });
+
+  it('records failed tests with the error and keeps going', async () => {
+    vi.mocked(fs.existsSync).mockReturnValue(false);
+    redirect().mockRejectedValueOnce(new Error('generator crashed'));
+    const tests: ResolvedTest[] = [
+      { index: 1, source: { kind: 'manual', inputFile: './m.in' } },
+      genTest(2, null),
+    ];
+
+    await expect(
+      generator.executeResolvedTests(tests, gens, '/out', 'main')
+    ).rejects.toThrow(/Some tests failed/);
+
+    expect(recorded()).toEqual([
+      {
+        testset: 'main',
+        index: 1,
+        source: 'manual',
+        ok: false,
+        error: 'Manual test file not found: ./m.in',
+      },
+      {
+        testset: 'main',
+        index: 2,
+        source: 'generator',
+        generator: 'gen',
+        args: [],
+        ok: false,
+        error: 'generator crashed',
+      },
+    ]);
+  });
+
+  it('records every test of a multi-output line that ran once', async () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    execute().mockResolvedValue(okResult);
+
+    await generator.executeResolvedTests(
+      [genTest(1, [1, 2]), genTest(2, [1, 2])],
+      gens,
+      '/out',
+      'main'
+    );
+
+    expect(execute()).toHaveBeenCalledTimes(1);
+    expect(recorded().map(t => [t.index, t.ok])).toEqual([
+      [1, true],
+      [2, true],
+    ]);
+  });
+
+  it('marks only the tests of a failed multi-output line whose file was not written', async () => {
+    const written = path.join('/out', 'test1.txt');
+    vi.mocked(fs.existsSync).mockImplementation(p => p === written);
+    execute().mockResolvedValueOnce(okResult);
+
+    await expect(
+      generator.executeResolvedTests(
+        [genTest(1, [1, 2]), genTest(2, [1, 2])],
+        gens,
+        '/out',
+        'main'
+      )
+    ).rejects.toThrow(/Some tests failed/);
+
+    expect(execute()).toHaveBeenCalledTimes(1);
+    const results = recorded();
+    expect(results.map(t => [t.index, t.ok])).toEqual([
+      [1, true],
+      [2, false],
+    ]);
+    expect(results[0].error).toBeUndefined();
+    expect(results[1].error).toMatch(/did not produce a file for index 2/);
+  });
+
+  // A tiny in-memory folder: `fs` is mocked, so existsSync, rmSync and
+  // renameSync work on this set of paths.
+  function fakeFolder(files: string[]): Set<string> {
+    const folder = new Set(files.map(f => path.join('/out', f)));
+    vi.mocked(fs.existsSync).mockImplementation(p => folder.has(String(p)));
+    vi.mocked(fs.rmSync).mockImplementation(p => {
+      folder.delete(String(p));
+    });
+    vi.mocked(fs.renameSync).mockImplementation((from, to) => {
+      folder.delete(String(from));
+      folder.add(String(to));
+    });
+    return folder;
+  }
+
+  it('does not count a stale test file from an earlier run on a failed multi-output line', async () => {
+    const folder = fakeFolder(['test2.txt']);
+    execute().mockImplementationOnce(() => {
+      folder.add(path.join('/out', 'test1.txt'));
+      return Promise.reject(new Error('crashed after test 1'));
+    });
+
+    await expect(
+      generator.executeResolvedTests(
+        [genTest(1, [1, 2]), genTest(2, [1, 2])],
+        gens,
+        '/out',
+        'main'
+      )
+    ).rejects.toThrow(/Some tests failed/);
+
+    expect(recorded().map(t => [t.index, t.ok, t.error])).toEqual([
+      [1, true, undefined],
+      [2, false, 'crashed after test 1'],
+    ]);
+  });
+
+  it('does not accept a stale file from an earlier run when the multi-output line exits 0', async () => {
+    const folder = fakeFolder(['test2.txt', '3']);
+    execute().mockImplementationOnce(() => {
+      folder.add(path.join('/out', 'test1.txt'));
+      folder.add(path.join('/out', 'test3.txt'));
+      return Promise.resolve(okResult);
+    });
+
+    await expect(
+      generator.executeResolvedTests(
+        [genTest(1, [1, 2, 3]), genTest(2, [1, 2, 3]), genTest(3, [1, 2, 3])],
+        gens,
+        '/out',
+        'main'
+      )
+    ).rejects.toThrow(/Some tests failed/);
+
+    const results = recorded();
+    expect(results.map(t => [t.index, t.ok])).toEqual([
+      [1, true],
+      [2, false],
+      [3, true],
+    ]);
+    expect(results[1].error).toMatch(/did not produce a file for index 2/);
+    // The stale `3` is gone, so it was not renamed over the new test3.txt.
+    expect(fs.renameSync).not.toHaveBeenCalled();
+  });
+
+  it('gives every test of a failed multi-output line the same error', async () => {
+    vi.mocked(fs.existsSync).mockReturnValue(false);
+    execute().mockRejectedValueOnce(new Error('bad line'));
+
+    await expect(
+      generator.executeResolvedTests(
+        [genTest(1, [1, 2]), genTest(2, [1, 2])],
+        gens,
+        '/out',
+        'main'
+      )
+    ).rejects.toThrow(/Some tests failed/);
+
+    expect(execute()).toHaveBeenCalledTimes(1);
+    expect(recorded().map(t => [t.index, t.ok, t.error])).toEqual([
+      [1, false, 'bad line'],
+      [2, false, 'bad line'],
+    ]);
   });
 });
 
@@ -281,6 +686,39 @@ describe('resolveTestsetTests', () => {
     ]);
     expect(result.map(t => t.index)).toEqual([1, 2, 3]);
     expect(result[0].source.kind).toBe('manual');
+  });
+
+  it('refuses a scriptFile outside the problem folder', () => {
+    const ts: LocalTestset = {
+      name: 'main',
+      generatorScript: { scriptFile: '../x.txt' },
+    };
+    expect(() =>
+      generator.resolveTestsetTests(
+        ts,
+        [{ name: 'gen', source: 'gen.cpp' }],
+        '/problem'
+      )
+    ).toThrow(/outside the problem folder/);
+  });
+
+  it('resolves an in-folder scriptFile against baseDir', () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue('gen 1 > 1');
+    const ts: LocalTestset = {
+      name: 'main',
+      generatorScript: { scriptFile: 'scripts/a.txt' },
+    };
+    const result = generator.resolveTestsetTests(
+      ts,
+      [{ name: 'gen', source: 'gen.cpp' }],
+      '/problem'
+    );
+    expect(result.map(t => t.index)).toEqual([1]);
+    expect(fs.readFileSync).toHaveBeenCalledWith(
+      path.resolve('/problem', 'scripts/a.txt'),
+      'utf-8'
+    );
   });
 
   it('throws when the script references an undefined generator', () => {

@@ -58,7 +58,7 @@ Windows uses backslashes (`\`) for file paths, while Unix-based systems use forw
 
 ### Solutions, Validators, Generators, and Checkers That Exceed The Time Limit:
 
-I had a hard time trying to ensure the proper cleanup of the processes terminated duo to time limit exceeded on Windows,
+I had a hard time trying to ensure the proper cleanup of the processes terminated due to time limit exceeded on Windows,
 Most of the time, you will find that the processes are not being killed properly, leading to resource leaks and other unexpected behavior.
 
 That is most of the time you will recive that error saying something like:

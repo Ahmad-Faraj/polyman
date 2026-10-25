@@ -74,7 +74,7 @@ The file's first line is one of:
 ## Prerequisites
 
 - `testsets/<testset>/` must already contain the inputs. Run `polyman generate --all` first.
-- The solution's `sourceType` must match the file extension (`.cpp` ↔ `cpp.g++17`, `.java` ↔ `java.11`, `.py` ↔ `python.3`).
+- The solution's `sourceType` must match the file extension (`.cpp` ↔ `cpp.g++17`, `.java` ↔ `java21`, `.py` ↔ `python.3`).
 
 ## When to run
 

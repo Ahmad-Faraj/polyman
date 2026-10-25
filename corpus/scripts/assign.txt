@@ -1,0 +1,2 @@
+<#assign n = 7>
+gen ${n} > $

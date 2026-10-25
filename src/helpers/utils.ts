@@ -3,16 +3,19 @@
  * Provides cross-language compilation, test filtering, config reading, and directory management.
  */
 
+import { spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { executor } from '../executor';
 import { fmt } from '../formatter';
+import { PolymanError } from '../errors';
 import { quoteShellArgument } from './shell';
-import { cachedCompile } from './compile-cache';
+import { cachedCompile, debugLog } from './compile-cache';
 import {
   findPrebuiltTestlib,
   markPrebuiltTestlibUnsupported,
 } from './prebuilt-testlib';
+import { findPch, markPchUnsupported } from './pch';
 import ConfigFile, {
   CompilerConfig,
   LocalChecker,
@@ -23,6 +26,24 @@ import ConfigFile, {
 
 /** Default compilation timeout in milliseconds */
 export const DEFAULT_TIMEOUT = 10000;
+
+/**
+ * Reads a compile time limit from the environment: a positive whole number of
+ * milliseconds, or the default for anything else.
+ */
+export function compileTimeoutFrom(raw: string | undefined): number {
+  const ms = Number(raw);
+  return Number.isInteger(ms) && ms > 0 ? ms : DEFAULT_TIMEOUT;
+}
+
+/**
+ * Time limit for compiling a C++ or Java source. POLYMAN_COMPILE_TIMEOUT_MS
+ * raises it where compiling is slow, such as a busy or sandboxed machine (the
+ * verify web service sets it); otherwise it is {@link DEFAULT_TIMEOUT}.
+ */
+export const COMPILE_TIMEOUT = compileTimeoutFrom(
+  process.env['POLYMAN_COMPILE_TIMEOUT_MS']
+);
 
 /** Default memory limit in megabytes */
 export const DEFAULT_MEMORY_LIMIT = 1024;
@@ -56,6 +77,13 @@ const COMPILER_CONFIG_KEYS = ['cpp', 'javac', 'flags'] as const;
 const DEFAULT_OPTIMIZATION_FLAG = '-O2';
 
 /**
+ * Macro defined for solutions, like Codeforces does. Without it a solution
+ * with `#ifndef ONLINE_JUDGE freopen(...) #endif` writes to a file instead
+ * of stdout.
+ */
+export const ONLINE_JUDGE_FLAG = '-DONLINE_JUDGE';
+
+/**
  * Checks the optional `compiler` block of `Config.json`. A missing block is
  * fine; anything else must be an object with only `cpp`, `javac` and `flags`,
  * where `cpp` and `javac` are non-blank strings and `flags` is an array of
@@ -74,19 +102,21 @@ export function validateCompilerConfig(value: unknown): CompilerConfig {
   if (value === undefined) return {};
 
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new Error(
+    throw new PolymanError(
       `Invalid compiler in Config.json: ${JSON.stringify(value)} ` +
-        `(expected an object like { "cpp": "g++-15" })`
+        `(expected an object like { "cpp": "g++-15" })`,
+      2
     );
   }
 
   for (const [key, field] of Object.entries(value)) {
     if (key === 'cpp' || key === 'javac') {
       if (typeof field !== 'string' || field.trim() === '') {
-        throw new Error(
+        throw new PolymanError(
           `Invalid compiler.${key} in Config.json: ${JSON.stringify(field)} ` +
             `(expected an executable name or path, like ` +
-            `${key === 'cpp' ? '"g++-15"' : '"/usr/lib/jvm/java-21/bin/javac"'})`
+            `${key === 'cpp' ? '"g++-15"' : '"/usr/lib/jvm/java-21/bin/javac"'})`,
+          2
         );
       }
     } else if (key === 'flags') {
@@ -94,15 +124,17 @@ export function validateCompilerConfig(value: unknown): CompilerConfig {
         !Array.isArray(field) ||
         field.some(flag => typeof flag !== 'string' || flag.trim() === '')
       ) {
-        throw new Error(
+        throw new PolymanError(
           `Invalid compiler.flags in Config.json: ${JSON.stringify(field)} ` +
-            `(expected an array with one flag per item, like ["-Wall", "-std=c++20"])`
+            `(expected an array with one flag per item, like ["-Wall", "-std=c++20"])`,
+          2
         );
       }
     } else {
-      throw new Error(
+      throw new PolymanError(
         `Unknown key in compiler: ${JSON.stringify(key)} ` +
-          `(allowed keys: ${COMPILER_CONFIG_KEYS.join(', ')})`
+          `(allowed keys: ${COMPILER_CONFIG_KEYS.join(', ')})`,
+        2
       );
     }
   }
@@ -169,10 +201,13 @@ export function resolveCppCompiler(
  *   - a `-std=` (or `--std=`) flag replaces `-std=<cppStandard>`,
  *   - an `-O` flag (`-O0`, `-O3`, `-Ofast`, ...) replaces `-O2`.
  * So the command never has two different `-std=` or `-O` flags.
+ * With `onlineJudge` (solutions only), `-DONLINE_JUDGE` is added after the
+ * standard, unless `compiler.flags` already defines `ONLINE_JUDGE`.
  *
  * @param {Object} [options] - Compilation overrides
  * @param {string} [options.cppStandard] - Standard to use instead of the one
  *   from `Config.json`
+ * @param {boolean} [options.onlineJudge] - Define `ONLINE_JUDGE`
  * @param {CompilerConfig} [config] - Checked `compiler` block; read from
  *   `Config.json` when omitted
  * @returns {string[]} Flags in order (not shell-quoted)
@@ -186,9 +221,12 @@ export function resolveCppCompiler(
  * @example
  * // Config.json: { "compiler": { "flags": ["-O0", "-std=gnu++17"] } }
  * resolveCppFlags(); // ['-O0', '-std=gnu++17']
+ *
+ * @example
+ * resolveCppFlags({ onlineJudge: true }); // ['-O2', '-std=c++23', '-DONLINE_JUDGE']
  */
 export function resolveCppFlags(
-  options: { cppStandard?: string } = {},
+  options: { cppStandard?: string; onlineJudge?: boolean } = {},
   config: CompilerConfig = readCompilerConfig()
 ): string[] {
   const cppStandard = options.cppStandard ?? resolveCppStandard();
@@ -197,10 +235,14 @@ export function resolveCppFlags(
     flag => flag.startsWith('-std=') || flag.startsWith('--std=')
   );
   const hasOptimization = extra.some(flag => flag.startsWith('-O'));
+  const addOnlineJudge =
+    options.onlineJudge === true &&
+    !extra.some(flag => /^-D\s*ONLINE_JUDGE(=|$)/.test(flag));
 
   return [
     ...(hasOptimization ? [] : [DEFAULT_OPTIMIZATION_FLAG]),
     ...(hasStandard ? [] : [`-std=${cppStandard}`]),
+    ...(addOnlineJudge ? [ONLINE_JUDGE_FLAG] : []),
     ...extra,
   ];
 }
@@ -275,11 +317,34 @@ export function stripCppExtension(filePath: string): string {
 }
 
 /**
+ * Reads the C++ standard named in a Polygon `sourceType`, for example
+ * `cpp.g++17` or `cpp.gcc14-64-msys2-g++23`. Types that name no standard
+ * (`cpp.ms2017`, `java21`, ...) give `undefined`.
+ *
+ * @param {string} [sourceType] - Polygon compiler identifier
+ * @returns {string | undefined} A value usable as `-std=<value>`, or
+ *   undefined when the type names no C++ standard
+ *
+ * @example
+ * cppStandardFromSourceType('cpp.g++17'); // 'c++17'
+ * cppStandardFromSourceType('cpp.clang++20'); // 'c++20'
+ * cppStandardFromSourceType('cpp.ms2019'); // undefined
+ */
+export function cppStandardFromSourceType(
+  sourceType?: string
+): string | undefined {
+  if (typeof sourceType !== 'string') return undefined;
+  const match = /^cpp\..*\+\+(\d{2})$/.exec(sourceType.trim());
+  return match ? `c++${match[1]}` : undefined;
+}
+
+/**
  * Resolves the C++ standard to compile with. Reads `cppStandard` from the
  * `Config.json` in the current directory when one exists and falls back to
- * {@link DEFAULT_CPP_STANDARD} when the file is missing, unreadable, or does
- * not set the field.
+ * `fallback` when the file is missing, unreadable, or does not set the field.
  *
+ * @param {string} [fallback=DEFAULT_CPP_STANDARD] - Standard used when
+ *   `Config.json` sets no `cppStandard`
  * @returns {string} A value usable as `-std=<value>`
  *
  * @throws {Error} If `cppStandard` is set but is not a recognised standard
@@ -288,34 +353,72 @@ export function stripCppExtension(filePath: string): string {
  * // Config.json: { "cppStandard": "c++20", ... }
  * resolveCppStandard(); // 'c++20'
  */
-export function resolveCppStandard(): string {
+export function resolveCppStandard(
+  fallback: string = DEFAULT_CPP_STANDARD
+): string {
   let configured: unknown;
   try {
     configured = readConfigFile().cppStandard;
   } catch {
-    return DEFAULT_CPP_STANDARD;
+    return fallback;
   }
 
   if (configured === undefined) {
-    return DEFAULT_CPP_STANDARD;
+    return fallback;
   }
   if (
     typeof configured !== 'string' ||
     !CPP_STANDARD_PATTERN.test(configured)
   ) {
-    throw new Error(
+    throw new PolymanError(
       `Invalid cppStandard in Config.json: ${JSON.stringify(configured)} ` +
-        `(expected something like "c++17", "c++20" or "c++23")`
+        `(expected something like "c++17", "c++20" or "c++23")`,
+      2
     );
   }
   return configured;
 }
 
 /**
+ * Flags known to read no file the compile cache does not hash. Anything else
+ * (`-I`, `-include`, `-L`, `-l`, `-specs=`, `-T`, `-Wl,...`, `@file`, object
+ * files, a flag's value given as the next item, ...) could change the binary
+ * without changing the cache key, so it disables the cache.
+ */
+const CACHE_SAFE_FLAG_PATTERNS = [
+  /^-O([0-3]|s|z|g|fast)?$/,
+  /^--?std=[a-z0-9+]+$/,
+  /^-D[A-Za-z_]\w*(=.*)?$/,
+  /^-U[A-Za-z_]\w*$/,
+  // No comma, so -Wl, -Wp, and -Wa, (pass-through to other tools) are out.
+  /^-W[a-z][a-z0-9+=-]*$/,
+  /^-w$/,
+  /^-pedantic(-errors)?$/,
+  // Named -f flags only: -fprofile-use, -fauto-profile and
+  // -fbranch-probabilities read profile data files.
+  /^-f(no-)?(omit-frame-pointer|strict-aliasing|openmp|stack-protector(-strong|-all)?|trapv|wrapv|exceptions|rtti|unroll-loops|sanitize-recover)$/,
+  /^-f(no-)?sanitize=[a-z,-]+$/,
+  /^-f(max-errors|template-depth|constexpr-depth|constexpr-steps|constexpr-ops-limit|constexpr-loop-limit)=\d+$/,
+  /^-fdiagnostics-color=(auto|always|never)$/,
+  /^-g(gdb)?[0-3]?$/,
+  /^-m[a-z0-9][a-z0-9-]*(=[a-z0-9-]+)?$/,
+  /^-(static|pthread|pipe|s)$/,
+];
+
+/**
+ * Whether a compiler flag is on {@link CACHE_SAFE_FLAG_PATTERNS}.
+ */
+function isCacheSafeFlag(flag: string): boolean {
+  return CACHE_SAFE_FLAG_PATTERNS.some(pattern => pattern.test(flag));
+}
+
+/**
  * Compiles a C++ source file.
  * The compiler executable comes from {@link resolveCppCompiler} (`POLYMAN_CXX`,
  * then `compiler.cpp`, then g++) and the flags from {@link resolveCppFlags}
- * (`-O2`, `-std=<cppStandard>` and `compiler.flags`).
+ * (`-O2`, `-std=<cppStandard>`, `-DONLINE_JUDGE` for solutions and
+ * `compiler.flags`). The flags are part of the cache key, so a solution
+ * built before `-DONLINE_JUDGE` was added is compiled again.
  * The problem root (current working directory) is added as a quoted-include
  * search path so sources in subdirectories can `#include "testlib.h"`.
  * Goes through the compilation cache: when the source, its local headers,
@@ -323,11 +426,21 @@ export function resolveCppStandard(): string {
  * and the compiler is not run. A testlib program is compiled against a
  * declarations-only testlib and linked with testlib compiled once per
  * problem (see `prebuilt-testlib.ts`), falling back to the original header.
+ * When `compiler.flags` holds a flag that is not known to be safe for the
+ * cache (see {@link CACHE_SAFE_FLAG_PATTERNS}: `-O`, `-std=`, `-D`, `-W`,
+ * `-f`, `-g`, `-m` and a few more), neither the cache nor the prebuilt
+ * testlib is used: the source is compiled in full every time.
+ * With g++ and a source that starts with `#include <bits/stdc++.h>`, the
+ * header comes precompiled, built once per compiler and flags (see
+ * `pch.ts`); any other case, or a compile that fails with it, compiles
+ * without it.
  *
  * @param {string} sourcePath - Path to the .cpp / .cc / .cxx source file
  * @param {Object} [options] - Compilation overrides
  * @param {string} [options.cppStandard] - Standard to pass as `-std=`; when
  *   omitted it is resolved from `Config.json`
+ * @param {boolean} [options.onlineJudge] - Define `ONLINE_JUDGE`; set for
+ *   solutions, not for checkers, validators and generators
  * @returns {Promise<void>} Resolves once the executable is written next to
  *   the source (same path, extension stripped)
  *
@@ -340,7 +453,7 @@ export function resolveCppStandard(): string {
  */
 export async function compileCPP(
   sourcePath: string,
-  options: { cppStandard?: string } = {}
+  options: { cppStandard?: string; onlineJudge?: boolean } = {}
 ): Promise<void> {
   const absolutePath = path.resolve(process.cwd(), sourcePath);
 
@@ -355,11 +468,16 @@ export async function compileCPP(
   const compiler = resolveCppCompiler(compilerConfig);
   const flags = resolveCppFlags(options, compilerConfig);
 
-  const command = (includeDirs: string[], objects: string[] = []) =>
+  const command = (
+    includeDirs: string[],
+    objects: string[] = [],
+    pchDirs: string[] = []
+  ) =>
     [
       quoteShellArgument(compiler),
       ...flags.map(quoteShellArgument),
       ...includeDirs.flatMap(dir => ['-iquote', quoteShellArgument(dir)]),
+      ...pchDirs.flatMap(dir => ['-I', quoteShellArgument(dir)]),
       '-o',
       quoteShellArgument(outputPath),
       // Objects first: testlib's globals are then initialized before the
@@ -369,9 +487,17 @@ export async function compileCPP(
     ].join(' ');
   const run = (compileCommand: string) =>
     executor.execute(compileCommand, {
-      timeout: DEFAULT_TIMEOUT,
+      timeout: COMPILE_TIMEOUT,
       silent: true,
     });
+
+  if (!flags.every(isCacheSafeFlag)) {
+    debugLog(
+      `pch: flags not cache-safe, normal compile: ${path.basename(absolutePath)}`
+    );
+    await run(command([process.cwd()]));
+    return;
+  }
 
   await cachedCompile(
     {
@@ -388,19 +514,39 @@ export async function compileCPP(
         compiler,
         flags,
       });
-      if (prebuilt === null) return run(command([process.cwd()]));
+      const compileOnce = async (pchDirs: string[]) => {
+        if (prebuilt === null) {
+          return run(command([process.cwd()], [], pchDirs));
+        }
+        try {
+          return await run(
+            command(
+              [prebuilt.includeDir, process.cwd()],
+              [prebuilt.objectPath],
+              pchDirs
+            )
+          );
+        } catch {
+          // Either the source has an error or the split is wrong for it;
+          // compiling against the original header tells which, and reports
+          // the error exactly as a normal compile would.
+        }
+        const result = await run(command([process.cwd()], [], pchDirs));
+        markPrebuiltTestlibUnsupported(prebuilt);
+        return result;
+      };
 
+      const pch = await findPch({ sourcePath: absolutePath, compiler, flags });
+      if (pch === null) return compileOnce([]);
       try {
-        return await run(
-          command([prebuilt.includeDir, process.cwd()], [prebuilt.objectPath])
-        );
+        return await compileOnce([pch.includeDir]);
       } catch {
-        // Either the source has an error or the split is wrong for it;
-        // compiling against the original header tells which, and reports
-        // the error exactly as a normal compile would.
+        // Same idea: without the PCH either the error stays, and is reported
+        // exactly as a normal compile reports it, or the PCH was at fault.
+        debugLog(`pch: compile failed with the PCH, retrying without it`);
       }
-      const result = await run(command([process.cwd()]));
-      markPrebuiltTestlibUnsupported(prebuilt);
+      const result = await compileOnce([]);
+      markPchUnsupported(pch);
       return result;
     }
   );
@@ -430,7 +576,7 @@ export async function compileJava(sourcePath: string): Promise<void> {
   ].join(' ');
 
   await executor.execute(compileCommand, {
-    timeout: DEFAULT_TIMEOUT,
+    timeout: COMPILE_TIMEOUT,
     silent: true,
   });
 }
@@ -471,10 +617,28 @@ export function filterTestsByRange(
 }
 
 /**
- * Gets all test files from tests directory.
- * Returns only files starting with 'test' prefix in sorted order by test number.
+ * Index of a test file name: `N` for `test<N>.txt` where `N` is a positive
+ * integer, otherwise `null`. This is the one rule for "is this a test file",
+ * so stray files such as `test1.txt.bak`, `test_notes.txt` or `test0.txt`
+ * are never treated as tests.
  *
- * @private
+ * @param {string} file - File name (not a path)
+ * @returns {number | null} The test index, or null if the name is not a test
+ *
+ * @example
+ * testFileIndex('test12.txt'); // 12
+ * testFileIndex('test1.txt.bak'); // null
+ */
+export function testFileIndex(file: string): number | null {
+  const match = /^test([1-9]\d*)\.txt$/.exec(file);
+  return match ? Number(match[1]) : null;
+}
+
+/**
+ * Gets all test files from tests directory.
+ * Returns only `test<N>.txt` files (see {@link testFileIndex}), sorted by
+ * test number, so `test2.txt` comes before `test10.txt`.
+ *
  * @param {string} testsDir - Path to tests directory
  * @returns {string[]} Array of test filenames
  *
@@ -485,12 +649,12 @@ export function filterTestsByRange(
 export function getTestFiles(testsDir: string): string[] {
   return fs
     .readdirSync(testsDir)
-    .filter(file => file.startsWith('test'))
-    .sort((a, b) => {
-      const numA = parseInt(a.replace('test', '').replace('.txt', ''));
-      const numB = parseInt(b.replace('test', '').replace('.txt', ''));
-      return numA - numB;
-    });
+    .flatMap(file => {
+      const index = testFileIndex(file);
+      return index === null ? [] : [{ file, index }];
+    })
+    .sort((a, b) => a.index - b.index)
+    .map(test => test.file);
 }
 
 /**
@@ -498,7 +662,8 @@ export function getTestFiles(testsDir: string): string[] {
  *
  * @returns {ConfigFile} Parsed configuration object
  *
- * @throws {Error} If Config.json doesn't exist or is invalid JSON
+ * @throws {PolymanError} With exit code 2 if Config.json doesn't exist or
+ *   is invalid JSON
  *
  * @example
  * const config = readConfigFile();
@@ -510,9 +675,61 @@ export function readConfigFile(): ConfigFile {
     const configData = fs.readFileSync(configFilePath, 'utf-8');
     return JSON.parse(configData) as ConfigFile;
   } catch (error) {
-    throw error instanceof Error
-      ? error
-      : new Error('Failed to read or parse Config.json file.');
+    throw new PolymanError(
+      error instanceof Error
+        ? error.message
+        : 'Failed to read or parse Config.json file.',
+      2,
+      'Run polyman inside a problem folder, or create one with: polyman new <dir>',
+      { cause: error }
+    );
+  }
+}
+
+/**
+ * Checks that every source file Config.json names exists: the validator, the
+ * checker (unless it is a standard one shipped with polyman), the generators
+ * and the solutions. Paths are resolved against the current directory, as the
+ * compile steps do. All missing files are reported in one error, so the setter
+ * can fix them in one go instead of meeting them one compile step at a time.
+ *
+ * @param {ConfigFile} config - Parsed Config.json
+ * @throws {Error} If any named source file does not exist
+ *
+ * @example
+ * ensureConfigSourcesExist(readConfigFile());
+ * // throws: Config.json names source files that do not exist:
+ * //   - validator file not found: val.cpp
+ */
+export function ensureConfigSourcesExist(config: ConfigFile): void {
+  const missing: string[] = [];
+  const check = (label: string, source: string | undefined): void => {
+    if (!source) {
+      return;
+    }
+    if (!fs.existsSync(path.resolve(process.cwd(), source))) {
+      missing.push(`${label} file not found: ${source}`);
+    }
+  };
+
+  check('validator', config.validator?.source);
+  if (!config.checker?.isStandard) {
+    check('checker', config.checker?.source);
+  }
+  for (const generator of config.generators ?? []) {
+    check(`generator "${generator.name}"`, generator.source);
+  }
+  for (const solution of config.solutions ?? []) {
+    check(`solution "${solution.name}"`, solution.source);
+  }
+
+  if (missing.length > 0) {
+    throw new PolymanError(
+      `Config.json names source files that do not exist:\n${missing
+        .map(line => `  - ${line}`)
+        .join('\n')}`,
+      2
+    );
   }
 }
 
@@ -565,21 +782,6 @@ export function logError(error: unknown, indent: number = 1) {
 }
 
 /**
- * Logs an error and exits the process with code 1.
- *
- * @param {unknown} error - Error to log
- *
- * @example
- * if (!fs.existsSync('Config.json')) {
- *   logErrorAndExit(new Error('Config.json not found'));
- * }
- */
-export function logErrorAndExit(error: unknown) {
-  logError(error);
-  process.exit(1);
-}
-
-/**
  * Logs an error and re-throws it.
  *
  * @param {unknown} error - Error to log and throw
@@ -615,6 +817,34 @@ export function throwError(error: unknown, message = ''): never {
   throw error instanceof Error
     ? error
     : new Error(`${message}: ${String(error)}`);
+}
+
+/**
+ * Resolves a path from Config.json against the problem folder and refuses
+ * anything that lands outside it, so a crafted Config.json cannot make
+ * polyman read (and upload) files like `../../.ssh/id_rsa`.
+ * Names that merely start with two dots, like `..notes.tex`, are allowed.
+ *
+ * @param {string} problemDir - Problem directory path
+ * @param {string} rel - Path from Config.json, relative to the problem folder
+ * @returns {string} The absolute path, guaranteed to be inside `problemDir`
+ * @throws {Error} If the path resolves outside the problem folder
+ *
+ * @example
+ * insideProblem('/p', 'solutions/main.cpp'); // '/p/solutions/main.cpp'
+ * insideProblem('/p', '../x');               // throws
+ */
+export function insideProblem(problemDir: string, rel: string): string {
+  const resolved = path.resolve(problemDir, rel);
+  const relative = path.relative(path.resolve(problemDir), resolved);
+  if (
+    path.isAbsolute(relative) ||
+    relative === '..' ||
+    relative.startsWith('..' + path.sep)
+  ) {
+    throw new Error(`Refusing path outside the problem folder: ${rel}`);
+  }
+  return resolved;
 }
 
 /**
@@ -687,6 +917,54 @@ export function readFirstLine(filePath: string): Promise<string> {
   });
 }
 
+/** Interpreter names tried for `.py` files, in order of preference. */
+const PYTHON_CANDIDATES = ['python3', 'python'];
+
+let cachedPythonCommand: string | undefined;
+
+/**
+ * Forgets the interpreter found by {@link findPythonCommand}. Used by tests.
+ */
+export function resetPythonCommandCache(): void {
+  cachedPythonCommand = undefined;
+}
+
+/**
+ * Finds a Python 3 interpreter on this machine: `python3`, then `python`.
+ * A candidate counts only if it runs and reports `Python 3.x`, so a `python`
+ * that is really Python 2 is skipped. The result is cached for the process.
+ *
+ * @param {string} [source] - Source file that needs Python, named in the error
+ * @throws {Error} If no Python 3 interpreter is found
+ */
+export function findPythonCommand(source?: string): string {
+  if (cachedPythonCommand !== undefined) {
+    return cachedPythonCommand;
+  }
+
+  for (const candidate of PYTHON_CANDIDATES) {
+    const result = spawnSync(candidate, ['--version'], {
+      encoding: 'utf-8',
+      timeout: 5000,
+    });
+    if (result.error || result.status !== 0) {
+      continue;
+    }
+    // Python 3.4+ prints the version on stdout, older versions on stderr.
+    const output = `${result.stdout ?? ''}${result.stderr ?? ''}`;
+    if (/^Python 3\./m.test(output)) {
+      cachedPythonCommand = candidate;
+      return candidate;
+    }
+  }
+
+  throw new PolymanError(
+    `Python 3 was not found (tried ${PYTHON_CANDIDATES.join(', ')}).` +
+      (source ? ` Install Python 3 to run ${source}` : ' Install Python 3'),
+    3
+  );
+}
+
 export function getCompiledCommandToRun(
   object: LocalChecker | LocalValidator | LocalSolution | LocalGenerator
 ): string {
@@ -712,7 +990,7 @@ export function getCompiledCommandToRun(
       return `java -cp ${quoteShellArgument(dir)} ${quoteShellArgument(className)}`;
     }
     case '.py':
-      return `python ${quoteShellArgument(source)}`;
+      return `${findPythonCommand(object.source)} ${quoteShellArgument(source)}`;
     case '.js':
       return `node ${quoteShellArgument(source)}`;
     default:

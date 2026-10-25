@@ -1,0 +1,51 @@
+# source: https://platform.claude.com/docs/en/build-with-claude/streaming
+# source: https://platform.claude.com/docs/en/agents-and-tools/tool-use/implement-tool-use
+# request: model claude-sonnet-4-6, stream: true, tools read_file and list_files
+# Written from the docs, not recorded. Replace it with a real recording (#79).
+HTTP/1.1 200 OK
+content-type: text/event-stream; charset=utf-8
+cache-control: no-cache
+request-id: req_011CUQ7pX2kL9mNvR4tY8wZ3
+
+event: message_start
+data: {"type":"message_start","message":{"model":"claude-sonnet-4-6","id":"msg_01Fg2Hi4Jk6Lm8No0Pq2Rs4T","type":"message","role":"assistant","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":402,"cache_creation_input_tokens":0,"cache_read_input_tokens":2048,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":0},"output_tokens":1,"service_tier":"standard"}}}
+
+event: content_block_start
+data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_01Ab2Cd4Ef6Gh8Ij0Kl2Mn4O","name":"read_file","input":{}}}
+
+event: ping
+data: {"type":"ping"}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"path\": \"Con"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"fig.json\"}"}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":0}
+
+event: content_block_start
+data: {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_01Pq3Rs5Tu7Vw9Xy1Za3Bc5D","name":"list_files","input":{}}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"dir\": \"gen"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"erators\"}"}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":1}
+
+event: message_delta
+data: {"type":"message_delta","delta":{"stop_reason":"tool_use","stop_sequence":null},"usage":{"input_tokens":402,"cache_creation_input_tokens":0,"cache_read_input_tokens":2048,"output_tokens":88}}
+
+event: message_stop
+data: {"type":"message_stop"}
+

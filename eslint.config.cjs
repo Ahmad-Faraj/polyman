@@ -28,13 +28,6 @@ module.exports = defineConfig([
     },
   },
   {
-    // vi.mocked() members are plain functions, not methods that need `this`
-    files: ['tests/**/*.ts'],
-    rules: {
-      '@typescript-eslint/unbound-method': 'off',
-    },
-  },
-  {
     files: ['eslint.config.cjs'],
     ...tseslint.configs.disableTypeChecked,
     languageOptions: {
@@ -44,6 +37,19 @@ module.exports = defineConfig([
     },
     rules: {
       '@typescript-eslint/no-require-imports': 'off',
+      ...tseslint.configs.disableTypeChecked.rules,
+      'no-undef': 'off',
+    },
+  },
+  {
+    files: ['corpus/**/*.mjs', 'infra/**/*.mjs'],
+    ...tseslint.configs.disableTypeChecked,
+    languageOptions: {
+      parserOptions: {
+        project: null,
+      },
+    },
+    rules: {
       ...tseslint.configs.disableTypeChecked.rules,
       'no-undef': 'off',
     },

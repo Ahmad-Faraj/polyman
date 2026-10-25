@@ -94,7 +94,7 @@ export async function generateTestsForTestset(
   const tests = getResolvedTests(testset, generators);
   const dir = testsetOutputDir(testset.name, outputDir);
   ensureDirectoryExists(dir);
-  await executeResolvedTests(tests, generators, dir);
+  await executeResolvedTests(tests, generators, dir, testset.name);
 }
 
 /**
@@ -134,7 +134,7 @@ export async function generateSingleTest(
       return arraysEqual(t.source.multiOutputs, multi);
     });
   }
-  await executeResolvedTests(toRun, generators, dir);
+  await executeResolvedTests(toRun, generators, dir, testset.name);
 }
 
 /**
@@ -163,7 +163,7 @@ export async function generateTestsForGroup(
   }
   const dir = testsetOutputDir(testset.name, outputDir);
   ensureDirectoryExists(dir);
-  await executeResolvedTests(filtered, generators, dir);
+  await executeResolvedTests(filtered, generators, dir, testset.name);
 }
 
 export async function generateAllTestsets(
@@ -180,9 +180,11 @@ export async function generateAllTestsets(
 }
 
 /**
- * One-line summary per testset for `polyman list testsets`.
+ * Name, test count and group names of every testset, as data.
  */
-export function listTestsets(testsets: LocalTestset[]): string[] {
+export function describeTestsets(
+  testsets: LocalTestset[]
+): { name: string; tests: number; groups: string[] }[] {
   return testsets.map(testset => {
     let count = 0;
     try {
@@ -193,9 +195,22 @@ export function listTestsets(testsets: LocalTestset[]): string[] {
     } catch {
       count = testset.manualTests?.length ?? 0;
     }
-    const groups = testset.groups?.map(g => g.name).join(', ') || 'none';
-    return `${testset.name}: ${count} tests, groups: ${groups}`;
+    return {
+      name: testset.name,
+      tests: count,
+      groups: testset.groups?.map(g => g.name) ?? [],
+    };
   });
+}
+
+/**
+ * One-line summary per testset for `polyman list testsets`.
+ */
+export function listTestsets(testsets: LocalTestset[]): string[] {
+  return describeTestsets(testsets).map(
+    ({ name, tests, groups }) =>
+      `${name}: ${tests} tests, groups: ${groups.join(', ') || 'none'}`
+  );
 }
 
 function arraysEqual(a: number[], b: number[]): boolean {

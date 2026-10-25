@@ -178,7 +178,7 @@ The digest the model gets from `verify` is short. For example:
 
 ```
 verify FAILED at step "solutions"
-- wa-overflow.cpp (WA): passed all 24 tests, expected at least one WA
+- wa-overflow.cpp (WA): passed all 24 tests, expected at least one WA or PE
 - main.cpp (MA): OK on all tests, max time 180 ms
 Hint: the tests may not have an answer bigger than 2^31.
 Full report: .polyman/agent/logs/c41.log

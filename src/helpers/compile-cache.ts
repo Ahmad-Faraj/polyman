@@ -169,6 +169,18 @@ export function getCompiledCacheDir(): string {
   return path.resolve(process.cwd(), CACHE_DIR, 'compiled');
 }
 
+/**
+ * Prints one line to stderr when `POLYMAN_DEBUG` is set (and not `0`).
+ *
+ * @param {string} message - What happened
+ */
+export function debugLog(message: string): void {
+  const flag = process.env['POLYMAN_DEBUG'];
+  if (flag && flag !== '0') {
+    process.stderr.write(`[polyman debug] ${message}\n`);
+  }
+}
+
 function sha256(data: crypto.BinaryLike): string {
   return crypto.createHash('sha256').update(data).digest('hex');
 }
@@ -462,6 +474,7 @@ export async function cachedCompile(
     cacheKey = await computeKey(request);
     const hit = restoreFromCache(cacheKey.key, request.binaryPath);
     if (hit) {
+      debugLog(`cache: hit, no compile: ${path.basename(request.sourcePath)}`);
       stats.hits++;
       stats.savedMs += hit.compileMs;
       return;

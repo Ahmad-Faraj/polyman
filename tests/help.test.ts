@@ -142,6 +142,29 @@ describe('help.ts', () => {
     expect(out).toContain('Commands:');
   });
 
+  it('should not list hidden commands', () => {
+    const program = new Command();
+    program.name('polyman').description('root').version('1.0.0');
+    program.command('build').description('Build the project');
+    program
+      .command('__complete <kind>', { hidden: true })
+      .description('List names for shell completion');
+    const remote = program.command('remote').description('remote ops');
+    remote.command('list').description('list remote');
+    remote.command('secret', { hidden: true }).description('hidden child');
+
+    printComprehensiveHelp(program);
+
+    const out = collected();
+    expect(out).toContain('build');
+    expect(out).toContain('list remote');
+    expect(out).not.toContain('__complete');
+    expect(out).not.toContain('shell completion');
+    expect(out).not.toContain('secret');
+    expect(out).not.toContain('hidden child');
+    expect(out).not.toMatch(/^help\b/m);
+  });
+
   it('should return undefined', () => {
     const program = new Command();
     program.name('p').description('d').version('1.0.0');

@@ -1,0 +1,3 @@
+<#list 1..3 as i>
+gen ${i} > $
+</#list>

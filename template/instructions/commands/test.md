@@ -39,13 +39,13 @@ The per-solution version of `polyman verify`. Validates that the named solution 
 4. Compares each test's outputs via the checker, tracking verdicts (WA, TLE, MLE, RTE, PE).
 5. Asserts the tracked verdicts match the named solution's `tag` claim:
    - `MA` / `OK` → must pass every test.
-   - `WA` → must produce WA on at least one test.
+   - `WA` → must produce WA or PE on at least one test (as on Polygon).
    - `TL` → must produce TLE on at least one test.
    - `ML` → must produce MLE on at least one test.
    - `RE` → must crash on at least one test.
    - `PE` → must produce PE on at least one test.
    - `RJ` → must fail somehow on at least one test.
-   - `TO` → permissive; no strict assertion.
+   - `TO` → may TLE, not required to; WA, PE, MLE or a crash still fails it.
 
 Faster than `polyman verify` when you're iterating on a single solution.
 

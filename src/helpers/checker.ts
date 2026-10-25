@@ -24,6 +24,146 @@ import {
 import { DEFAULT_TIMEOUT, DEFAULT_MEMORY_LIMIT } from './utils';
 import { quoteShellArgument } from './shell';
 import { fmt } from '../formatter';
+import { LimitExceededError, PolymanError } from '../errors';
+import { report } from '../report';
+
+/** Exit code testlib's `quitf(_wa, ...)` uses for a wrong answer. */
+const TESTLIB_WA_EXIT_CODE = 1;
+
+/** Exit code testlib's `quitf(_pe, ...)` uses for a presentation error. */
+const TESTLIB_PE_EXIT_CODE = 2;
+
+/** Exit code testlib's `quitf(_fail, ...)` uses when the checker itself fails. */
+const TESTLIB_FAIL_EXIT_CODE = 3;
+
+/** Smallest exit code testlib uses for partially correct (`_pc(n)`). */
+const TESTLIB_PARTIAL_EXIT_CODE_MIN = 16;
+
+/**
+ * Smallest exit code a shell reports for a process killed by a signal
+ * (128 + signal number: 139 for SIGSEGV, 134 for SIGABRT).
+ */
+const SIGNAL_EXIT_CODE_MIN = 128;
+
+/** Exit codes below 16 that are testlib verdicts other than `_fail`. */
+const TESTLIB_NON_CRASH_EXIT_CODES = new Set([0, 1, 2, 4, 5, 7, 8]);
+
+/**
+ * Whether a checker exit code counts as CRASHED for an expected `CRASHED`
+ * self-test.
+ *
+ * Counts as CRASHED:
+ * - 3, testlib's `_fail` code, and
+ * - any code testlib does not define as a verdict, such as a signal exit
+ *   (128 and up: 139 for a segfault, 134 for `abort()`) or an `exit(N)` from
+ *   the checker with N in 6, 9..15.
+ *
+ * Does not count, because these are testlib's own verdicts (`TResult` and
+ * `resultExitCode` in testlib.h):
+ * - 0 (OK), 1 (WA), 2 (PE),
+ * - 4 (DIRT),
+ * - 5 (the `_points` verdict) and 7 (`POINTS_EXIT_CODE`, the exit code that
+ *   verdict is written with),
+ * - 8 (unexpected EOF, with ENABLE_UNEXPECTED_EOF),
+ * - 16 to 127 (`_pc(n)`, partially correct).
+ *
+ * A checker killed by a signal reaches here as 128 plus the signal number on
+ * every platform (the executor does this). Two of those codes never get here:
+ * SIGABRT (134) and SIGKILL (137) are caught first by the executor's
+ * `isMemoryError` check, so they throw a `LimitExceededError` and do not count
+ * as CRASHED.
+ *
+ * This is polyman's reading of testlib. How Polygon itself maps a checker's
+ * exit code to CRASHED is unverified.
+ */
+function isCrashedExitCode(exitCode: number): boolean {
+  if (exitCode === TESTLIB_FAIL_EXIT_CODE) return true;
+  if (exitCode >= SIGNAL_EXIT_CODE_MIN) return true;
+  if (exitCode >= TESTLIB_PARTIAL_EXIT_CODE_MIN) return false;
+  return !TESTLIB_NON_CRASH_EXIT_CODES.has(exitCode);
+}
+
+/**
+ * Maps an expected checker verdict to the testlib exit code it stands for.
+ * Accepts the documented names (`WRONG_ANSWER`, `PRESENTATION_ERROR`) and the
+ * short forms (`WA`, `PE`), in any letter case. Returns `undefined` for `OK`,
+ * `CRASHED` and anything else.
+ */
+function expectedFailureExitCode(
+  expectedVerdict: CheckerVerdict
+): number | undefined {
+  switch (String(expectedVerdict).toUpperCase()) {
+    case 'WA':
+    case 'WRONG_ANSWER':
+      return TESTLIB_WA_EXIT_CODE;
+    case 'PE':
+    case 'PRESENTATION_ERROR':
+      return TESTLIB_PE_EXIT_CODE;
+    default:
+      return undefined;
+  }
+}
+
+/** Describes what a failing checker run was, for "Expected X but got ..." messages. */
+function describeCheckerFailure(exitCode: number): string {
+  if (exitCode === TESTLIB_WA_EXIT_CODE) return 'WA';
+  if (exitCode === TESTLIB_PE_EXIT_CODE) return 'PE';
+  return `exit code ${exitCode}`;
+}
+
+/**
+ * Names the verdict a checker gave from its exit code: 0 is OK, testlib's
+ * WA and PE codes are WRONG_ANSWER and PRESENTATION_ERROR, anything else is
+ * CRASHED.
+ */
+export function checkerVerdictForExitCode(exitCode: number): CheckerVerdict {
+  if (exitCode === 0) return 'OK';
+  if (exitCode === TESTLIB_WA_EXIT_CODE) return 'WRONG_ANSWER';
+  if (exitCode === TESTLIB_PE_EXIT_CODE) return 'PRESENTATION_ERROR';
+  return 'CRASHED';
+}
+
+/**
+ * Names the verdict a checker gave for the self-test report: like
+ * {@link checkerVerdictForExitCode}, but `null` for an exit code that is
+ * neither OK, WA, PE nor a crash (see {@link isCrashedExitCode}), such as 4,
+ * 5, 7, 8 or 16 to 127. Those are other testlib verdicts, and calling them
+ * CRASHED would be wrong.
+ */
+function reportedVerdictForExitCode(exitCode: number): CheckerVerdict | null {
+  if (
+    exitCode === 0 ||
+    exitCode === TESTLIB_WA_EXIT_CODE ||
+    exitCode === TESTLIB_PE_EXIT_CODE ||
+    isCrashedExitCode(exitCode)
+  ) {
+    return checkerVerdictForExitCode(exitCode);
+  }
+  return null;
+}
+
+/**
+ * Writes an expected checker verdict with its full name, so the short forms
+ * `WA` and `PE` (any letter case) compare with what the checker gave.
+ */
+export function normalizeCheckerVerdict(verdict: CheckerVerdict): string {
+  const upper = String(verdict).toUpperCase();
+  if (upper === 'WA') return 'WRONG_ANSWER';
+  if (upper === 'PE') return 'PRESENTATION_ERROR';
+  return upper;
+}
+
+/**
+ * Raised by {@link runChecker} when a checker that was expected to accept the
+ * output exits with testlib's presentation-error code. Any other checker
+ * failure stays a plain `Error` and is treated as a wrong answer.
+ */
+export class PresentationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PresentationError';
+  }
+}
 
 /**
  * Runs a checker program to validate solution output against expected answer.
@@ -33,10 +173,12 @@ import { fmt } from '../formatter';
  * @param {string} inputFilePath - Path to test input file
  * @param {string} outputFilePath - Path to participant's output file
  * @param {string} answerFilePath - Path to jury's answer file
- * @param {CheckerVerdict} expectedVerdict - Expected verdict (OK, WA, PE)
+ * @param {CheckerVerdict} expectedVerdict - Expected verdict: OK, WRONG_ANSWER (or WA), PRESENTATION_ERROR (or PE), CRASHED (exit code 3 or a code testlib does not define, see isCrashedExitCode)
+ * @param {Function} [observe] - Called with the verdict the checker gave (`null` when its exit code is not OK, WA, PE or a crash, for example 4, 5, 7, 8 or 16 to 127), its stderr and its exit code, before it is compared with `expectedVerdict`
  *
- * @throws {Error} If checker verdict doesn't match expected verdict
- * @throws {Error} If checker exceeds time or memory limits (exits process)
+ * @throws {PresentationError} If the checker was expected to return OK and exited with testlib's presentation-error code (2)
+ * @throws {Error} If checker verdict doesn't match expected verdict (WRONG_ANSWER expects exit code 1, PRESENTATION_ERROR expects exit code 2, CRASHED expects exit code 3 or an undefined code)
+ * @throws {Error} If checker exceeds time or memory limits (throws a LimitExceededError)
  *
  * @example
  * await runChecker(
@@ -52,9 +194,17 @@ export async function runChecker(
   inputFilePath: string,
   outputFilePath: string,
   answerFilePath: string,
-  expectedVerdict: CheckerVerdict
+  expectedVerdict: CheckerVerdict,
+  observe?: (
+    actual: CheckerVerdict | null,
+    message: string,
+    exitCode: number
+  ) => void
 ) {
   let didCatchInvalid = false;
+  let failureExitCode = 0;
+  let checkerFailed = false;
+  let successStderr = '';
   await executor.execute(
     [
       execCommand,
@@ -66,35 +216,70 @@ export async function runChecker(
       timeout: DEFAULT_TIMEOUT,
       memoryLimitMB: DEFAULT_MEMORY_LIMIT,
       silent: true,
+      onSuccess: result => {
+        successStderr = result.stderr.trim();
+      },
       onError: result => {
+        checkerFailed = true;
+        observe?.(
+          reportedVerdictForExitCode(result.exitCode),
+          result.stderr.trim(),
+          result.exitCode
+        );
         if (expectedVerdict.toUpperCase() === 'OK') {
-          throw new Error(result.stderr || 'Expected OK but got WA');
+          const message = result.stderr || 'Expected OK but got WA';
+          if (result.exitCode === TESTLIB_PE_EXIT_CODE) {
+            throw new PresentationError(message);
+          }
+          throw new Error(message);
         }
         didCatchInvalid = true;
+        failureExitCode = result.exitCode;
       },
       onTimeout: () => {
         fmt.error(
           `${fmt.cross()} ${fmt.bold('Checker Unexpectedly Exceeded Time Limit!')} (${DEFAULT_TIMEOUT}ms)`
         );
         void executor.cleanup();
-        process.exit(1);
+        throw new LimitExceededError(
+          `Checker exceeded the time limit (${DEFAULT_TIMEOUT}ms)`
+        );
       },
       onMemoryExceeded: () => {
         fmt.error(
           `${fmt.cross()} ${fmt.bold('Checker Unexpectedly Exceeded Memory Limit!')} (${DEFAULT_MEMORY_LIMIT} MB)`
         );
         void executor.cleanup();
-        process.exit(1);
+        throw new LimitExceededError(
+          `Checker exceeded the memory limit (${DEFAULT_MEMORY_LIMIT} MB)`
+        );
       },
     }
   );
+  if (!checkerFailed) observe?.('OK', successStderr, 0);
 
-  if (
-    (expectedVerdict.toUpperCase() === 'WA' ||
-      expectedVerdict.toUpperCase() === 'PE') &&
-    !didCatchInvalid
-  ) {
+  if (String(expectedVerdict).toUpperCase() === 'CRASHED') {
+    if (!didCatchInvalid) {
+      throw new Error(`Expected ${expectedVerdict} but got OK`);
+    }
+    if (!isCrashedExitCode(failureExitCode)) {
+      throw new Error(
+        `Expected ${expectedVerdict} but got ${describeCheckerFailure(failureExitCode)}`
+      );
+    }
+    return;
+  }
+
+  const expectedExitCode = expectedFailureExitCode(expectedVerdict);
+  if (expectedExitCode === undefined) return;
+
+  if (!didCatchInvalid) {
     throw new Error(`Expected ${expectedVerdict} but got OK`);
+  }
+  if (failureExitCode !== expectedExitCode) {
+    throw new Error(
+      `Expected ${expectedVerdict} but got ${describeCheckerFailure(failureExitCode)}`
+    );
   }
 }
 
@@ -115,7 +300,11 @@ export function ensureCheckerExists(
   checker: LocalChecker | undefined
 ): asserts checker is LocalChecker {
   if (!checker) {
-    throw new Error('No checker defined in the configuration file.');
+    throw new PolymanError(
+      'No checker defined in the configuration file.',
+      2,
+      'Add a "checker" entry to Config.json'
+    );
   }
 }
 
@@ -230,6 +419,10 @@ export async function runCheckerTests(checker: LocalChecker) {
       const inputFilePath = path.join(testsDir, `test${index + 1}_input.txt`);
       const outputFilePath = path.join(testsDir, `test${index + 1}_output.txt`);
       const answerFilePath = path.join(testsDir, `test${index + 1}_answer.txt`);
+      const expected = normalizeCheckerVerdict(test.expectedVerdict);
+      let actual: string | null = 'ERROR';
+      let detail = '';
+      let checkerExitCode: number | undefined;
 
       try {
         await runChecker(
@@ -237,10 +430,36 @@ export async function runCheckerTests(checker: LocalChecker) {
           inputFilePath,
           outputFilePath,
           answerFilePath,
-          test.expectedVerdict
+          test.expectedVerdict,
+          (verdict, message, exitCode) => {
+            actual = verdict;
+            detail = message;
+            checkerExitCode = exitCode;
+          }
         );
+        report.recordSelfTestCase({
+          index: index + 1,
+          expected,
+          actual,
+          ...(actual === null && checkerExitCode !== undefined
+            ? { exitCode: checkerExitCode }
+            : {}),
+          ok: true,
+          message: detail,
+        });
       } catch (error) {
+        if (error instanceof LimitExceededError) throw error;
         someFailed = true;
+        report.recordSelfTestCase({
+          index: index + 1,
+          expected,
+          actual,
+          ...(actual === null && checkerExitCode !== undefined
+            ? { exitCode: checkerExitCode }
+            : {}),
+          ok: false,
+          message: (error as Error).message,
+        });
         fmt.error(
           `  ${fmt.cross()} Checker Test ${index + 1} failed:\n\t${(error as Error).message}, expected to be ${test.expectedVerdict}`
         );
@@ -252,7 +471,7 @@ export async function runCheckerTests(checker: LocalChecker) {
     await executor.cleanup();
   }
 
-  if (someFailed) throw new Error('Some checker tests failed');
+  if (someFailed) throw new PolymanError('Some checker tests failed', 1);
 }
 
 /**

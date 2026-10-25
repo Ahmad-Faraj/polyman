@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Mock, MockedFunction, MockInstance } from 'vitest';
 import { spawn } from 'child_process';
+import os from 'os';
 import execa from 'execa';
 import { CommandExecutor } from '../src/executor';
 import type { ExecutionOptions } from '../src/executor';
@@ -231,6 +232,28 @@ describe('CommandExecutor', () => {
       expect(onError).toHaveBeenCalled();
     });
 
+    // A child that never started has no exit code and no signal: that stays a spawn
+    // error with its own message, and must not read as a signal death ("exit code 128").
+    it.each([undefined, null])(
+      'keeps a spawn failure with no signal (%s) a spawn error, not exit code 128',
+      async signal => {
+        const sub = createMockSubprocess();
+        primeExeca(sub);
+
+        const promise = executor.execute('fail_spawn', { timeout: 1000 });
+        sub.__resolveWith({
+          failed: true,
+          exitCode: undefined,
+          signal,
+          shortMessage: 'spawn ENOENT',
+          stderr: '',
+        });
+
+        await expect(promise).rejects.toThrow('spawn ENOENT');
+        await expect(promise).rejects.not.toThrow(/exit code 128/);
+      }
+    );
+
     it('runs in silent mode without throwing on success', async () => {
       const sub = createMockSubprocess();
       primeExeca(sub);
@@ -350,6 +373,34 @@ describe('CommandExecutor', () => {
       expect(result.success).toBe(false);
       expect(onMemoryExceeded).toHaveBeenCalled();
     });
+
+    // Without the `ulimit` subshell (macOS, Windows) execa reports a killed child as
+    // exitCode undefined plus a signal; that is 128 + the signal number, and SIGKILL
+    // and SIGABRT are what a memory limit sends.
+    it.each(['SIGKILL', 'SIGABRT'] as const)(
+      'detects MLE for a child killed by %s (no exit code, only the signal)',
+      async signal => {
+        // 128 + the platform's own number for the signal (SIGABRT is 6 on Linux and 22 on Windows)
+        const code = 128 + os.constants.signals[signal];
+        const sub = createMockSubprocess();
+        primeExeca(sub);
+        const onMemoryExceeded: MockedFunction<
+          NonNullable<ExecutionOptions['onMemoryExceeded']>
+        > = vi.fn();
+
+        const promise = executor.execute('killed_prog', {
+          timeout: 1000,
+          onMemoryExceeded,
+        });
+        sub.__resolveWith({ exitCode: undefined, signal, failed: true });
+
+        const result = await promise;
+        expect(result.exitCode).toBe(code);
+        expect(result.memoryExceeded).toBe(true);
+        expect(result.success).toBe(false);
+        expect(onMemoryExceeded).toHaveBeenCalled();
+      }
+    );
 
     it('detects MLE via bad_alloc in stderr', async () => {
       const sub = createMockSubprocess();
@@ -525,6 +576,76 @@ describe('CommandExecutor', () => {
       });
     });
 
+    describe('macOS', () => {
+      beforeEach(() => {
+        Object.defineProperty(process, 'platform', { value: 'darwin' });
+      });
+
+      const run = async (
+        command: string,
+        options: Partial<ExecutionOptions> = {}
+      ) => {
+        const sub = createMockSubprocess();
+        primeExeca(sub);
+        const promise = executor.execute(command, {
+          timeout: 1000,
+          ...options,
+        });
+        sub.__resolveWith({ exitCode: 0 });
+        await promise;
+      };
+
+      it('runs the command unchanged, without ulimit', async () => {
+        await run('./prog', { memoryLimitMB: 128 });
+
+        expect(mockExeca).toHaveBeenCalledWith('./prog', expect.anything());
+      });
+
+      it('warns once across calls when a memory limit is set', async () => {
+        await run('./prog', { memoryLimitMB: 128 });
+        await run('./prog', { memoryLimitMB: 128 });
+
+        // eslint-disable-next-line @typescript-eslint/unbound-method
+        expect(fmt.warning).toHaveBeenCalledTimes(1);
+        // eslint-disable-next-line @typescript-eslint/unbound-method
+        expect(fmt.warning).toHaveBeenCalledWith(
+          expect.stringContaining('not enforced on macOS')
+        );
+      });
+
+      it('does not warn without a memory limit', async () => {
+        await run('./prog');
+
+        // eslint-disable-next-line @typescript-eslint/unbound-method
+        expect(fmt.warning).not.toHaveBeenCalled();
+      });
+
+      it('warns once even when the calls are silent', async () => {
+        await run('./prog', { memoryLimitMB: 128, silent: true });
+        // eslint-disable-next-line @typescript-eslint/unbound-method
+        expect(fmt.warning).toHaveBeenCalledTimes(1);
+        // eslint-disable-next-line @typescript-eslint/unbound-method
+        expect(fmt.warning).toHaveBeenCalledWith(
+          expect.stringContaining('not enforced on macOS')
+        );
+
+        await run('./prog', { memoryLimitMB: 128, silent: true });
+        // eslint-disable-next-line @typescript-eslint/unbound-method
+        expect(fmt.warning).toHaveBeenCalledTimes(1);
+      });
+
+      it('still rewrites Java commands with -Xmx', async () => {
+        await run('java Main', { memoryLimitMB: 256 });
+
+        expect(mockExeca).toHaveBeenCalledWith(
+          expect.stringContaining('java -Xmx256m Main'),
+          expect.anything()
+        );
+        // eslint-disable-next-line @typescript-eslint/unbound-method
+        expect(fmt.warning).not.toHaveBeenCalled();
+      });
+    });
+
     describe('Linux/Unix', () => {
       it('wraps the command in `ulimit -v` for memory limits', async () => {
         const sub = createMockSubprocess();
@@ -621,6 +742,7 @@ describe('CommandExecutor', () => {
         await vi.advanceTimersByTimeAsync(500);
         await promise;
 
+        // eslint-disable-next-line @typescript-eslint/unbound-method
         expect(fmt.log).toHaveBeenCalledWith('Unexpected Error');
         vi.useRealTimers();
       });
@@ -941,6 +1063,50 @@ describe('CommandExecutor', () => {
       await expect(promise).rejects.toThrow('Command failed with exit code 1');
     });
 
+    it('reports a signal-killed process as exit code 128 plus the signal number', async () => {
+      const sub = createMockSubprocess();
+      primeExeca(sub);
+      const onError = vi.fn();
+
+      const promise = executor.execute('run', {
+        timeout: 1000,
+        silent: true,
+        onError,
+      });
+      sub.__resolveWith({
+        exitCode: undefined,
+        signal: 'SIGSEGV',
+        failed: true,
+        shortMessage: 'Command was killed with SIGSEGV',
+      });
+
+      const result = await promise;
+      const segv = os.constants.signals.SIGSEGV;
+      expect(result.exitCode).toBe(128 + segv);
+      expect(result.success).toBe(false);
+      expect(onError).toHaveBeenCalledTimes(1);
+      expect(onError).toHaveBeenCalledWith(
+        expect.objectContaining({ exitCode: 128 + segv })
+      );
+    });
+
+    it('does not treat a signal-killed process as a spawn error', async () => {
+      const sub = createMockSubprocess();
+      primeExeca(sub);
+
+      const promise = executor.execute('run', { timeout: 1000, silent: true });
+      sub.__resolveWith({
+        exitCode: undefined,
+        signal: 'SIGSEGV',
+        failed: true,
+        shortMessage: 'Command was killed with SIGSEGV',
+      });
+
+      await expect(promise).rejects.toThrow(
+        `Command failed with exit code ${128 + os.constants.signals.SIGSEGV}`
+      );
+    });
+
     it('handles execa rejecting (defensive spawn-error path)', async () => {
       const sub = createMockSubprocess();
       primeExeca(sub);
@@ -990,5 +1156,56 @@ describe('CommandExecutor', () => {
       const opts = mockExeca.mock.calls[0]?.[1] as Record<string, unknown>;
       expect(opts.cwd).toBeUndefined();
     });
+  });
+});
+
+describe('signal handlers', () => {
+  /**
+   * Loads a fresh executor module with `process.on` captured, so its signal
+   * handlers can be called directly without being registered on the test
+   * process.
+   */
+  const loadHandlers = async () => {
+    const handlers = new Map<string, (...args: unknown[]) => void>();
+    const onSpy = vi.spyOn(process, 'on').mockImplementation(((
+      event: string,
+      handler: (...args: unknown[]) => void
+    ) => {
+      handlers.set(event, handler);
+      return process;
+    }) as typeof process.on);
+    vi.resetModules();
+    await import('../src/executor');
+    onSpy.mockRestore();
+    return handlers;
+  };
+
+  let exitSpy: MockInstance<typeof process.exit>;
+
+  beforeEach(() => {
+    exitSpy = vi
+      .spyOn(process, 'exit')
+      .mockImplementation((() => undefined) as typeof process.exit);
+  });
+
+  afterEach(() => {
+    exitSpy.mockRestore();
+  });
+
+  it.each([
+    ['SIGINT', 130],
+    ['SIGTERM', 143],
+  ])('should exit with the right code on %s', async (signal, code) => {
+    const handlers = await loadHandlers();
+    handlers.get(signal)?.();
+    await vi.waitFor(() => expect(exitSpy).toHaveBeenCalled());
+    expect(exitSpy).toHaveBeenCalledWith(code);
+  });
+
+  it('should exit with 1 on an uncaught exception', async () => {
+    const handlers = await loadHandlers();
+    handlers.get('uncaughtException')?.(new Error('boom'));
+    await vi.waitFor(() => expect(exitSpy).toHaveBeenCalled());
+    expect(exitSpy).toHaveBeenCalledWith(1);
   });
 });

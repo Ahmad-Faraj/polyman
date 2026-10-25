@@ -1,0 +1,116 @@
+{
+  "$schema": "./Config.schema.json",
+  "name": "mean-deviation",
+  "description": "Corpus problem: real-valued output, judged by the standard checker rcmp6 (absolute or relative error 1e-6). True verdicts of its mutants are pinned in corpus/expected.",
+
+  "timeLimit": 2000,
+  "memoryLimit": 256,
+  "inputFile": "stdin",
+  "outputFile": "stdout",
+  "interactive": false,
+
+  "tags": ["math", "implementation"],
+
+  "statements": {
+    "english": {
+      "encoding": "UTF-8",
+      "name": "Mean and Deviation",
+      "legend": "./statements/english/legend.tex",
+      "input": "./statements/english/input-format.tex",
+      "output": "./statements/english/output-format.tex",
+      "notes": "./statements/english/notes.tex"
+    }
+  },
+
+  "solutions": [
+    {
+      "name": "main",
+      "source": "./solutions/acc.cpp",
+      "tag": "MA",
+      "sourceType": "cpp.g++17"
+    },
+    {
+      "name": "ok_exact_sums",
+      "source": "./solutions/ok_exact_sums.cpp",
+      "tag": "OK",
+      "sourceType": "cpp.g++17"
+    },
+    {
+      "name": "ok_python",
+      "source": "./solutions/ok_python.py",
+      "tag": "OK",
+      "sourceType": "python.3"
+    },
+    {
+      "name": "ok_java",
+      "source": "./solutions/ok_java.java",
+      "tag": "OK",
+      "sourceType": "java21"
+    },
+    {
+      "name": "wa_float",
+      "source": "./solutions/wa_float.cpp",
+      "tag": "WA",
+      "sourceType": "cpp.g++17"
+    },
+    {
+      "name": "wa_two_decimals",
+      "source": "./solutions/wa_two_decimals.py",
+      "tag": "WA",
+      "sourceType": "python.3"
+    },
+    {
+      "name": "wa_sample_deviation",
+      "source": "./solutions/wa_sample_deviation.java",
+      "tag": "WA",
+      "sourceType": "java21"
+    },
+    {
+      "name": "pe_comma",
+      "source": "./solutions/pe_comma.cpp",
+      "tag": "PE",
+      "sourceType": "cpp.g++17"
+    }
+  ],
+
+  "generators": [
+    {
+      "name": "gen",
+      "source": "./generators/gen.cpp"
+    }
+  ],
+
+  "checker": {
+    "name": "rcmp6",
+    "source": "rcmp6.cpp",
+    "isStandard": true
+  },
+
+  "validator": {
+    "name": "validator",
+    "source": "./validator/val.cpp",
+    "testsFilePath": "./validator/validator_tests.json"
+  },
+
+  "testsets": [
+    {
+      "name": "tests",
+      "generatorScript": {
+        "scriptFile": "./generators/gen-script.txt"
+      },
+      "manualTests": [
+        {
+          "input": "./manual/tests/m-01-sample.in",
+          "index": 1,
+          "group": "samples",
+          "useInStatements": true
+        }
+      ],
+      "groupsEnabled": true,
+      "groups": [
+        { "name": "samples" },
+        { "name": "main" }
+      ]
+    }
+  ]
+}

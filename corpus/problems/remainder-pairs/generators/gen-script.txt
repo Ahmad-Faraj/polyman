@@ -1,0 +1,13 @@
+<#-- Polygon-format generator script. -->
+<#-- gen n k maxV mode. mode: random (values in [1, maxV]) or multiples -->
+<#-- (every value a multiple of k, so all n(n-1)/2 pairs count) -->
+<#-- The first tests are small enough for a quadratic solution; from the -->
+<#-- fifth on, n = 10^5 and only a linear one fits in the time limit. -->
+
+<#-- @group main -->
+gen 10 5 100 random > $
+gen 300 7 1000000000 random > $
+gen 300 2 1000000000 random > $
+gen 100000 1000 1000000000 random > $
+gen 100000 3 1000000000 multiples > $
+gen 100000 1000000000 1000000000 random > $

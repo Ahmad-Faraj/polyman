@@ -34,6 +34,19 @@ describe('create-template.ts', () => {
         false
       );
     });
+
+    it('should link the guides on GitHub master', () => {
+      vi.spyOn(fmt, 'highlight').mockImplementation((s: string) => s);
+      vi.spyOn(fmt, 'primary').mockImplementation((s: string) => s);
+      const logSpy = vi.spyOn(fmt, 'log');
+      createTemplate.logTemplateCreationSuccess('my-problem');
+      const lines = logSpy.mock.calls.map(call => String(call[0]));
+      const links = lines.flatMap(l => l.match(/https:\/\/\S+/g) ?? []);
+      expect(links).toEqual([
+        'https://github.com/HamzaHassanain/polyman/blob/master/TUTORIAL.md',
+        'https://github.com/HamzaHassanain/polyman/blob/master/GUIDE.md',
+      ]);
+    });
   });
 
   describe('copyTemplate', () => {
@@ -72,21 +85,6 @@ describe('create-template.ts', () => {
       expect(fs.readdirSync).toHaveBeenCalledWith(path.join(srcDir, 'subdir'), {
         withFileTypes: true,
       });
-    });
-  });
-
-  describe('handleTemplateCreationError', () => {
-    it('should log error and exit', () => {
-      const mockExit = vi
-        .spyOn(process, 'exit')
-        .mockImplementation((_code?: string | number | null) => {
-          return undefined as never;
-        });
-      const errorSpy = vi.spyOn(fmt, 'error');
-      createTemplate.handleTemplateCreationError(new Error('fail'));
-      expect(errorSpy).toHaveBeenCalled();
-      expect(mockExit).toHaveBeenCalledWith(1);
-      mockExit.mockRestore();
     });
   });
 });

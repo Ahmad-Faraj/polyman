@@ -4,7 +4,13 @@
  * All methods use explicit icon placement for better indentation control.
  */
 
-import { getTheme, type Theme } from './theme';
+import chalk from 'chalk';
+import {
+  createTheme,
+  getTheme,
+  type Theme,
+  type ThemeName as BuiltInName,
+} from './theme';
 
 /**
  * Stream that human-readable output is written to.
@@ -17,6 +23,31 @@ export type OutputTarget = 'stdout' | 'stderr';
  * @typedef ErrorSink
  */
 export type ErrorSink = (message: string) => void;
+
+/**
+ * Name of a theme known to a formatter (built-in or registered).
+ * @typedef ThemeName
+ */
+export type ThemeName = string;
+
+/**
+ * Names of the themes that ship with polyman.
+ * @typedef BuiltInThemeName
+ */
+export type BuiltInThemeName = BuiltInName;
+
+export type { Theme };
+
+/**
+ * The built-in themes, by name, with colors on. The palettes live in
+ * src/theme.ts; the CLI picks one at startup (POLYMAN_THEME, terminal
+ * background detection and NO_COLOR).
+ * @constant
+ */
+export const themes: Readonly<Record<BuiltInThemeName, Theme>> = {
+  dark: createTheme('dark', chalk),
+  light: createTheme('light', chalk),
+};
 
 /**
  * Formatter class for creating styled terminal output with Codeforces theme.
@@ -35,6 +66,7 @@ export type ErrorSink = (message: string) => void;
 export class Formatter {
   private target: OutputTarget = 'stdout';
   private errorSink: ErrorSink | null = null;
+  private registry = new Map<ThemeName, Theme>(Object.entries(themes));
 
   /**
    * @param {Theme} [theme=getTheme()] - Color theme to style output with
@@ -42,12 +74,47 @@ export class Formatter {
   constructor(private theme: Theme = getTheme()) {}
 
   /**
-   * Replaces the color theme. The CLI calls it after detecting the terminal
+   * Selects the colour theme. Accepts the name of a built-in or registered
+   * theme, or a theme object. The CLI calls it after detecting the terminal
    * background, because `fmt` is created before detection finishes.
-   * @param {Theme} theme - Color theme to style output with
+   * @param {ThemeName | Theme} theme - Theme name or palette
+   * @throws {Error} If the name is not a known theme
+   * @example
+   * fmt.setTheme('light');
    */
-  setTheme(theme: Theme): void {
-    this.theme = theme;
+  setTheme(theme: ThemeName | Theme): void {
+    if (typeof theme !== 'string') {
+      this.theme = theme;
+      return;
+    }
+    const found = this.registry.get(theme);
+    if (!found) {
+      const known = [...this.registry.keys()].join(', ');
+      throw new Error(`Unknown theme "${theme}". Available themes: ${known}`);
+    }
+    this.theme = found;
+  }
+
+  /**
+   * Returns the active theme.
+   * @returns {Theme} The palette in use
+   */
+  getTheme(): Theme {
+    return this.theme;
+  }
+
+  /**
+   * Registers a named theme on this formatter so `setTheme(name)` can select
+   * it. The built-in `dark` and `light` themes can't be replaced.
+   * @param {ThemeName} name - Name to register the theme under
+   * @param {Theme} theme - The palette
+   * @throws {Error} If the name belongs to a built-in theme
+   */
+  registerTheme(name: ThemeName, theme: Theme): void {
+    if (Object.hasOwn(themes, name)) {
+      throw new Error(`Cannot replace built-in theme "${name}"`);
+    }
+    this.registry.set(name, theme);
   }
 
   /**

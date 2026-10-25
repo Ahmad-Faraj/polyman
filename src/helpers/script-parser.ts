@@ -15,8 +15,23 @@
  *   - `<#-- comment -->`         — ignored, may include `@group <name>` to
  *                                  start a new group block
  *   - `<#list a..b as i> ... </#list>`
- *                                — expanded; `${i}` is substituted with each
- *                                  integer in the inclusive range
+ *                                — expanded over the inclusive range (counting
+ *                                  down when a > b)
+ *   - `<#list [5, 50, 500] as n> ... </#list>`
+ *                                — expanded over a sequence of integers
+ *   - `<#assign n = 7>`          — defines an integer variable
+ *   - `${expr}`                  — integer expression over loop and assigned
+ *                                  variables: `+ - * %`, parentheses, unary
+ *                                  minus. Anything else is rejected, never
+ *                                  passed through literally.
+ *
+ * Any other FreeMarker directive (`<#if>`, `<#macro>`, `<@x>`, ...), the
+ * `#{...}` numeric interpolation and the square-bracket tag syntax (`[#list]`,
+ * `[@x]`) are rejected with an error that names them.
+ *
+ * One command per line: a second unquoted `>` on a line is rejected, as
+ * Polygon does. Iterations of a `<#list>` are joined without a separator, like
+ * FreeMarker, so a one-line list body puts all its commands on one line.
  *
  * Generator names with file extensions (`gen.exe`, `gen.cpp`) are rejected.
  */
@@ -31,11 +46,24 @@ import type {
 } from '../types';
 import fs from 'fs';
 import path from 'path';
+import { insideProblem } from './utils';
 
 const COMMENT_RE = /<#--([\s\S]*?)-->/g;
-const LIST_RE =
-  /<#list\s+(-?\d+)\s*\.\.\s*(-?\d+)\s+as\s+([a-zA-Z_]\w*)\s*>([\s\S]*?)<\/#list>/g;
 
+/**
+ * Maximum number of `<#list>` iterations a script may expand to, summed over
+ * all lists (nested lists multiply). Guards against `1..1000000000` exhausting
+ * memory.
+ */
+export const MAX_LIST_ITEMS = 10000;
+
+/**
+ * Maximum number of tests one multi-output target (`{1-100}`) may list, and
+ * the maximum number of tests a whole script may produce. Guards against
+ * `{1-100000000}` exhausting memory. Separate from {@link MAX_LIST_ITEMS} so
+ * the two limits can change independently.
+ */
+export const MAX_SCRIPT_TESTS = 10000;
 const GROUP_DIRECTIVE_RE = /^@group\s+(\S+)\s*$/;
 
 /**
@@ -53,7 +81,7 @@ export function readScriptText(
   if (!gs) return '';
   if (typeof gs.script === 'string') return gs.script;
   if (gs.scriptFile) {
-    const filePath = path.resolve(baseDir, gs.scriptFile);
+    const filePath = insideProblem(baseDir, gs.scriptFile);
     if (!fs.existsSync(filePath)) {
       throw new Error(
         `Generator scriptFile not found for testset "${testset.name}": ${gs.scriptFile}`
@@ -145,6 +173,26 @@ function tokenize(line: string): string[] {
   return out;
 }
 
+/**
+ * Offsets of every `>` outside quotes, using the same quoting rules as
+ * {@link tokenize}.
+ */
+function unquotedArrows(line: string): number[] {
+  const out: number[] = [];
+  let quote: '"' | "'" | null = null;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (quote) {
+      if (ch === quote) quote = null;
+    } else if (ch === '"' || ch === "'") {
+      quote = ch;
+    } else if (ch === '>') {
+      out.push(i);
+    }
+  }
+  return out;
+}
+
 function parseTarget(target: string, lineNumber: number): ScriptOutput {
   if (target === '$') return { kind: 'single', index: null };
 
@@ -154,6 +202,13 @@ function parseTarget(target: string, lineNumber: number): ScriptOutput {
       throw new Error(`Empty multi-output target on line ${lineNumber}`);
     }
     const indices: number[] = [];
+    // Count before allocating, so a huge range never gets materialized.
+    let counted = 0;
+    const tooMany = (): Error =>
+      new Error(
+        `Multi-output target on line ${lineNumber} expands to more than ` +
+          `${MAX_SCRIPT_TESTS} tests (limit ${MAX_SCRIPT_TESTS})`
+      );
     for (const piece of inner.split(',')) {
       const p = piece.trim();
       const rangeMatch = /^(\d+)\s*-\s*(\d+)$/.exec(p);
@@ -165,6 +220,8 @@ function parseTarget(target: string, lineNumber: number): ScriptOutput {
             `Invalid range "${p}" in multi-output target on line ${lineNumber}`
           );
         }
+        counted += b - a + 1;
+        if (counted > MAX_SCRIPT_TESTS) throw tooMany();
         for (let i = a; i <= b; i++) indices.push(i);
       } else if (/^\d+$/.test(p)) {
         const v = parseInt(p, 10);
@@ -173,6 +230,8 @@ function parseTarget(target: string, lineNumber: number): ScriptOutput {
             `Test index must be >= 1 (got ${v}) on line ${lineNumber}`
           );
         }
+        counted++;
+        if (counted > MAX_SCRIPT_TESTS) throw tooMany();
         indices.push(v);
       } else {
         throw new Error(
@@ -202,9 +261,367 @@ function parseTarget(target: string, lineNumber: number): ScriptOutput {
   );
 }
 
+type FmPiece =
+  | { kind: 'text'; value: string }
+  | { kind: 'expr'; source: string; line: number }
+  | { kind: 'assign'; name: string; source: string; line: number }
+  | {
+      kind: 'list';
+      header: string;
+      name: string;
+      line: number;
+      body: FmPiece[];
+    };
+
+type FmListNode = Extract<FmPiece, { kind: 'list' }>;
+
+/** An expression error without a location; the caller adds the line. */
+class FmExprError extends Error {}
+
+const FM_TOKEN_RE =
+  /(<#--[\s\S]*?-->)|<(\/?)([#@])([A-Za-z_][\w.]*)([^>]*)>|\$\{([^}]*)\}|(#\{)|(\[\/?[#@][\w.]*)/g;
+
 /**
- * Strips multi-line comments and expands `<#list a..b as i> ... </#list>`
- * blocks before splitting the script into lines.
+ * Builds a lookup from a character offset to its 1-based line number. The
+ * newline offsets are collected once, so each lookup is a binary search
+ * instead of a rescan from the start of the script.
+ */
+function makeLineLookup(text: string): (offset: number) => number {
+  const newlines: number[] = [];
+  for (let i = text.indexOf('\n'); i >= 0; i = text.indexOf('\n', i + 1)) {
+    newlines.push(i);
+  }
+  return (offset: number): number => {
+    // Count the newlines at an index below `offset`.
+    let lo = 0;
+    let hi = newlines.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (newlines[mid] < offset) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo + 1;
+  };
+}
+
+/**
+ * Splits a script into text, `${expr}`, `<#assign>` and `<#list>` nodes.
+ * Throws for any other FreeMarker construct, naming it.
+ */
+function parseFreeMarker(script: string): FmPiece[] {
+  const lineAt = makeLineLookup(script);
+  const root: FmPiece[] = [];
+  const open: FmListNode[] = [];
+  const target = (): FmPiece[] =>
+    open.length > 0 ? open[open.length - 1].body : root;
+
+  let pending = '';
+  const flush = (): void => {
+    if (pending.length === 0) return;
+    target().push({ kind: 'text', value: pending });
+    pending = '';
+  };
+  const addText = (text: string, from: number): void => {
+    const at = text.indexOf('${');
+    if (at >= 0) {
+      throw new Error(`Unterminated "\${" on line ${lineAt(from + at)}`);
+    }
+    pending += text;
+  };
+
+  let last = 0;
+  for (const m of script.matchAll(FM_TOKEN_RE)) {
+    const offset = m.index;
+    addText(script.slice(last, offset), last);
+    last = offset + m[0].length;
+    const line = lineAt(offset);
+
+    if (m[1] !== undefined) {
+      // Comments that survived preprocess (`@group ...`) stay as text, but
+      // FreeMarker would evaluate a `${...}` inside them, so refuse those.
+      const interp = m[1].indexOf('${');
+      if (interp >= 0) {
+        const expr = /^\$\{[^}]*\}?/.exec(m[1].slice(interp))![0];
+        throw new Error(
+          `Unsupported expression ${expr} in @group on line ` +
+            `${lineAt(offset + interp)}`
+        );
+      }
+      pending += m[1];
+      continue;
+    }
+
+    if (m[6] !== undefined) {
+      flush();
+      target().push({ kind: 'expr', source: m[6], line });
+      continue;
+    }
+
+    if (m[7] !== undefined) {
+      throw new Error(
+        `Unsupported FreeMarker construct #{...} on line ${line}`
+      );
+    }
+    if (m[8] !== undefined) {
+      throw new Error(
+        `Unsupported FreeMarker construct ${m[8]} (square-bracket syntax) ` +
+          `on line ${line}`
+      );
+    }
+
+    const closing = m[2] === '/';
+    const sigil = m[3];
+    const name = m[4];
+    const args = m[5];
+    const shown = `<${m[2]}${sigil}${name}>`;
+
+    if (sigil === '#' && name === 'list') {
+      flush();
+      if (closing) {
+        if (open.length === 0) {
+          throw new Error(`Unexpected </#list> on line ${line}`);
+        }
+        open.pop();
+        continue;
+      }
+      const header = /^\s+([\s\S]+?)\s+as\s+([A-Za-z_]\w*)\s*$/.exec(args);
+      if (!header) {
+        throw new Error(
+          `Unsupported <#list> form on line ${line}: <#list${args}> ` +
+            `(expected <#list a..b as i> or <#list [x, y] as i>)`
+        );
+      }
+      const node: FmListNode = {
+        kind: 'list',
+        header: header[1],
+        name: header[2],
+        line,
+        body: [],
+      };
+      target().push(node);
+      open.push(node);
+      continue;
+    }
+
+    if (sigil === '#' && name === 'assign' && !closing) {
+      flush();
+      const assign = /^\s+([A-Za-z_]\w*)\s*=\s*([\s\S]+?)\s*$/.exec(args);
+      if (!assign) {
+        throw new Error(
+          `Unsupported <#assign> form on line ${line}: <#assign${args}> ` +
+            `(expected <#assign name = expression>)`
+        );
+      }
+      target().push({
+        kind: 'assign',
+        name: assign[1],
+        source: assign[2],
+        line,
+      });
+      continue;
+    }
+
+    throw new Error(
+      `Unsupported FreeMarker directive ${shown} on line ${line}`
+    );
+  }
+  addText(script.slice(last), last);
+  flush();
+
+  if (open.length > 0) {
+    throw new Error(`Unclosed <#list> on line ${open[open.length - 1].line}`);
+  }
+  return root;
+}
+
+/**
+ * Evaluates an integer expression: `+ - * %`, parentheses, unary minus,
+ * integer literals and variables. Anything else (`/`, strings, built-ins,
+ * decimals) is unsupported, because its FreeMarker result can't be matched
+ * here with certainty.
+ */
+function evalExpression(
+  source: string,
+  lookup: (name: string) => number | undefined
+): number {
+  const tokens = source.match(/\s*(\d+|[A-Za-z_]\w*|[-+*%()]|\S)/g) ?? [];
+  const toks = tokens.map(t => t.trim());
+  let pos = 0;
+
+  const unsupported = (): never => {
+    throw new FmExprError('unsupported');
+  };
+  const checked = (n: number): number => {
+    if (!Number.isSafeInteger(n)) {
+      throw new FmExprError('Integer overflow');
+    }
+    return n;
+  };
+
+  const primary = (): number => {
+    const t = toks[pos++];
+    if (t === undefined) return unsupported();
+    if (/^\d+$/.test(t)) return checked(parseInt(t, 10));
+    if (/^[A-Za-z_]\w*$/.test(t)) {
+      const v = lookup(t);
+      if (v === undefined) throw new FmExprError(`Undefined variable "${t}"`);
+      return v;
+    }
+    if (t === '(') {
+      const v = sum();
+      if (toks[pos++] !== ')') return unsupported();
+      return v;
+    }
+    return unsupported();
+  };
+  const unary = (): number => {
+    if (toks[pos] === '-') {
+      pos++;
+      return checked(-unary());
+    }
+    if (toks[pos] === '+') {
+      pos++;
+      return unary();
+    }
+    return primary();
+  };
+  const product = (): number => {
+    let v = unary();
+    while (toks[pos] === '*' || toks[pos] === '%') {
+      const op = toks[pos++];
+      const rhs = unary();
+      if (op === '*') {
+        v = checked(v * rhs);
+      } else {
+        if (rhs === 0) throw new FmExprError('Modulo by zero');
+        v = v % rhs;
+      }
+    }
+    return v;
+  };
+  const sum = (): number => {
+    let v = product();
+    while (toks[pos] === '+' || toks[pos] === '-') {
+      const op = toks[pos++];
+      const rhs = product();
+      v = checked(op === '+' ? v + rhs : v - rhs);
+    }
+    return v;
+  };
+
+  const value = sum();
+  if (pos < toks.length) return unsupported();
+  return value;
+}
+
+/**
+ * Expands `<#list>`, `<#assign>` and `${expr}` the way Polygon's FreeMarker
+ * does for the integer subset documented at the top of this file. Directive
+ * tags expand to nothing, so the newlines around them are kept and line
+ * numbers of scripts without lists stay aligned with the source.
+ */
+function expandFreeMarker(script: string): string {
+  const globals = new Map<string, number>();
+  const locals: Map<string, number>[] = [];
+  const lookup = (name: string): number | undefined => {
+    for (let i = locals.length - 1; i >= 0; i--) {
+      const v = locals[i].get(name);
+      if (v !== undefined) return v;
+    }
+    return globals.get(name);
+  };
+  const evaluate = (source: string, line: number, shown: string): number => {
+    try {
+      return evalExpression(source, lookup);
+    } catch (e) {
+      if (!(e instanceof FmExprError)) throw e;
+      if (e.message === 'unsupported') {
+        throw new Error(`Unsupported expression ${shown} on line ${line}`);
+      }
+      throw new Error(`${e.message} in ${shown} on line ${line}`);
+    }
+  };
+
+  let expandedItems = 0;
+  const render = (nodes: FmPiece[]): string => {
+    let out = '';
+    for (const node of nodes) {
+      if (node.kind === 'text') {
+        out += node.value;
+      } else if (node.kind === 'expr') {
+        out += String(
+          evaluate(node.source, node.line, '${' + node.source.trim() + '}')
+        );
+      } else if (node.kind === 'assign') {
+        globals.set(
+          node.name,
+          evaluate(
+            node.source,
+            node.line,
+            `<#assign ${node.name} = ${node.source}>`
+          )
+        );
+      } else {
+        out += renderList(node);
+      }
+    }
+    return out;
+  };
+
+  const renderList = (node: FmListNode): string => {
+    const shown = `<#list ${node.header} as ${node.name}>`;
+    const values: number[] = [];
+    const tooLarge = (): Error =>
+      new Error(
+        `${shown} on line ${node.line} expands to more than ` +
+          `${MAX_LIST_ITEMS} items in total (limit ${MAX_LIST_ITEMS})`
+      );
+    const seq = /^\[([\s\S]*)\]$/.exec(node.header.trim());
+    if (seq) {
+      if (seq[1].trim().length > 0) {
+        for (const item of seq[1].split(',')) {
+          values.push(evaluate(item, node.line, shown));
+        }
+      }
+    } else {
+      const dots = node.header.indexOf('..');
+      if (dots < 0) {
+        throw new Error(`Unsupported expression ${shown} on line ${node.line}`);
+      }
+      const from = evaluate(node.header.slice(0, dots), node.line, shown);
+      const to = evaluate(node.header.slice(dots + 2), node.line, shown);
+      const step = from <= to ? 1 : -1;
+      // Check the size up front so a huge range never gets materialized.
+      if (Math.abs(to - from) + 1 > MAX_LIST_ITEMS) {
+        throw tooLarge();
+      }
+      for (let i = from; step === 1 ? i <= to : i >= to; i += step) {
+        values.push(i);
+      }
+    }
+
+    const parts: string[] = [];
+    for (const v of values) {
+      expandedItems++;
+      if (expandedItems > MAX_LIST_ITEMS) throw tooLarge();
+      locals.push(new Map([[node.name, v]]));
+      try {
+        parts.push(render(node.body));
+      } finally {
+        locals.pop();
+      }
+    }
+    // No separator, like FreeMarker: a one-line body stays on one line. The
+    // newlines of a multi-line body come from the body text itself.
+    return parts.join('');
+  };
+
+  return render(parseFreeMarker(script));
+}
+
+/**
+ * Strips multi-line comments and expands the supported FreeMarker constructs
+ * (see {@link expandFreeMarker}) before splitting the script into lines.
  *
  * Comments that contain an `@group` (or other `@`-prefixed directive) are
  * collapsed onto a single line so the per-line parser can still detect them.
@@ -229,20 +646,7 @@ function preprocess(script: string): string[] {
     }
   );
 
-  const expanded = directiveStripped.replace(
-    LIST_RE,
-    (_m, fromStr: string, toStr: string, varName: string, body: string) => {
-      const from = parseInt(fromStr, 10);
-      const to = parseInt(toStr, 10);
-      const step = from <= to ? 1 : -1;
-      const re = new RegExp('\\$\\{' + varName + '\\}', 'g');
-      const parts: string[] = [];
-      for (let i = from; step === 1 ? i <= to : i >= to; i += step) {
-        parts.push(body.replace(re, String(i)));
-      }
-      return parts.join('\n');
-    }
-  );
+  const expanded = expandFreeMarker(directiveStripped);
 
   return expanded.split(/\r?\n/);
 }
@@ -266,12 +670,14 @@ function stripComments(line: string): string {
  * @param script - raw script text
  * @returns parsed lines in source order
  * @throws if a line is malformed, an extension appears in a generator name,
- *         or an output target is invalid
+ *         an output target is invalid, or the script expands to more than
+ *         {@link MAX_SCRIPT_TESTS} tests
  */
 export function parseGeneratorScript(script: string): ParsedScriptLine[] {
   const out: ParsedScriptLine[] = [];
   const lines = preprocess(script);
   let activeGroup: string | undefined;
+  let totalTests = 0;
 
   for (let i = 0; i < lines.length; i++) {
     const raw = lines[i];
@@ -290,7 +696,15 @@ export function parseGeneratorScript(script: string): ParsedScriptLine[] {
     const code = stripComments(raw);
     if (code.length === 0) continue;
 
-    const arrowIdx = code.lastIndexOf('>');
+    const arrows = unquotedArrows(code);
+    if (arrows.length > 1) {
+      // Polygon takes one command per line and rejects the rest with this.
+      throw new Error(
+        `Line should end with '> testIndex'. (line ${lineNumber}: ` +
+          `${raw.trim()})`
+      );
+    }
+    const arrowIdx = arrows.length === 1 ? arrows[0] : code.lastIndexOf('>');
     if (arrowIdx < 0) {
       throw new Error(
         `Missing '> target' on line ${lineNumber}: ${raw.trim()}`
@@ -307,6 +721,10 @@ export function parseGeneratorScript(script: string): ParsedScriptLine[] {
 
     const tokens = tokenize(left);
     const generator = tokens[0];
+    if (generator === undefined) {
+      // tokenize() drops empty quoted tokens, so `"" > 1` has none.
+      throw new Error(`Empty generator command on line ${lineNumber}`);
+    }
     if (path.extname(generator) !== '') {
       throw new Error(
         `Generator name must not include an extension on line ${lineNumber}: "${generator}"`
@@ -314,10 +732,19 @@ export function parseGeneratorScript(script: string): ParsedScriptLine[] {
     }
     const args = tokens.slice(1);
 
+    const output = parseTarget(target, lineNumber);
+    totalTests += output.kind === 'multi' ? output.indices.length : 1;
+    if (totalTests > MAX_SCRIPT_TESTS) {
+      throw new Error(
+        `Script expands to more than ${MAX_SCRIPT_TESTS} tests ` +
+          `(limit ${MAX_SCRIPT_TESTS}), exceeded on line ${lineNumber}`
+      );
+    }
+
     out.push({
       generator,
       args,
-      output: parseTarget(target, lineNumber),
+      output,
       ...(activeGroup !== undefined ? { group: activeGroup } : {}),
       raw: raw.trim(),
       lineNumber,

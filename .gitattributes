@@ -10,9 +10,17 @@
 *.yml text
 *.yaml text
 
+# Node scripts start with a #! line, and a CR at its end breaks importing them
+# under Vitest on a Windows checkout (#94). Keep them LF everywhere.
+*.mjs text eol=lf
+*.cjs text eol=lf
+
 # Denote all files that are truly binary and should not be modified
 *.png binary
 *.jpg binary
 *.gif binary
 *.ico binary
 *.pdf binary
+
+# Agent SSE fixtures are byte-exact recorded responses. Keep them LF everywhere.
+tests/fixtures/agent/** text eol=lf

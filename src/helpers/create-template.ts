@@ -81,22 +81,3 @@ export function copyTemplate(srcDir: string, destDir: string) {
     }
   }
 }
-
-/**
- * Handles template creation errors.
- * Logs error and exits process with code 1.
- *
- * @param {unknown} error - Error that occurred during template creation
- *
- * @example
- * try {
- *   copyTemplate(srcDir, destDir);
- * } catch (error) {
- *   handleTemplateCreationError(error);
- * }
- */
-export function handleTemplateCreationError(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error);
-  fmt.error(`${fmt.cross()} ${message}`);
-  process.exit(1);
-}

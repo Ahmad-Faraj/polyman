@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as crypto from 'crypto';
 import { PolygonSDK } from '../src/polygon';
+import { PolymanError } from '../src/errors';
 
 const mockConfig = {
   apiKey: 'key',
@@ -202,6 +203,15 @@ describe('PolygonSDK', () => {
       );
     });
 
+    it('should fail with exit code 4 on FAILED status', async () => {
+      fetchMock.mockResolvedValue(
+        makeJsonResponse({ status: 'FAILED', comment: 'bad credentials' })
+      );
+      const error: unknown = await sdk.listProblems().catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(PolymanError);
+      expect((error as PolymanError).exitCode).toBe(4);
+    });
+
     it('should throw with undefined comment on FAILED status without comment', async () => {
       fetchMock.mockResolvedValue(makeJsonResponse({ status: 'FAILED' }));
       await expect(sdk.listProblems()).rejects.toThrow(
@@ -210,8 +220,17 @@ describe('PolygonSDK', () => {
     });
 
     it('should propagate network errors from fetch', async () => {
-      fetchMock.mockRejectedValue(new Error('ECONNREFUSED'));
-      await expect(sdk.listProblems()).rejects.toThrow('ECONNREFUSED');
+      vi.useFakeTimers();
+      try {
+        fetchMock.mockRejectedValue(new Error('ECONNREFUSED'));
+        const result = expect(sdk.listProblems()).rejects.toThrow(
+          'ECONNREFUSED'
+        );
+        await vi.runAllTimersAsync();
+        await result;
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it('should stringify boolean and number params for body', async () => {
@@ -931,6 +950,299 @@ describe('PolygonSDK', () => {
       await sdk.getContestProblems(789, 'cpin');
       const call = parseFetchCall(fetchMock.mock.calls[0]);
       expect(call.body.get('pin')).toBe('cpin');
+    });
+  });
+
+  describe('retry of transient failures', () => {
+    function makeStatusResponse(status: number, body: string) {
+      return {
+        status,
+        json: () => Promise.reject(new SyntaxError('Unexpected token <')),
+        text: () => Promise.resolve(body),
+      };
+    }
+
+    function makeHtmlResponse(status = 200) {
+      return makeStatusResponse(status, '<!DOCTYPE html><html>502</html>');
+    }
+
+    function okResponse(result: unknown) {
+      return { status: 200, ...makeJsonResponse({ status: 'OK', result }) };
+    }
+
+    /** Runs a call to completion with the retry wait skipped. */
+    async function settle<T>(
+      promise: Promise<T>
+    ): Promise<PromiseSettledResult<T>> {
+      const settled = Promise.allSettled([promise]).then(
+        r => r[0] as PromiseSettledResult<T>
+      );
+      await vi.runAllTimersAsync();
+      return settled;
+    }
+
+    function messageOf(r: PromiseSettledResult<unknown>): string {
+      if (r.status !== 'rejected') return '';
+      const reason: unknown = r.reason;
+      return reason instanceof Error ? reason.message : String(reason);
+    }
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('retries a read once after a 502 and then succeeds', async () => {
+      fetchMock
+        .mockResolvedValueOnce(makeHtmlResponse(502))
+        .mockResolvedValueOnce(okResponse([{ id: 1, name: 'A' }]));
+      const r = await settle(sdk.listProblems());
+      expect(r.status).toBe('fulfilled');
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not retry a 5xx that carries a JSON FAILED body', async () => {
+      fetchMock.mockResolvedValue({
+        status: 500,
+        ...makeJsonResponse({ status: 'FAILED', comment: 'X' }),
+      });
+      const r = await settle(sdk.listProblems());
+      expect(r.status).toBe('rejected');
+      expect(messageOf(r)).toBe('Polygon API Error: X');
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('waits before the retry', async () => {
+      fetchMock
+        .mockResolvedValueOnce(makeStatusResponse(503, ''))
+        .mockResolvedValueOnce(okResponse([]));
+      const pending = sdk.listProblems();
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1000);
+      await pending;
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('signs the retry again', async () => {
+      fetchMock
+        .mockResolvedValueOnce(makeStatusResponse(500, ''))
+        .mockResolvedValueOnce(okResponse([]));
+      await settle(sdk.listProblems());
+      const first = parseFetchCall(fetchMock.mock.calls[0] ?? []);
+      const second = parseFetchCall(fetchMock.mock.calls[1] ?? []);
+      expect(second.body.get('apiSig')).toBeTruthy();
+      expect(second.body.get('apiSig')).not.toBe(first.body.get('apiSig'));
+    });
+
+    it('retries a safe upload once after an HTML page and then succeeds', async () => {
+      fetchMock
+        .mockResolvedValueOnce(makeHtmlResponse(200))
+        .mockResolvedValueOnce(okResponse(undefined));
+      const r = await settle(sdk.saveFile(1, 'source', 'a.cpp', 'int x;'));
+      expect(r.status).toBe('fulfilled');
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      const call = parseFetchCall(fetchMock.mock.calls[1] ?? []);
+      expect(call.url).toContain('/problem.saveFile');
+    });
+
+    it('fails after exactly one retry on two network errors and names the method', async () => {
+      fetchMock.mockRejectedValue(new Error('ECONNRESET'));
+      const r = await settle(sdk.getProblemInfo(5));
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(r.status).toBe('rejected');
+      const message = messageOf(r);
+      expect(message).toContain('problem.info');
+      expect(message).toContain('ECONNRESET');
+    });
+
+    it('fails with exit code 4 and keeps the cause after a network error', async () => {
+      const cause = new Error('ECONNRESET');
+      fetchMock.mockRejectedValue(cause);
+      const r = await settle(sdk.getProblemInfo(5));
+      expect(r.status).toBe('rejected');
+      const reason: unknown = r.status === 'rejected' ? r.reason : undefined;
+      expect(reason).toBeInstanceOf(PolymanError);
+      expect((reason as PolymanError).exitCode).toBe(4);
+      expect((reason as PolymanError).cause).toBe(cause);
+    });
+
+    it.each([
+      {
+        name: 'an unreadable body on a raw call',
+        cause: new Error('socket hang up'),
+        response: (cause: Error) => ({
+          status: 200,
+          json: () => Promise.reject(cause),
+          text: () => Promise.reject(cause),
+        }),
+        call: () => sdk.viewFile(1, 'source', 'a.cpp'),
+        hasCause: true,
+      },
+      {
+        name: 'an HTML page on a raw call',
+        cause: undefined,
+        response: () => makeHtmlResponse(200),
+        call: () => sdk.viewFile(1, 'source', 'a.cpp'),
+        hasCause: false,
+      },
+      {
+        name: 'a body that is not JSON',
+        cause: new SyntaxError('Unexpected token <'),
+        response: (cause: Error) => ({
+          status: 200,
+          json: () => Promise.reject(cause),
+          text: () => Promise.resolve('not json'),
+        }),
+        call: () => sdk.listProblems(),
+        hasCause: true,
+      },
+    ])(
+      'fails with exit code 4 and keeps the cause on $name',
+      async ({ cause, response, call, hasCause }) => {
+        fetchMock.mockResolvedValue(response(cause as Error));
+        const r = await settle(call());
+        expect(r.status).toBe('rejected');
+        const reason: unknown = r.status === 'rejected' ? r.reason : undefined;
+        expect(reason).toBeInstanceOf(PolymanError);
+        expect((reason as PolymanError).exitCode).toBe(4);
+        if (hasCause) {
+          expect((reason as PolymanError).cause).toBe(cause);
+        } else {
+          expect((reason as PolymanError).cause).toBeUndefined();
+        }
+      }
+    );
+
+    it('fails with exit code 4 after two 5xx answers', async () => {
+      fetchMock.mockResolvedValue(makeStatusResponse(502, 'bad gateway'));
+      const r = await settle(sdk.listProblems());
+      const reason: unknown = r.status === 'rejected' ? r.reason : undefined;
+      expect(reason).toBeInstanceOf(PolymanError);
+      expect((reason as PolymanError).exitCode).toBe(4);
+    });
+
+    it('fails after exactly one retry on two 5xx answers', async () => {
+      fetchMock.mockResolvedValue(makeStatusResponse(502, 'bad gateway'));
+      const r = await settle(sdk.listProblems());
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(r.status).toBe('rejected');
+      expect(messageOf(r)).toContain('problems.list');
+    });
+
+    it('does not retry a valid FAILED answer', async () => {
+      fetchMock.mockResolvedValue({
+        status: 200,
+        ...makeJsonResponse({ status: 'FAILED', comment: 'no such file' }),
+      });
+      const r = await settle(sdk.getProblemInfo(5));
+      expect(r.status).toBe('rejected');
+      expect(messageOf(r)).toBe('Polygon API Error: no such file');
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not retry a 4xx answer', async () => {
+      fetchMock.mockResolvedValue(makeStatusResponse(403, 'forbidden'));
+      const r = await settle(sdk.listProblems());
+      expect(r.status).toBe('rejected');
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not retry a 4xx answer on a raw call', async () => {
+      fetchMock.mockResolvedValue(makeHtmlResponse(404));
+      const r = await settle(sdk.viewFile(1, 'source', 'a.cpp'));
+      expect(r.status).toBe('rejected');
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('never retries createProblem', async () => {
+      fetchMock.mockResolvedValue(makeStatusResponse(502, ''));
+      const r = await settle(sdk.createProblem('X'));
+      expect(r.status).toBe('rejected');
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('never retries commitChanges', async () => {
+      fetchMock.mockResolvedValue(makeStatusResponse(502, ''));
+      const r = await settle(sdk.commitChanges(1));
+      expect(r.status).toBe('rejected');
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('never retries buildPackage', async () => {
+      fetchMock.mockRejectedValue(new Error('ECONNRESET'));
+      const r = await settle(sdk.buildPackage(1, true, true));
+      expect(r.status).toBe('rejected');
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      ['updateWorkingCopy', (s: PolygonSDK) => s.updateWorkingCopy(1)],
+      ['discardWorkingCopy', (s: PolygonSDK) => s.discardWorkingCopy(1)],
+      [
+        'saveValidatorTest',
+        (s: PolygonSDK) => s.saveValidatorTest(1, 1, 'x', 'VALID'),
+      ],
+      [
+        'saveCheckerTest',
+        (s: PolygonSDK) => s.saveCheckerTest(1, 1, 'i', 'o', 'a', 'OK'),
+      ],
+    ])('never retries %s', async (_name, call) => {
+      fetchMock.mockResolvedValue(makeHtmlResponse(200));
+      const r = await settle(call(sdk));
+      expect(r.status).toBe('rejected');
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('never retries a call sent with checkExisting: true', async () => {
+      fetchMock.mockResolvedValue(makeStatusResponse(502, ''));
+      const r = await settle(
+        sdk.saveFile(1, 'source', 'a.cpp', 'int x;', { checkExisting: true })
+      );
+      expect(r.status).toBe('rejected');
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('retries a raw call after a 5xx and returns the file', async () => {
+      fetchMock
+        .mockResolvedValueOnce(makeStatusResponse(502, 'bad gateway'))
+        .mockResolvedValueOnce({
+          status: 200,
+          ...makeTextResponse('int main() {}'),
+        });
+      const r = await settle(sdk.viewFile(1, 'source', 'a.cpp'));
+      expect(r).toEqual({ status: 'fulfilled', value: 'int main() {}' });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('retries a raw call after an HTML page and returns the file', async () => {
+      fetchMock
+        .mockResolvedValueOnce(makeHtmlResponse(200))
+        .mockResolvedValueOnce({ status: 200, ...makeTextResponse('1 2 3') });
+      const r = await settle(sdk.getTestInput(1, 'tests', 1));
+      expect(r).toEqual({ status: 'fulfilled', value: '1 2 3' });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('throws instead of returning an HTML page when a raw call keeps failing', async () => {
+      fetchMock.mockResolvedValue(makeHtmlResponse(200));
+      const r = await settle(sdk.viewFile(1, 'source', 'a.cpp'));
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(r.status).toBe('rejected');
+      const message = messageOf(r);
+      expect(message).toContain('problem.viewFile');
+      expect(message).toContain('HTML');
+    });
+
+    it('throws instead of returning a 5xx body when a raw call keeps failing', async () => {
+      fetchMock.mockResolvedValue(makeStatusResponse(524, 'timeout'));
+      const r = await settle(sdk.getTestAnswer(1, 'tests', 1));
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(r.status).toBe('rejected');
+      expect(messageOf(r)).toContain('problem.testAnswer');
     });
   });
 

@@ -52,14 +52,14 @@ Fails on the first step that errors. The error names the failing component and (
   ],
   "solutions": [
     { "name": "acc", "tag": "MA", "matchesTag": true, "reason": "Main solution ran on every test", "tests": [ { "testset": "tests", "index": 1, "verdict": "OK", "timeMs": 3, "message": "" } ] },
-    { "name": "wa", "tag": "WA", "matchesTag": false, "reason": "Solution wa marked as WA but passed all tests correctly", "tests": [ { "testset": "tests", "index": 1, "verdict": "OK", "timeMs": 3, "message": "" } ] }
+    { "name": "wa", "tag": "WA", "matchesTag": false, "reason": "Solution wa marked as WA but did not get Wrong Answer or Presentation Error on any test", "tests": [ { "testset": "tests", "index": 1, "verdict": "OK", "timeMs": 3, "message": "" } ] }
   ]
 }
 ```
 
 - `failedStep` is the first step that failed (null on success). Steps after it are absent because verify stops there.
 - `steps[].errors` holds the error lines printed during a failed step (compiler output, validator messages, per-test failures). It is empty for steps that passed.
-- `solutions[]` lists solutions that were run. `matchesTag` is the tag-conformance result; `reason` explains it. Verdicts are `OK`, `WA`, `TLE`, `MLE`, `RTE` (`WA` is assigned by the checker during the comparison step).
+- `solutions[]` lists solutions that were run. `matchesTag` is the tag-conformance result; `reason` explains it. Verdicts are `OK`, `WA`, `PE`, `TLE`, `MLE`, `RTE` (`WA` and `PE` are assigned by the checker during the comparison step).
 - If verification stops before a solution was compared, its `matchesTag` is false with reason `Not evaluated: verification stopped before comparison`.
 
 ## What it catches

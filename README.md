@@ -2,11 +2,12 @@
 
 <img src="logo.png" alt="Polyman Logo" width="200"/>
 
-# Polyman
+# polyman
 
-**CLI tool for Codeforces problem setters** to automate the complete workflow for creating, testing, and verifying competitive programming problems.
+**CLI tool for Codeforces problem setters** to create, test and verify competitive programming problems from the terminal.
 
-[![npm version](https://img.shields.io/npm/v/polyman.svg?style=flat-square)](https://www.npmjs.com/package/polyman-cli)
+[![CI](https://github.com/HamzaHassanain/polyman/actions/workflows/ci.yml/badge.svg)](https://github.com/HamzaHassanain/polyman/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/polyman-cli.svg?style=flat-square)](https://www.npmjs.com/package/polyman-cli)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Node.js](https://img.shields.io/badge/Node.js-43853D?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org/)
@@ -15,9 +16,26 @@
 
 ---
 
-**Quick Links** | [Why?](#why-polyman) • [Installation](#installation) • [Quick Start](#quick-start) • [Commands](#commands) • [Tags](#solution-tags) • [Checkers](#standard-checkers) • [Structure](#project-structure) • [Config](#configuration) • [Docs](#documentation) • [Workflow](#workflow-summary) • [Issues](#common-issues) • [Support](#support) • [Contributing](#contributing) • [License](#license)
+**Quick Links** | [What is new](#what-is-new-in-31) • [Why?](#why-polyman) • [Who uses it](#who-uses-it) • [Installation](#installation) • [Quick Start](#quick-start) • [Commands](#commands) • [Tags](#solution-tags) • [Checkers](#standard-checkers) • [Structure](#project-structure) • [Config](#configuration) • [Docs](#documentation) • [Workflow](#workflow-summary) • [Issues](#common-issues) • [Support](#support) • [Contributing](#contributing) • [License](#license)
 
 </div>
+
+polyman (`polyman-cli` on npm, MIT) is the command-line tool problem setters on Codeforces and Polygon run before a problem goes out. It compiles every solution, runs it on every test, and checks that each one gets the verdict its tag says. It also pulls problems from Polygon and pushes them back, so you can do the whole work locally.
+
+## What is new in 3.1
+
+- A precompiled `<bits/stdc++.h>` is built once and reused for every C++ compile that includes it, so a cold `verify` is faster. Turn it off with `POLYMAN_PCH=0`.
+- `--json` works on `generate`, `validate`, `test` and the `remote` commands, not only on `run` and `verify`.
+- C++ solutions are compiled with `-DONLINE_JUDGE`, like on Codeforces, and `remote pull` keeps each file's `sourceType`.
+- Tags work like on Polygon: a `WA` solution passes on Wrong Answer or Presentation Error, and a `PE` solution must get a Presentation Error.
+- `run` and `verify` use only `test<N>.txt` files, so a stray `test1.txt.bak` is not run as a test.
+- A solution tagged `RE` must crash on at least one test.
+- `remote pull` downloads the problem's resource files, like its own `testlib.h`. `download-testlib` does not replace a `testlib.h` that is different from the upstream one (exit code 2).
+- Problems with file input and output work: when `inputFile` or `outputFile` in `Config.json` is a file name, each solution reads and writes that file.
+
+The last four are merged after 3.1.0 and are listed under Unreleased in [CHANGELOG.md](CHANGELOG.md).
+
+3.1 was built with Ahmed Faraj and Mazen Ghanayem during the GitLab Transcend hackathon, October 2026 ([project on GitLab](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase)).
 
 ## Why Polyman?
 
@@ -34,11 +52,19 @@ Stop switching between environments. Create competitive programming problems ent
 
 Polyman eliminates manual testing and syncing, letting you focus on problem design.
 
+## Who uses it
+
+- [Repovive](https://repovive.com) used polyman to prepare contest problems. For example, Graph Tiling, [problem F of Repovive Standard Round 3](https://repovive.com/contests/8/problems/F).
+- Hamza Hassanain also used it for problems he set outside Repovive.
+- Ahmed Faraj and Mazen Ghanayem used it to prepare problems for the ICPC Arab regional (ACPC).
+
+<!-- Name the two downstream projects here only after their maintainers agree, and add replies from the Codeforces post only when people confirm they used it. -->
+
 ## Installation
 
 ### System Requirements
 
-- **Node.js** ≥ 14
+- **Node.js** ^20.19.0 or ≥ 22.12.0
 - **C++ Compiler** (g++ with C++23 support; set `cppStandard` in `Config.json` for older compilers, or pick another compiler with `POLYMAN_CXX` or `compiler.cpp`, see [GUIDE.md](GUIDE.md#local-compiler-overrides))
 - **Python 3** (optional - for Python solutions)
 - **Java JDK** (optional - for Java solutions)
@@ -77,14 +103,15 @@ polyman verify
 ### Work with Polygon
 
 ```bash
-# Setup (one-time)
-polyman remote register
+# Setup (one-time), with the key and secret from Polygon's settings
+polyman remote register <api-key> <secret>
 
 # Pull problem
 polyman remote pull 123456 ./my-problem
+cd my-problem
 
-# Work locally, then push back
-polyman remote push . .
+# Work locally, then push back (the problem ID comes from Config.json)
+polyman remote push .
 polyman remote commit . "Updated solutions"
 ```
 
@@ -107,14 +134,17 @@ polyman remote commit . "Updated solutions"
 
 ### Polygon Commands
 
-| Command                              | Purpose              |
-| ------------------------------------ | -------------------- |
-| `polyman remote register`            | Save API credentials |
-| `polyman remote list`                | List your problems   |
-| `polyman remote pull <id> <dir>`     | Download problem     |
-| `polyman remote push <id> <dir>`     | Upload changes       |
-| `polyman remote commit <id> "msg"`   | Commit changes       |
-| `polyman remote package <id> <type>` | Build package        |
+| Command                                  | Purpose              |
+| ---------------------------------------- | -------------------- |
+| `polyman remote register <key> <secret>` | Save API credentials |
+| `polyman remote list`                    | List your problems   |
+| `polyman remote pull <id> <dir>`         | Download problem     |
+| `polyman remote push <dir>`              | Upload changes       |
+| `polyman remote view <id>`               | Show problem details |
+| `polyman remote commit <id> "msg"`       | Commit changes       |
+| `polyman remote package <id> <type>`     | Build package        |
+
+`<id>` is a Polygon problem ID or a problem directory whose `Config.json` has `problemId`, so `polyman remote commit . "msg"` works inside a pulled problem.
 
 For detailed usage, see [GUIDE.md](GUIDE.md#cli-commands-reference).
 
@@ -126,9 +156,28 @@ C++ builds are cached in `.polyman/cache/` inside the problem directory. A sourc
 
 polyman checks the terminal background when it starts and uses light colors on a white or light terminal, dark colors otherwise. If it picks the wrong one, set `POLYMAN_THEME=dark` or `POLYMAN_THEME=light` to force it. Set `NO_COLOR=1` (see [no-color.org](https://no-color.org)) to turn colors off. `NO_COLOR` wins over `FORCE_COLOR` and `POLYMAN_THEME`. See [GUIDE.md](GUIDE.md#terminal-colors).
 
+### Shell completion
+
+`polyman completion <bash|zsh|fish>` prints a completion script. Tab then completes commands, subcommands and options, and inside a problem directory it also completes testset names (`-t`), group names (`-g`, for the testset given before it), and solution names (`run <TAB>`, `test <TAB>`) read from `Config.json`. Without a `Config.json`, only commands and options are completed.
+
+```bash
+# bash: add to ~/.bashrc
+eval "$(polyman completion bash)"
+
+# zsh: add to ~/.zshrc, after compinit
+eval "$(polyman completion zsh)"
+
+# fish: save once
+polyman completion fish > ~/.config/fish/completions/polyman.fish
+```
+
+The scripts are built from the CLI's own command list, so they stay current after an upgrade: re-run the line above (or reopen the shell, for `eval`). Installing the package does not change your shell setup.
+
 ### Scripting and AI agents
 
 `run` and `verify` accept `--json`: stdout then carries exactly one JSON document and all human-readable output moves to stderr, so `polyman verify --json > verify.json` is safe to parse. The exit code is unchanged. `remote push` accepts `--yes` and `--name <slug>` so a new problem can be created without a terminal; without a TTY the command fails fast instead of waiting on a prompt. See [GUIDE.md](GUIDE.md#full-verification) for the report shape.
+
+`polyman ai login|logout|list|models|use` saves API keys for AI model providers (OpenAI, Anthropic, DeepSeek, Qwen, Gemini, Groq, Mistral, OpenRouter, a local Ollama, or any OpenAI-compatible server) in `~/.polyman/ai.json` (mode 0600) and sets a default model; it only manages these settings, and no command calls a model yet. See [GUIDE.md](GUIDE.md#ai-provider-keys).
 
 ## Solution Tags
 
@@ -138,7 +187,7 @@ Every solution needs a tag indicating its expected behavior:
 | ---- | ------------------ | -------------------------------------- |
 | `MA` | Main Correct       | **Required** - Reference solution      |
 | `OK` | Correct            | Alternative correct approach           |
-| `WA` | Wrong Answer       | Should fail on some tests              |
+| `WA` | Wrong Answer       | Should get WA or PE on some tests      |
 | `TL` | Time Limit         | Should timeout on some tests           |
 | `TO` | Time/OK            | May TLE but is algorithmically correct |
 | `ML` | Memory Limit       | Should exceed memory                   |
@@ -258,7 +307,7 @@ Choose your learning path:
 5. **Verify** → `polyman verify`
 6. **Sync** → `polyman remote push .` + `polyman remote commit . "msg"`
 
-Detailed walkthrough: [GUIDE.md - Workflow](GUIDE.md#workflow)
+Detailed walkthrough: [GUIDE.md - Complete Workflow Example](GUIDE.md#complete-workflow-example)
 
 ## Common Issues
 
@@ -287,6 +336,17 @@ Contributions welcome! To contribute:
 4. Push and open a Pull Request
 
 Please ensure code follows the existing style and includes tests.
+
+### CI
+
+GitHub Actions runs these checks on a pull request:
+
+- `ci`: format check, lint, the unit tests with coverage, and the build, on Node 20 and 22.
+- `corpus`: real problems with wrong solutions on purpose, judged with real compilers. It runs when the PR changes `src/`, `corpus/`, `template/`, `assets/` or the dependencies. See [corpus/README.md](corpus/README.md).
+- `mutation`: mutation testing of the verdict code. It runs when the PR changes `src/helpers/solution.ts`, `src/types.d.ts` or the tests.
+- `codeql`: code scanning.
+
+The Windows unit tests and the macOS corpus run on pushes to `master` and on demand.
 
 ## License
 
