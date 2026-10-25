@@ -54,11 +54,56 @@ Polyman eliminates manual testing and syncing, letting you focus on problem desi
 
 ## Who uses it
 
+Problem setters who prepared real problems with polyman:
+
 - [Repovive](https://repovive.com) used polyman to prepare contest problems. For example, Graph Tiling, [problem F of Repovive Standard Round 3](https://repovive.com/contests/8/problems/F).
 - Hamza Hassanain also used it for problems he set outside Repovive.
 - Ahmed Faraj and Mazen Ghanayem used it to prepare problems for the ICPC Arab regional (ACPC).
+- Mohamed Farag ([El_Farag](https://codeforces.com/profile/El_Farag) on Codeforces), who sets problems for ECPC and ACPC, ran polyman 3.0.3 on three of his own Polygon problems and wrote a [field report](https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/work_items/106). Four of the problems he found are fixed in 3.1.0.
 
-<!-- Name the two downstream projects here only after their maintainers agree, and add replies from the Codeforces post only when people confirm they used it. -->
+People who ran polyman, hit a problem and sent a fix or a report:
+
+| Who | What they did |
+|---|---|
+| [Gustavo Harnisch](https://github.com/Gustavo-Harnisch) | [PR #22](https://github.com/HamzaHassanain/polyman/pull/22): commands failed for problems in folders with spaces or shell characters in the path. He fixed the quoting. |
+| [ElectLive](https://github.com/ElectLive) | [PR #98](https://github.com/HamzaHassanain/polyman/pull/98): one time limit for every language was unfair to Java and Python. He added time limit multipliers per language for local runs. |
+| [Pasit Nusso](https://github.com/montionugera), Systems & Full-Stack Engineer | [PR #96](https://github.com/HamzaHassanain/polyman/pull/96): the colors were hard to read on a light terminal. He added a light theme and `NO_COLOR` support. |
+| [Andrii Kuts](https://github.com/Andrii-Kuts), IOI medalist | Reported that pushing generators to Polygon failed ([#19](https://github.com/HamzaHassanain/polyman/issues/19)) and a `ulimit` error ([#18](https://github.com/HamzaHassanain/polyman/issues/18)). Both are fixed. |
+| [Daniel Zhu](https://github.com/xyzqm) | Asked for C++23 when running solutions and uploading to Polygon ([#17](https://github.com/HamzaHassanain/polyman/issues/17)). Done. |
+| [Nông Hiền Đức](https://github.com/huyanhnongdo) | Asked to use another compiler, like `g++-15`, without changing the system default ([#21](https://github.com/HamzaHassanain/polyman/issues/21)). Done: the `compiler` block in Config.json. |
+
+### What people said
+
+From the comments on the [announcement on Codeforces](https://codeforces.com/blog/entry/148803) (November 2025). Ranks are from Codeforces on 25 Oct 2026. These are comments, not reports of use.
+
+| Who | What they wrote |
+|---|---|
+| [AksLolCoding](https://codeforces.com/profile/AksLolCoding), international grandmaster | "Will definitely be using this in the future" |
+| [cry](https://codeforces.com/profile/cry), international master | "woa" |
+| [Ahmed_Salamaa](https://codeforces.com/profile/Ahmed_Salamaa), expert | "Great tool, thank you for making the problem-setting workflow so much easier I’ll definitely start using it on my upcoming problem" |
+| [Mosaab.](https://codeforces.com/profile/Mosaab.), expert | "maaan this is really a game-changer!" |
+| [Sanad_Jr](https://codeforces.com/profile/Sanad_Jr), specialist | "Amazing! I'm really excited to use it on my upcoming problem. I also hope I can contribute to making it even better!" |
+| [Shawky_XR](https://codeforces.com/profile/Shawky_XR), specialist | "Great job Hamza It's really helpful" |
+| [MoRa_UnderRated](https://codeforces.com/profile/MoRa_UnderRated) | "Woah, That's a mind blowing improvement <3 !" |
+| [zaki-66](https://codeforces.com/profile/zaki-66) | "it's really helpful thanks for your efforts" |
+| [Mawchin](https://codeforces.com/profile/Mawchin), [SalemAli](https://codeforces.com/profile/SalemAli), [hashiirama](https://codeforces.com/profile/hashiirama), [mad_scientist](https://codeforces.com/profile/mad_scientist) | "Thanks for this tool, it's really helpful !!!", "Awesome!", "Amazing!", "Helpful!" |
+
+The most useful comment was a question. [Errichto](https://codeforces.com/profile/Errichto) (international grandmaster, legendary grandmaster at his peak) asked: "Has anybody used this tool and can recommend it? Or even better: can anybody compare this to polygon-cli?" [adamant](https://codeforces.com/profile/adamant) asked for the same comparison. The list above is our answer to the first part so far. The comparison with polygon-cli is still to do.
+
+### Starred by
+
+Some of the people who starred the repository, with what their own GitHub profile says:
+
+- [Abdelrhman Sersawy](https://github.com/Abdelrhmansersawy) and [Ahmed Elseyoufi](https://github.com/seyoufi22): ICPC World Finalists
+- [Andrii Kuts](https://github.com/Andrii-Kuts): IOI medalist
+- [Islam Imad](https://github.com/Islam-Imad): 3x ACPC finalist, Candidate Master
+- [Mohammed Nasser](https://github.com/Moagezaaa): problem setter and tester at Eolymp
+- [Ismail El-Toukhy](https://github.com/Ismail-Mahmoud): ECPC silver medalist
+- [Mohamed Abdelhady](https://github.com/Slim-Hady): ECPC finalist
+- [Chisheng Chen](https://github.com/rota1001): competitive programmer
+- [hungg261](https://github.com/hungg261): competitive programmer, Vietnam
+
+<!-- Add a person here only with a link to what they did or said. A star or a comment is not use: write "uses" only when the person said so or sent a fix or report from real use. -->
 
 ## Installation
 
