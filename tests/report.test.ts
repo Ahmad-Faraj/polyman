@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
-import { ReportCollector, report, stripAnsi } from '../src/report';
+import {
+  ReportCollector,
+  report,
+  stripAnsi,
+  writeAllSync,
+} from '../src/report';
 import { fmt } from '../src/formatter';
 import type {
   GenerateReport,
@@ -36,7 +41,9 @@ describe('report.ts', () => {
   };
 
   beforeEach(() => {
-    writeSpy = vi.spyOn(fs, 'writeSync').mockImplementation(() => 0);
+    writeSpy = vi
+      .spyOn(fs, 'writeSync')
+      .mockImplementation((_fd, data) => Buffer.byteLength(data));
     vi.spyOn(console, 'log').mockImplementation(() => {});
     vi.spyOn(console, 'error').mockImplementation(() => {});
     collector = new ReportCollector();
@@ -51,6 +58,40 @@ describe('report.ts', () => {
   describe('stripAnsi', () => {
     it('removes colour codes', () => {
       expect(stripAnsi('\u001b[31mred\u001b[39m plain')).toBe('red plain');
+    });
+  });
+
+  describe('writeAllSync', () => {
+    it('keeps writing after a short write, like a full pipe on macOS', () => {
+      const chunks: Buffer[] = [];
+      writeSpy.mockImplementation((_fd, data, offset) => {
+        const at = offset as number;
+        const chunk = (data as Buffer).subarray(at, at + 4);
+        chunks.push(chunk);
+        return chunk.length;
+      });
+      const text = '{"ok":true,"text":"é"}\n';
+      writeAllSync(1, text);
+      expect(writeSpy.mock.calls.map(c => c[2])).toEqual([0, 4, 8, 12, 16, 20]);
+      expect(Buffer.concat(chunks).toString()).toBe(text);
+    });
+
+    it('waits and tries again on EAGAIN', () => {
+      writeSpy
+        .mockImplementationOnce(() => {
+          throw Object.assign(new Error('busy'), { code: 'EAGAIN' });
+        })
+        .mockImplementationOnce((_fd, data) => (data as Buffer).length);
+      writeAllSync(1, 'report');
+      expect(writeSpy).toHaveBeenCalledTimes(2);
+      expect(String(writeSpy.mock.calls[1][1])).toBe('report');
+    });
+
+    it('throws other write errors', () => {
+      writeSpy.mockImplementation(() => {
+        throw Object.assign(new Error('closed'), { code: 'EPIPE' });
+      });
+      expect(() => writeAllSync(1, 'report')).toThrow('closed');
     });
   });
 

@@ -946,9 +946,10 @@ describe('solution.ts', () => {
       const [, options, input, output] =
         mockedExecuteWithRedirect.mock.calls[0];
       expect(options.cwd).toBeUndefined();
-      expect(input).toMatch(/testsets\/testsets\/test1\.txt$/);
+      // path.join gives \ on Windows
+      expect(input).toMatch(/testsets[\\/]testsets[\\/]test1\.txt$/);
       expect(output).toMatch(
-        /solutions-outputs\/main\/testsets\/output_test1\.txt$/
+        /solutions-outputs[\\/]main[\\/]testsets[\\/]output_test1\.txt$/
       );
       expect(vi.mocked(fs.mkdtempSync)).not.toHaveBeenCalled();
     });
