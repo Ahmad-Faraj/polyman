@@ -20,6 +20,7 @@ import {
   ensureDirectoryExists,
   removeDirectoryRecursively,
   getTestFiles,
+  testFileIndex,
   getCompiledCommandToRun,
 } from './utils';
 import { DEFAULT_TIMEOUT, DEFAULT_MEMORY_LIMIT } from './utils';
@@ -216,8 +217,8 @@ export async function validateTestset(
     // as `test2.txt.bak` or `test_notes.txt` are skipped, and a folder with
     // only such files is reported like an empty one, not as a pass.
     const tests = getTestFiles(testsDir).flatMap(testFile => {
-      const match = /^test([1-9]\d*)\.txt$/.exec(testFile);
-      return match ? [{ testFile, index: Number(match[1]) }] : [];
+      const index = testFileIndex(testFile);
+      return index === null ? [] : [{ testFile, index }];
     });
 
     if (tests.length === 0) {

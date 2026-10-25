@@ -617,10 +617,28 @@ export function filterTestsByRange(
 }
 
 /**
- * Gets all test files from tests directory.
- * Returns only files starting with 'test' prefix in sorted order by test number.
+ * Index of a test file name: `N` for `test<N>.txt` where `N` is a positive
+ * integer, otherwise `null`. This is the one rule for "is this a test file",
+ * so stray files such as `test1.txt.bak`, `test_notes.txt` or `test0.txt`
+ * are never treated as tests.
  *
- * @private
+ * @param {string} file - File name (not a path)
+ * @returns {number | null} The test index, or null if the name is not a test
+ *
+ * @example
+ * testFileIndex('test12.txt'); // 12
+ * testFileIndex('test1.txt.bak'); // null
+ */
+export function testFileIndex(file: string): number | null {
+  const match = /^test([1-9]\d*)\.txt$/.exec(file);
+  return match ? Number(match[1]) : null;
+}
+
+/**
+ * Gets all test files from tests directory.
+ * Returns only `test<N>.txt` files (see {@link testFileIndex}), sorted by
+ * test number, so `test2.txt` comes before `test10.txt`.
+ *
  * @param {string} testsDir - Path to tests directory
  * @returns {string[]} Array of test filenames
  *
@@ -631,12 +649,12 @@ export function filterTestsByRange(
 export function getTestFiles(testsDir: string): string[] {
   return fs
     .readdirSync(testsDir)
-    .filter(file => file.startsWith('test'))
-    .sort((a, b) => {
-      const numA = parseInt(a.replace('test', '').replace('.txt', ''));
-      const numB = parseInt(b.replace('test', '').replace('.txt', ''));
-      return numA - numB;
-    });
+    .flatMap(file => {
+      const index = testFileIndex(file);
+      return index === null ? [] : [{ file, index }];
+    })
+    .sort((a, b) => a.index - b.index)
+    .map(test => test.file);
 }
 
 /**

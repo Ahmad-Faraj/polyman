@@ -2191,6 +2191,65 @@ describe('solution.ts', () => {
     });
   });
 
+  describe('stray files in a testset folder (#117)', () => {
+    // A testset folder with real tests and files that only look like tests.
+    const folder = [
+      'test10.txt',
+      'test1.txt.bak',
+      'test_notes.txt',
+      'test0.txt',
+      'test2.txt',
+      'test1.txt',
+    ];
+    const expected = ['test1.txt', 'test2.txt', 'test10.txt'];
+    const mainSol: LocalSolution = { name: 'main', source: '', tag: 'MA' };
+    const otherSol: LocalSolution = { name: 'other', source: '', tag: 'OK' };
+
+    beforeEach(async () => {
+      // Use the real listing, so the folder content decides what runs.
+      const actualUtils = await vi.importActual<typeof utils>(
+        '../../src/helpers/utils'
+      );
+      mockedGetTestFiles.mockImplementation(actualUtils.getTestFiles);
+      (
+        vi.mocked(fs.readdirSync) as unknown as ReturnType<
+          typeof vi.fn<(p: string) => string[]>
+        >
+      ).mockReturnValue(folder);
+    });
+
+    it('run runs only test<N>.txt files, in numeric order', async () => {
+      mockedExecuteWithRedirect.mockResolvedValue(okResult);
+
+      await solution.runSolutionOnTestset(mainSol, makeConfig(), 'tests');
+
+      const inputs = mockedExecuteWithRedirect.mock.calls.map(call =>
+        path.basename(String(call[2]))
+      );
+      expect(inputs).toEqual(expected);
+    });
+
+    it('verify checks only test<N>.txt files, in numeric order', async () => {
+      mockedReadFirstLine.mockResolvedValue('7');
+      mockFileContents(() => '7\n');
+      mockedRunChecker.mockResolvedValue(undefined);
+
+      await expect(
+        solution.startTheComparisonProcess(
+          { name: 'chk', source: 'chk.cpp' },
+          mainSol,
+          otherSol,
+          [{ name: 'tests' }]
+        )
+      ).resolves.toBeUndefined();
+
+      const inputs = mockedRunChecker.mock.calls.map(call =>
+        path.basename(String(call[1]))
+      );
+      expect(inputs).toEqual(expected);
+    });
+  });
+
   describe('parseTestIndex', () => {
     it('extracts the numeric index from a test file name', () => {
       expect(solution.parseTestIndex('test12.txt')).toBe(12);
