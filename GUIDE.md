@@ -480,7 +480,7 @@ Define output checker:
 {
   "checker": {
     "name": "wcmp",
-    "source": "./checker/wcmp.cpp",
+    "source": "wcmp.cpp",
     "isStandard": true
   }
 }
