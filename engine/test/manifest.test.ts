@@ -56,9 +56,9 @@ describe('Impact Framework manifest', () => {
 
   it('the committed manifest has the reviews the table in SUSTAINABILITY.md counts, with counted calls', () => {
     const committed = parse(readFileSync('../sustainability/agent-reviews.yml', 'utf8'));
-    expect(committed.tree.children['high-risk-reviews'].inputs).toHaveLength(311);
-    expect(committed.tree.children['medium-risk-reviews'].inputs).toHaveLength(71);
-    expect(committed.tree.children['low-risk-reviews'].inputs).toHaveLength(58);
+    expect(committed.tree.children['high-risk-reviews'].inputs).toHaveLength(401);
+    expect(committed.tree.children['medium-risk-reviews'].inputs).toHaveLength(112);
+    expect(committed.tree.children['low-risk-reviews'].inputs).toHaveLength(66);
     expect(committed.description).toMatch(/counted from each session's checkpoint/);
     for (const input of committed.tree.children['high-risk-reviews'].inputs) expect(input['model-calls-low']).toBe(input['model-calls-high']);
   });

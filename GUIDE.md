@@ -72,6 +72,7 @@
    - [Full Verification](#full-verification)
    - [Running Without a Terminal](#running-without-a-terminal)
    - [Exit Codes](#exit-codes)
+   - [AI Provider Keys](#ai-provider-keys)
 
 10. [Remote Operations (Polygon Integration)](#remote-operations-polygon-integration)
     - [Setup and Registration](#setup-and-registration)
@@ -1491,7 +1492,7 @@ The `--testset`, `--group`, and `--index` flags successively narrow which comman
 ```json
 {
   "schemaVersion": 1,
-  "polymanVersion": "3.0.3",
+  "polymanVersion": "3.1.0",
   "ok": false,
   "command": "generate",
   "exitCode": 1,
@@ -1536,7 +1537,7 @@ If tests fail: check validator constraints, fix the generator, or correct manual
 ```json
 {
   "schemaVersion": 1,
-  "polymanVersion": "3.0.3",
+  "polymanVersion": "3.1.0",
   "ok": false,
   "command": "validate",
   "exitCode": 1,
@@ -1663,7 +1664,7 @@ All three forms accept `--json`. Like `run --json`, stdout carries exactly one J
 ```json
 {
   "schemaVersion": 1,
-  "polymanVersion": "3.0.3",
+  "polymanVersion": "3.1.0",
   "ok": false,
   "command": "test checker",
   "exitCode": 1,
@@ -2021,6 +2022,34 @@ case $? in
   4) echo "Polygon or the network failed, try again" ;;
 esac
 ```
+
+### AI Provider Keys
+
+`polyman ai` saves API keys for AI model providers and picks a default model. It only manages these settings: no polyman command sends anything to a provider yet.
+
+| Command | What it does |
+| ------- | ------------ |
+| `polyman ai login <provider>` | Saves a key. It is read from a hidden prompt, or from stdin with `--key-stdin`, never from the command line, so it stays out of shell history. |
+| `polyman ai logout <provider>` | Removes the saved key. |
+| `polyman ai list` | Lists the providers, which have a key (shown masked) and the default model. |
+| `polyman ai models [provider]` | Lists the known models of every provider, or of one, with context size, tool support and price where known. |
+| `polyman ai use <provider>/<model>` | Sets the default model, for example `polyman ai use deepseek/deepseek-flash`. A model that is not in the known list is used as is, with a warning. |
+
+```bash
+polyman ai login deepseek
+polyman ai login openai --key-stdin < key.txt
+polyman ai login custom --base-url https://my-server/v1 --model my-model
+```
+
+**Providers:** `openai`, `anthropic`, `deepseek`, `qwen` (Alibaba Cloud Model Studio), `gemini`, `groq`, `mistral`, `openrouter`, `ollama` (local, needs no key) and `custom` (any OpenAI-compatible server; `--base-url` is required and `--model` can be repeated). `--base-url` and `--model` are only accepted for `custom`.
+
+**Where keys are kept.** In `~/.polyman/ai.json`, written with mode `0600`. If polyman creates `~/.polyman`, it creates it with mode `0700`. If the folder already exists and other users can open it, polyman leaves it as it is (other tools may share it) and warns, for example: `/home/you/.polyman has mode 0755, so other users can open it. ai.json in it stays 0600. To make the folder private: chmod 700 /home/you/.polyman`.
+
+**Environment variables win.** If a provider's variable is set (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`, `DASHSCOPE_API_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY`, `MISTRAL_API_KEY`, `OPENROUTER_API_KEY`), it is used instead of the saved key, and `login` and `logout` say so.
+
+**Keys are never printed.** Output shows only the masked key, and known keys are removed from every error message. A key is only handed out for its own provider's base URL (or the base URL you gave for `custom`).
+
+`polyman ai use` also warns when the provider has no key yet, when `custom` has no base URL yet, and when the model has no tool support. An unknown provider or a malformed `<provider>/<model>` exits with code `2`.
 
 ---
 
@@ -2396,7 +2425,7 @@ Shape:
 ```json
 {
   "schemaVersion": 1,
-  "polymanVersion": "3.0.3",
+  "polymanVersion": "3.1.0",
   "command": "remote push",
   "ok": false,
   "exitCode": 4,
@@ -2603,6 +2632,20 @@ Thumbs.db
 ---
 
 ## Troubleshooting
+
+### A crashing solution is judged TLE on Ubuntu
+
+**Problem:** On an Ubuntu desktop, a solution that aborts (for example a failed `assert`, or `abort()`) gets Time Limit Exceeded instead of Runtime Error, so a solution tagged `RE` fails `verify`.
+
+**Cause:** Ubuntu's crash reporter, apport, writes a core dump when a program aborts, and the process ends only after that. On one machine this took about 1.15 s, more than a 1000 ms time limit, so the run was stopped as a timeout. CI runners and machines without apport are not affected.
+
+**Solution:** stop apport while you verify:
+
+```bash
+sudo systemctl stop apport
+```
+
+It starts again at the next boot. With a larger `timeLimit` the same solution is judged RE.
 
 ### Compilation Errors
 

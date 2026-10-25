@@ -123,6 +123,456 @@ tree:
         kwh-per-call-low: 0.00023999999999999998
         kwh-per-call-high: 0.0025
       inputs:
+        - timestamp: 2026-10-24T23:25:07.647Z
+          duration: 218
+          runner-hours: 0.0605347825
+          model-calls-low: 13
+          model-calls-high: 13
+        - timestamp: 2026-10-24T21:31:33.700Z
+          duration: 1523
+          runner-hours: 0.42315090555555557
+          model-calls-low: 61
+          model-calls-high: 61
+        - timestamp: 2026-10-24T21:08:17.333Z
+          duration: 1058
+          runner-hours: 0.2939935761111111
+          model-calls-low: 18
+          model-calls-high: 18
+        - timestamp: 2026-10-24T21:00:38.730Z
+          duration: 1074
+          runner-hours: 0.2982692341666667
+          model-calls-low: 45
+          model-calls-high: 45
+        - timestamp: 2026-10-24T20:57:22.664Z
+          duration: 442
+          runner-hours: 0.12287414861111111
+          model-calls-low: 29
+          model-calls-high: 29
+        - timestamp: 2026-10-24T20:44:22.467Z
+          duration: 849
+          runner-hours: 0.23591165916666668
+          model-calls-low: 32
+          model-calls-high: 32
+        - timestamp: 2026-10-24T20:40:43.168Z
+          duration: 793
+          runner-hours: 0.2203954102777778
+          model-calls-low: 45
+          model-calls-high: 45
+        - timestamp: 2026-10-24T20:29:42.451Z
+          duration: 1543
+          runner-hours: 0.4286192086111111
+          model-calls-low: 48
+          model-calls-high: 48
+        - timestamp: 2026-10-24T20:22:58.208Z
+          duration: 602
+          runner-hours: 0.16717141166666669
+          model-calls-low: 27
+          model-calls-high: 27
+        - timestamp: 2026-10-24T20:12:47.822Z
+          duration: 302
+          runner-hours: 0.0837749561111111
+          model-calls-low: 16
+          model-calls-high: 16
+        - timestamp: 2026-10-24T20:06:58.462Z
+          duration: 819
+          runner-hours: 0.22757995916666668
+          model-calls-low: 56
+          model-calls-high: 56
+        - timestamp: 2026-10-24T19:52:44.409Z
+          duration: 162
+          runner-hours: 0.04510867388888889
+          model-calls-low: 15
+          model-calls-high: 15
+        - timestamp: 2026-10-24T19:52:42.380Z
+          duration: 1030
+          runner-hours: 0.28607775916666667
+          model-calls-low: 36
+          model-calls-high: 36
+        - timestamp: 2026-10-24T19:52:40.372Z
+          duration: 636
+          runner-hours: 0.1767025547222222
+          model-calls-low: 41
+          model-calls-high: 41
+        - timestamp: 2026-10-24T19:52:38.571Z
+          duration: 59
+          runner-hours: 0.016479306944444445
+          model-calls-low: 3
+          model-calls-high: 3
+        - timestamp: 2026-10-24T19:44:53.601Z
+          duration: 621
+          runner-hours: 0.1725118525
+          model-calls-low: 28
+          model-calls-high: 28
+        - timestamp: 2026-10-24T19:05:06.451Z
+          duration: 387
+          runner-hours: 0.10754929166666667
+          model-calls-low: 19
+          model-calls-high: 19
+        - timestamp: 2026-10-24T18:59:44.695Z
+          duration: 60
+          runner-hours: 0.01664770388888889
+          model-calls-low: 3
+          model-calls-high: 3
+        - timestamp: 2026-10-24T18:56:06.107Z
+          duration: 252
+          runner-hours: 0.06991578805555555
+          model-calls-low: 14
+          model-calls-high: 14
+        - timestamp: 2026-10-24T18:55:01.096Z
+          duration: 561
+          runner-hours: 0.1557840547222222
+          model-calls-low: 32
+          model-calls-high: 32
+        - timestamp: 2026-10-24T18:31:38.398Z
+          duration: 311
+          runner-hours: 0.08642246444444444
+          model-calls-low: 22
+          model-calls-high: 22
+        - timestamp: 2026-10-24T18:31:36.481Z
+          duration: 154
+          runner-hours: 0.04281711666666666
+          model-calls-low: 12
+          model-calls-high: 12
+        - timestamp: 2026-10-24T18:02:10.144Z
+          duration: 558
+          runner-hours: 0.15511826722222222
+          model-calls-low: 29
+          model-calls-high: 29
+        - timestamp: 2026-10-24T17:28:24.706Z
+          duration: 765
+          runner-hours: 0.2124578361111111
+          model-calls-low: 41
+          model-calls-high: 41
+        - timestamp: 2026-10-24T15:56:24.970Z
+          duration: 371
+          runner-hours: 0.10307289805555556
+          model-calls-low: 27
+          model-calls-high: 27
+        - timestamp: 2026-10-24T15:53:12.126Z
+          duration: 66
+          runner-hours: 0.018304292222222223
+          model-calls-low: 3
+          model-calls-high: 3
+        - timestamp: 2026-10-24T15:53:10.914Z
+          duration: 351
+          runner-hours: 0.09746408805555556
+          model-calls-low: 23
+          model-calls-high: 23
+        - timestamp: 2026-10-24T15:38:40.617Z
+          duration: 642
+          runner-hours: 0.1784376252777778
+          model-calls-low: 31
+          model-calls-high: 31
+        - timestamp: 2026-10-24T15:34:15.410Z
+          duration: 490
+          runner-hours: 0.13613222555555554
+          model-calls-low: 43
+          model-calls-high: 43
+        - timestamp: 2026-10-24T15:26:27.929Z
+          duration: 276
+          runner-hours: 0.07679164138888889
+          model-calls-low: 18
+          model-calls-high: 18
+        - timestamp: 2026-10-24T15:07:59.502Z
+          duration: 626
+          runner-hours: 0.1738177811111111
+          model-calls-low: 41
+          model-calls-high: 41
+        - timestamp: 2026-10-24T15:07:55.178Z
+          duration: 142
+          runner-hours: 0.03938856805555556
+          model-calls-low: 13
+          model-calls-high: 13
+        - timestamp: 2026-10-24T15:07:52.769Z
+          duration: 153
+          runner-hours: 0.04250293805555556
+          model-calls-low: 12
+          model-calls-high: 12
+        - timestamp: 2026-10-24T15:07:29.573Z
+          duration: 160
+          runner-hours: 0.044389875277777775
+          model-calls-low: 12
+          model-calls-high: 12
+        - timestamp: 2026-10-24T15:07:23.064Z
+          duration: 448
+          runner-hours: 0.12450932666666667
+          model-calls-low: 30
+          model-calls-high: 30
+        - timestamp: 2026-10-24T15:07:18.366Z
+          duration: 134
+          runner-hours: 0.03730348083333333
+          model-calls-low: 10
+          model-calls-high: 10
+        - timestamp: 2026-10-24T15:02:52.511Z
+          duration: 156
+          runner-hours: 0.04334783472222222
+          model-calls-low: 11
+          model-calls-high: 11
+        - timestamp: 2026-10-24T14:57:49.665Z
+          duration: 1361
+          runner-hours: 0.37797812722222224
+          model-calls-low: 41
+          model-calls-high: 41
+        - timestamp: 2026-10-24T14:51:59.045Z
+          duration: 304
+          runner-hours: 0.08453442805555555
+          model-calls-low: 25
+          model-calls-high: 25
+        - timestamp: 2026-10-24T14:51:47.186Z
+          duration: 280
+          runner-hours: 0.0777320675
+          model-calls-low: 17
+          model-calls-high: 17
+        - timestamp: 2026-10-24T14:51:40.812Z
+          duration: 211
+          runner-hours: 0.05857004777777778
+          model-calls-low: 12
+          model-calls-high: 12
+        - timestamp: 2026-10-24T14:51:34.656Z
+          duration: 267
+          runner-hours: 0.07404687083333333
+          model-calls-low: 16
+          model-calls-high: 16
+        - timestamp: 2026-10-24T14:51:10.554Z
+          duration: 256
+          runner-hours: 0.07115394861111111
+          model-calls-low: 20
+          model-calls-high: 20
+        - timestamp: 2026-10-24T14:50:58.620Z
+          duration: 208
+          runner-hours: 0.05769901777777778
+          model-calls-low: 11
+          model-calls-high: 11
+        - timestamp: 2026-10-24T14:42:02.974Z
+          duration: 439
+          runner-hours: 0.12201768222222223
+          model-calls-low: 28
+          model-calls-high: 28
+        - timestamp: 2026-10-24T14:05:03.077Z
+          duration: 654
+          runner-hours: 0.18179894944444444
+          model-calls-low: 43
+          model-calls-high: 43
+        - timestamp: 2026-10-24T13:58:51.803Z
+          duration: 619
+          runner-hours: 0.17194051333333335
+          model-calls-low: 44
+          model-calls-high: 44
+        - timestamp: 2026-10-24T13:55:02.490Z
+          duration: 1653
+          runner-hours: 0.4592807722222222
+          model-calls-low: 40
+          model-calls-high: 40
+        - timestamp: 2026-10-24T13:51:40.496Z
+          duration: 567
+          runner-hours: 0.15753148583333332
+          model-calls-low: 35
+          model-calls-high: 35
+        - timestamp: 2026-10-24T13:51:18.356Z
+          duration: 515
+          runner-hours: 0.14309323555555553
+          model-calls-low: 34
+          model-calls-high: 34
+        - timestamp: 2026-10-24T13:49:38.387Z
+          duration: 201
+          runner-hours: 0.05583120888888889
+          model-calls-low: 24
+          model-calls-high: 24
+        - timestamp: 2026-10-24T13:49:11.015Z
+          duration: 820
+          runner-hours: 0.22789250027777777
+          model-calls-low: 43
+          model-calls-high: 43
+        - timestamp: 2026-10-24T13:48:27.344Z
+          duration: 503
+          runner-hours: 0.13963616888888888
+          model-calls-low: 32
+          model-calls-high: 32
+        - timestamp: 2026-10-24T13:48:27.121Z
+          duration: 278
+          runner-hours: 0.07735995222222222
+          model-calls-low: 20
+          model-calls-high: 20
+        - timestamp: 2026-10-24T13:44:00.082Z
+          duration: 189
+          runner-hours: 0.052475488055555554
+          model-calls-low: 16
+          model-calls-high: 16
+        - timestamp: 2026-10-24T13:30:23.868Z
+          duration: 407
+          runner-hours: 0.11297345277777777
+          model-calls-low: 26
+          model-calls-high: 26
+        - timestamp: 2026-10-24T13:05:01.568Z
+          duration: 426
+          runner-hours: 0.11835120277777778
+          model-calls-low: 28
+          model-calls-high: 28
+        - timestamp: 2026-10-24T12:30:45.837Z
+          duration: 876
+          runner-hours: 0.24346817750000002
+          model-calls-low: 43
+          model-calls-high: 43
+        - timestamp: 2026-10-24T10:19:42.539Z
+          duration: 2670
+          runner-hours: 0.7416584063888889
+          model-calls-low: 58
+          model-calls-high: 58
+        - timestamp: 2026-10-24T09:59:28.286Z
+          duration: 723
+          runner-hours: 0.2008138277777778
+          model-calls-low: 41
+          model-calls-high: 41
+        - timestamp: 2026-10-24T09:38:48.953Z
+          duration: 766
+          runner-hours: 0.21290491055555555
+          model-calls-low: 49
+          model-calls-high: 49
+        - timestamp: 2026-10-24T09:14:42.090Z
+          duration: 592
+          runner-hours: 0.1645224972222222
+          model-calls-low: 35
+          model-calls-high: 35
+        - timestamp: 2026-10-24T02:56:49.732Z
+          duration: 407
+          runner-hours: 0.11292055416666667
+          model-calls-low: 29
+          model-calls-high: 29
+        - timestamp: 2026-10-24T02:24:31.137Z
+          duration: 324
+          runner-hours: 0.0899978386111111
+          model-calls-low: 27
+          model-calls-high: 27
+        - timestamp: 2026-10-24T01:24:49.512Z
+          duration: 435
+          runner-hours: 0.12085564666666666
+          model-calls-low: 35
+          model-calls-high: 35
+        - timestamp: 2026-10-24T00:21:16.867Z
+          duration: 477
+          runner-hours: 0.13239051805555554
+          model-calls-low: 29
+          model-calls-high: 29
+        - timestamp: 2026-10-24T00:11:00.082Z
+          duration: 889
+          runner-hours: 0.24695609222222223
+          model-calls-low: 35
+          model-calls-high: 35
+        - timestamp: 2026-10-23T23:49:01.016Z
+          duration: 402
+          runner-hours: 0.11165308416666667
+          model-calls-low: 29
+          model-calls-high: 29
+        - timestamp: 2026-10-23T23:33:52.079Z
+          duration: 281
+          runner-hours: 0.07796764194444444
+          model-calls-low: 24
+          model-calls-high: 24
+        - timestamp: 2026-10-23T23:26:22.729Z
+          duration: 385
+          runner-hours: 0.10692000583333333
+          model-calls-low: 34
+          model-calls-high: 34
+        - timestamp: 2026-10-23T23:17:14.974Z
+          duration: 517
+          runner-hours: 0.14370567222222222
+          model-calls-low: 29
+          model-calls-high: 29
+        - timestamp: 2026-10-23T23:15:04.935Z
+          duration: 343
+          runner-hours: 0.0953566513888889
+          model-calls-low: 27
+          model-calls-high: 27
+        - timestamp: 2026-10-23T23:12:08.596Z
+          duration: 615
+          runner-hours: 0.17083662944444447
+          model-calls-low: 31
+          model-calls-high: 31
+        - timestamp: 2026-10-23T23:03:40.044Z
+          duration: 310
+          runner-hours: 0.08598972805555555
+          model-calls-low: 27
+          model-calls-high: 27
+        - timestamp: 2026-10-23T22:43:01.580Z
+          duration: 688
+          runner-hours: 0.19107875472222222
+          model-calls-low: 27
+          model-calls-high: 27
+        - timestamp: 2026-10-23T22:40:07.058Z
+          duration: 261
+          runner-hours: 0.07257427000000001
+          model-calls-low: 24
+          model-calls-high: 24
+        - timestamp: 2026-10-23T22:34:22.702Z
+          duration: 567
+          runner-hours: 0.15739268166666667
+          model-calls-low: 37
+          model-calls-high: 37
+        - timestamp: 2026-10-23T22:23:25.063Z
+          duration: 399
+          runner-hours: 0.11078242555555555
+          model-calls-low: 34
+          model-calls-high: 34
+        - timestamp: 2026-10-23T21:56:39.989Z
+          duration: 1059
+          runner-hours: 0.2941811825
+          model-calls-low: 53
+          model-calls-high: 53
+        - timestamp: 2026-10-23T21:35:59.543Z
+          duration: 522
+          runner-hours: 0.144952665
+          model-calls-low: 34
+          model-calls-high: 34
+        - timestamp: 2026-10-23T17:34:31.496Z
+          duration: 844
+          runner-hours: 0.23437764416666665
+          model-calls-low: 34
+          model-calls-high: 34
+        - timestamp: 2026-10-23T17:22:23.184Z
+          duration: 505
+          runner-hours: 0.14025670277777777
+          model-calls-low: 25
+          model-calls-high: 25
+        - timestamp: 2026-10-23T16:48:25.278Z
+          duration: 213
+          runner-hours: 0.05924880416666667
+          model-calls-low: 17
+          model-calls-high: 17
+        - timestamp: 2026-10-23T16:37:15.735Z
+          duration: 249
+          runner-hours: 0.0691961413888889
+          model-calls-low: 19
+          model-calls-high: 19
+        - timestamp: 2026-10-23T16:08:26.014Z
+          duration: 557
+          runner-hours: 0.1547536825
+          model-calls-low: 33
+          model-calls-high: 33
+        - timestamp: 2026-10-23T15:07:32.606Z
+          duration: 439
+          runner-hours: 0.12206678861111112
+          model-calls-low: 33
+          model-calls-high: 33
+        - timestamp: 2026-10-23T14:52:45.063Z
+          duration: 198
+          runner-hours: 0.05493061694444445
+          model-calls-low: 5
+          model-calls-high: 5
+        - timestamp: 2026-10-23T14:52:30.341Z
+          duration: 164
+          runner-hours: 0.04555408861111111
+          model-calls-low: 4
+          model-calls-high: 4
+        - timestamp: 2026-10-23T14:17:01.659Z
+          duration: 1670
+          runner-hours: 0.4639366680555555
+          model-calls-low: 33
+          model-calls-high: 33
+        - timestamp: 2026-10-23T13:59:16.422Z
+          duration: 282
+          runner-hours: 0.07841182999999999
+          model-calls-low: 19
+          model-calls-high: 19
         - timestamp: 2026-10-23T11:53:04.607Z
           duration: 1874
           runner-hours: 0.52059047
@@ -1697,6 +2147,211 @@ tree:
         kwh-per-call-low: 0.00023999999999999998
         kwh-per-call-high: 0.0025
       inputs:
+        - timestamp: 2026-10-24T21:01:43.702Z
+          duration: 282
+          runner-hours: 0.07825562055555556
+          model-calls-low: 22
+          model-calls-high: 22
+        - timestamp: 2026-10-24T18:37:12.988Z
+          duration: 81
+          runner-hours: 0.022604704166666666
+          model-calls-low: 2
+          model-calls-high: 2
+        - timestamp: 2026-10-24T17:47:06.470Z
+          duration: 348
+          runner-hours: 0.0966745438888889
+          model-calls-low: 24
+          model-calls-high: 24
+        - timestamp: 2026-10-24T17:05:09.348Z
+          duration: 529
+          runner-hours: 0.1469076963888889
+          model-calls-low: 25
+          model-calls-high: 25
+        - timestamp: 2026-10-24T16:44:56.081Z
+          duration: 892
+          runner-hours: 0.2476468788888889
+          model-calls-low: 32
+          model-calls-high: 32
+        - timestamp: 2026-10-24T15:53:14.465Z
+          duration: 64
+          runner-hours: 0.017720026666666666
+          model-calls-low: 3
+          model-calls-high: 3
+        - timestamp: 2026-10-24T15:29:12.760Z
+          duration: 219
+          runner-hours: 0.060964598333333335
+          model-calls-low: 13
+          model-calls-high: 13
+        - timestamp: 2026-10-24T15:27:42.665Z
+          duration: 157
+          runner-hours: 0.043585935
+          model-calls-low: 13
+          model-calls-high: 13
+        - timestamp: 2026-10-24T15:26:40.688Z
+          duration: 183
+          runner-hours: 0.05090459361111111
+          model-calls-low: 15
+          model-calls-high: 15
+        - timestamp: 2026-10-24T15:07:47.970Z
+          duration: 390
+          runner-hours: 0.10832224027777777
+          model-calls-low: 25
+          model-calls-high: 25
+        - timestamp: 2026-10-24T15:07:43.041Z
+          duration: 139
+          runner-hours: 0.03852306027777778
+          model-calls-low: 9
+          model-calls-high: 9
+        - timestamp: 2026-10-24T15:07:38.240Z
+          duration: 218
+          runner-hours: 0.060685265833333335
+          model-calls-low: 15
+          model-calls-high: 15
+        - timestamp: 2026-10-24T15:07:33.659Z
+          duration: 434
+          runner-hours: 0.12058815944444444
+          model-calls-low: 23
+          model-calls-high: 23
+        - timestamp: 2026-10-24T15:07:25.592Z
+          duration: 275
+          runner-hours: 0.07651186527777779
+          model-calls-low: 17
+          model-calls-high: 17
+        - timestamp: 2026-10-24T14:51:53.544Z
+          duration: 275
+          runner-hours: 0.07632498444444445
+          model-calls-low: 19
+          model-calls-high: 19
+        - timestamp: 2026-10-24T14:51:28.908Z
+          duration: 148
+          runner-hours: 0.041031982777777774
+          model-calls-low: 12
+          model-calls-high: 12
+        - timestamp: 2026-10-24T14:51:24.282Z
+          duration: 377
+          runner-hours: 0.10484249999999999
+          model-calls-low: 22
+          model-calls-high: 22
+        - timestamp: 2026-10-24T14:51:22.512Z
+          duration: 402
+          runner-hours: 0.11158489055555555
+          model-calls-low: 20
+          model-calls-high: 20
+        - timestamp: 2026-10-24T14:51:04.648Z
+          duration: 365
+          runner-hours: 0.10144784861111111
+          model-calls-low: 21
+          model-calls-high: 21
+        - timestamp: 2026-10-24T14:07:25.097Z
+          duration: 352
+          runner-hours: 0.09780528111111111
+          model-calls-low: 35
+          model-calls-high: 35
+        - timestamp: 2026-10-24T13:50:31.096Z
+          duration: 456
+          runner-hours: 0.12658036972222222
+          model-calls-low: 18
+          model-calls-high: 18
+        - timestamp: 2026-10-24T13:49:07.390Z
+          duration: 407
+          runner-hours: 0.11300470305555556
+          model-calls-low: 25
+          model-calls-high: 25
+        - timestamp: 2026-10-24T13:49:03.857Z
+          duration: 365
+          runner-hours: 0.10129991166666667
+          model-calls-low: 23
+          model-calls-high: 23
+        - timestamp: 2026-10-24T13:48:53.661Z
+          duration: 353
+          runner-hours: 0.09794528333333334
+          model-calls-low: 19
+          model-calls-high: 19
+        - timestamp: 2026-10-24T13:48:45.413Z
+          duration: 252
+          runner-hours: 0.07010509083333334
+          model-calls-low: 14
+          model-calls-high: 14
+        - timestamp: 2026-10-24T13:17:38.790Z
+          duration: 300
+          runner-hours: 0.08322162777777778
+          model-calls-low: 29
+          model-calls-high: 29
+        - timestamp: 2026-10-24T12:51:02.095Z
+          duration: 338
+          runner-hours: 0.09392523583333334
+          model-calls-low: 24
+          model-calls-high: 24
+        - timestamp: 2026-10-24T12:13:40.291Z
+          duration: 470
+          runner-hours: 0.13062095583333333
+          model-calls-low: 27
+          model-calls-high: 27
+        - timestamp: 2026-10-24T11:47:42.959Z
+          duration: 801
+          runner-hours: 0.22255659194444444
+          model-calls-low: 33
+          model-calls-high: 33
+        - timestamp: 2026-10-24T09:29:12.657Z
+          duration: 259
+          runner-hours: 0.07191989444444445
+          model-calls-low: 16
+          model-calls-high: 16
+        - timestamp: 2026-10-24T08:50:24.962Z
+          duration: 798
+          runner-hours: 0.22175168694444444
+          model-calls-low: 23
+          model-calls-high: 23
+        - timestamp: 2026-10-24T08:32:39.650Z
+          duration: 667
+          runner-hours: 0.18522045
+          model-calls-low: 34
+          model-calls-high: 34
+        - timestamp: 2026-10-24T02:38:24.540Z
+          duration: 212
+          runner-hours: 0.05880956083333333
+          model-calls-low: 13
+          model-calls-high: 13
+        - timestamp: 2026-10-24T02:09:50.852Z
+          duration: 452
+          runner-hours: 0.12545775722222222
+          model-calls-low: 23
+          model-calls-high: 23
+        - timestamp: 2026-10-24T01:41:34.239Z
+          duration: 609
+          runner-hours: 0.1692771988888889
+          model-calls-low: 22
+          model-calls-high: 22
+        - timestamp: 2026-10-24T00:51:00.890Z
+          duration: 517
+          runner-hours: 0.14363485972222223
+          model-calls-low: 28
+          model-calls-high: 28
+        - timestamp: 2026-10-24T00:39:18.560Z
+          duration: 395
+          runner-hours: 0.10975389861111111
+          model-calls-low: 34
+          model-calls-high: 34
+        - timestamp: 2026-10-23T22:14:29.981Z
+          duration: 491
+          runner-hours: 0.1365134186111111
+          model-calls-low: 18
+          model-calls-high: 18
+        - timestamp: 2026-10-23T21:51:28.042Z
+          duration: 396
+          runner-hours: 0.11011566194444444
+          model-calls-low: 21
+          model-calls-high: 21
+        - timestamp: 2026-10-23T15:49:57.612Z
+          duration: 467
+          runner-hours: 0.1296995927777778
+          model-calls-low: 20
+          model-calls-high: 20
+        - timestamp: 2026-10-23T15:31:17.990Z
+          duration: 414
+          runner-hours: 0.11505800166666666
+          model-calls-low: 14
+          model-calls-high: 14
         - timestamp: 2026-10-23T10:59:09.638Z
           duration: 262
           runner-hours: 0.07281121500000001
@@ -2071,6 +2726,46 @@ tree:
         kwh-per-call-low: 0.00023999999999999998
         kwh-per-call-high: 0.0025
       inputs:
+        - timestamp: 2026-10-25T00:32:31.749Z
+          duration: 75
+          runner-hours: 0.02073122722222222
+          model-calls-low: 3
+          model-calls-high: 3
+        - timestamp: 2026-10-24T14:57:06.042Z
+          duration: 87
+          runner-hours: 0.024294630833333334
+          model-calls-low: 4
+          model-calls-high: 4
+        - timestamp: 2026-10-24T14:40:59.143Z
+          duration: 81
+          runner-hours: 0.022538595277777778
+          model-calls-low: 3
+          model-calls-high: 3
+        - timestamp: 2026-10-24T13:49:00.816Z
+          duration: 81
+          runner-hours: 0.022426592222222222
+          model-calls-low: 3
+          model-calls-high: 3
+        - timestamp: 2026-10-24T13:48:29.173Z
+          duration: 71
+          runner-hours: 0.019834682500000003
+          model-calls-low: 3
+          model-calls-high: 3
+        - timestamp: 2026-10-23T17:44:42.215Z
+          duration: 208
+          runner-hours: 0.057657208611111115
+          model-calls-low: 6
+          model-calls-high: 6
+        - timestamp: 2026-10-23T17:12:00.619Z
+          duration: 1027
+          runner-hours: 0.2851707163888889
+          model-calls-low: 34
+          model-calls-high: 34
+        - timestamp: 2026-10-23T17:11:32.958Z
+          duration: 514
+          runner-hours: 0.14268143277777776
+          model-calls-low: 27
+          model-calls-high: 27
         - timestamp: 2026-10-23T10:47:08.113Z
           duration: 89
           runner-hours: 0.024651371666666668
