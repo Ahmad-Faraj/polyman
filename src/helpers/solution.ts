@@ -728,7 +728,8 @@ export async function runSolutionOnSingleTest(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(
-      `Solution ${fmt.highlight(solution.name)} failed on test ${testIndex}: ${message}`
+      `Solution ${fmt.highlight(solution.name)} failed on test ${testIndex}: ${message}`,
+      { cause: error }
     );
   }
 }

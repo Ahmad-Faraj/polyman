@@ -469,7 +469,7 @@ export async function cachedCompile(
     return;
   }
 
-  let cacheKey: CacheKey | null = null;
+  let cacheKey: CacheKey | null;
   try {
     cacheKey = await computeKey(request);
     const hit = restoreFromCache(cacheKey.key, request.binaryPath);

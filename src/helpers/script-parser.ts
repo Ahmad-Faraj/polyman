@@ -536,9 +536,13 @@ function expandFreeMarker(script: string): string {
     } catch (e) {
       if (!(e instanceof FmExprError)) throw e;
       if (e.message === 'unsupported') {
-        throw new Error(`Unsupported expression ${shown} on line ${line}`);
+        throw new Error(`Unsupported expression ${shown} on line ${line}`, {
+          cause: e,
+        });
       }
-      throw new Error(`${e.message} in ${shown} on line ${line}`);
+      throw new Error(`${e.message} in ${shown} on line ${line}`, {
+        cause: e,
+      });
     }
   };
 

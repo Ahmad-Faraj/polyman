@@ -286,6 +286,18 @@ describe('parseGeneratorScript - unsupported FreeMarker is rejected', () => {
     );
   });
 
+  it('keeps the expression error as the cause', () => {
+    let thrown: unknown;
+    try {
+      parser.parseGeneratorScript('gen ${n} > $');
+    } catch (e) {
+      thrown = e;
+    }
+    expect(thrown).toMatchObject({
+      cause: { message: 'Undefined variable "n"' },
+    });
+  });
+
   it('never passes ${...} through literally', () => {
     expect(() => parser.parseGeneratorScript('gen ${"a"} > $')).toThrow(
       'Unsupported expression ${"a"} on line 1'

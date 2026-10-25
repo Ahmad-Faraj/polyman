@@ -51,7 +51,7 @@
   },
   "keywords": [],
   "devDependencies": {
-    "@eslint/js": "^9.39.1",
+    "@eslint/js": "^10.0.1",
     "@types/chalk": "^0.4.31",
     "@types/commander": "^2.12.0",
     "@types/node": "^24.10.0",
@@ -59,7 +59,7 @@
     "@typescript-eslint/eslint-plugin": "~8.72.0",
     "@typescript-eslint/parser": "~8.72.0",
     "@vitest/coverage-v8": "^4.1.12",
-    "eslint": "^9.39.1",
+    "eslint": "^10.13.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.4",
     "prettier": "^3.6.2",

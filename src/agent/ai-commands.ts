@@ -336,6 +336,8 @@ async function withRedaction(
       );
     }
     const message = error instanceof Error ? error.message : String(error);
+    // No cause on purpose: it would carry the unredacted message.
+    // eslint-disable-next-line preserve-caught-error
     throw new Error(redact(message, all));
   }
 }
