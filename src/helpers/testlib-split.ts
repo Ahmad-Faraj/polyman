@@ -36,13 +36,7 @@ export interface TestlibSplit {
 }
 
 type TokenKind =
-  | 'pp'
-  | 'space'
-  | 'comment'
-  | 'literal'
-  | 'ident'
-  | 'number'
-  | 'punct';
+  'pp' | 'space' | 'comment' | 'literal' | 'ident' | 'number' | 'punct';
 
 interface Token {
   kind: TokenKind;

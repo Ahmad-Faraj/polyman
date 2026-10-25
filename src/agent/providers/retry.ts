@@ -97,7 +97,7 @@ async function* streamWithRetries(
   let request = req;
   let askedHook = false;
   let compacted = false;
-  for (let retry = 0; ; ) {
+  for (let retry = 0; ;) {
     let started = false;
     try {
       for await (const event of provider.stream(request, signal)) {
@@ -145,7 +145,7 @@ async function listWithRetries(
   opts: RetryOptions,
   providerId: string
 ): Promise<ModelInfo[]> {
-  for (let retry = 0; ; ) {
+  for (let retry = 0; ;) {
     try {
       return await listModels(signal);
     } catch (err) {

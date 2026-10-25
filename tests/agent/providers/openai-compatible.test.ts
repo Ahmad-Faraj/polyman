@@ -519,7 +519,7 @@ describe('OpenAICompatibleProvider: errors', () => {
 
   it('turns a failed fetch into a retryable network error', async () => {
     const fetchFn = vi.fn(() => Promise.reject(new TypeError('fetch failed')));
-    const err = await failure(collect(provider(fetchFn as never)));
+    const err = await failure(collect(provider(fetchFn)));
     expect(err.kind).toBe('network');
     expect(err.retryable).toBe(true);
     expect(err.message).toContain('fetch failed');
@@ -554,7 +554,7 @@ describe('OpenAICompatibleProvider: errors', () => {
     const fetchFn = vi.fn(() =>
       Promise.resolve(new Response('data: {oops\n\n', { status: 200 }))
     );
-    const err = await failure(collect(provider(fetchFn as never)));
+    const err = await failure(collect(provider(fetchFn)));
     expect(err.kind).toBe('server');
   });
 });

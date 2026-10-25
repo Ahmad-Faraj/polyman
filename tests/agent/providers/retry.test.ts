@@ -96,7 +96,7 @@ describe('withRetries: retryable errors', () => {
       new OpenAICompatibleProvider({
         baseUrl: 'https://api.example.com/v1',
         apiKey: 'sk-test',
-        fetch: fetchFn as never,
+        fetch: fetchFn,
       }),
       { ...EXACT, onRetry }
     );
@@ -143,7 +143,7 @@ describe('withRetries: retryable errors', () => {
         new OpenAICompatibleProvider({
           baseUrl: 'https://api.example.com/v1',
           apiKey: 'test-key',
-          fetch: fetchFn as never,
+          fetch: fetchFn,
         }),
         { ...EXACT, onRetry }
       );
@@ -407,7 +407,7 @@ describe('withRetries: auth errors', () => {
       id: 'openai',
       baseUrl: 'https://api.example.com/v1',
       apiKey: KEY,
-      fetch: fetchFn as never,
+      fetch: fetchFn,
     });
   }
 

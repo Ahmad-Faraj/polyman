@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/unbound-method */
 import type { ReadStream } from 'fs';
 import { spawnSync } from 'child_process';
 import fs from 'fs';
@@ -133,7 +134,7 @@ function makeReadStreamStub(
 ): ReadStream {
   const stub: Pick<ReadStream, 'on' | 'close'> = {
     on: on as unknown as ReadStream['on'],
-    close: vi.fn() as unknown as ReadStream['close'],
+    close: vi.fn(),
   };
   return stub as ReadStream;
 }

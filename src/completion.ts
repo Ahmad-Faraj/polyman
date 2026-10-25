@@ -177,16 +177,14 @@ function buildModel(program: Command): CommandModel[] {
 
     const options = cmd.options
       .filter(option => !option.hidden)
-      .map(
-        (option): OptionModel => ({
-          flags: [option.short, option.long].filter(
-            (flag): flag is string => flag !== undefined
-          ),
-          takesValue: option.required || option.optional,
-          description: oneLine(option.description),
-          kind: option.long ? OPTION_KINDS[option.long] : undefined,
-        })
-      );
+      .map((option): OptionModel => ({
+        flags: [option.short, option.long].filter(
+          (flag): flag is string => flag !== undefined
+        ),
+        takesValue: option.required || option.optional,
+        description: oneLine(option.description),
+        kind: option.long ? OPTION_KINDS[option.long] : undefined,
+      }));
 
     const positional = POSITIONALS[path];
     models.push({

@@ -182,8 +182,7 @@ function polygonError(message: string, cause?: unknown): PolymanError {
 
 /** Outcome of one HTTP attempt against Polygon. @internal */
 type Attempt =
-  | { ok: true; value: unknown }
-  | { ok: false; retry: boolean; error: Error };
+  { ok: true; value: unknown } | { ok: false; retry: boolean; error: Error };
 
 /**
  * Comprehensive SDK for Codeforces Polygon API.
