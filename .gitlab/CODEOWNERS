@@ -1,0 +1,36 @@
+# Who reviews changes to the automation itself.
+#
+# Any one owner can approve, never the MR's author. Which tier needs which
+# person (high and critical: a maintainer) is the go-ahead guard's job, from
+# `go_ahead` in .autonomy.yml; listing all three here means no MR waits on one
+# person. Keep these paths in step with `governance` there.
+#
+# GitLab enforces this only if "Require approval from code owners" is on for
+# `main` (Maintainer setting, requested in #40).
+
+[Governance] @HamzaHassanain @Mazen-Ghanaym @Ahmad-Faraj
+/.gitlab/
+/.gitlab-ci.yml
+/.gitattributes
+/.autonomy.yml
+/.autonomy/
+/engine/
+/corpus/
+/service/samples/
+/service/scripts/golden.ts
+/service/ci/
+
+[Verdicts and Polygon] @HamzaHassanain @Mazen-Ghanaym @Ahmad-Faraj
+/src/polygon.ts
+/src/helpers/remote/
+/src/helpers/checker.ts
+/src/helpers/validator.ts
+/assets/checkers/
+
+[Verify service sandbox] @HamzaHassanain @Mazen-Ghanaym @Ahmad-Faraj
+/service/src/unzip.ts
+/service/src/kill-tree.ts
+/service/src/problems.ts
+/service/src/verify.ts
+/service/Dockerfile
+/service/deploy/

@@ -1,0 +1,68 @@
+# Policy the engine tests run against (AUTONOMY_CONFIG in vitest.config.ts).
+# Every MR needs one approval. The score from these rules decides how much
+# review the agents do before that approval is asked for.
+
+thresholds:
+  # below medium: GitLab's Code Review flow, and a summary from the lead reviewer
+  medium: 25   # code and test reviewers
+  high: 60     # security, code and test reviewers
+
+paths:
+  critical:        # money and identity
+    - src/routes/auth.ts
+    - src/routes/payments.ts
+  high:            # shared state, the runtime image and how it's deployed
+    - src/store.ts
+    - src/app.ts
+    - src/telemetry.ts
+    - Dockerfile
+    - deploy/**
+  medium:
+    - src/routes/**
+  low:
+    - "**/*.md"
+    - docs/**
+
+governance:        # the automation itself (defaults are always included)
+  - engine/**
+
+source:
+  - src/**
+tests:
+  - tests/**
+  - "**/*.test.ts"
+
+incidents_file: .autonomy/incidents.json
+
+# What the Duo flows need to know about this project. `node engine/src/cli/sync-flows.ts`
+# fills these into the flows when it publishes them.
+agents:
+  about: >
+    A TypeScript (Node 22) Fastify API for orders and payments. Routes are in
+    src/routes/, shared state in src/store.ts.
+  checks: npm ci && npm ci --prefix engine && npm run typecheck && npx vitest run
+  test_guide: Tests use vitest and live in tests/ (engine tests in engine/test/).
+  # service accounts GitLab created when the flows were enabled here
+  reviewer_account: ai-mr-reviewer-gitlab-ai-hackathon_dc1918
+  fixer_account: ai-pipeline-fixer-gitlab-ai-hackathon
+
+monitor:
+  # what scripts/traffic.ts exercises in production
+  measured_routes:
+    - GET /health
+    - POST /api/auth/register
+    - POST /api/auth/login
+    - POST /api/orders
+    - GET /api/orders
+    - POST /api/payments
+    - POST /api/payments/:id/refund
+
+# Used to estimate the carbon cost of each change (SCI). Defaults match a
+# GitLab.com small Linux runner (2 vCPU, 8 GB) in GCP us-east1, with Cloud
+# Carbon Footprint coefficients. Change them if your runners differ.
+sustainability:
+  vcpus: 2
+  memory_gb: 8
+  utilization: 0.5
+  pue: 1.1
+  grid_gco2e_per_kwh: 560

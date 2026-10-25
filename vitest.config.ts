@@ -5,7 +5,8 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    include: ['tests/**/*.test.ts'],
+    // corpus/*.test.mjs pins the corpus's judging logic (corpus/lib.mjs).
+    include: ['tests/**/*.test.ts', 'corpus/**/*.test.mjs'],
     coverage: {
       provider: 'v8',
       // `lcov` is required for the Codecov upload in .github/workflows/ci.yml.

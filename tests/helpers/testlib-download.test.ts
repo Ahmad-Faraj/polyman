@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as testlibDownload from '../../src/helpers/testlib-download';
+import { PolymanError } from '../../src/errors';
 import https from 'https';
 import type { IncomingMessage, ClientRequest } from 'http';
 import { EventEmitter } from 'events';
@@ -86,6 +87,18 @@ describe('testlib-download.ts', () => {
       ).rejects.toThrow('HTTP status: 404');
     });
 
+    it('should fail with exit code 4 on a bad HTTP status', async () => {
+      mockedGet.mockImplementation((_url, cb) => {
+        const res = createMockResponse(500);
+        if (cb instanceof Function) cb(res as IncomingMessage);
+        return new EventEmitter() as unknown as ClientRequest;
+      });
+
+      await expect(
+        testlibDownload.downloadFile('http://fail.com')
+      ).rejects.toHaveProperty('exitCode', 4);
+    });
+
     it('should reject on request error', async () => {
       const req = new EventEmitter();
       mockedGet.mockReturnValue(req as unknown as ClientRequest);
@@ -94,6 +107,8 @@ describe('testlib-download.ts', () => {
       req.emit('error', new Error('network error'));
 
       await expect(promise).rejects.toThrow('Download failed: network error');
+      await expect(promise).rejects.toBeInstanceOf(PolymanError);
+      await expect(promise).rejects.toHaveProperty('exitCode', 4);
     });
   });
 });

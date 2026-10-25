@@ -1,0 +1,5 @@
+{
+  "ok": true,
+  "solutions": { "main": true, "correct2": true, "tle_solution": true, "first_only": true, "not_root": true },
+  "readinessFailures": []
+}

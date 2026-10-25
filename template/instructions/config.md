@@ -18,7 +18,7 @@ The single source of truth for the whole problem. Every other file is referenced
   "inputFile": "stdin",                  // keep "stdin" unless asked
   "outputFile": "stdout",                // keep "stdout" unless asked
   "interactive": false,                  // see instructions/checker.md (custom checker) — true is rare
-  "cppStandard": "c++23",                // optional; local g++ -std= value (default c++23; use c++17/c++20 on older compilers)
+  "cppStandard": "c++23",                // optional; local g++ -std= value for every C++ file (unset: solutions use their sourceType standard, the rest c++23)
 
   "compiler": {                          // optional, local-only; omit unless the user asks
     "cpp": "g++-15",                     // C++ compiler executable or path (default "g++"); POLYMAN_CXX overrides it
@@ -35,7 +35,16 @@ The single source of truth for the whole problem. Every other file is referenced
 }
 ```
 
-`cppStandard` and `compiler` only change how polyman compiles on this machine. They are never sent to Polygon (Polygon uses each file's `sourceType`). Every C++ compile runs `<compiler> -O2 -std=<cppStandard> <flags...>`, where a `-std=` item in `flags` replaces `-std=<cppStandard>` and an `-O` item replaces `-O2`. Java programs still run with `java` from `PATH`. A malformed `compiler` block (unknown key, blank string, `flags` not an array of strings) stops the compile with an error.
+`cppStandard` and `compiler` only change how polyman compiles on this machine. They are never sent to Polygon (Polygon uses each file's `sourceType`). Every C++ compile runs `<compiler> -O2 -std=<standard> <flags...>`, where an `-O` item in `flags` replaces `-O2`. C++ solutions also get `-DONLINE_JUDGE` right after the standard, like on Codeforces, unless `flags` already defines `ONLINE_JUDGE`. Generators, the validator and the checker do not get it.
+
+The `-std=` value comes from the first of these that is set:
+
+1. a `-std=` item in `flags`,
+2. `cppStandard`,
+3. for solutions only, the standard in the solution's `sourceType` (`cpp.g++17` gives `c++17`, `cpp.gcc14-64-msys2-g++23` gives `c++23`; `cpp.ms2017` and `cpp.ms2019` name none),
+4. the default `c++23`.
+
+Java programs still run with `java` from `PATH`. A malformed `compiler` block (unknown key, blank string, `flags` not an array of strings) stops the compile with an error.
 
 ## Schema
 

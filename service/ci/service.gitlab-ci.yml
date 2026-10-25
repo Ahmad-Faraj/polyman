@@ -1,0 +1,317 @@
+# CI for the verify service (#19). Included from the root .gitlab-ci.yml.
+#
+# On merge requests and on the default branch: test the service, build its
+# image, and run the sample problems against that image (the golden check).
+# With Google Cloud set up (GCP_PROJECT_ID and friends, see service/README.md)
+# the default branch also releases it: a candidate revision with no traffic,
+# the samples against the candidate, the switch, the samples against
+# production, and the switch back if production gets them wrong.
+
+variables:
+  SERVICE_IMAGE: $CI_REGISTRY_IMAGE/verify:$CI_COMMIT_SHORT_SHA
+
+# what the service image is built from: the service itself and polyman
+# (SERVICE_PATHS in service/deploy/cloudrun.conf is the same list)
+.service:changes:
+  rules:
+    # a pipeline schedule on main (a nightly check, say) counts every file as
+    # changed; it must not rebuild or redeploy the service
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes: &service_files
+        - service/**/*
+        - src/**/*
+        - assets/**/*
+        - template/**/*
+        - package.json
+        - package-lock.json
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: *service_files
+
+service:test:
+  extends: .service:changes
+  stage: test
+  image: node:22
+  needs: []
+  script:
+    - cd service
+    - npm ci --no-audit --no-fund --loglevel=error
+    - npm run typecheck
+    - npm test
+    # what the verify service runs on Cloud Run (CycloneDX), for the dependency list
+    - npm sbom --sbom-format cyclonedx --omit dev > ../gl-sbom-npm-verify-service.cdx.json
+  artifacts:
+    reports:
+      cyclonedx: gl-sbom-npm-verify-service.cdx.json
+
+service:image:
+  extends: .service:changes
+  stage: build
+  image: docker:27.5.1
+  # The runners' network has an MTU of 1460 and Docker-in-Docker's bridge
+  # defaults to 1500, so large packets stall: apt-get inside the build fetched
+  # the small index files and then hung until the job timed out (since about
+  # 18:00 UTC on Oct 18). Plain jobs on the same runners weren't affected.
+  # BuildKit's RUN steps don't take the daemon's --mtu, so the build also runs
+  # on the DinD container's own network (--network host below).
+  services:
+    - name: docker:27.5.1-dind
+      command: ['--mtu=1460']
+  variables:
+    DOCKER_TLS_CERTDIR: /certs
+  needs: []
+  script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+    - docker build --network host -f service/Dockerfile --build-arg APP_COMMIT=$CI_COMMIT_SHORT_SHA -t "$SERVICE_IMAGE" .
+    - docker push "$SERVICE_IMAGE"
+
+# The image runs as a job service and gets the sample problems, which must give
+# their expected results. The same check runs against Cloud Run below.
+service:golden:
+  extends: .service:changes
+  stage: deploy
+  image: node:22
+  needs: [service:image]
+  services:
+    - name: $SERVICE_IMAGE
+      alias: verify
+  script:
+    - for i in $(seq 1 30); do curl -sf http://verify:8080/health && break; sleep 2; done
+    - curl -sf http://verify:8080/health || { echo "the service never became healthy"; exit 1; }
+    - node --disable-warning=ExperimentalWarning service/scripts/golden.ts http://verify:8080 --json golden.json
+    # Incident #65: the documented curl upload, made as the public host, must be
+    # taken and run to the end. The nightly rehearsal (service/ci/rehearsals)
+    # runs the same script against #65's bug and requires it to fail.
+    - sh service/ci/public-upload.sh http://verify:8080 "$PUBLIC_HOST"
+  variables:
+    # the shape of the production hostname (a Cloud Run URL); the service sees
+    # only the Host header, so no DNS is involved
+    PUBLIC_HOST: polyman-verify-1.us-east1.run.app
+  artifacts:
+    when: always
+    paths: [golden.json]
+    expire_in: 30 days
+
+.service:gcp:
+  image: google/cloud-sdk:587.0.0-slim
+  id_tokens:
+    GCP_ID_TOKEN:
+      aud: https://gitlab.com
+  resource_group: verify-production
+
+.service:release:
+  rules:
+    # a pipeline schedule on main (a nightly check, say) counts every file as
+    # changed; it must not rebuild or redeploy the service
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $GCP_PROJECT_ID
+      changes: *service_files
+
+service:deploy:candidate:
+  extends: [.service:gcp, .service:release]
+  stage: deploy
+  # needs skips the stage order, so the go-ahead guard on main is listed here:
+  # no candidate is staged from a push it refused. Optional because it runs
+  # only on pushes; a drill pipeline started from the UI has no guard job.
+  needs:
+    - service:golden
+    - { job: 'autonomy:guard:main', optional: true, artifacts: false }
+  script:
+    - sh service/deploy/cloudrun.sh candidate
+  artifacts:
+    reports:
+      dotenv: deploy.env
+
+# the new revision on its own URL, before it gets traffic (except on the very
+# first deploy, which creates the service and so serves at once)
+service:check:candidate:
+  extends: .service:release
+  stage: deploy
+  image: node:22
+  needs: [service:deploy:candidate]
+  script:
+    - node --disable-warning=ExperimentalWarning service/scripts/golden.ts "$CANDIDATE_URL" --json golden.json
+    # the last lines of the log: the promote job to click, or that a newer
+    # main pipeline has the candidate to promote instead
+    - sh service/deploy/next-step.sh
+  artifacts:
+    when: always
+    paths: [golden.json]
+
+# the candidate got the samples wrong: it keeps no public URL
+service:discard:candidate:
+  extends: .service:gcp
+  stage: deploy
+  needs:
+    - { job: service:deploy:candidate }
+    - { job: service:check:candidate, artifacts: false }
+  rules:
+    # a pipeline schedule on main (a nightly check, say) counts every file as
+    # changed; it must not rebuild or redeploy the service
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $GCP_PROJECT_ID
+      changes: *service_files
+      when: on_failure
+  script:
+    - sh service/deploy/cloudrun.sh discard
+
+# Assisted: production is a person's go-ahead. The merge stages the candidate;
+# a person who has read its check clicks this job to switch traffic to it.
+# The rollback below stays automatic: a fixed safety net, not an agent.
+service:promote:production:
+  extends: [.service:gcp, .service:release]
+  stage: deploy
+  needs: [service:deploy:candidate, service:check:candidate]
+  rules:
+    # a pipeline schedule on main (a nightly check, say) counts every file as
+    # changed; it must not rebuild or redeploy the service
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $GCP_PROJECT_ID
+      changes: *service_files
+      when: manual
+  environment:
+    name: verify/production
+    url: $SERVICE_URL
+  # exit 3: a newer pipeline has the candidate, so nothing was switched. The
+  # job shows as a warning, not as a deployment of this commit, and the
+  # pipeline doesn't fail (no rollback, no incident).
+  allow_failure:
+    exit_codes: [3]
+  script:
+    - sh service/deploy/cloudrun.sh promote
+  artifacts:
+    # also when the job fails after the switch: rollback needs PREVIOUS_REVISION
+    when: always
+    reports:
+      dotenv: deploy.env
+
+# A fire drill on demand: run a pipeline on main from the UI (Build > Pipelines
+# > Run pipeline) with the input drill = production-check (.gitlab-ci.yml sets
+# DRILL from it), click the manual promote, and this check fails on purpose
+# after the switch, so the rollback and the incident run for real. Only a
+# pipeline a person starts in the UI can run the drill, not a push or the API.
+#
+# First, production must serve this commit (/api/version), or the samples
+# would check another release. After the samples, the release monitor
+# (engine/src/cli/monitor.ts) checks the routes the review of the merged MR
+# said to watch (its ```watch block) against what golden.ts measured
+# (traffic.json), and writes health-report.json.
+#
+# Exit 1 (rollback and incident): production serves another commit, a sample
+# came back wrong, or the monitor found a watched route over its limit.
+# Exit 3 (a warning; the release stays): the samples passed but the monitor
+# couldn't run (the MR lookup or the monitor itself failed), or the promote
+# switched nothing. monitor.txt says which.
+# Each way out ends with a NEXT STEP line: who does what now.
+service:check:production:
+  extends: .service:release
+  stage: deploy
+  image: node:22
+  needs: [service:promote:production]
+  allow_failure:
+    exit_codes: [3]
+  script:
+    - |
+      note() { echo "$1" | tee -a monitor.txt; }
+      next() { echo "NEXT STEP: $1"; }
+      failed() { next "nobody promotes again: service:rollback:production moves traffic back by itself, then the incident responder opens an incident for this pipeline and asks a maintainer for the go-ahead on a rollback MR there (a drill gets an incident with no rollback MR)." >&2; exit 1; }
+      if [ "${PROMOTED:-}" = false ]; then
+        note "not checked: this pipeline's promote switched nothing (a newer pipeline has the candidate), so production does not serve ${CI_COMMIT_SHORT_SHA:-this commit}"
+        next "nothing to do in this pipeline: the newer main pipeline's candidate is the one to promote (its service:check:candidate log links the job)."
+        exit 3
+      fi
+      # the commit production serves (APP_COMMIT, the short SHA the candidate
+      # was deployed with), a few tries while the switch settles
+      serves_this() { case "$1" in ???????*) case "$CI_COMMIT_SHA" in "$1"*) return 0 ;; esac ;; esac; return 1; }
+      for i in 1 2 3; do
+        live=$(curl -sf "$SERVICE_URL/api/version" | node -e 'try { console.log(JSON.parse(require("fs").readFileSync(0, "utf8")).commit ?? "") } catch {}' || true)
+        serves_this "$live" && break
+        [ "$i" = 3 ] || sleep "${VERSION_WAIT:-5}"
+      done
+      if ! serves_this "$live"; then
+        echo "production at $SERVICE_URL serves commit ${live:-(unreadable /api/version)}, not $CI_COMMIT_SHORT_SHA, which this pipeline promoted: the switch did not take, so this release is not live" >&2
+        failed
+      fi
+      echo "production serves $live, the commit this pipeline promoted"
+      if [ "${DRILL:-}" = production-check ] && [ "$CI_PIPELINE_SOURCE" = web ]; then set -- --drill; else set --; fi
+      golden=0
+      node --disable-warning=ExperimentalWarning service/scripts/golden.ts "$SERVICE_URL" --json golden.json --traffic traffic.json "$@" || golden=$?
+      # The MR this commit merged; the job token's reads fall back to the
+      # public API, as engine/src/gitlab.ts does. A commit with no merged MR (a
+      # person's direct push) has no review to read a watch list from; a
+      # lookup that fails is not the same and must show.
+      api="$CI_API_V4_URL/projects/$CI_PROJECT_ID/repository/commits/$CI_COMMIT_SHA/merge_requests"
+      lookup() { curl -sS -o mrs.json -w '%{http_code}' "$@" "$api" 2>>lookup.err || printf ' (curl exit %s)' "$?"; }
+      code=$(lookup -H "JOB-TOKEN: $CI_JOB_TOKEN")
+      [ "$code" = 200 ] || code=$(lookup)
+      monitor=
+      if [ "$code" != 200 ]; then
+        monitor=broken
+        note "WARNING: the release monitor did not run: looking up the merged MR for $CI_COMMIT_SHA failed (HTTP $code$(head -c 200 lookup.err 2>/dev/null | tr '\n' ' '))"
+      elif ! iid=$(node -e 'const m = JSON.parse(require("fs").readFileSync("mrs.json", "utf8")).find((m) => m.state === "merged"); if (m) console.log(m.iid)'); then
+        monitor=broken
+        note "WARNING: the release monitor did not run: the merged-MR lookup for $CI_COMMIT_SHA answered something that is not an MR list: $(head -c 200 mrs.json)"
+      elif [ -z "$iid" ]; then
+        monitor=skipped
+        note "no merged MR for $CI_COMMIT_SHA (a direct push?), so no review to read a watch list from: the monitor didn't run"
+      elif ! npm ci --prefix engine --no-audit --no-fund --loglevel=error; then
+        monitor=broken
+        note "WARNING: the release monitor did not run: installing the engine (npm ci) failed"
+      else
+        rm -f health-report.json
+        m=0; RELEASE_MR_IID=$iid node engine/src/cli/monitor.ts traffic.json || m=$?
+        # a route over its limit exits 1 after writing a failed result to
+        # health-report.json; anything else non-zero is the monitor not running
+        if [ "$m" = 0 ]; then
+          monitor=ok; note "the release monitor checked !$iid's watch list: every signal within its limit"
+        elif [ "$m" = 1 ] && node -e 'process.exit(JSON.parse(require("fs").readFileSync("health-report.json", "utf8")).results.some((r) => !r.ok) ? 0 : 1)' 2>/dev/null; then
+          monitor=failed; note "the release monitor found a watched signal over its limit (!$iid, health-report.json)"
+        else
+          monitor=broken; note "WARNING: the release monitor for !$iid could not finish (exit $m, no failed result in health-report.json): not a verdict on this release"
+        fi
+      fi
+      if [ "$golden" != 0 ] || [ "$monitor" = failed ]; then failed; fi
+      if [ "$monitor" = broken ]; then
+        echo "the samples passed, so the release stays, but the monitor didn't run" >&2
+        next "a maintainer reads monitor.txt in this job's artifacts (${CI_JOB_URL:-this job}/artifacts/browse), fixes why the monitor didn't run, and retries this job; nothing was rolled back." >&2
+        exit 3
+      fi
+      # a rollback MR (labelled "incident") waits for this check to be verified
+      who="the person who merged this change"; rollback=
+      if [ -n "${iid:-}" ]; then
+        merged=$(node -e 'const m = JSON.parse(require("fs").readFileSync("mrs.json", "utf8")).find((m) => m.state === "merged"); const u = m.merge_user ?? m.merged_by; console.log(`${u ? u.username : ""}:${(m.labels ?? []).includes("incident") ? "rollback" : ""}`)' 2>/dev/null || true)
+        [ -z "${merged%%:*}" ] || who="@${merged%%:*} (who merged !$iid)"
+        rollback=${merged#*:}
+      fi
+      if [ -n "$rollback" ]; then
+        next "production serves $live and passed its check. $who mentions the incident responder on the incident this rollback is for, so it records Verified."
+      else
+        next "nothing to click: production serves $live and passed its check."
+      fi
+  artifacts:
+    when: always
+    paths: [golden.json, traffic.json, health-report.json, monitor.txt]
+
+# Production got the samples wrong after the switch: send traffic back to the
+# revision that served before. Does nothing if the switch never happened.
+service:rollback:production:
+  extends: .service:gcp
+  stage: deploy
+  needs:
+    - { job: service:deploy:candidate }
+    - { job: service:promote:production }
+    - { job: service:check:production, artifacts: false }
+  rules:
+    # a pipeline schedule on main (a nightly check, say) counts every file as
+    # changed; it must not rebuild or redeploy the service
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $GCP_PROJECT_ID
+      changes: *service_files
+      when: on_failure
+  script:
+    - sh service/deploy/cloudrun.sh rollback

@@ -1,0 +1,161 @@
+# The verify service's Google Cloud setup as OpenTofu (infra/README.md).
+# Included from .gitlab-ci.yml.
+#
+# infra:check  format, validate, and the policy judge against its mutants, on
+#              the synthetic fixture (no Google Cloud, no state)
+# infra:plan   a read-only plan against the live project on the default
+#              branch (pushes and the nightly schedule): fails on drift or on a
+#              policy violation. Skipped until GCP_PLANNER_SA is set.
+# infra:import manual, once, on main: adopts the 21 resources into the GitLab
+#              state (imports only; refuses anything else).
+
+# OpenTofu from its release, checked against the release's SHA256SUMS, on the
+# node image the judge needs anyway
+.infra:tofu:
+  image: node:22
+  variables:
+    TOFU_VERSION: '1.13.1'
+    TOFU_SHA256: 378ada19d4bc70c43732004e8159be771b23b9a5afdf059e5f8a2b3fa2c70a69
+    TF_PLUGIN_CACHE_DIR: $CI_PROJECT_DIR/.tofu-plugins
+  cache:
+    key:
+      files: [infra/.terraform.lock.hcl]
+    paths: [.tofu-plugins/]
+  before_script:
+    - curl -sSfL -o /tmp/tofu.tgz "https://github.com/opentofu/opentofu/releases/download/v${TOFU_VERSION}/tofu_${TOFU_VERSION}_linux_amd64.tar.gz"
+    - echo "${TOFU_SHA256}  /tmp/tofu.tgz" | sha256sum -c -
+    - tar -xzf /tmp/tofu.tgz -C /usr/local/bin tofu
+    - mkdir -p "$TF_PLUGIN_CACHE_DIR"
+    - tofu version
+
+infra:check:
+  extends: .infra:tofu
+  stage: check
+  interruptible: true
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - changes: [infra/**/*]
+  script:
+    - cd infra
+    - tofu fmt -check -recursive -diff
+    # no backend: nothing is read from or written to the GitLab state
+    - tofu init -backend=false -input=false
+    - tofu validate
+    # the real plan must pass, each mutant must be rejected by its rule
+    - node policy/test-mutants.mjs
+    # the drift verdict, case by case (drift, no drift, not a plan)
+    - node policy/test-summary.mjs
+
+# Drift check. Signs in with the job's OIDC token through Workload Identity
+# Federation (the same provider and audience the deploy jobs use) as the
+# read-only planner account, so no Google key is stored. The provider only
+# trusts protected main, which is why this runs on the default branch only.
+#
+# Reads the GitLab-managed state "verify" and never writes it: -lock=false, no
+# apply. While that state is empty every resource plans as an import with no
+# change ("21 to import, 0 to add, 0 to change, 0 to destroy"), and
+# -detailed-exitcode exits 2 for that; policy/plan-summary.mjs decides drift
+# from the plan JSON instead: only a create, update or delete is drift.
+#
+# The plan JSON holds the live project IAM policy (people's addresses), so it
+# stays in /tmp and is never an artifact; only the counts and verdicts are.
+# What both jobs that read Google Cloud share: the OIDC token, the state
+# backend and the cleanup. infra:plan and infra:import extend it.
+.infra:gcp:
+  extends: .infra:tofu
+  needs: []
+  id_tokens:
+    GCP_ID_TOKEN:
+      aud: https://gitlab.com
+  variables:
+    TF_HTTP_ADDRESS: ${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/terraform/state/verify
+    TF_HTTP_LOCK_ADDRESS: ${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/terraform/state/verify/lock
+    TF_HTTP_UNLOCK_ADDRESS: ${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/terraform/state/verify/lock
+    TF_HTTP_LOCK_METHOD: POST
+    TF_HTTP_UNLOCK_METHOD: DELETE
+    TF_HTTP_USERNAME: gitlab-ci-token
+    TF_HTTP_RETRY_WAIT_MIN: '5'
+  after_script:
+    - rm -f /tmp/gcp-oidc-token /tmp/gcp-creds.json /tmp/plan.bin /tmp/plan.json /tmp/import.bin /tmp/plan.txt /tmp/after.txt
+
+infra:plan:
+  extends: .infra:gcp
+  stage: test
+  rules:
+    # pushes to main and pipeline schedules on main; stage 2b sets the variable
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $GCP_PLANNER_SA && $GCP_WIF_PROVIDER
+  script:
+    - cd infra
+    # external_account credentials: the OIDC token, exchanged at STS, then
+    # impersonating the planner account
+    - printf '%s' "$GCP_ID_TOKEN" > /tmp/gcp-oidc-token
+    - >-
+      printf '{"type":"external_account","audience":"//iam.googleapis.com/%s","subject_token_type":"urn:ietf:params:oauth:token-type:jwt","token_url":"https://sts.googleapis.com/v1/token","service_account_impersonation_url":"https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/%s:generateAccessToken","credential_source":{"file":"/tmp/gcp-oidc-token"}}'
+      "$GCP_WIF_PROVIDER" "$GCP_PLANNER_SA" > /tmp/gcp-creds.json
+    - export GOOGLE_APPLICATION_CREDENTIALS=/tmp/gcp-creds.json
+    - export TF_HTTP_PASSWORD="$CI_JOB_TOKEN"
+    - tofu init -input=false
+    - rc=0; tofu plan -input=false -lock=false -detailed-exitcode -out=/tmp/plan.bin || rc=$?
+    - if [ "$rc" = 1 ]; then echo "tofu plan failed (an error, not drift); see above"; exit 1; fi
+    - tofu show -json /tmp/plan.bin > /tmp/plan.json
+    - drift=0; node policy/plan-summary.mjs /tmp/plan.json tfplan-summary.json > plan-report.txt 2>&1 || drift=$?
+    - cat plan-report.txt
+    - judge=0; node policy/check-plan.mjs /tmp/plan.json > policy-report.txt || judge=$?
+    - cat policy-report.txt
+    - if [ "$drift" = 1 ]; then echo "infra:plan FAILED, DRIFT between Google Cloud and infra/ (plan-report.txt)"; elif [ "$drift" != 0 ]; then echo "infra:plan FAILED, the plan could not be judged (exit $drift, plan-report.txt)"; fi
+    - if [ "$judge" != 0 ]; then echo "infra:plan FAILED, the policy judge rejected the plan (policy-report.txt)"; fi
+    - test "$drift" = 0 && test "$judge" = 0
+  artifacts:
+    when: always
+    expire_in: 30 days
+    expose_as: 'OpenTofu plan'
+    paths:
+      - infra/plan-report.txt
+      - infra/policy-report.txt
+    reports:
+      # {"create": n, "update": n, "delete": n} for the merge request widget
+      terraform: infra/tfplan-summary.json
+
+# Stage 2b, once: adopt the 21 live resources into the GitLab-managed state, so
+# infra:plan compares Google Cloud with a real state instead of import blocks.
+# A person starts it on main. Imports only write the state; it refuses unless
+# the plan is exactly "21 to import, 0 to add, 0 to change, 0 to destroy", takes
+# the state lock, and plans again after the import, which must show no change.
+# No artifacts: the plan output holds the live project IAM policy.
+infra:import:
+  extends: .infra:gcp
+  stage: deploy
+  resource_group: infra-state
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $GCP_PLANNER_SA && $GCP_WIF_PROVIDER
+      when: manual
+      allow_failure: true
+  script:
+    - cd infra
+    - printf '%s' "$GCP_ID_TOKEN" > /tmp/gcp-oidc-token
+    - >-
+      printf '{"type":"external_account","audience":"//iam.googleapis.com/%s","subject_token_type":"urn:ietf:params:oauth:token-type:jwt","token_url":"https://sts.googleapis.com/v1/token","service_account_impersonation_url":"https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/%s:generateAccessToken","credential_source":{"file":"/tmp/gcp-oidc-token"}}'
+      "$GCP_WIF_PROVIDER" "$GCP_PLANNER_SA" > /tmp/gcp-creds.json
+    - export GOOGLE_APPLICATION_CREDENTIALS=/tmp/gcp-creds.json
+    - export TF_HTTP_PASSWORD="$CI_JOB_TOKEN"
+    - tofu init -input=false
+    # -no-color: the summary below is matched exactly, and in color the line
+    # starts with an escape code (the first run refused a clean plan for that)
+    - tofu plan -input=false -no-color -out=/tmp/import.bin > /tmp/plan.txt || { tail -20 /tmp/plan.txt; exit 1; }
+    - summary=$(grep -E '^Plan:' /tmp/plan.txt || true); echo "$summary"
+    - |
+      if [ "$summary" != "Plan: 21 to import, 0 to add, 0 to change, 0 to destroy." ]; then
+        echo "refusing: only a plan that imports all 21 resources and changes nothing may be applied"
+        exit 1
+      fi
+    - tofu apply -input=false -no-color /tmp/import.bin | tail -3
+    - echo "== plan again, must be no change"
+    # job logs are public and plan values hold the IAM policy: on a non-clean
+    # plan, print only the resource lines and the summary, never attributes
+    - |
+      rc=0; tofu plan -input=false -no-color -lock=false -detailed-exitcode > /tmp/after.txt || rc=$?
+      if [ "$rc" = 0 ]; then echo "No changes. The GitLab state matches Google Cloud."; else
+        echo "The plan after the import is not clean (exit $rc):"
+        grep -E '^ *# |^Plan:|^Error' /tmp/after.txt || tail -5 /tmp/after.txt
+        exit 1
+      fi

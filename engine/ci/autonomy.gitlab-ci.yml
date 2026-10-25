@@ -1,0 +1,307 @@
+# Shared jobs for the Assisted flow. Include it from a project's .gitlab-ci.yml:
+#
+#   include:
+#     - local: engine/ci/autonomy.gitlab-ci.yml
+#
+# These are the merge request jobs: risk score, guard, flow lint, the
+# republish warning and the engine's own tests, plus the go-ahead ledger, which
+# also runs on the default branch, the go-ahead guard for branches with no MR,
+# and the session audit, which runs on the schedule. The release jobs are in
+# autonomy-release.gitlab-ci.yml.
+#
+# The project needs to define:
+#   - stages: test, assess
+#   - merge request pipelines (workflow rules)
+#   - a required approval on merge requests (project setting)
+#
+# The jobs use CI_JOB_TOKEN only, except the session audit, which reads with
+# AUDIT_TOKEN. They never write to merge requests: the Duo agents do that
+# under their own service accounts, and people approve.
+#   - a .autonomy.yml risk policy
+
+.autonomy:node:
+  image: node:22
+  variables:
+    NPM_CONFIG_CACHE: $CI_PROJECT_DIR/.npm
+  cache:
+    key:
+      files: [engine/package-lock.json]
+      prefix: autonomy-engine
+    paths: [.npm/]
+  before_script:
+    - npm ci --prefix engine --no-audit --no-fund --loglevel=error
+
+# merge requests
+
+autonomy:assess:
+  extends: .autonomy:node
+  stage: assess
+  variables:
+    GIT_DEPTH: 0 # needs history to diff against the MR base
+  needs:
+    - { job: gitlab-advanced-sast, artifacts: true, optional: true }
+    - { job: semgrep-sast, artifacts: true, optional: true }
+    - { job: secret_detection, artifacts: true, optional: true }
+    - { job: gemnasium-dependency_scanning, artifacts: true, optional: true }
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  script:
+    - node engine/src/cli/assess.ts
+  artifacts:
+    when: always
+    expire_in: 30 days
+    paths: [risk-report.json]
+    reports:
+      dotenv: autonomy.env
+      metrics: metrics.txt
+
+# Agents are told not to touch the pipeline, the policy or the engine. This
+# makes it a rule: an agent commit that changes them fails the pipeline.
+autonomy:guard:
+  extends: .autonomy:node
+  stage: assess
+  needs: []
+  variables:
+    GIT_DEPTH: 0
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  script:
+    - node engine/src/cli/guard.ts
+
+# Assisted (wiki: Assisted): every push an agent makes to an MR needs a
+# person's go-ahead first, from someone the risk tier allows (never the
+# requester, never an agent). Read from what GitLab recorded (who wrote each
+# note, when each push arrived), not from commit dates or trailers, which the
+# agent writes itself. The tier comes from autonomy:assess, not from a label.
+# The guard's code and its dependencies come from the target branch's head, so an MR
+# can't change the check it is checked by. This job's own definition still
+# comes from the MR: agents can't change it (governance paths) or merge, and a
+# person merges, but a project that can should also require a code owner's
+# approval for engine/ and the CI files.
+autonomy:goahead:
+  extends: .autonomy:node
+  stage: assess
+  needs:
+    - { job: autonomy:assess, artifacts: true }
+  variables:
+    GIT_DEPTH: 0
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  before_script:
+    # the target branch as it is now, not where the MR branched off
+    - git fetch -q origin "+refs/heads/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME:refs/goahead/target"
+    - export AUTONOMY_POLICY_REF=$(git rev-parse refs/goahead/target)
+    # a fresh directory each run, nothing registered in .git, so a reused checkout reruns cleanly
+    - GUARD=$(mktemp -d)
+  script:
+    # Passing without a guard is allowed only for the MR that adds it. If git
+    # fails here, or the guard moved, both checks come out empty and the job fails.
+    - |
+      if [ -z "$(git ls-tree --name-only "$AUTONOMY_POLICY_REF" -- engine/src/cli/goahead.ts)" ]; then
+        if git diff --name-only --diff-filter=A "$AUTONOMY_POLICY_REF...HEAD" -- engine/src/cli/goahead.ts | grep -q .; then
+          echo "the target branch has no go-ahead guard yet: this MR adds it, and a person merges it"
+          exit 0
+        fi
+        echo "the target branch has no engine/src/cli/goahead.ts and this MR doesn't add it: can't check go-aheads" >&2
+        exit 1
+      fi
+    - git archive "$AUTONOMY_POLICY_REF" engine | tar -x -C "$GUARD"
+    - npm ci --prefix "$GUARD/engine" --no-audit --no-fund --loglevel=error
+    - node "$GUARD/engine/src/cli/goahead.ts"
+
+# The same go-ahead rules for a push to a branch with no open MR (#64), which
+# gets a branch pipeline, not an MR pipeline (the workflow rules). With no MR,
+# the go-ahead has to be on the issue the branch is named after ("<iid>-..."),
+# and with no risk score it is judged as high risk. A push an MR's own guard
+# judged is left to it if that MR is open or merged, not if it was closed.
+# The guard's code and the policy come from the default branch's head, as for
+# autonomy:goahead. It doesn't run when the default branch has no guard yet:
+# the push that adds it is a person's.
+autonomy:goahead:branch:
+  extends: .autonomy:node
+  stage: assess
+  needs: []
+  variables:
+    GIT_DEPTH: 0
+  rules:
+    - if: $CI_COMMIT_BRANCH && $CI_COMMIT_BRANCH != $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"
+  before_script:
+    - git fetch -q origin "+refs/heads/$CI_DEFAULT_BRANCH:refs/goahead/default"
+    # not "export X=$(...)": export would hide a failing rev-parse and the job would go on
+    - AUTONOMY_POLICY_REF=$(git rev-parse --verify "refs/goahead/default^{commit}")
+    - export AUTONOMY_POLICY_REF
+    - GUARD=$(mktemp -d)
+  script:
+    # cat-file -e fails the same way for a missing file and for a git failure,
+    # so the head is read first: past that, a failure means the file is missing
+    - |
+      if ! git cat-file -e "$AUTONOMY_POLICY_REF^{commit}"; then
+        echo "can't read the default branch's head ($AUTONOMY_POLICY_REF), so this push can't be judged" >&2
+        exit 1
+      fi
+      if ! git cat-file -e "$AUTONOMY_POLICY_REF:engine/src/cli/goahead-branch.ts" 2>/dev/null; then
+        echo "the default branch has no engine/src/cli/goahead-branch.ts yet, so nothing judges this push here"
+        exit 0
+      fi
+    - git archive "$AUTONOMY_POLICY_REF" engine | tar -x -C "$GUARD"
+    - npm ci --prefix "$GUARD/engine" --no-audit --no-fund --loglevel=error
+    - node "$GUARD/engine/src/cli/goahead-branch.ts"
+
+# The same rule on the default branch. This only reports after the fact: until
+# main is protected (no direct pushes) and "Pipelines must succeed" is on (#14),
+# an agent account can push to main, so do not enable the flows before that.
+# Release jobs should need this job.
+autonomy:guard:main:
+  extends: .autonomy:node
+  stage: assess
+  needs: []
+  variables:
+    GIT_DEPTH: 0
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"
+  script:
+    - node engine/src/cli/guard.ts "$CI_COMMIT_BEFORE_SHA"
+
+# The go-ahead ledger (#46): one record per agent push the go-ahead guard
+# judged on a merged MR, rebuilt from the GitLab API by the guard's own check
+# and chained by SHA-256. Fails if the ledger published on Pages isn't the
+# start of the rebuilt one, so no record can change after the fact. The pages
+# job copies ledger/ to /ledger/ and only runs when this passed, so a failed
+# check publishes nothing and the last good ledger stays up. In merge requests
+# it runs when the engine or the pipeline changes.
+autonomy:ledger:
+  extends: .autonomy:node
+  stage: assess
+  needs: []
+  variables:
+    GIT_DEPTH: 0
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes: [engine/**/*, .gitlab-ci.yml]
+  script:
+    # every MR's last head, so the commits of MRs whose branch is gone are here
+    - git fetch -q origin '+refs/merge-requests/*/head:refs/ledger/mr/*'
+    # the chain starts on the default branch, whatever branch this pipeline is for
+    - git fetch -q origin "+refs/heads/$CI_DEFAULT_BRANCH:refs/remotes/origin/$CI_DEFAULT_BRANCH"
+    - node engine/src/cli/ledger.ts ledger
+  artifacts:
+    when: always
+    expire_in: 30 days
+    expose_as: go-ahead ledger
+    paths: [ledger/]
+
+# The session audit (wiki: Assisted): a check with no model in it of what the
+# agents did. On the scheduled pipeline it reads every Duo session GitLab
+# recorded in the last day (the session list, each session's trace, and its
+# checkpoint, which has the specialists' calls the trace leaves out), finds
+# every push an agent made, and holds each against the go-ahead ledger on
+# Pages and the autonomy:goahead jobs' own verdicts. An agent push that
+# neither accepted fails the job, and with it the scheduled pipeline, so the
+# incident responder wakes. 25 hours: an hour of overlap, so a late schedule
+# leaves no gap.
+# Reading agent sessions needs AUDIT_TOKEN: a masked read_api token of a
+# Developer on the project. Without it the job tries the job token, says what
+# GitLab answered and passes (anonymous reads get no sessions and a 401 on the
+# trace). Exit 2 (it couldn't finish: GitLab down, an expired token, a
+# session it couldn't read in full) is allowed to fail, so only a broken rule
+# fails the pipeline.
+autonomy:session-audit:
+  extends: .autonomy:node
+  stage: assess
+  needs: []
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+  allow_failure:
+    exit_codes: [2]
+  script:
+    - node engine/src/cli/session-audit.ts "$CI_PROJECT_PATH" --since 25h --json session-audit.json --md session-audit.md
+  artifacts:
+    when: always
+    expire_in: 30 days
+    expose_as: agent session audit
+    paths: [session-audit.md, session-audit.json]
+
+# Checks the Duo flow files the way GitLab will when they're saved: its JSON
+# schema, its prompt safety rules, and that every prompt variable is an input.
+autonomy:flows:
+  extends: .autonomy:node
+  stage: test
+  needs: []
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes: [.gitlab/duo/flows/**/*]
+  script:
+    - node engine/src/cli/lint-flows.ts
+
+# The flows GitLab runs are the ones sync-flows last published, with
+# .autonomy.yml's values filled in then. A change to those values (who may give
+# a go-ahead, say) or to a flow file reaches the agents only when someone
+# republishes, so this says which flows need it and how: a warning (exit 3) in
+# the MR, and again on the default branch once it is merged. It only reads git;
+# publishing needs a person's token, which CI doesn't have.
+autonomy:republish:
+  extends: .autonomy:node
+  stage: assess
+  needs: []
+  variables:
+    GIT_DEPTH: 0
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes: [.autonomy.yml, .gitlab/duo/flows/**/*]
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"
+      changes: [.autonomy.yml, .gitlab/duo/flows/**/*]
+  allow_failure:
+    exit_codes: [3]
+  script:
+    - node engine/src/cli/republish-check.ts
+
+# The engine's own type check and tests, when it changes.
+autonomy:engine:
+  extends: .autonomy:node
+  stage: test
+  needs: []
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes: [engine/**/*]
+  script:
+    - npm run typecheck --prefix engine
+    - npm test --prefix engine
+
+# Who guards the guard: the go-ahead rules (src/goahead.ts) decide whether an
+# agent's push counts as approved, so their tests are mutation-tested like
+# polyman's verdict code. Stryker plants small bugs in the rules (a condition
+# made true, an anchor dropped from a regex) and counts how many the tests
+# catch; the score shows in the MR's metrics, and the job fails under the floor.
+# Merge requests only. Stryker's vitest runner doesn't support vitest 5 yet, so
+# each mutant runs `vitest run` (stryker.guard.json). Stryker is pinned and
+# installed without install scripts; --no-save would prune vitest's peer vite
+# unless it is named too.
+autonomy:guard-mutation:
+  extends: .autonomy:node
+  stage: test
+  needs: []
+  timeout: 30m
+  variables:
+    GUARD_MUTATION_FLOOR: '85'
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      # anything the mutated tests read: the engine, the policy, the flows
+      changes:
+        - engine/**/*
+        - .autonomy.yml
+        - .gitlab/duo/flows/**/*
+  script:
+    - cd engine
+    - npm i --no-save --ignore-scripts --legacy-peer-deps --no-audit --no-fund --loglevel=error @stryker-mutator/core@9.6.1 "vite@$(node -p "require('./package-lock.json').packages['node_modules/vite'].version")"
+    - npx stryker run stryker.guard.json
+    - node src/cli/guard-mutation-score.ts out/guard-mutation/mutation.json --floor "$GUARD_MUTATION_FLOOR" > ../guard-mutation-metrics.txt
+  after_script:
+    - cat guard-mutation-metrics.txt 2>/dev/null || true
+  artifacts:
+    when: always
+    expire_in: 30 days
+    expose_as: 'Guard mutation report'
+    paths: [engine/out/guard-mutation/]
+    reports:
+      metrics: guard-mutation-metrics.txt

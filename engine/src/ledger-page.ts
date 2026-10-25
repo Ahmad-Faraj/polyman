@@ -1,0 +1,199 @@
+import type { Counters, GuardRun, Ledger, NoteRef, OpenPush } from './ledger.ts';
+import { type Loop, type LoopGrams, type LoopSummary, gramsRange, summaryLine } from './loops.ts';
+import { EVIDENCE_CSS } from './page-style.ts';
+
+/** The ledger as a static page for Pages: the counters, then every record. */
+
+const esc = (s: unknown) =>
+  String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
+
+const user = (u: string) => `<a href="https://gitlab.com/${esc(u)}">@${esc(u)}</a>`;
+const note = (n: NoteRef | null, label: string) => (n ? `<a href="${esc(n.url)}">${esc(label)} ${n.note}</a><br><span class="muted">${user(n.by)} · ${esc(n.at.replace('T', ' ').replace('Z', ''))}</span>` : '<span class="muted">none</span>');
+const sha = (s: string, web: string) => `<a href="${esc(web)}/-/commit/${esc(s)}"><code>${esc(s.slice(0, 8))}</code></a>`;
+
+export interface PageInput {
+  ledger: Ledger;
+  open: OpenPush[];
+  runs: GuardRun[];
+  counters: Counters;
+  web: string;
+  generatedAt: string;
+  commit: string;
+  /** one row per loop; the agent sessions' counts, when there are any */
+  loops?: {
+    rows: (Loop & { grams: LoopGrams | null })[];
+    summary: LoopSummary;
+    sessions: { countedUpTo: string; source: string } | null;
+    grid: number;
+  };
+}
+
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+const day = (d: string) => new Date(`${d}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+
+/** Each refused push once: on which MRs, when, and why; the scope it's counted from. */
+function refusedSub(c: Counters, since: string, web: string): string {
+  const r = c.refusals;
+  const scope = `counted from when the guard reached main, ${esc(since.replace('T', ' ').replace(/:\d\dZ$/, '').replace('Z', ''))} UTC`;
+  if (!c.stopped) return `none; ${scope}`;
+  const why = (
+    [
+      ['no go-ahead', 'no go-ahead from a person'],
+      ['go-ahead not counted', "a go-ahead that doesn't count (from the person who asked, or someone not allowed) or a push before the MR with no issue to hold one"],
+      ['protected files', 'changing files only people may change'],
+      ['other', 'another rule'],
+    ] as const
+  )
+    .filter(([k]) => r.byKind[k])
+    .map(([k, text]) => `${r.byKind[k]} for ${text}`)
+    .join(', ');
+  const mrs = r.mrs.map((m) => `<a href="${esc(web)}/-/merge_requests/${m}">!${m}</a>`).join(', ');
+  return `on ${plural(r.mrs.length, 'MR')} (${mrs}), ${r.days.map(day).join(', ')}: ${why}; ${scope}`;
+}
+
+const when = (iso: string) => iso.replace('T', ' ').replace(/:\d\dZ$/, '').replace('Z', '');
+export const duration = (minutes: number) => (minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)} h ${String(minutes % 60).padStart(2, '0')} min`);
+
+/** The loops: the summary line, then one row per agent-built change a person merged. */
+export function renderLoops(loops: NonNullable<PageInput['loops']>, web: string): string {
+  const { rows, summary, sessions, grid } = loops;
+  const mr = (iid: number) => `<a href="${esc(web)}/-/merge_requests/${iid}">!${iid}</a>`;
+  const body = rows
+    .map((l) => {
+      const fixGivers = [...new Set(l.go_aheads.slice(1).map((g) => g.by))].filter((by) => by !== l.go_ahead.by);
+      const refused = [
+        l.refused_pushes.length ? `${l.refused_pushes.length} push${l.refused_pushes.length === 1 ? '' : 'es'} <span class="muted">(${[...new Set(l.refused_pushes.map((p) => p.mr))].map(mr).join(', ')})</span>` : '',
+        l.refused_go_aheads.length ? `${l.refused_go_aheads.length} go-ahead${l.refused_go_aheads.length === 1 ? '' : 's'} <span class="muted">(${l.refused_go_aheads.map((n) => `<a href="${esc(n.url)}">@${esc(n.by)}</a>`).join(', ')})</span>` : '',
+      ].filter(Boolean);
+      const g = l.grams;
+      const flows = g ? Object.entries(g.byFlow).map(([f, n]) => `${n} ${esc(f)}`).join(', ') : '';
+      return `<tr>
+<td>${l.issues.length ? l.issues.map((i) => `<a href="${esc(web)}/-/issues/${i}">#${i}</a>`).join(', ') : '<span class="muted">none: the MR was the request</span>'}</td>
+<td>${l.requesters.map(user).join('<br>') || '<span class="muted">nobody on record</span>'}</td>
+<td>${user(l.go_ahead.by)}<br><a class="muted" href="${esc(l.go_ahead.url)}">${esc(when(l.go_ahead.at))}</a>${fixGivers.length ? `<br><span class="muted">fix rounds: ${fixGivers.map(user).join(', ')}</span>` : ''}</td>
+<td>${mr(l.mr)}${l.moved_from.length ? `<br><span class="muted">moved from ${l.moved_from.map(mr).join(', ')}</span>` : ''}<br><span class="muted">${esc(l.flow)}</span></td>
+<td>${l.merged_by ? user(l.merged_by) : '<span class="muted">not given</span>'}${l.giver_merged ? '<br><span class="muted">also gave a go-ahead</span>' : ''}<br><span class="muted">${esc(when(l.merged_at))}</span></td>
+<td class="num">${esc(duration(l.minutes))}</td>
+<td class="num">${l.fix_rounds}</td>
+<td>${refused.join('<br>') || '<span class="muted">none</span>'}</td>
+<td style="min-width: 180px">${g && g.sessions ? `<span class="num">${esc(gramsRange(g.low, g.high))}</span><br><span class="muted">${g.sessions} session${g.sessions === 1 ? '' : 's'}: ${flows}${g.uncounted ? `; ${g.uncounted} without a count` : ''}${g.partial ? '; later sessions not counted yet' : ''}</span>` : '<span class="muted">not counted</span>'}</td>
+</tr>`;
+    })
+    .join('\n');
+  const method = sessions
+    ? `Grams: every agent session on the loop's issue and MRs up to the merge (the proposal, the build, each review, each fix round, the pipeline fixer), each session counted in one loop only (a session on an issue two merged MRs closed counts in the first of them to merge after it started), as counted from each session's checkpoint: the runner's measured time plus the counted model calls at 0.24-2.5 Wh each, at ${grid} gCO2e/kWh (<a href="${esc(web)}/-/blob/main/SUSTAINABILITY.md">SUSTAINABILITY.md</a>). The counts come from <a href="${esc(web)}/-/blob/main/sustainability/loop-sessions.json">sustainability/loop-sessions.json</a>, counted up to <strong>${esc(sessions.countedUpTo.replace('T', ' ').replace(/\.\d+Z$|Z$/, ' UTC'))}</strong>: CI can't read the session checkpoints with its job token, so a person's token counts them and the file is committed. A session that started from a pipeline event and isn't tied to the issue or MR (the one that opened an incident) isn't counted, so these lean low.`
+    : 'No agent session counts are committed, so the loops are shown without grams.';
+  return `<p class="summary">${esc(summaryLine(summary))}.</p>
+<p class="muted">A loop is an agent-built change a person merged, from the request to the merge. Requester: who wrote the issue (or opened the MR, when there was no issue); their go-ahead never counts. Go-ahead to merge: from the go-ahead for the first push to the merge${summary.medianMinutes !== null ? `, median ${esc(duration(Math.round(summary.medianMinutes)))}` : ''}. Fix rounds: reviewer pushes a person gave a go-ahead to. Refused: agent pushes the guard refused on the loop's MRs, and go-aheads a person wrote that didn't count (from the requester, or not in the words the guard takes), after which the agent waited for another.</p>
+<div class="scroll"><table>
+<thead><tr><th>Issue</th><th>Requester</th><th>Go-ahead</th><th>MR</th><th>Merged by</th><th>Go-ahead → merge</th><th>Fix rounds</th><th>Refused</th><th>gCO2e, low-high</th></tr></thead>
+<tbody>
+${body || '<tr><td colspan="9" class="muted">No agent-built change merged yet.</td></tr>'}
+</tbody>
+</table></div>
+<p class="muted">${method} As JSON: <a href="loops.json">loops.json</a>.</p>`;
+}
+
+export function renderLedgerPage({ ledger, open, runs, counters: c, web, generatedAt, commit, loops }: PageInput): string {
+  const byWhom = Object.entries(c.byWhom)
+    .sort(([, a], [, b]) => b - a)
+    .map(([who, n]) => `${user(who)} ${n}`)
+    .join(', ');
+  const tiles = [
+    ['Go-aheads given', String(c.goAheads), byWhom || 'nobody yet'],
+    ['Approver is not the requester', `${c.approverNotRequester.holds}/${c.approverNotRequester.of}`, 'checked again on every record'],
+    ['Agent pushes let through', `${c.accepted}/${c.records}`, 'each on its own go-ahead'],
+    ['Agent pushes refused', String(c.stopped), refusedSub(c, ledger.since.at, web)],
+  ]
+    .map(([label, value, sub]) => `<div class="tile"><div class="label">${esc(label)}</div><div class="value">${esc(value)}</div><div class="sub">${sub}</div></div>`)
+    .join('\n');
+
+  const rows = ledger.records
+    .map(
+      (r) => `<tr class="${r.accepted ? '' : 'refused'}">
+<td>${r.seq}</td>
+<td><a href="${esc(r.mr_url)}">!${r.mr}</a>${r.carried_by ? `<br><span class="muted">merged in</span> <a href="${esc(r.carried_by.mr_url)}">!${esc(r.carried_by.mr)}</a>` : ''}${r.closes.length ? `<br><span class="muted">closes ${r.closes.map((i) => `<a href="${esc(web)}/-/issues/${i}">#${i}</a>`).join(', ')}</span>` : ''}</td>
+<td>${esc(r.flow)}<br><span class="muted">${esc(r.pushed_at.replace('T', ' ').replace('Z', ''))}</span></td>
+<td>${r.commits.map((s) => sha(s, web)).join('<br>') || `<span class="muted">none, head</span> ${sha(r.head, web)}`}</td>
+<td>${note(r.proposal, 'note')}</td>
+<td>${note(r.go_ahead, 'note')}</td>
+<td>${r.requesters.map(user).join('<br>') || '<span class="muted">nobody on record</span>'}</td>
+<td>${r.approver_not_requester === null ? '<span class="muted">n/a</span>' : r.approver_not_requester ? '<span class="ok">holds</span>' : '<span class="bad">broken</span>'}</td>
+<td>${esc(r.tier)}${r.rollback ? ' (rollback)' : ''}<br><span class="muted">${esc(r.allowed)}: ${r.allowed_approvers.map(esc).join(', ') || 'nobody'}</span></td>
+<td>${r.accepted ? '<span class="ok">let through</span>' : `<span class="bad">refused</span><br><span class="muted">${r.reasons.map(esc).join('<br>')}</span>`}<br>${r.guard.pipeline === null ? `<span class="muted">guard: ${esc(r.guard.status)}</span>` : `<a class="muted" href="${esc(web)}/-/pipelines/${r.guard.pipeline}">guard: ${esc(r.guard.status)}</a>`}</td>
+<td><code title="SHA-256 of record ${r.seq - 1}">${esc(r.prev.slice(0, 12))}</code></td>
+</tr>`,
+    )
+    .join('\n');
+
+  const openRows = open
+    .map(
+      (p) => `<tr class="${p.accepted ? '' : 'refused'}"><td><a href="${esc(p.mr_url)}">!${p.mr}</a> <span class="muted">${esc(p.state)}</span></td><td>${esc(p.flow)}<br><span class="muted">${esc(p.pushed_at.replace('T', ' ').replace('Z', ''))}</span></td><td>${note(p.go_ahead, 'note')}</td><td>${p.accepted ? '<span class="ok">let through</span>' : `<span class="bad">refused</span><br><span class="muted">${p.reasons.map(esc).join('<br>')}</span>`}</td></tr>`,
+    )
+    .join('\n');
+  const failed = runs.filter((r) => r.status === 'failed');
+  const { refusingRuns, laterRuns, otherRuns } = c.refusals;
+  const later = new Set(laterRuns);
+  const other = new Set(otherRuns);
+  const marker = (r: GuardRun) =>
+    later.has(r)
+      ? ' <span class="muted">a later head of an MR with a refused push, which the guard still judges; the job log says why</span>'
+      : other.has(r)
+        ? ' <span class="muted">refused no push counted above; the job log says why</span>'
+        : '';
+  const failedList = failed
+    .map(
+      (r) =>
+        `<li><a href="${esc(r.url)}">pipeline ${r.pipeline}</a> on <a href="${esc(web)}/-/merge_requests/${r.mr}">!${r.mr}</a> (${esc(r.at.replace('T', ' ').replace('Z', ''))}, <code>${esc(r.sha.slice(0, 8))}</code>)${marker(r)}</li>`,
+    )
+    .join('\n');
+  const onMrs = (rs: GuardRun[]) => [...new Set(rs.map((r) => `!${r.mr}`))].join(', ');
+  const parts = [
+    refusingRuns ? `${refusingRuns} ${refusingRuns === 1 ? 'is the run' : 'are the runs'} that refused the pushes counted above` : '',
+    laterRuns.length ? `${laterRuns.length === 1 ? `1 run on a later head of ${onMrs(laterRuns)}` : `${laterRuns.length} runs on later heads of ${onMrs(laterRuns)}`}, where the refused push is still on the MR and the guard judges every push on an MR (the job log says why)` : '',
+    otherRuns.length ? `${plural(otherRuns.length, 'other failed run')} on ${onMrs(otherRuns)}, which refused no push counted above (an error, or a verdict a later rule change reversed; the job log says why)` : '',
+  ].filter(Boolean);
+  const failedSummary = failed.length
+    ? `${plural(failed.length, 'failed run')}: ${parts.join('; ')}. These are runs, not pushes: don't add them to the refused pushes.`
+    : '';
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Go-ahead ledger</title>
+<style>${EVIDENCE_CSS}
+table { min-width: 1100px; }
+</style>
+</head>
+<body>
+<header class="band"><div class="wrap">
+<h1>Go-ahead ledger</h1>
+<p>Every push an agent made to a merged MR since the go-ahead guard (<code>autonomy:goahead</code>) reached <code>main</code> (${sha(ledger.since.commit, web)}, ${esc(ledger.since.at.replace('T', ' ').replace('Z', ' UTC'))}), judged again by the guard's own code from what GitLab recorded: who wrote each note and when, who pushed what and when. Each record holds the SHA-256 of the record before it. CI rebuilds the chain from the GitLab API on every pipeline on <code>main</code> and fails if this published ledger isn't the start of the rebuilt one, so a record can't be changed after the fact. The rules: <a href="${esc(web)}/-/wikis/Assisted">Assisted</a>.</p>
+</div></header>
+<main class="wrap">
+${loops ? `<h2>One row per loop</h2>\n${renderLoops(loops, web)}\n<h2>Every agent push</h2>` : ''}
+<div class="tiles">
+${tiles}
+</div>
+<h2>The chain</h2>
+<div class="scroll"><table>
+<thead><tr><th>#</th><th>MR</th><th>Agent, push</th><th>Commits</th><th>Proposal</th><th>Go-ahead</th><th>Requester</th><th>Approver ≠ requester</th><th>Risk, who may approve</th><th>Guard</th><th>Previous</th></tr></thead>
+<tbody>
+${rows || '<tr><td colspan="11" class="muted">No agent push on a merged MR yet.</td></tr>'}
+</tbody>
+</table></div>
+<p class="muted">${ledger.records.length} record${ledger.records.length === 1 ? '' : 's'}, head <code>${esc(ledger.head)}</code>, judged by rules ${ledger.rules}.${ledger.replaces ? ` This chain replaced one of ${ledger.replaces.records} records judged by rules ${ledger.replaces.rules}, head <code>${esc(ledger.replaces.head)}</code>.` : ''} The records as JSON: <a href="ledger.json">ledger.json</a>.</p>
+<h2>MRs not merged (not in the chain yet)</h2>
+<p class="muted">An MR that isn't merged can still change, so its agent pushes join the chain when it merges.</p>
+${open.length ? `<div class="scroll"><table style="min-width: 640px"><thead><tr><th>MR</th><th>Agent, push</th><th>Go-ahead</th><th>Verdict</th></tr></thead><tbody>\n${openRows}\n</tbody></table></div>` : '<p class="muted">None.</p>'}
+<h2>Guard runs that failed an agent MR's pipeline</h2>
+${failed.length ? `<p>${esc(failedSummary)}</p>\n<ul>\n${failedList}\n</ul>` : '<p class="muted">None.</p>'}
+<p class="muted">${runs.length} autonomy:goahead run${runs.length === 1 ? '' : 's'} on MRs an agent pushed to. A failed run blocks the merge until it passes; the job log says why.</p>
+<p class="muted">Built ${esc(generatedAt.replace('T', ' ').replace('Z', ' UTC'))} from <a href="${esc(web)}/-/commit/${esc(commit)}"><code>${esc(commit.slice(0, 8))}</code></a> by <code>engine/src/cli/ledger.ts</code>.</p>
+</main>
+</body>
+</html>
+`;
+}

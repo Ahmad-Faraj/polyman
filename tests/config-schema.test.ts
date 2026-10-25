@@ -25,6 +25,18 @@ function readJson<T>(file: string): T {
   return JSON.parse(fs.readFileSync(file, 'utf-8')) as T;
 }
 
+const typesPath = path.resolve(__dirname, '..', 'src', 'types.d.ts');
+
+/**
+ * Reads the string literals of a `type Name = 'a' | 'b';` union from
+ * src/types.d.ts, so the schema enums can be compared with the types.
+ */
+function readUnion(typesSource: string, name: string): string[] {
+  const match = new RegExp(`type ${name} =([^;]*);`).exec(typesSource);
+  if (!match?.[1]) throw new Error(`type ${name} not found in types.d.ts`);
+  return [...match[1].matchAll(/'([^']+)'/g)].map(literal => literal[1]);
+}
+
 describe('template/Config.schema.json', () => {
   const schema = readJson<JsonSchema>(schemaPath);
   const config = readJson<Record<string, unknown>>(configPath);
@@ -64,6 +76,19 @@ describe('template/Config.schema.json', () => {
     ]);
     expect(schema.required).not.toContain('compiler');
     expect(schema.required).not.toContain('cppStandard');
+  });
+
+  it('sourceType enums match the unions in src/types.d.ts', () => {
+    const types = fs.readFileSync(typesPath, 'utf-8');
+    const cpp = readUnion(types, 'CppSourceType');
+    const solution = [
+      ...cpp,
+      ...readUnion(types, 'JavaSourceType'),
+      ...readUnion(types, 'PythonSourceType'),
+    ];
+    expect(cpp).toContain('cpp.gcc14-64-msys2-g++23');
+    expect(schema.definitions?.['CppSourceType']?.enum).toEqual(cpp);
+    expect(schema.definitions?.['SolutionSourceType']?.enum).toEqual(solution);
   });
 
   it('template Config.json points at the schema file that ships with it', () => {

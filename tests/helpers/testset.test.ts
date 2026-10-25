@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as testset from '../../src/helpers/testset';
 import * as generator from '../../src/helpers/generator';
@@ -10,8 +12,13 @@ vi.mock('fs');
 vi.mock('../../src/formatter');
 
 describe('testset.ts', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
+    // utils is auto-mocked; the path guard must be the real one here.
+    const actual = await vi.importActual<
+      typeof import('../../src/helpers/utils')
+    >('../../src/helpers/utils');
+    vi.mocked(utils.insideProblem).mockImplementation(actual.insideProblem);
   });
 
   describe('ensureTestsetsExist', () => {
@@ -72,6 +79,27 @@ describe('testset.ts', () => {
     });
   });
 
+  describe('scriptFile outside the problem folder', () => {
+    // These helpers take no baseDir, so the guard resolves against the cwd.
+    const outside: LocalTestset = {
+      name: 'main',
+      generatorScript: { scriptFile: '../x.txt' },
+      manualTests: [{ input: './m.in', index: 1 }],
+    };
+
+    it('getTestIndicesForGroup throws', () => {
+      expect(() => testset.getTestIndicesForGroup(outside, 'all')).toThrow(
+        /outside the problem folder/
+      );
+    });
+
+    it('getAllTestIndices throws', () => {
+      expect(() => testset.getAllTestIndices(outside)).toThrow(
+        /outside the problem folder/
+      );
+    });
+  });
+
   describe('generateTestsForTestset', () => {
     it('uses default testsets/<name> directory', async () => {
       vi.mocked(generator.resolveTestsetTests).mockReturnValue([]);
@@ -83,7 +111,7 @@ describe('testset.ts', () => {
       };
       await testset.generateTestsForTestset(ts, []);
       expect(utils.ensureDirectoryExists).toHaveBeenCalledWith(
-        expect.stringContaining('testsets/main')
+        expect.stringContaining(path.join('testsets', 'main'))
       );
       expect(generator.executeResolvedTests).toHaveBeenCalled();
     });
@@ -115,11 +143,12 @@ describe('testset.ts', () => {
       ]);
       vi.mocked(generator.executeResolvedTests).mockResolvedValue();
 
-      await testset.generateSingleTest({ name: 'main' }, 2, []);
+      await testset.generateSingleTest({ name: 'main' } as LocalTestset, 2, []);
       expect(generator.executeResolvedTests).toHaveBeenCalledWith(
         [expect.objectContaining({ index: 2 })],
         [],
-        expect.anything()
+        expect.anything(),
+        'main'
       );
     });
 
@@ -131,7 +160,7 @@ describe('testset.ts', () => {
         },
       ]);
       await expect(
-        testset.generateSingleTest({ name: 'main' }, 99, [])
+        testset.generateSingleTest({ name: 'main' } as LocalTestset, 99, [])
       ).rejects.toThrow(/Test 99 not found/);
     });
   });
@@ -156,7 +185,11 @@ describe('testset.ts', () => {
         },
       ]);
       vi.mocked(generator.executeResolvedTests).mockResolvedValue();
-      await testset.generateTestsForGroup({ name: 'main' }, 'g1', []);
+      await testset.generateTestsForGroup(
+        { name: 'main' } as LocalTestset,
+        'g1',
+        []
+      );
       const passed = vi.mocked(generator.executeResolvedTests).mock.calls[0][0];
       expect(passed.map(t => t.index)).toEqual([1, 3]);
     });
@@ -173,7 +206,11 @@ describe('testset.ts', () => {
         },
       ]);
       vi.mocked(generator.executeResolvedTests).mockResolvedValue();
-      await testset.generateTestsForGroup({ name: 'main' }, 'all', []);
+      await testset.generateTestsForGroup(
+        { name: 'main' } as LocalTestset,
+        'all',
+        []
+      );
       const passed = vi.mocked(generator.executeResolvedTests).mock.calls[0][0];
       expect(passed).toHaveLength(2);
     });
@@ -187,7 +224,11 @@ describe('testset.ts', () => {
         },
       ]);
       await expect(
-        testset.generateTestsForGroup({ name: 'main' }, 'missing', [])
+        testset.generateTestsForGroup(
+          { name: 'main' } as LocalTestset,
+          'missing',
+          []
+        )
       ).rejects.toThrow(/No tests found in group/);
     });
   });
@@ -203,6 +244,25 @@ describe('testset.ts', () => {
     });
   });
 
+  describe('describeTestsets', () => {
+    it('returns name, test count and group names as data', () => {
+      const ts: LocalTestset = {
+        name: 'ts1',
+        generatorScript: { script: 'gen 1 > 1\ngen 2 > 2' },
+        groups: [{ name: 'g1' }, { name: 'g2' }],
+      };
+      expect(testset.describeTestsets([ts])).toEqual([
+        { name: 'ts1', tests: 2, groups: ['g1', 'g2'] },
+      ]);
+    });
+
+    it('gives zero tests and no groups for an empty testset', () => {
+      expect(testset.describeTestsets([{ name: 'ts1' }])).toEqual([
+        { name: 'ts1', tests: 0, groups: [] },
+      ]);
+    });
+  });
+
   describe('listTestsets', () => {
     it('reports test count and group names', () => {
       const ts: LocalTestset = {
@@ -213,6 +273,36 @@ describe('testset.ts', () => {
       const out = testset.listTestsets([ts])[0];
       expect(out).toContain('ts1: 2 tests');
       expect(out).toContain('groups: g1');
+    });
+
+    it('swallows an outside scriptFile and counts only manual tests', () => {
+      // Pins current behaviour: the refusal from readScriptText is caught by
+      // the try/catch in listTestsets, so no error is shown; the count falls
+      // back to the number of manual tests.
+      // The script file "exists" and has three tests, so if the guard let the
+      // path through the count would be 5, not 2.
+      vi.mocked(fs.existsSync).mockReturnValue(true);
+      vi.mocked(fs.readFileSync).mockReturnValue(
+        'gen 1 > 1\ngen 2 > 2\ngen 3 > 3'
+      );
+      const ts: LocalTestset = {
+        name: 'ts1',
+        generatorScript: { scriptFile: '../x.txt' },
+        manualTests: [
+          { input: './a.in', index: 4 },
+          { input: './b.in', index: 5 },
+        ],
+      };
+      let out = '';
+      try {
+        expect(() => {
+          out = testset.listTestsets([ts])[0];
+        }).not.toThrow();
+        expect(out).toContain('ts1: 2 tests');
+      } finally {
+        vi.mocked(fs.existsSync).mockReset();
+        vi.mocked(fs.readFileSync).mockReset();
+      }
     });
 
     it('handles testsets with no script and no groups', () => {

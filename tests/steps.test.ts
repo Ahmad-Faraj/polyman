@@ -3,6 +3,8 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 
+/* eslint-disable @typescript-eslint/unbound-method */
+
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as steps from '../src/steps';
 import * as createTemplate from '../src/helpers/create-template';
@@ -14,11 +16,14 @@ import * as checker from '../src/helpers/checker';
 import * as solution from '../src/helpers/solution';
 import * as testset from '../src/helpers/testset';
 import * as utils from '../src/helpers/utils';
+import { NonInteractiveError } from '../src/helpers/errors';
+import { LimitExceededError, PolymanError } from '../src/errors';
 import * as remoteUtils from '../src/helpers/remote/utils';
 import * as pulling from '../src/helpers/remote/pulling';
 import * as pushing from '../src/helpers/remote/pushing';
 import * as viewer from '../src/helpers/remote/viewer';
 import * as polygonModule from '../src/polygon';
+import { report } from '../src/report';
 import fs from 'fs';
 
 vi.mock('../src/helpers/create-template');
@@ -260,7 +265,7 @@ describe('steps.ts', () => {
       await steps.stepCompileGeneratorsForSingleTest(
         1,
         config,
-        { name: 'tests' },
+        { name: 'tests' } as any,
         2
       );
       expect(generator.compileGeneratorsForTests).toHaveBeenCalledWith(
@@ -273,7 +278,12 @@ describe('steps.ts', () => {
   describe('stepGenerateSingleTest', () => {
     it('should call generateSingleTest', async () => {
       const config = baseConfig();
-      await steps.stepGenerateSingleTest(1, config, { name: 'tests' }, 2);
+      await steps.stepGenerateSingleTest(
+        1,
+        config,
+        { name: 'tests' } as any,
+        2
+      );
       expect(testset.generateSingleTest).toHaveBeenCalledWith(
         { name: 'tests' },
         2,
@@ -311,7 +321,7 @@ describe('steps.ts', () => {
       await steps.stepCompileGeneratorsForGroup(
         1,
         config,
-        { name: 'tests' },
+        { name: 'tests' } as any,
         'a'
       );
       expect(generator.compileGeneratorsForTests).toHaveBeenCalledWith(
@@ -348,7 +358,7 @@ describe('steps.ts', () => {
       await steps.stepCompileGeneratorsForGroup(
         1,
         config,
-        { name: 'tests' },
+        { name: 'tests' } as any,
         'all'
       );
       expect(generator.compileGeneratorsForTests).toHaveBeenCalledWith(
@@ -361,7 +371,12 @@ describe('steps.ts', () => {
   describe('stepGenerateTestsForGroup', () => {
     it('should call generateTestsForGroup', async () => {
       const config = baseConfig();
-      await steps.stepGenerateTestsForGroup(1, config, { name: 'tests' }, 'g');
+      await steps.stepGenerateTestsForGroup(
+        1,
+        config,
+        { name: 'tests' } as any,
+        'g'
+      );
       expect(testset.generateTestsForGroup).toHaveBeenCalledWith(
         { name: 'tests' },
         'g',
@@ -387,7 +402,7 @@ describe('steps.ts', () => {
       const config = baseConfig();
       await steps.stepCompileGeneratorsForTestset(1, config, {
         name: 'tests',
-      });
+      } as any);
       expect(generator.compileGeneratorsForTests).toHaveBeenCalledWith(
         tests,
         config.generators
@@ -400,7 +415,7 @@ describe('steps.ts', () => {
       const config = baseConfig();
       await steps.stepGenerateTestsForTestset(1, config, {
         name: 'tests',
-      });
+      } as any);
       expect(testset.generateTestsForTestset).toHaveBeenCalledWith(
         { name: 'tests' },
         config.generators
@@ -573,6 +588,9 @@ describe('steps.ts', () => {
       expect(() =>
         steps.stepValidateConfigForSolutionTest(1, 'missing')
       ).toThrow('No solution named "missing" found.');
+      expect(() =>
+        steps.stepValidateConfigForSolutionTest(1, 'missing')
+      ).toThrow(expect.objectContaining({ exitCode: 2 }));
     });
 
     it('should fail when timeLimitMultipliers is invalid', () => {
@@ -690,6 +708,14 @@ describe('steps.ts', () => {
       expect(solution.startTheComparisonProcess).toHaveBeenCalledTimes(1);
     });
 
+    it('does not compare anything when the main is the only solution', async () => {
+      const main = { name: 'main', source: 'm.cpp', tag: 'MA' };
+      const config = baseConfig({ solutions: [main] });
+      vi.mocked(solution.getMainSolution).mockReturnValue(main as any);
+      await steps.stepVerifySolutionsAgainstMainCorrect(1, config);
+      expect(solution.startTheComparisonProcess).not.toHaveBeenCalled();
+    });
+
     it('should throw when at least one comparison fails', async () => {
       const main = { name: 'main', source: 'm.cpp', tag: 'MA' };
       const other = { name: 'b', source: 'b.cpp', tag: 'OK' };
@@ -702,6 +728,21 @@ describe('steps.ts', () => {
         steps.stepVerifySolutionsAgainstMainCorrect(1, config)
       ).rejects.toThrow('Some solutions did not behave as expected');
       expect(utils.logError).toHaveBeenCalled();
+    });
+
+    it('should rethrow LimitExceededError immediately (fail-fast)', async () => {
+      const main = { name: 'main', source: 'm.cpp', tag: 'MA' };
+      const s1 = { name: 'b', source: 'b.cpp', tag: 'OK' };
+      const s2 = { name: 'c', source: 'c.cpp', tag: 'OK' };
+      const config = baseConfig({ solutions: [main, s1, s2] });
+      vi.mocked(solution.getMainSolution).mockReturnValue(main as any);
+      vi.mocked(solution.startTheComparisonProcess).mockRejectedValueOnce(
+        new LimitExceededError('checker exceeded time limit')
+      );
+      await expect(
+        steps.stepVerifySolutionsAgainstMainCorrect(1, config)
+      ).rejects.toBeInstanceOf(LimitExceededError);
+      expect(solution.startTheComparisonProcess).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -769,7 +810,7 @@ describe('steps.ts', () => {
 
   describe('stepFetchStatements', () => {
     it('should fetch statements', async () => {
-      vi.mocked(viewer.fetchStatements).mockResolvedValue([]);
+      vi.mocked(viewer.fetchStatements).mockResolvedValue([] as any);
       const result = await steps.stepFetchStatements(1, {} as any, 5);
       expect(result).toEqual([]);
       expect(viewer.logStatementsFetch).toHaveBeenCalled();
@@ -811,7 +852,7 @@ describe('steps.ts', () => {
         resourceFiles: [],
         sourceFiles: [],
         auxFiles: [],
-      });
+      } as any);
       await steps.stepFetchFiles(1, {} as any, 5);
       expect(formatter.fmt.stepComplete).toHaveBeenCalledWith(
         'Files check complete'
@@ -851,6 +892,24 @@ describe('steps.ts', () => {
     });
   });
 
+  describe('stepFetchChecker and stepFetchValidator with no file', () => {
+    it('records no fetch action for an empty checker name', async () => {
+      const addAction = vi.spyOn(report, 'addAction');
+      vi.mocked(viewer.fetchChecker).mockResolvedValue('');
+      await steps.stepFetchChecker(1, {} as any, 5);
+      expect(addAction).not.toHaveBeenCalled();
+      addAction.mockRestore();
+    });
+
+    it('records no fetch action for an empty validator name', async () => {
+      const addAction = vi.spyOn(report, 'addAction');
+      vi.mocked(viewer.fetchValidator).mockResolvedValue('');
+      await steps.stepFetchValidator(1, {} as any, 5);
+      expect(addAction).not.toHaveBeenCalled();
+      addAction.mockRestore();
+    });
+  });
+
   describe('stepFetchGenerators', () => {
     it('should call identifyGenerators', () => {
       vi.mocked(viewer.identifyGenerators).mockReturnValue([
@@ -858,7 +917,7 @@ describe('steps.ts', () => {
       ] as any);
       const result = steps.stepFetchGenerators(
         1,
-        { resourceFiles: [], sourceFiles: [], auxFiles: [] },
+        { resourceFiles: [], sourceFiles: [], auxFiles: [] } as any,
         'wcmp',
         'val.cpp'
       );
@@ -881,7 +940,7 @@ describe('steps.ts', () => {
         {} as any,
         [],
         [],
-        { resourceFiles: [], sourceFiles: [], auxFiles: [] },
+        { resourceFiles: [], sourceFiles: [], auxFiles: [] } as any,
         [],
         '',
         '',
@@ -913,6 +972,9 @@ describe('steps.ts', () => {
       expect(() => steps.stepValidatePackageType(1, 'bogus')).toThrow(
         'Invalid package type: bogus'
       );
+      expect(() => steps.stepValidatePackageType(1, 'bogus')).toThrow(
+        expect.objectContaining({ exitCode: 2 })
+      );
     });
   });
 
@@ -934,6 +996,30 @@ describe('steps.ts', () => {
       vi.useRealTimers();
     });
 
+    it.each([
+      ['standard', false, true],
+      ['linux', true, true],
+      ['windows', true, true],
+      ['full', true, true],
+    ])(
+      'should call buildPackage for %s with full=%s, verify=%s',
+      async (type, full, verify) => {
+        vi.useFakeTimers();
+        const sdk = {
+          listPackages: vi
+            .fn()
+            .mockResolvedValueOnce([])
+            .mockResolvedValue([{ id: 5, state: 'READY', comment: 'ok' }]),
+          buildPackage: vi.fn().mockResolvedValue(undefined),
+        } as any;
+        const promise = steps.stepBuildPackage(1, sdk, 7, type);
+        await vi.advanceTimersByTimeAsync(30000);
+        await promise;
+        expect(sdk.buildPackage).toHaveBeenCalledWith(7, full, verify);
+        vi.useRealTimers();
+      }
+    );
+
     it('should throw when build fails', async () => {
       vi.useFakeTimers();
       const sdk = {
@@ -947,6 +1033,24 @@ describe('steps.ts', () => {
       promise.catch(() => undefined);
       await vi.advanceTimersByTimeAsync(30000);
       await expect(promise).rejects.toThrow('Package build failed: oops');
+      // Polygon answered: the problem itself did not build, so code 1
+      await expect(promise).rejects.not.toBeInstanceOf(PolymanError);
+      vi.useRealTimers();
+    });
+
+    it('should fail with exit code 4 when no package shows up in time', async () => {
+      vi.useFakeTimers();
+      const sdk = {
+        listPackages: vi.fn().mockResolvedValue([]),
+        buildPackage: vi.fn().mockResolvedValue(undefined),
+      } as any;
+      const promise = steps.stepBuildPackage(1, sdk, 7, 'standard');
+      promise.catch(() => undefined);
+      await vi.advanceTimersByTimeAsync(30 * 30000);
+      await expect(promise).rejects.toThrow(
+        'Package build timed out after 30 minutes'
+      );
+      await expect(promise).rejects.toHaveProperty('exitCode', 4);
       vi.useRealTimers();
     });
   });
@@ -967,7 +1071,15 @@ describe('steps.ts', () => {
   });
 
   describe('stepDownloadProblemFilesAndSetUpConfig', () => {
-    const pullWithChecker = async (checker: object) => {
+    const pullWithChecker = async (
+      checker: object,
+      validatorResult: object = {
+        count: 1,
+        data: { name: 'val', source: 'val.cpp' },
+      },
+      sourceTypes: Record<string, string> = {},
+      checkerCount = 1
+    ) => {
       vi.mocked(remoteUtils.fetchProblemInfo).mockResolvedValue({
         name: 'p',
         owner: 'o',
@@ -980,30 +1092,36 @@ describe('steps.ts', () => {
       vi.mocked(pulling.downloadSolutions).mockResolvedValue({
         count: 1,
         data: [],
-      });
+        failures: [],
+      } as any);
       vi.mocked(pulling.downloadChecker).mockResolvedValue({
-        count: 1,
+        count: checkerCount,
         data: checker,
+        failures: [],
       } as any);
       vi.mocked(pulling.downloadValidator).mockResolvedValue({
-        count: 1,
-        data: { name: 'val', source: 'val.cpp' },
-      });
+        failures: [],
+        ...validatorResult,
+      } as any);
       vi.mocked(pulling.downloadGenerators).mockResolvedValue({
         count: 2,
         data: [],
-      });
+        failures: [],
+        sourceTypes,
+      } as any);
       vi.mocked(pulling.downloadStatements).mockResolvedValue({
         count: 0,
         config: {},
+        failures: [],
       } as any);
       vi.mocked(pulling.fetchProblemMetadata).mockResolvedValue({
         description: 'd',
         tags: ['t'],
-      });
+        failures: [],
+      } as any);
       vi.mocked(fs.writeFileSync).mockImplementation(() => undefined);
 
-      await steps.stepDownloadProblemFilesAndSetUpConfig(
+      return steps.stepDownloadProblemFilesAndSetUpConfig(
         1,
         {} as any,
         7,
@@ -1030,6 +1148,204 @@ describe('steps.ts', () => {
       );
     });
 
+    it('should return no warnings when the validator was pulled', async () => {
+      const result = await pullWithChecker({
+        name: 'wcmp',
+        source: 'wcmp.cpp',
+        isStandard: true,
+      });
+      expect(result).toEqual({ warnings: [], failures: [] });
+    });
+
+    it('should return a warning when Polygon has no validator', async () => {
+      const { warnings, failures } = await pullWithChecker(
+        { name: 'wcmp', source: 'wcmp.cpp', isStandard: true },
+        {
+          count: 0,
+          data: { name: 'validator', source: 'val.cpp' },
+          missing: true,
+        }
+      );
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain('no validator set for problem 7');
+      expect(failures).toEqual([]);
+    });
+
+    const failure = (component: string, name: string, error: string) => ({
+      component,
+      name,
+      error,
+      message: `Could not download ${component} ${name} (${error})`,
+    });
+
+    it('returns each failed file download as a failure, not a warning, and records it as a failed action', async () => {
+      const addAction = vi.spyOn(report, 'addAction');
+      const addWarning = vi.spyOn(report, 'addWarning');
+      vi.mocked(remoteUtils.fetchProblemInfo).mockResolvedValue({
+        name: 'p',
+        owner: 'o',
+        timeLimit: 1000,
+        memoryLimit: 256,
+        inputFile: 'stdin',
+        outputFile: 'stdout',
+        interactive: false,
+      } as any);
+      vi.mocked(pulling.downloadSolutions).mockResolvedValue({
+        count: 1,
+        data: [{ name: 'main', source: './solutions/main.cpp', tag: 'MA' }],
+        failures: [failure('solution', 'wa', 'no access')],
+      } as any);
+      vi.mocked(pulling.downloadChecker).mockResolvedValue({
+        count: 1,
+        data: { name: 'chk', source: './checker/chk.cpp', isStandard: false },
+        failures: [failure('checker', 'checker tests', 'boom')],
+      } as any);
+      vi.mocked(pulling.downloadValidator).mockResolvedValue({
+        count: 1,
+        data: { name: 'val', source: './validator/val.cpp' },
+        failures: [failure('validator', 'validator tests', 'boom')],
+      } as any);
+      vi.mocked(pulling.downloadGenerators).mockResolvedValue({
+        count: 0,
+        data: [],
+        failures: [failure('generator', 'gen', 'boom')],
+        sourceTypes: {},
+      } as any);
+      vi.mocked(pulling.downloadStatements).mockResolvedValue({
+        count: 0,
+        config: {},
+        failures: [failure('statement', 'statements', 'boom')],
+      } as any);
+      vi.mocked(pulling.fetchProblemMetadata).mockResolvedValue({
+        failures: [failure('metadata', 'tags', 'boom')],
+      } as any);
+      vi.mocked(fs.writeFileSync).mockImplementation(() => undefined);
+
+      const result = await steps.stepDownloadProblemFilesAndSetUpConfig(
+        1,
+        {} as any,
+        7,
+        'savePath'
+      );
+
+      const recorded = addAction.mock.calls.map(call => call[0]);
+      addAction.mockRestore();
+      addWarning.mockRestore();
+      expect(result.warnings).toEqual([]);
+      expect(addWarning).not.toHaveBeenCalled();
+      expect(result.failures.map(f => f.name)).toEqual([
+        'wa',
+        'checker tests',
+        'validator tests',
+        'gen',
+        'statements',
+        'tags',
+      ]);
+      const failedAction = (
+        component: string,
+        name: string,
+        error: string
+      ) => ({
+        component,
+        name,
+        action: 'download',
+        ok: false,
+        error,
+      });
+      expect(recorded).toEqual([
+        { component: 'solution', name: 'main', action: 'download', ok: true },
+        failedAction('solution', 'wa', 'no access'),
+        { component: 'checker', name: 'chk', action: 'download', ok: true },
+        failedAction('checker', 'checker tests', 'boom'),
+        { component: 'validator', name: 'val', action: 'download', ok: true },
+        failedAction('validator', 'validator tests', 'boom'),
+        failedAction('generator', 'gen', 'boom'),
+        failedAction('statement', 'statements', 'boom'),
+        failedAction('metadata', 'tags', 'boom'),
+        { component: 'config', name: 'Config.json', action: 'write', ok: true },
+      ]);
+    });
+
+    it('keeps a placeholder in warnings next to a failed file download', async () => {
+      vi.mocked(remoteUtils.fetchProblemInfo).mockResolvedValue({
+        name: 'p',
+        owner: 'o',
+        timeLimit: 1000,
+        memoryLimit: 256,
+        inputFile: 'stdin',
+        outputFile: 'stdout',
+        interactive: false,
+      } as any);
+      vi.mocked(pulling.downloadSolutions).mockResolvedValue({
+        count: 0,
+        data: [{ name: 'acc', source: './solutions/acc.cpp', tag: 'MA' }],
+        failures: [failure('solution', 'wa', 'no access')],
+        placeholder: 'acc.cpp placeholder',
+      } as any);
+      vi.mocked(pulling.downloadChecker).mockResolvedValue({
+        count: 0,
+        data: { name: 'wcmp', source: 'wcmp.cpp', isStandard: true },
+        failures: [],
+      } as any);
+      vi.mocked(pulling.downloadValidator).mockResolvedValue({
+        count: 1,
+        data: { name: 'val', source: './validator/val.cpp' },
+        failures: [],
+      } as any);
+      vi.mocked(pulling.downloadGenerators).mockResolvedValue({
+        count: 0,
+        data: [],
+        failures: [],
+        sourceTypes: {},
+      } as any);
+      vi.mocked(pulling.downloadStatements).mockResolvedValue({
+        count: 0,
+        config: {},
+        failures: [],
+      } as any);
+      vi.mocked(pulling.fetchProblemMetadata).mockResolvedValue({
+        failures: [],
+      } as any);
+      vi.mocked(fs.writeFileSync).mockImplementation(() => undefined);
+
+      const result = await steps.stepDownloadProblemFilesAndSetUpConfig(
+        1,
+        {} as any,
+        7,
+        'savePath'
+      );
+
+      expect(result.warnings).toEqual(['acc.cpp placeholder']);
+      expect(result.failures.map(f => f.message)).toEqual([
+        'Could not download solution wa (no access)',
+      ]);
+    });
+
+    it('records a failed validator download when Polygon has none', async () => {
+      const addAction = vi.spyOn(report, 'addAction');
+      await pullWithChecker(
+        { name: 'wcmp', source: 'wcmp.cpp', isStandard: true },
+        {
+          count: 0,
+          data: { name: 'validator', source: 'val.cpp' },
+          missing: true,
+        }
+      );
+      const recorded = addAction.mock.calls.map(call => call[0]);
+      addAction.mockRestore();
+      expect(recorded).toEqual([
+        { component: 'checker', name: 'wcmp', action: 'download', ok: true },
+        {
+          component: 'validator',
+          name: 'validator',
+          action: 'download',
+          ok: false,
+          error: 'Polygon has no validator set for this problem',
+        },
+        { component: 'config', name: 'Config.json', action: 'write', ok: true },
+      ]);
+    });
+
     it('should not download a custom checker as a generator', async () => {
       await pullWithChecker({
         name: 'chk',
@@ -1043,14 +1359,82 @@ describe('steps.ts', () => {
         ['val', 'chk']
       );
     });
+
+    it('keeps the sourceType of a downloaded checker and validator', async () => {
+      await pullWithChecker(
+        { name: 'chk', source: './checker/chk.cpp', isStandard: false },
+        { count: 2, data: { name: 'val', source: './validator/val.cpp' } },
+        { 'chk.cpp': 'cpp.g++17', 'val.cpp': 'cpp.gcc14-64-msys2-g++23' }
+      );
+      const written = vi
+        .mocked(fs.writeFileSync)
+        .mock.calls.find(([file]) => String(file).endsWith('Config.json'));
+      const config = JSON.parse(written?.[1] as string) as {
+        checker: { sourceType?: string };
+        validator: { sourceType?: string };
+      };
+      expect(config.checker.sourceType).toBe('cpp.g++17');
+      expect(config.validator.sourceType).toBe('cpp.gcc14-64-msys2-g++23');
+    });
+
+    it.each(['__proto__', 'constructor', 'toString'])(
+      'adds no sourceType when the checker and validator are named %s',
+      async name => {
+        await pullWithChecker(
+          { name, source: name, isStandard: false },
+          { count: 1, data: { name, source: name } }
+        );
+        const written = vi
+          .mocked(fs.writeFileSync)
+          .mock.calls.find(([file]) => String(file).endsWith('Config.json'));
+        const config = JSON.parse(written?.[1] as string) as {
+          checker: object;
+          validator: object;
+        };
+        expect(config.checker).not.toHaveProperty('sourceType');
+        expect(config.validator).not.toHaveProperty('sourceType');
+      }
+    );
+
+    it('adds no sourceType to a checker or validator that was not downloaded', async () => {
+      await pullWithChecker(
+        { name: 'chk', source: 'chk.cpp', isStandard: true },
+        { count: 0, data: { name: 'val', source: 'val.cpp' }, missing: true },
+        { 'chk.cpp': 'cpp.g++17', 'val.cpp': 'cpp.g++17' },
+        0
+      );
+      const written = vi
+        .mocked(fs.writeFileSync)
+        .mock.calls.find(([file]) => String(file).endsWith('Config.json'));
+      const config = JSON.parse(written?.[1] as string) as {
+        checker: object;
+        validator: object;
+      };
+      expect(config.checker).not.toHaveProperty('sourceType');
+      expect(config.validator).not.toHaveProperty('sourceType');
+    });
   });
 
   describe('stepDownloadTests', () => {
+    it('should fail with exit code 2 when Config.json is not valid JSON', async () => {
+      vi.mocked(fs.existsSync).mockReturnValue(true);
+      vi.mocked(fs.readFileSync).mockReturnValue('{ not json');
+      const error: unknown = await steps
+        .stepDownloadTests(1, {} as any, 7, 'tests', 'savePath')
+        .catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(PolymanError);
+      expect((error as PolymanError).exitCode).toBe(2);
+      expect((error as PolymanError).cause).toBeInstanceOf(SyntaxError);
+    });
+
     it('should throw when Config.json is missing', async () => {
       vi.mocked(fs.existsSync).mockReturnValue(false);
       await expect(
         steps.stepDownloadTests(1, {} as any, 7, 'tests', 'savePath')
       ).rejects.toThrow('Config.json not found');
+      await expect(
+        steps.stepDownloadTests(1, {} as any, 7, 'tests', 'savePath')
+      ).rejects.toHaveProperty('exitCode', 2);
     });
 
     it('should add new testset to config when not present', async () => {
@@ -1065,8 +1449,35 @@ describe('steps.ts', () => {
         manualCount: 0,
       } as any);
       vi.mocked(fs.writeFileSync).mockImplementation(() => undefined);
-      await steps.stepDownloadTests(1, {} as any, 7, 'tests', 'savePath');
+      const result = await steps.stepDownloadTests(
+        1,
+        {} as any,
+        7,
+        'tests',
+        'savePath'
+      );
       expect(fs.writeFileSync).toHaveBeenCalled();
+      expect(result).toBe(true);
+    });
+
+    it('records a successful testset download', async () => {
+      const addAction = vi.spyOn(report, 'addAction');
+      vi.mocked(fs.existsSync).mockReturnValue(true);
+      vi.mocked(fs.readFileSync).mockReturnValue(
+        JSON.stringify(baseConfig({ testsets: [] }))
+      );
+      vi.mocked(
+        pulling.downloadTestsetAndBuildGenerationScripts
+      ).mockResolvedValue({
+        testset: { name: 'tests', generatorScript: { commands: [] } },
+        manualCount: 0,
+      } as any);
+      vi.mocked(fs.writeFileSync).mockImplementation(() => undefined);
+      await steps.stepDownloadTests(1, {} as any, 7, 'tests', 'savePath');
+      expect(addAction.mock.calls.map(call => call[0])).toEqual([
+        { component: 'testset', name: 'tests', action: 'download', ok: true },
+      ]);
+      addAction.mockRestore();
     });
 
     it('should update existing testset in config', async () => {
@@ -1097,12 +1508,84 @@ describe('steps.ts', () => {
       ).mockRejectedValue(new Error('boom'));
       await expect(
         steps.stepDownloadTests(1, {} as any, 7, 'tests', 'savePath')
-      ).resolves.toBeUndefined();
+      ).resolves.toBe(false);
       expect(formatter.fmt.warning).toHaveBeenCalled();
+    });
+
+    it('says why the download failed in the warning', async () => {
+      vi.mocked(fs.existsSync).mockReturnValue(true);
+      vi.mocked(fs.readFileSync).mockReturnValue(
+        JSON.stringify(baseConfig({ testsets: [] }))
+      );
+      vi.mocked(
+        pulling.downloadTestsetAndBuildGenerationScripts
+      ).mockRejectedValue(new Error('Refusing unsafe test index from Polygon'));
+      await steps.stepDownloadTests(1, {} as any, 7, 'tests', 'savePath');
+      expect(formatter.fmt.warning).toHaveBeenCalledWith(
+        expect.stringContaining('Refusing unsafe test index from Polygon')
+      );
+    });
+  });
+
+  describe('stepDownloadTests with a hostile error message', () => {
+    it('escapes control characters from Polygon in the warning', async () => {
+      vi.mocked(fs.existsSync).mockReturnValue(true);
+      vi.mocked(fs.readFileSync).mockReturnValue(
+        JSON.stringify(baseConfig({ testsets: [] }))
+      );
+      vi.mocked(
+        pulling.downloadTestsetAndBuildGenerationScripts
+      ).mockRejectedValue(
+        new Error('Polygon API Error: \u001b[2J\nfake line \u202e\u009b')
+      );
+      await steps.stepDownloadTests(1, {} as any, 7, 'tests', 'savePath');
+      const warnings = vi
+        .mocked(formatter.fmt.warning)
+        .mock.calls.map(c => String(c[0]));
+      const warning = warnings.find(w =>
+        w.includes('Could not fetch tests information')
+      );
+      expect(warning).toBeDefined();
+      // eslint-disable-next-line no-control-regex
+      expect(warning).not.toMatch(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e]/);
+      expect(warning).toContain('\\u001b[2J\\u000afake line');
+    });
+  });
+
+  describe('stepDownloadTests with a non-Error rejection', () => {
+    it('still names the reason when something other than an Error is thrown', async () => {
+      vi.mocked(fs.existsSync).mockReturnValue(true);
+      vi.mocked(fs.readFileSync).mockReturnValue(
+        JSON.stringify(baseConfig({ testsets: [] }))
+      );
+      vi.mocked(
+        pulling.downloadTestsetAndBuildGenerationScripts
+      ).mockRejectedValue('plain string failure');
+      await expect(
+        steps.stepDownloadTests(1, {} as any, 7, 'tests', 'savePath')
+      ).resolves.toBe(false);
+      expect(formatter.fmt.warning).toHaveBeenCalledWith(
+        expect.stringContaining('plain string failure')
+      );
+      expect(fs.writeFileSync).not.toHaveBeenCalled();
     });
   });
 
   describe('stepReadConfig', () => {
+    it('should fail with exit code 2 when Config.json is not valid JSON', () => {
+      vi.mocked(fs.existsSync).mockReturnValue(true);
+      vi.mocked(fs.readFileSync).mockReturnValue('{ not json');
+      let error: unknown;
+      try {
+        steps.stepReadConfig(1, '/dir');
+      } catch (e) {
+        error = e;
+      }
+      expect(error).toBeInstanceOf(PolymanError);
+      expect((error as PolymanError).exitCode).toBe(2);
+      expect((error as PolymanError).cause).toBeInstanceOf(SyntaxError);
+    });
+
     it('should read and parse Config.json', () => {
       vi.mocked(fs.existsSync).mockReturnValue(true);
       const cfg = baseConfig();
@@ -1115,6 +1598,9 @@ describe('steps.ts', () => {
       vi.mocked(fs.existsSync).mockReturnValue(false);
       expect(() => steps.stepReadConfig(1, '/dir')).toThrow(
         'Config.json not found'
+      );
+      expect(() => steps.stepReadConfig(1, '/dir')).toThrow(
+        expect.objectContaining({ exitCode: 2 })
       );
     });
   });
@@ -1133,6 +1619,194 @@ describe('steps.ts', () => {
       const config = baseConfig();
       await steps.stepUploadSolutions(1, {} as any, 7, '/dir', config);
       expect(pushing.uploadSolutions).toHaveBeenCalled();
+    });
+  });
+
+  describe('failed uploads', () => {
+    it('should not report solutions as uploaded when a solution failed', async () => {
+      vi.mocked(pushing.uploadSolutions).mockImplementation(((
+        ..._args: unknown[]
+      ) => {
+        (_args[4] as string[]).push('solution java-sol: boom');
+        return Promise.resolve(0);
+      }) as any);
+      const failures: string[] = [];
+      await steps.stepUploadSolutions(
+        1,
+        {} as any,
+        7,
+        '/dir',
+        baseConfig(),
+        failures
+      );
+      expect(failures).toEqual(['solution java-sol: boom']);
+      expect(formatter.fmt.stepComplete).not.toHaveBeenCalled();
+      expect(formatter.fmt.warning).toHaveBeenCalledWith(
+        expect.stringContaining('Solutions uploaded with 1 failure(s)')
+      );
+    });
+
+    it('should not report the checker as uploaded when a checker test failed', async () => {
+      vi.mocked(pushing.uploadChecker).mockImplementation(((
+        ..._args: unknown[]
+      ) => {
+        (_args[4] as string[]).push('checker tests: boom');
+        return Promise.resolve(1);
+      }) as any);
+      const failures: string[] = [];
+      await steps.stepUploadChecker(
+        1,
+        {} as any,
+        7,
+        '/dir',
+        baseConfig(),
+        failures
+      );
+      expect(formatter.fmt.stepComplete).not.toHaveBeenCalled();
+      expect(formatter.fmt.warning).toHaveBeenCalledWith(
+        expect.stringContaining('with 1 failure(s)')
+      );
+    });
+
+    it('should not report the validator as uploaded when it recorded a failure', async () => {
+      vi.mocked(pushing.uploadValidator).mockImplementation(((
+        ..._args: unknown[]
+      ) => {
+        (_args[4] as string[]).push('x: boom');
+        return Promise.resolve(1);
+      }) as any);
+      const failures: string[] = [];
+      await steps.stepUploadValidator(
+        1,
+        {} as any,
+        7,
+        '/dir',
+        baseConfig(),
+        failures
+      );
+      expect(failures).toEqual(['x: boom']);
+      expect(formatter.fmt.stepComplete).not.toHaveBeenCalled();
+      expect(formatter.fmt.warning).toHaveBeenCalledWith(
+        expect.stringContaining('Validator uploaded with 1 failure(s)')
+      );
+    });
+
+    it('should not report the missing validator as uploaded when it recorded a failure', async () => {
+      vi.mocked(pushing.uploadValidator).mockImplementation(((
+        ..._args: unknown[]
+      ) => {
+        (_args[4] as string[]).push('x: boom');
+        return Promise.resolve(0);
+      }) as any);
+      const failures: string[] = [];
+      await steps.stepUploadValidator(
+        1,
+        {} as any,
+        7,
+        '/dir',
+        baseConfig(),
+        failures
+      );
+      expect(failures).toEqual(['x: boom']);
+      expect(formatter.fmt.stepComplete).not.toHaveBeenCalled();
+      expect(formatter.fmt.warning).toHaveBeenCalledWith(
+        expect.stringContaining('No validator to upload with 1 failure(s)')
+      );
+    });
+
+    it('should not report statements as uploaded when it recorded a failure', async () => {
+      vi.mocked(pushing.uploadStatements).mockImplementation(((
+        ..._args: unknown[]
+      ) => {
+        (_args[4] as string[]).push('x: boom');
+        return Promise.resolve(0);
+      }) as any);
+      const failures: string[] = [];
+      await steps.stepUploadStatements(
+        1,
+        {} as any,
+        7,
+        '/dir',
+        baseConfig(),
+        failures
+      );
+      expect(failures).toEqual(['x: boom']);
+      expect(formatter.fmt.stepComplete).not.toHaveBeenCalled();
+      expect(formatter.fmt.warning).toHaveBeenCalledWith(
+        expect.stringContaining('Statements uploaded with 1 failure(s)')
+      );
+    });
+
+    it('should not report generators as uploaded when it recorded a failure', async () => {
+      vi.mocked(pushing.uploadGenerators).mockImplementation(((
+        ..._args: unknown[]
+      ) => {
+        (_args[4] as string[]).push('x: boom');
+        return Promise.resolve(0);
+      }) as any);
+      const failures: string[] = [];
+      await steps.stepUploadGenerators(
+        1,
+        {} as any,
+        7,
+        '/dir',
+        baseConfig(),
+        failures
+      );
+      expect(failures).toEqual(['x: boom']);
+      expect(formatter.fmt.stepComplete).not.toHaveBeenCalled();
+      expect(formatter.fmt.warning).toHaveBeenCalledWith(
+        expect.stringContaining('Generators uploaded with 1 failure(s)')
+      );
+    });
+
+    it('should not report metadata as uploaded when it recorded a failure', async () => {
+      vi.mocked(pushing.uploadMetadata).mockImplementation(((
+        ..._args: unknown[]
+      ) => {
+        (_args[3] as string[]).push('x: boom');
+        return Promise.resolve(undefined);
+      }) as any);
+      const failures: string[] = [];
+      await steps.stepUploadMetadata(1, {} as any, 7, baseConfig(), failures);
+      expect(failures).toEqual(['x: boom']);
+      expect(formatter.fmt.stepComplete).not.toHaveBeenCalled();
+      expect(formatter.fmt.warning).toHaveBeenCalledWith(
+        expect.stringContaining('Metadata uploaded with 1 failure(s)')
+      );
+    });
+
+    it('should not report testsets as uploaded when it recorded a failure', async () => {
+      vi.mocked(pushing.uploadTestsets).mockImplementation(((
+        ..._args: unknown[]
+      ) => {
+        (_args[4] as string[]).push('x: boom');
+        return Promise.resolve({ testsCount: 0, manualsCount: 0 });
+      }) as any);
+      const failures: string[] = [];
+      await steps.stepUploadTestsets(
+        1,
+        {} as any,
+        7,
+        '/dir',
+        baseConfig(),
+        failures
+      );
+      expect(failures).toEqual(['x: boom']);
+      expect(formatter.fmt.stepComplete).not.toHaveBeenCalled();
+      expect(formatter.fmt.warning).toHaveBeenCalledWith(
+        expect.stringContaining('Testsets uploaded with 1 failure(s)')
+      );
+    });
+
+    it('should only count failures added by the step itself', async () => {
+      vi.mocked(pushing.uploadGenerators).mockResolvedValue(1);
+      await steps.stepUploadGenerators(1, {} as any, 7, '/dir', baseConfig(), [
+        'solution x: earlier failure',
+      ]);
+      expect(formatter.fmt.stepComplete).toHaveBeenCalledWith(
+        'Generators uploaded'
+      );
     });
   });
 
@@ -1166,6 +1840,15 @@ describe('steps.ts', () => {
       expect(formatter.fmt.stepComplete).toHaveBeenCalledWith(
         'No validator to upload'
       );
+    });
+
+    it('records no upload action when Config.json has no validator', async () => {
+      const addAction = vi.spyOn(report, 'addAction');
+      vi.mocked(pushing.uploadValidator).mockResolvedValue(0);
+      const config = baseConfig({ validator: undefined });
+      await steps.stepUploadValidator(1, {} as any, 7, '/dir', config);
+      expect(addAction).not.toHaveBeenCalled();
+      addAction.mockRestore();
     });
 
     it('should report uploaded when count > 0', async () => {
@@ -1241,6 +1924,9 @@ describe('steps.ts', () => {
       await expect(
         steps.stepCreateProblemOnPolygon(1, sdk, 'x')
       ).rejects.toThrow('Failed to create problem on Polygon: upstream');
+      await expect(
+        steps.stepCreateProblemOnPolygon(1, sdk, 'x')
+      ).rejects.toHaveProperty('exitCode', 4);
     });
 
     it('should wrap non-Error rejections', async () => {
@@ -1267,6 +1953,228 @@ describe('steps.ts', () => {
       );
     });
   });
+  describe('uploadActions', () => {
+    it('marks every item ok when the step added no failures', () => {
+      expect(steps.uploadActions('solution', ['main', 'wa'], [])).toEqual([
+        { component: 'solution', name: 'main', action: 'upload', ok: true },
+        { component: 'solution', name: 'wa', action: 'upload', ok: true },
+      ]);
+    });
+
+    it('fails the item named in a failure and keeps the others ok', () => {
+      expect(
+        steps.uploadActions(
+          'solution',
+          ['main', 'wa'],
+          ['solution wa: Polygon API Error: x: y']
+        )
+      ).toEqual([
+        { component: 'solution', name: 'main', action: 'upload', ok: true },
+        {
+          component: 'solution',
+          name: 'wa',
+          action: 'upload',
+          ok: false,
+          error: 'Polygon API Error: x: y',
+        },
+      ]);
+    });
+
+    it('fails a testset for its sub-step failures and keeps their labels', () => {
+      expect(
+        steps.uploadActions(
+          'testset',
+          ['tests'],
+          ['testset tests script: bad', 'testset tests group g1: no']
+        )
+      ).toEqual([
+        {
+          component: 'testset',
+          name: 'tests',
+          action: 'upload',
+          ok: false,
+          error: 'testset tests script: bad; testset tests group g1: no',
+        },
+      ]);
+    });
+
+    it('matches a failure labelled with the component or the item name', () => {
+      expect(
+        steps.uploadActions('validator', ['val'], ['validator: not found'])
+      ).toEqual([
+        {
+          component: 'validator',
+          name: 'val',
+          action: 'upload',
+          ok: false,
+          error: 'not found',
+        },
+      ]);
+      expect(
+        steps.uploadActions('metadata', ['description', 'tags'], ['tags: no'])
+      ).toEqual([
+        {
+          component: 'metadata',
+          name: 'description',
+          action: 'upload',
+          ok: true,
+        },
+        {
+          component: 'metadata',
+          name: 'tags',
+          action: 'upload',
+          ok: false,
+          error: 'no',
+        },
+      ]);
+    });
+
+    it('does not blame an item whose name is a prefix of the failed one', () => {
+      expect(
+        steps.uploadActions(
+          'solution',
+          ['main', 'main 2'],
+          ['solution main 2: boom']
+        )
+      ).toEqual([
+        { component: 'solution', name: 'main', action: 'upload', ok: true },
+        {
+          component: 'solution',
+          name: 'main 2',
+          action: 'upload',
+          ok: false,
+          error: 'boom',
+        },
+      ]);
+    });
+
+    it('blames the real item when its name contains ": "', () => {
+      expect(
+        steps.uploadActions('solution', ['a: b', 'ok'], ['solution a: b: boom'])
+      ).toEqual([
+        {
+          component: 'solution',
+          name: 'a: b',
+          action: 'upload',
+          ok: false,
+          error: 'boom',
+        },
+        { component: 'solution', name: 'ok', action: 'upload', ok: true },
+      ]);
+    });
+
+    it('tries the longest name first when one name prefixes another', () => {
+      expect(
+        steps.uploadActions('solution', ['a', 'a: b'], ['solution a: b: boom'])
+      ).toEqual([
+        { component: 'solution', name: 'a', action: 'upload', ok: true },
+        {
+          component: 'solution',
+          name: 'a: b',
+          action: 'upload',
+          ok: false,
+          error: 'boom',
+        },
+      ]);
+    });
+
+    it('adds failures that belong to no item as their own entries', () => {
+      expect(
+        steps.uploadActions('checker', ['chk'], ['checker test #2: rejected'])
+      ).toEqual([
+        { component: 'checker', name: 'chk', action: 'upload', ok: true },
+        {
+          component: 'checker',
+          name: 'checker test #2',
+          action: 'upload',
+          ok: false,
+          error: 'rejected',
+        },
+      ]);
+    });
+  });
+
+  describe('remote steps with a --json report', () => {
+    it('records the upload step actions in the report', async () => {
+      const addAction = vi.spyOn(report, 'addAction');
+      vi.mocked(pushing.uploadSolutions).mockImplementation(
+        async (_sdk, _id, _dir, _config, failures = []) => {
+          failures.push('solution wa: rejected');
+          return Promise.resolve(1);
+        }
+      );
+      const config = baseConfig({
+        solutions: [
+          { name: 'main', source: 'main.cpp', tag: 'MA' },
+          { name: 'wa', source: 'wa.cpp', tag: 'WA' },
+        ],
+      });
+      await steps.stepUploadSolutions(1, {} as any, 7, '/p', config, []);
+      expect(addAction.mock.calls.map(call => call[0])).toEqual([
+        { component: 'solution', name: 'main', action: 'upload', ok: true },
+        {
+          component: 'solution',
+          name: 'wa',
+          action: 'upload',
+          ok: false,
+          error: 'rejected',
+        },
+      ]);
+      addAction.mockRestore();
+    });
+
+    it('records a checker that failed to upload before rethrowing', async () => {
+      const addAction = vi.spyOn(report, 'addAction');
+      vi.mocked(pushing.uploadChecker).mockRejectedValue(new Error('gone'));
+      const config = baseConfig({
+        checker: { name: 'chk', source: 'chk.cpp' },
+      });
+      await expect(
+        steps.stepUploadChecker(1, {} as any, 7, '/p', config, [])
+      ).rejects.toThrow('gone');
+      expect(addAction).toHaveBeenCalledWith({
+        component: 'checker',
+        name: 'chk',
+        action: 'upload',
+        ok: false,
+        error: 'gone',
+      });
+      addAction.mockRestore();
+    });
+
+    it('registers the credentials as secrets', () => {
+      const setSecrets = vi.spyOn(report, 'setSecrets');
+      vi.mocked(remoteUtils.readCredentials).mockReturnValue({
+        apiKey: 'k',
+        secret: 's',
+      });
+      steps.stepReadCredentials(1);
+      expect(setSecrets).toHaveBeenCalledWith(['k', 's']);
+      setSecrets.mockRestore();
+    });
+
+    it('does not prompt for problem creation while --json is active', async () => {
+      vi.mocked(utils.stdinIsInteractive).mockReturnValue(true);
+      const isActive = vi.spyOn(report, 'isActive').mockReturnValue(true);
+      await expect(steps.stepPromptCreateProblem(1)).rejects.toThrow(
+        /--json is set, so polyman does not prompt; pass --yes/
+      );
+      isActive.mockRestore();
+    });
+
+    it('does not prompt for a problem name while --json is active', async () => {
+      vi.mocked(utils.stdinIsInteractive).mockReturnValue(true);
+      const isActive = vi.spyOn(report, 'isActive').mockReturnValue(true);
+      const sdk = {
+        listProblems: vi.fn().mockResolvedValue([]),
+      } as unknown as Parameters<typeof steps.stepGetValidProblemName>[1];
+      await expect(
+        steps.stepGetValidProblemName(1, sdk, undefined)
+      ).rejects.toBeInstanceOf(NonInteractiveError);
+      isActive.mockRestore();
+    });
+  });
+
   describe('stepPromptCreateProblem', () => {
     it('returns true without prompting when --yes is given', async () => {
       const result = await steps.stepPromptCreateProblem(1, { yes: true });
@@ -1281,6 +2189,9 @@ describe('steps.ts', () => {
       vi.mocked(utils.stdinIsInteractive).mockReturnValue(false);
       await expect(steps.stepPromptCreateProblem(1)).rejects.toThrow(
         /stdin is not a terminal; pass --yes/
+      );
+      await expect(steps.stepPromptCreateProblem(1)).rejects.toBeInstanceOf(
+        NonInteractiveError
       );
     });
 
@@ -1343,6 +2254,28 @@ describe('steps.ts', () => {
       );
     });
 
+    it('fails with exit code 2 on an invalid --name', async () => {
+      vi.mocked(utils.stdinIsInteractive).mockReturnValue(false);
+      const error: unknown = await steps
+        .stepGetValidProblemName(1, sdkWith([]), undefined, {
+          explicitName: 'Two Sum',
+        })
+        .catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(PolymanError);
+      expect((error as PolymanError).exitCode).toBe(2);
+    });
+
+    it('keeps exit code 1 for a --name that already exists on Polygon', async () => {
+      vi.mocked(utils.stdinIsInteractive).mockReturnValue(false);
+      const error: unknown = await steps
+        .stepGetValidProblemName(1, sdkWith(['two-sum']), undefined, {
+          explicitName: 'two-sum',
+        })
+        .catch((e: unknown) => e);
+      expect((error as Error).message).toContain('already exists on Polygon');
+      expect((error as { exitCode?: number }).exitCode).not.toBe(2);
+    });
+
     it('rejects a --name that already exists on Polygon', async () => {
       vi.mocked(utils.stdinIsInteractive).mockReturnValue(true);
       await expect(
@@ -1364,6 +2297,9 @@ describe('steps.ts', () => {
 
     it('fails fast when headless and no usable name is available', async () => {
       vi.mocked(utils.stdinIsInteractive).mockReturnValue(false);
+      await expect(
+        steps.stepGetValidProblemName(1, sdkWith([]), undefined)
+      ).rejects.toBeInstanceOf(NonInteractiveError);
       await expect(
         steps.stepGetValidProblemName(1, sdkWith([]), undefined)
       ).rejects.toThrow(/pass --name <name>/);

@@ -5,6 +5,7 @@ import type { PathLike, PathOrFileDescriptor } from 'fs';
 import type { PolygonSDK } from '../../../src/polygon';
 import type ConfigFile from '../../../src/types';
 import { fmt } from '../../../src/formatter';
+import { normalizeLineEndingsFromSystemToRemote } from '../../../src/helpers/remote/utils';
 
 vi.mock('fs');
 vi.mock('../../../src/formatter', () => ({
@@ -105,7 +106,7 @@ function mockReadFileSyncWith(impl: ReadFileCallback): void {
   // `fs.readFileSync` is heavily overloaded; the cast below narrows our
   // text-only mock to a single signature compatible with the union return
   // type expected by vi.mocked.
-  mockedReadFileSync.mockImplementation(impl);
+  mockedReadFileSync.mockImplementation(impl as typeof fs.readFileSync);
 }
 
 const mockConfig: ConfigFile = asConfig({
@@ -127,14 +128,40 @@ describe('pushing.ts', () => {
       expect(
         pushing.resolveSourceType('sol.cpp', 'cpp.gcc14-64-msys2-g++23')
       ).toBe('cpp.gcc14-64-msys2-g++23');
-      expect(pushing.resolveSourceType('Sol.java', 'java.21')).toBe('java.21');
+      expect(pushing.resolveSourceType('Sol.java', 'java21')).toBe('java21');
+      expect(pushing.resolveSourceType('Sol.java', 'java8')).toBe('java8');
+    });
+
+    it('should reject Java types Polygon does not accept', () => {
+      for (const bad of ['java.8', 'java.11', 'java.21', 'java11', 'java17']) {
+        expect(() => pushing.resolveSourceType('Sol.java', bad)).toThrow(
+          /java8, java21/
+        );
+      }
+    });
+
+    it('should trim the declared sourceType before checking and returning it', () => {
+      expect(pushing.resolveSourceType('Sol.java', ' java21')).toBe('java21');
+      expect(pushing.resolveSourceType('Sol.java', 'java21 ')).toBe('java21');
+      expect(pushing.resolveSourceType('sol.cpp', ' cpp.g++20 ')).toBe(
+        'cpp.g++20'
+      );
+      expect(pushing.resolveSourceType('sol.py', '  ')).toBe('python.3');
+    });
+
+    it('should reject Java types that differ only by case or are bare', () => {
+      for (const bad of ['Java21', 'JAVA8', 'java', ' java.11 ']) {
+        expect(() => pushing.resolveSourceType('Sol.java', bad)).toThrow(
+          /java8, java21/
+        );
+      }
     });
 
     it('should infer from the extension when nothing is declared', () => {
       expect(pushing.resolveSourceType('sol.cpp')).toBe('cpp.g++17');
       expect(pushing.resolveSourceType('sol.cc')).toBe('cpp.g++17');
       expect(pushing.resolveSourceType('sol.CXX')).toBe('cpp.g++17');
-      expect(pushing.resolveSourceType('Sol.java')).toBe('java11');
+      expect(pushing.resolveSourceType('Sol.java')).toBe('java21');
       expect(pushing.resolveSourceType('sol.py')).toBe('python.3');
       expect(pushing.resolveSourceType('sol.c')).toBe('c.gcc11');
       expect(pushing.resolveSourceType('sol.unknown')).toBe('cpp.g++17');
@@ -190,6 +217,34 @@ describe('pushing.ts', () => {
       );
     });
 
+    it('should warn and skip a solution with an unsupported Java type, then upload the next', async () => {
+      const { sdk, mocks } = buildSdk();
+      mockedReadFileSync.mockReturnValue('code');
+      mockedExistsSync.mockReturnValue(true);
+      const cfg = asConfig({
+        solutions: [
+          { name: 'bad', source: 'Bad.java', tag: 'OK', sourceType: 'java.11' },
+          { name: 'good', source: 'sol.cpp', tag: 'MA' },
+        ],
+      });
+
+      const result = await pushing.uploadSolutions(sdk, 1, 'dir', cfg);
+
+      expect(result).toBe(1);
+      expect(mocks.saveSolution).toHaveBeenCalledTimes(1);
+      expect(mocks.saveSolution).toHaveBeenCalledWith(
+        1,
+        'sol.cpp',
+        'code',
+        'MA',
+        expect.objectContaining({ sourceType: 'cpp.g++17' })
+      );
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(fmt.warning).toHaveBeenCalledWith(
+        expect.stringContaining("Unsupported Java sourceType 'java.11'")
+      );
+    });
+
     it('should upload .cc solutions as C++', async () => {
       const { sdk, mocks } = buildSdk();
       mockedReadFileSync.mockReturnValue('code');
@@ -240,7 +295,7 @@ describe('pushing.ts', () => {
         'Sol.java',
         'code',
         'OK',
-        expect.objectContaining({ sourceType: 'java11' })
+        expect.objectContaining({ sourceType: 'java21' })
       );
     });
 
@@ -308,6 +363,126 @@ describe('pushing.ts', () => {
       const result = await pushing.uploadSolutions(sdk, 1, 'dir', cfg);
       expect(result).toBe(1);
     });
+
+    describe('Java class naming', () => {
+      const javaCode =
+        'public class ProblemA {\n  String s = "ProblemA";\n  public static void main(String[] a) { new ProblemA(); }\n}\n';
+
+      it('renames the public class to Main in the uploaded copy', async () => {
+        const { sdk, mocks } = buildSdk();
+        mockedReadFileSync.mockReturnValue(javaCode);
+        mockedExistsSync.mockReturnValue(true);
+        const cfg = asConfig({
+          solutions: [{ name: 'a', source: 'ProblemA.java', tag: 'MA' }],
+        });
+
+        await pushing.uploadSolutions(sdk, 1, 'dir', cfg);
+
+        const uploaded = mocks.saveSolution.mock.calls[0][2] as string;
+        expect(uploaded).toContain('public class Main {');
+        expect(uploaded).toContain('new Main();');
+        expect(uploaded).toContain('"ProblemA"');
+        expect(mocks.saveSolution.mock.calls[0][1]).toBe('ProblemA.java');
+        expect(fs.writeFileSync).not.toHaveBeenCalled();
+      });
+
+      it('leaves Main.java unchanged', async () => {
+        const { sdk, mocks } = buildSdk();
+        const code = 'public class Main {}\n';
+        mockedReadFileSync.mockReturnValue(code);
+        mockedExistsSync.mockReturnValue(true);
+        const cfg = asConfig({
+          solutions: [{ name: 'a', source: 'Main.java', tag: 'MA' }],
+        });
+
+        await pushing.uploadSolutions(sdk, 1, 'dir', cfg);
+
+        expect(mocks.saveSolution.mock.calls[0][2]).toBe(code);
+      });
+
+      it('renames the public class to Main for an uppercase .JAVA extension', async () => {
+        const { sdk, mocks } = buildSdk();
+        mockedReadFileSync.mockReturnValue(javaCode);
+        mockedExistsSync.mockReturnValue(true);
+        const cfg = asConfig({
+          solutions: [
+            {
+              name: 'a',
+              source: 'ProblemA.JAVA',
+              tag: 'MA',
+              sourceType: 'java21',
+            },
+          ],
+        });
+
+        await pushing.uploadSolutions(sdk, 1, 'dir', cfg);
+
+        const uploaded = mocks.saveSolution.mock.calls[0][2] as string;
+        expect(uploaded).toContain('public class Main {');
+        expect(uploaded).toContain('new Main();');
+        expect(uploaded).not.toContain('public class ProblemA');
+        expect(mocks.saveSolution.mock.calls[0][1]).toBe('ProblemA.JAVA');
+      });
+
+      it.each(['sol-a.java', '1a.java', 'class.java'])(
+        'leaves %s byte-identical when the base name is not an identifier',
+        async source => {
+          const { sdk, mocks } = buildSdk();
+          const code = 'public class Main {\n  Main() {}\n}\n';
+          mockedReadFileSync.mockReturnValue(code);
+          mockedExistsSync.mockReturnValue(true);
+          const cfg = asConfig({
+            solutions: [{ name: 'a', source, tag: 'MA' }],
+          });
+
+          await pushing.uploadSolutions(sdk, 1, 'dir', cfg);
+
+          expect(mocks.saveSolution.mock.calls[0][2]).toBe(code);
+        }
+      );
+
+      it('renames to Main in CRLF input, then normalizes line endings', async () => {
+        const actual = await vi.importActual<
+          typeof import('../../../src/helpers/remote/utils')
+        >('../../../src/helpers/remote/utils');
+        vi.mocked(
+          normalizeLineEndingsFromSystemToRemote
+        ).mockImplementationOnce(actual.normalizeLineEndingsFromSystemToRemote);
+        const { sdk, mocks } = buildSdk();
+        const crlf =
+          'public class ProblemA {\r\n  ProblemA() {}\r\n  String s = "ProblemA";\r\n}\r\n';
+        mockedReadFileSync.mockReturnValue(crlf);
+        mockedExistsSync.mockReturnValue(true);
+        const cfg = asConfig({
+          solutions: [{ name: 'a', source: 'ProblemA.java', tag: 'MA' }],
+        });
+
+        await pushing.uploadSolutions(sdk, 1, 'dir', cfg);
+
+        // The rename sees the CRLF text and normalization receives its result.
+        const renamed =
+          'public class Main {\r\n  Main() {}\r\n  String s = "ProblemA";\r\n}\r\n';
+        expect(normalizeLineEndingsFromSystemToRemote).toHaveBeenCalledWith(
+          renamed
+        );
+        // Remote text is CRLF with no stray bare LF or doubled CR.
+        expect(mocks.saveSolution.mock.calls[0][2]).toBe(renamed);
+      });
+
+      it('leaves C++ solutions unchanged', async () => {
+        const { sdk, mocks } = buildSdk();
+        const code = 'class ProblemA {};\n';
+        mockedReadFileSync.mockReturnValue(code);
+        mockedExistsSync.mockReturnValue(true);
+        const cfg = asConfig({
+          solutions: [{ name: 'a', source: 'ProblemA.cpp', tag: 'MA' }],
+        });
+
+        await pushing.uploadSolutions(sdk, 1, 'dir', cfg);
+
+        expect(mocks.saveSolution.mock.calls[0][2]).toBe(code);
+      });
+    });
   });
 
   describe('uploadSolutions error reporting', () => {
@@ -319,10 +494,431 @@ describe('pushing.ts', () => {
 
       const result = await pushing.uploadSolutions(sdk, 1, 'dir', mockConfig);
       expect(result).toBe(0);
-
+      // eslint-disable-next-line @typescript-eslint/unbound-method
       expect(fmt.warning).toHaveBeenCalledWith(
         expect.stringContaining('sol: quota exceeded')
       );
+    });
+  });
+
+  describe('failure recording', () => {
+    it('should record a failed solution upload', async () => {
+      const { sdk, mocks } = buildSdk();
+      mockedReadFileSync.mockReturnValue('code');
+      mockedExistsSync.mockReturnValue(true);
+      mocks.saveSolution.mockRejectedValue(
+        new Error("Unknown file type 'java.11'")
+      );
+      const failures: string[] = [];
+      const result = await pushing.uploadSolutions(
+        sdk,
+        1,
+        'dir',
+        mockConfig,
+        failures
+      );
+      expect(result).toBe(0);
+      expect(failures).toEqual(["solution sol: Unknown file type 'java.11'"]);
+    });
+
+    it('should record each failed checker test upload and keep going', async () => {
+      const { sdk, mocks } = buildSdk();
+      mockedExistsSync.mockReturnValue(true);
+      const test = {
+        input: 'in',
+        output: 'out',
+        answer: 'ans',
+        expectedVerdict: 'OK',
+      };
+      mockReadFileSyncWith(p =>
+        String(p).includes('tests.json')
+          ? JSON.stringify({
+              tests: [
+                { index: 1, ...test },
+                { index: 2, ...test },
+                { index: 3, ...test },
+              ],
+            })
+          : 'code'
+      );
+      mocks.saveCheckerTest
+        .mockRejectedValueOnce(new Error('bad test'))
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(new Error('worse test'));
+      const failures: string[] = [];
+      const cfg = asConfig({
+        checker: {
+          name: 'c',
+          source: 'check.cpp',
+          testsFilePath: 'tests.json',
+        },
+      });
+      await pushing.uploadChecker(sdk, 1, 'dir', cfg, failures);
+      expect(mocks.saveCheckerTest).toHaveBeenCalledTimes(3);
+      expect(failures).toEqual([
+        'checker test #1: bad test',
+        'checker test #3: worse test',
+      ]);
+    });
+
+    it('should record each failed validator test upload and keep going', async () => {
+      const { sdk, mocks } = buildSdk();
+      mockedExistsSync.mockReturnValue(true);
+      mockReadFileSyncWith(p =>
+        String(p).includes('tests.json')
+          ? JSON.stringify({
+              tests: [
+                { input: '1', expectedVerdict: 'VALID' },
+                { input: '2', expectedVerdict: 'VALID' },
+                { input: '-1', expectedVerdict: 'INVALID' },
+              ],
+            })
+          : 'code'
+      );
+      mocks.saveValidatorTest
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(new Error('bad test'))
+        .mockResolvedValueOnce(undefined);
+      const failures: string[] = [];
+      const cfg = asConfig({
+        validator: {
+          name: 'v',
+          source: 'val.cpp',
+          testsFilePath: 'tests.json',
+        },
+      });
+      const result = await pushing.uploadValidator(
+        sdk,
+        1,
+        'dir',
+        cfg,
+        failures
+      );
+      expect(result).toBe(1);
+      expect(mocks.saveValidatorTest).toHaveBeenCalledTimes(3);
+      expect(mocks.saveValidatorTest).toHaveBeenLastCalledWith(
+        1,
+        3,
+        '-1',
+        'INVALID'
+      );
+      expect(failures).toEqual(['validator test #2: bad test']);
+    });
+
+    it('should record a failed validator upload', async () => {
+      const { sdk, mocks } = buildSdk();
+      mockedExistsSync.mockReturnValue(true);
+      mockedReadFileSync.mockReturnValue('code');
+      mocks.setValidator.mockRejectedValue(new Error('nope'));
+      const failures: string[] = [];
+      const result = await pushing.uploadValidator(
+        sdk,
+        1,
+        'dir',
+        mockConfig,
+        failures
+      );
+      expect(result).toBe(0);
+      expect(failures).toEqual(['validator: nope']);
+    });
+
+    it('should record a failed generator upload', async () => {
+      const { sdk, mocks } = buildSdk();
+      mockedExistsSync.mockReturnValue(true);
+      mockedReadFileSync.mockReturnValue('code');
+      mocks.saveFile.mockRejectedValue(new Error('nope'));
+      const failures: string[] = [];
+      const cfg = asConfig({
+        generators: [{ name: 'gen', source: 'gen.cpp' }],
+      });
+      await pushing.uploadGenerators(sdk, 1, 'dir', cfg, failures);
+      expect(failures).toEqual(['generator gen: nope']);
+    });
+
+    it('should record a failed statement upload', async () => {
+      const { sdk, mocks } = buildSdk();
+      mocks.saveStatement.mockRejectedValue(new Error('nope'));
+      const failures: string[] = [];
+      await pushing.uploadStatements(sdk, 1, 'dir', mockConfig, failures);
+      expect(failures).toEqual(['statement english: nope']);
+    });
+
+    it('should record failed description and tags uploads', async () => {
+      const { sdk, mocks } = buildSdk();
+      mocks.saveGeneralDescription.mockRejectedValue(new Error('d'));
+      mocks.saveTags.mockRejectedValue(new Error('t'));
+      const failures: string[] = [];
+      await pushing.uploadMetadata(
+        sdk,
+        1,
+        asConfig({ description: 'x', tags: ['dp'] }),
+        failures
+      );
+      expect(failures).toEqual(['description: d', 'tags: t']);
+    });
+
+    it('should record a testset with a missing manual test file', async () => {
+      const { sdk } = buildSdk();
+      mockedExistsSync.mockReturnValue(false);
+      const failures: string[] = [];
+      const cfg = asConfig({
+        testsets: [
+          {
+            name: 'tests',
+            manualTests: [{ input: 'missing.txt', index: 1 }],
+          },
+        ],
+      });
+      await pushing.uploadTestsets(sdk, 1, 'dir', cfg, failures);
+      expect(failures).toEqual([
+        'testset tests manual test missing.txt: Manual test file not found: missing.txt',
+        'testset tests tests: Manual test input not found: missing.txt',
+      ]);
+    });
+
+    it('should record a failed generator script upload', async () => {
+      const { sdk, mocks } = buildSdk();
+      mockedExistsSync.mockReturnValue(true);
+      mocks.saveScript.mockImplementation(
+        (_id: number, _n: string, script: string) =>
+          script === ' '
+            ? Promise.resolve(undefined)
+            : Promise.reject(new Error('s'))
+      );
+      const failures: string[] = [];
+      const cfg = asConfig({
+        generators: [{ name: 'gen', source: './gen.cpp' }],
+        testsets: [{ name: 'tests', generatorScript: { script: 'gen 1 > $' } }],
+      });
+      await pushing.uploadTestsets(sdk, 1, 'dir', cfg, failures);
+      expect(failures).toEqual(['testset tests script: s']);
+    });
+
+    it('should record a failed testset clear when enableGroups rejects', async () => {
+      const { sdk, mocks } = buildSdk();
+      mocks.enableGroups.mockRejectedValue(new Error('c'));
+      const failures: string[] = [];
+      const cfg = asConfig({
+        generators: [{ name: 'gen', source: './gen.cpp' }],
+        testsets: [{ name: 'tests', generatorScript: { script: 'gen 1 > $' } }],
+      });
+      await pushing.uploadTestsets(sdk, 1, 'dir', cfg, failures);
+      expect(failures).toEqual(['testset tests clear: c']);
+    });
+
+    it('should record a failed testset clear when saveScript rejects', async () => {
+      const { sdk, mocks } = buildSdk();
+      mocks.saveScript.mockImplementation(
+        (_id: number, _n: string, script: string) =>
+          script === ' '
+            ? Promise.reject(new Error('c'))
+            : Promise.resolve(undefined)
+      );
+      const failures: string[] = [];
+      const cfg = asConfig({
+        generators: [{ name: 'gen', source: './gen.cpp' }],
+        testsets: [{ name: 'tests', generatorScript: { script: 'gen 1 > $' } }],
+      });
+      await pushing.uploadTestsets(sdk, 1, 'dir', cfg, failures);
+      expect(failures).toEqual(['testset tests clear: c']);
+    });
+
+    it('should record a failed enableGroups call', async () => {
+      const { sdk, mocks } = buildSdk();
+      mocks.enableGroups.mockImplementation(
+        (_id: number, _name: string, on: boolean) =>
+          on ? Promise.reject(new Error('g')) : Promise.resolve(undefined)
+      );
+      const failures: string[] = [];
+      const cfg = asConfig({
+        generators: [{ name: 'gen', source: './gen.cpp' }],
+        testsets: [
+          {
+            name: 'tests',
+            groupsEnabled: true,
+            generatorScript: { script: 'gen 1 > $' },
+          },
+        ],
+      });
+      await pushing.uploadTestsets(sdk, 1, 'dir', cfg, failures);
+      expect(failures).toEqual(['testset tests groups: g']);
+    });
+
+    it('should record failed manual test uploads', async () => {
+      const { sdk, mocks } = buildSdk();
+      mockedExistsSync.mockReturnValue(true);
+      mockedReadFileSync.mockReturnValue('m');
+      mocks.saveTest.mockRejectedValue(new Error('m'));
+      const failures: string[] = [];
+      const cfg = asConfig({
+        testsets: [
+          { name: 'tests', manualTests: [{ input: 'm.txt', index: 1 }] },
+        ],
+      });
+      await pushing.uploadTestsets(sdk, 1, 'dir', cfg, failures);
+      expect(failures).toEqual(['testset tests manual test m.txt: m']);
+    });
+
+    it('should await started manual uploads when a later manual file is missing (#115)', async () => {
+      const { sdk, mocks } = buildSdk();
+      mockedExistsSync.mockImplementation(
+        (p: PathLike) => !String(p).endsWith('m2.txt')
+      );
+      mockedReadFileSync.mockReturnValue('m');
+      // A plain function, not vi.fn: vitest attaches a .then to promises
+      // returned by its mocks, which would mark the rejection as handled
+      // and hide the bug.
+      (sdk as unknown as { saveTest: unknown }).saveTest = () =>
+        Promise.reject(new Error('saveTest m1'));
+      const unhandled: unknown[] = [];
+      const onUnhandled = (reason: unknown): void => {
+        unhandled.push(reason);
+      };
+      process.on('unhandledRejection', onUnhandled);
+      const failures: string[] = [];
+      const cfg = asConfig({
+        generators: [{ name: 'gen', source: './gen.cpp' }],
+        testsets: [
+          {
+            name: 'tests',
+            generatorScript: { script: 'gen 1 > $' },
+            manualTests: [
+              { input: 'm1.txt', index: 2 },
+              { input: 'm2.txt', index: 3 },
+            ],
+          },
+        ],
+      });
+      try {
+        const result = await pushing.uploadTestsets(
+          sdk,
+          1,
+          'dir',
+          cfg,
+          failures
+        );
+        await new Promise(resolve => setTimeout(resolve, 20));
+        expect(unhandled).toEqual([]);
+        expect(failures).toEqual([
+          'testset tests manual test m2.txt: Manual test file not found: m2.txt',
+          'testset tests manual test m1.txt: saveTest m1',
+          // The test list cannot be resolved without m2.txt either.
+          'testset tests tests: Manual test input not found: m2.txt',
+        ]);
+        expect(result.manualsCount).toBe(0);
+        // The push goes on with the generator script after the manual tests.
+        expect(mocks.saveScript).toHaveBeenCalledWith(
+          1,
+          'tests',
+          expect.stringContaining('gen 1 > $')
+        );
+      } finally {
+        process.off('unhandledRejection', onUnhandled);
+      }
+    });
+
+    it('should label each manual failure and count only fulfilled uploads when missing, failed and uploaded tests are mixed', async () => {
+      const { sdk, mocks } = buildSdk();
+      mockedExistsSync.mockImplementation(
+        (p: PathLike) => !String(p).endsWith('a.txt')
+      );
+      mockedReadFileSync.mockReturnValue('m');
+      mocks.saveTest.mockImplementation(
+        (_problemId: number, _testset: string, index: number) =>
+          index === 3
+            ? Promise.reject(new Error('saveTest c'))
+            : Promise.resolve()
+      );
+      const failures: string[] = [];
+      const cfg = asConfig({
+        testsets: [
+          {
+            name: 'tests',
+            manualTests: [
+              { input: 'a.txt', index: 1 },
+              { input: 'b.txt', index: 2 },
+              { input: 'c.txt', index: 3 },
+              { input: 'd.txt', index: 4 },
+            ],
+          },
+        ],
+      });
+      const result = await pushing.uploadTestsets(sdk, 1, 'dir', cfg, failures);
+      const savedIndexes = mocks.saveTest.mock.calls.map(
+        call => call[2] as number
+      );
+      expect(savedIndexes).toEqual([2, 3, 4]);
+      expect(result.manualsCount).toBe(2);
+      expect(failures).toEqual([
+        'testset tests manual test a.txt: Manual test file not found: a.txt',
+        'testset tests manual test c.txt: saveTest c',
+        'testset tests tests: Manual test input not found: a.txt',
+      ]);
+    });
+
+    it('should read every manual input before uploading and count only uploaded tests', async () => {
+      const { sdk, mocks } = buildSdk();
+      mockedExistsSync.mockReturnValue(true);
+      mockReadFileSyncWith(p => {
+        if (String(p).endsWith('m2.txt')) throw new Error('EACCES');
+        return 'm';
+      });
+      const failures: string[] = [];
+      const cfg = asConfig({
+        testsets: [
+          {
+            name: 'tests',
+            manualTests: [
+              { input: 'm1.txt', index: 1 },
+              { input: 'm2.txt', index: 2 },
+            ],
+          },
+        ],
+      });
+      const result = await pushing.uploadTestsets(sdk, 1, 'dir', cfg, failures);
+      expect(failures[0]).toBe('testset tests manual test m2.txt: EACCES');
+      expect(mocks.saveTest).toHaveBeenCalledTimes(1);
+      expect(result.manualsCount).toBe(1);
+    });
+
+    it('should record a failure when the tests cannot be resolved', async () => {
+      const { sdk } = buildSdk();
+      const failures: string[] = [];
+      const cfg = asConfig({
+        generators: [{ name: 'gen', source: './gen.cpp' }],
+        testsets: [
+          { name: 'tests', generatorScript: { script: 'unknown 1 > $' } },
+        ],
+      });
+      await pushing.uploadTestsets(sdk, 1, 'dir', cfg, failures);
+      expect(failures).toHaveLength(1);
+      expect(failures[0]).toMatch(/^testset tests tests: /);
+    });
+
+    it('should record a failed setTestGroup call', async () => {
+      const { sdk, mocks } = buildSdk();
+      mocks.setTestGroup.mockRejectedValue(new Error('sg'));
+      const failures: string[] = [];
+      const cfg = asConfig({
+        generators: [{ name: 'gen', source: './gen.cpp' }],
+        testsets: [
+          {
+            name: 'tests',
+            generatorScript: { script: '<#-- @group g1 -->\ngen 1 > $' },
+          },
+        ],
+      });
+      await pushing.uploadTestsets(sdk, 1, 'dir', cfg, failures);
+      expect(failures).toEqual(['testset tests group g1: sg']);
+    });
+
+    it('should leave failures empty when everything uploads', async () => {
+      const { sdk } = buildSdk();
+      mockedExistsSync.mockReturnValue(true);
+      mockedReadFileSync.mockReturnValue('code');
+      const failures: string[] = [];
+      await pushing.uploadSolutions(sdk, 1, 'dir', mockConfig, failures);
+      expect(failures).toEqual([]);
     });
   });
 
@@ -367,6 +963,21 @@ describe('pushing.ts', () => {
         { sourceType: 'cpp.gcc14-64-msys2-g++23', checkExisting: false }
       );
       expect(mocks.setChecker).toHaveBeenCalledWith(1, 'check.cc');
+    });
+
+    it('should reject an unsupported Java checker type without calling the sdk', async () => {
+      const { sdk, mocks } = buildSdk();
+      mockedReadFileSync.mockReturnValue('code');
+      mockedExistsSync.mockReturnValue(true);
+      const cfg = asConfig({
+        checker: { name: 'check', source: 'Check.java', sourceType: 'java.11' },
+      });
+
+      await expect(pushing.uploadChecker(sdk, 1, 'dir', cfg)).rejects.toThrow(
+        /Unsupported Java sourceType 'java.11'/
+      );
+      expect(mocks.saveFile).not.toHaveBeenCalled();
+      expect(mocks.setChecker).not.toHaveBeenCalled();
     });
 
     it('should set standard checker without uploading file', async () => {
@@ -437,26 +1048,46 @@ describe('pushing.ts', () => {
       expect(result).toBe(1);
     });
 
-    it('should swallow malformed checker tests JSON', async () => {
-      const { sdk, mocks } = buildSdk();
-      mockedExistsSync.mockReturnValue(true);
-      mockReadFileSyncWith(p => {
-        if (String(p).includes('tests.json')) return 'not json';
-        return 'code';
-      });
-
-      const cfg = asConfig({
-        checker: {
-          name: 'c',
-          source: 'check.cpp',
-          testsFilePath: 'tests.json',
+    it.each([
+      ['malformed', () => 'not json'],
+      [
+        'unreadable',
+        () => {
+          throw new Error('EACCES');
         },
-      });
+      ],
+    ])(
+      'should record a checker tests file that is %s and keep the checker',
+      async (_kind, readTests) => {
+        const { sdk, mocks } = buildSdk();
+        mockedExistsSync.mockReturnValue(true);
+        mockReadFileSyncWith(p => {
+          if (String(p).includes('tests.json')) return readTests();
+          return 'code';
+        });
 
-      const result = await pushing.uploadChecker(sdk, 1, 'dir', cfg);
-      expect(result).toBe(1);
-      expect(mocks.saveCheckerTest).not.toHaveBeenCalled();
-    });
+        const cfg = asConfig({
+          checker: {
+            name: 'c',
+            source: 'check.cpp',
+            testsFilePath: 'tests.json',
+          },
+        });
+
+        const failures: string[] = [];
+        const result = await pushing.uploadChecker(
+          sdk,
+          1,
+          'dir',
+          cfg,
+          failures
+        );
+        expect(result).toBe(1);
+        expect(mocks.saveCheckerTest).not.toHaveBeenCalled();
+        expect(failures).toHaveLength(1);
+        expect(failures[0]).toMatch(/^checker tests: /);
+      }
+    );
 
     it('should skip incomplete checker tests', async () => {
       const { sdk, mocks } = buildSdk();
@@ -481,6 +1112,185 @@ describe('pushing.ts', () => {
       const result = await pushing.uploadChecker(sdk, 1, 'dir', cfg);
       expect(result).toBe(1);
       expect(mocks.saveCheckerTest).not.toHaveBeenCalled();
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(fmt.warning).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'Skipped checker test #1: missing output, answer, expectedVerdict'
+        )
+      );
+    });
+
+    function checkerCfgWithTests(tests: unknown[]): ConfigFile {
+      mockedExistsSync.mockReturnValue(true);
+      mockReadFileSyncWith(p =>
+        String(p).includes('tests.json') ? JSON.stringify({ tests }) : 'code'
+      );
+      return asConfig({
+        checker: {
+          name: 'c',
+          source: 'check.cpp',
+          testsFilePath: 'tests.json',
+        },
+      });
+    }
+
+    it('should number checker tests without an index (template format)', async () => {
+      const { sdk, mocks } = buildSdk();
+      const cfg = checkerCfgWithTests([
+        {
+          input: 'MY BE INGNORED',
+          output: 'YeS',
+          answer: 'YES',
+          expectedVerdict: 'OK',
+        },
+      ]);
+
+      await pushing.uploadChecker(sdk, 1, 'dir', cfg);
+
+      expect(mocks.saveCheckerTest).toHaveBeenCalledTimes(1);
+      expect(mocks.saveCheckerTest).toHaveBeenCalledWith(
+        1,
+        1,
+        'MY BE INGNORED',
+        'YeS',
+        'YES',
+        'OK'
+      );
+    });
+
+    it('should number several checker tests without an index as 1, 2, 3', async () => {
+      const { sdk, mocks } = buildSdk();
+      const t = { input: 'i', output: 'o', answer: 'a', expectedVerdict: 'OK' };
+      const cfg = checkerCfgWithTests([t, t, t]);
+
+      await pushing.uploadChecker(sdk, 1, 'dir', cfg);
+
+      const indexes = mocks.saveCheckerTest.mock.calls.map(c => c[1] as number);
+      expect(indexes).toEqual([1, 2, 3]);
+    });
+
+    it('should not reuse an index that another checker test declares', async () => {
+      const { sdk, mocks } = buildSdk();
+      const t = { input: 'i', output: 'o', answer: 'a', expectedVerdict: 'OK' };
+      const cfg = checkerCfgWithTests([
+        t,
+        { ...t, index: 1 },
+        t,
+        { ...t, index: 3 },
+      ]);
+
+      await pushing.uploadChecker(sdk, 1, 'dir', cfg);
+
+      const indexes = mocks.saveCheckerTest.mock.calls.map(c => c[1] as number);
+      expect(indexes).toEqual([2, 1, 4, 3]);
+    });
+
+    it('should treat a string index as declared and send it as a number', async () => {
+      const { sdk, mocks } = buildSdk();
+      const t = { input: 'i', output: 'o', answer: 'a', expectedVerdict: 'OK' };
+      const cfg = checkerCfgWithTests([t, t, { ...t, index: '2' }]);
+
+      await pushing.uploadChecker(sdk, 1, 'dir', cfg);
+
+      const indexes = mocks.saveCheckerTest.mock.calls.map(c => c[1] as number);
+      expect(indexes).toEqual([1, 3, 2]);
+    });
+
+    it.each([0, -1, 1.5, 'abc', ''])(
+      'should warn and renumber a checker test with invalid index %j',
+      async bad => {
+        const { sdk, mocks } = buildSdk();
+        const t = {
+          input: 'i',
+          output: 'o',
+          answer: 'a',
+          expectedVerdict: 'OK',
+        };
+        const cfg = checkerCfgWithTests([{ ...t, index: bad }, t]);
+
+        await pushing.uploadChecker(sdk, 1, 'dir', cfg);
+
+        const indexes = mocks.saveCheckerTest.mock.calls.map(
+          c => c[1] as number
+        );
+        expect(indexes).toEqual([1, 2]);
+        // eslint-disable-next-line @typescript-eslint/unbound-method
+        expect(fmt.warning).toHaveBeenCalledWith(
+          expect.stringContaining('Checker test #1 has an invalid index')
+        );
+      }
+    );
+
+    it('should warn when two checker tests declare the same index', async () => {
+      const { sdk, mocks } = buildSdk();
+      const t = { input: 'i', output: 'o', answer: 'a', expectedVerdict: 'OK' };
+      const cfg = checkerCfgWithTests([
+        { ...t, index: 2 },
+        { ...t, index: 2 },
+        t,
+      ]);
+
+      await pushing.uploadChecker(sdk, 1, 'dir', cfg);
+
+      const indexes = mocks.saveCheckerTest.mock.calls.map(c => c[1] as number);
+      expect(indexes).toEqual([2, 2, 1]);
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(fmt.warning).toHaveBeenCalledWith(
+        expect.stringContaining('Checker test #2 repeats index 2')
+      );
+    });
+
+    it('should upload a checker test with an empty output', async () => {
+      const { sdk, mocks } = buildSdk();
+      const cfg = checkerCfgWithTests([
+        { input: 'i', output: '', answer: 'a', expectedVerdict: 'WA' },
+      ]);
+
+      await pushing.uploadChecker(sdk, 1, 'dir', cfg);
+
+      expect(mocks.saveCheckerTest).toHaveBeenCalledWith(
+        1,
+        1,
+        'i',
+        '',
+        'a',
+        'WA'
+      );
+    });
+
+    it('should report only the truly absent field as missing', async () => {
+      const { sdk, mocks } = buildSdk();
+      const cfg = checkerCfgWithTests([
+        { input: 'i', output: '', expectedVerdict: 'OK' },
+      ]);
+
+      await pushing.uploadChecker(sdk, 1, 'dir', cfg);
+
+      expect(mocks.saveCheckerTest).not.toHaveBeenCalled();
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(fmt.warning).toHaveBeenCalledWith(
+        expect.stringMatching(/Skipped checker test #1: missing answer$/)
+      );
+    });
+
+    it('should warn and continue when one checker test fails to upload', async () => {
+      const { sdk, mocks } = buildSdk();
+      mocks.saveCheckerTest
+        .mockRejectedValueOnce(new Error('boom'))
+        .mockResolvedValue(undefined);
+      const t = { input: 'i', output: 'o', answer: 'a', expectedVerdict: 'OK' };
+      const cfg = checkerCfgWithTests([t, t]);
+
+      const result = await pushing.uploadChecker(sdk, 1, 'dir', cfg);
+
+      expect(result).toBe(1);
+      expect(mocks.saveCheckerTest).toHaveBeenCalledTimes(2);
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(fmt.warning).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to upload checker test #1')
+      );
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(fmt.warning).toHaveBeenCalledWith(expect.stringContaining('boom'));
     });
 
     it('should skip tests upload when testsFilePath does not exist on disk', async () => {
@@ -546,6 +1356,25 @@ describe('pushing.ts', () => {
       );
     });
 
+    it('should return 0 and not call the sdk for an unsupported Java validator type', async () => {
+      const { sdk, mocks } = buildSdk();
+      mockedReadFileSync.mockReturnValue('code');
+      mockedExistsSync.mockReturnValue(true);
+      const cfg = asConfig({
+        validator: { name: 'val', source: 'Val.java', sourceType: 'java.11' },
+      });
+
+      const result = await pushing.uploadValidator(sdk, 1, 'dir', cfg);
+
+      expect(result).toBe(0);
+      expect(mocks.saveFile).not.toHaveBeenCalled();
+      expect(mocks.setValidator).not.toHaveBeenCalled();
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(fmt.warning).toHaveBeenCalledWith(
+        expect.stringContaining("Unsupported Java sourceType 'java.11'")
+      );
+    });
+
     it('should return 0 when no validator configured', async () => {
       const { sdk } = buildSdk();
       const result = await pushing.uploadValidator(sdk, 1, 'dir', asConfig({}));
@@ -593,26 +1422,46 @@ describe('pushing.ts', () => {
       );
     });
 
-    it('should ignore malformed validator tests JSON', async () => {
-      const { sdk, mocks } = buildSdk();
-      mockedExistsSync.mockReturnValue(true);
-      mockReadFileSyncWith(p => {
-        if (String(p).includes('tests.json')) return 'not json';
-        return 'code';
-      });
-
-      const cfg = asConfig({
-        validator: {
-          name: 'v',
-          source: 'val.cpp',
-          testsFilePath: 'tests.json',
+    it.each([
+      ['malformed', () => 'not json'],
+      [
+        'unreadable',
+        () => {
+          throw new Error('EACCES');
         },
-      });
+      ],
+    ])(
+      'should record a validator tests file that is %s and keep the validator',
+      async (_kind, readTests) => {
+        const { sdk, mocks } = buildSdk();
+        mockedExistsSync.mockReturnValue(true);
+        mockReadFileSyncWith(p => {
+          if (String(p).includes('tests.json')) return readTests();
+          return 'code';
+        });
 
-      const result = await pushing.uploadValidator(sdk, 1, 'dir', cfg);
-      expect(result).toBe(1);
-      expect(mocks.saveValidatorTest).not.toHaveBeenCalled();
-    });
+        const cfg = asConfig({
+          validator: {
+            name: 'v',
+            source: 'val.cpp',
+            testsFilePath: 'tests.json',
+          },
+        });
+
+        const failures: string[] = [];
+        const result = await pushing.uploadValidator(
+          sdk,
+          1,
+          'dir',
+          cfg,
+          failures
+        );
+        expect(result).toBe(1);
+        expect(mocks.saveValidatorTest).not.toHaveBeenCalled();
+        expect(failures).toHaveLength(1);
+        expect(failures[0]).toMatch(/^validator tests: /);
+      }
+    );
 
     it('should swallow sdk failure and return 0', async () => {
       const { sdk, mocks } = buildSdk();
@@ -681,6 +1530,34 @@ describe('pushing.ts', () => {
       );
     });
 
+    it('should warn and skip a generator with an unsupported Java type, then upload the next', async () => {
+      const { sdk, mocks } = buildSdk();
+      mockedReadFileSync.mockReturnValue('code');
+      mockedExistsSync.mockReturnValue(true);
+      const cfg = asConfig({
+        generators: [
+          { name: 'bad', source: 'Gen.java', sourceType: 'java.21' },
+          { name: 'good', source: 'g1.cpp' },
+        ],
+      });
+
+      const result = await pushing.uploadGenerators(sdk, 1, 'dir', cfg);
+
+      expect(result).toBe(1);
+      expect(mocks.saveFile).toHaveBeenCalledTimes(1);
+      expect(mocks.saveFile).toHaveBeenCalledWith(
+        1,
+        'source',
+        'g1.cpp',
+        'code',
+        expect.objectContaining({ sourceType: 'cpp.g++17' })
+      );
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(fmt.warning).toHaveBeenCalledWith(
+        expect.stringContaining("Unsupported Java sourceType 'java.21'")
+      );
+    });
+
     it('should return 0 when generators undefined', async () => {
       const { sdk } = buildSdk();
       const result = await pushing.uploadGenerators(
@@ -716,7 +1593,7 @@ describe('pushing.ts', () => {
         'source',
         'Gen.java',
         'code',
-        expect.objectContaining({ sourceType: 'java11' })
+        expect.objectContaining({ sourceType: 'java21' })
       );
     });
 
@@ -744,7 +1621,7 @@ describe('pushing.ts', () => {
 
       const result = await pushing.uploadGenerators(sdk, 1, 'dir', cfg);
       expect(result).toBe(0);
-
+      // eslint-disable-next-line @typescript-eslint/unbound-method
       expect(fmt.warning).toHaveBeenCalledWith(
         expect.stringContaining('gen: Polygon API Error: sourceType: unknown')
       );
@@ -1077,7 +1954,7 @@ describe('pushing.ts', () => {
       expect(result.testsCount).toBe(4);
     });
 
-    it('should throw inside manual promise creation when manual file is missing', async () => {
+    it('should not count a manual test whose file is missing', async () => {
       const { sdk } = buildSdk();
       mockedExistsSync.mockReturnValue(false);
 
@@ -1254,6 +2131,249 @@ describe('pushing.ts', () => {
 
       expect(mocks.saveScript).toHaveBeenCalledWith(1, 'tests', 'gen 1 > $');
       expect(result.testsCount).toBe(1);
+    });
+  });
+  describe('paths outside the problem folder', () => {
+    const outside = '../../.ssh/id_rsa';
+
+    beforeEach(() => {
+      mockedExistsSync.mockReturnValue(true);
+      mockedReadFileSync.mockReturnValue('secret');
+    });
+
+    it('should not read or upload a solution outside the folder', async () => {
+      const { sdk, mocks } = buildSdk();
+      const failures: string[] = [];
+      const cfg = asConfig({
+        solutions: [{ name: 'sol', source: outside, tag: 'MA' }],
+      });
+      const result = await pushing.uploadSolutions(
+        sdk,
+        1,
+        'dir',
+        cfg,
+        failures
+      );
+      expect(result).toBe(0);
+      expect(mockedReadFileSync).not.toHaveBeenCalled();
+      expect(mocks.saveSolution).not.toHaveBeenCalled();
+      expect(failures).toEqual([
+        `solution sol: Refusing path outside the problem folder: ${outside}`,
+      ]);
+    });
+
+    it('should throw for a checker outside the folder', async () => {
+      const { sdk, mocks } = buildSdk();
+      const cfg = asConfig({
+        checker: { name: 'check', source: '../check.cpp' },
+      });
+      await expect(pushing.uploadChecker(sdk, 1, 'dir', cfg)).rejects.toThrow(
+        'Refusing path outside the problem folder: ../check.cpp'
+      );
+      expect(mockedReadFileSync).not.toHaveBeenCalled();
+      expect(mocks.saveFile).not.toHaveBeenCalled();
+    });
+
+    it('should upload nothing when checker tests are outside the folder', async () => {
+      const { sdk, mocks } = buildSdk();
+      const cfg = asConfig({
+        checker: {
+          name: 'check',
+          source: 'check.cpp',
+          testsFilePath: outside,
+        },
+      });
+      await expect(pushing.uploadChecker(sdk, 1, 'dir', cfg)).rejects.toThrow(
+        /Refusing path outside the problem folder/
+      );
+      expect(mocks.saveFile).not.toHaveBeenCalled();
+      expect(mocks.setChecker).not.toHaveBeenCalled();
+      expect(mocks.saveCheckerTest).not.toHaveBeenCalled();
+    });
+
+    it('should upload nothing when validator tests are outside the folder', async () => {
+      const { sdk, mocks } = buildSdk();
+      const failures: string[] = [];
+      const cfg = asConfig({
+        validator: {
+          name: 'val',
+          source: 'val.cpp',
+          testsFilePath: outside,
+        },
+      });
+      const result = await pushing.uploadValidator(
+        sdk,
+        1,
+        'dir',
+        cfg,
+        failures
+      );
+      expect(result).toBe(0);
+      expect(mocks.saveFile).not.toHaveBeenCalled();
+      expect(mocks.setValidator).not.toHaveBeenCalled();
+      expect(mocks.saveValidatorTest).not.toHaveBeenCalled();
+      expect(failures).toEqual([
+        `validator: Refusing path outside the problem folder: ${outside}`,
+      ]);
+    });
+
+    it('should not read a validator outside the folder', async () => {
+      const { sdk, mocks } = buildSdk();
+      const failures: string[] = [];
+      const cfg = asConfig({
+        validator: { name: 'val', source: '../val.cpp' },
+      });
+      const result = await pushing.uploadValidator(
+        sdk,
+        1,
+        'dir',
+        cfg,
+        failures
+      );
+      expect(result).toBe(0);
+      expect(mockedReadFileSync).not.toHaveBeenCalled();
+      expect(mocks.saveFile).not.toHaveBeenCalled();
+      expect(failures).toEqual([
+        'validator: Refusing path outside the problem folder: ../val.cpp',
+      ]);
+    });
+
+    it('should not read a generator outside the folder', async () => {
+      const { sdk, mocks } = buildSdk();
+      const failures: string[] = [];
+      const cfg = asConfig({
+        generators: [{ name: 'gen', source: '../gen.cpp' }],
+      });
+      await pushing.uploadGenerators(sdk, 1, 'dir', cfg, failures);
+      expect(mockedReadFileSync).not.toHaveBeenCalled();
+      expect(mocks.saveFile).not.toHaveBeenCalled();
+      expect(failures).toEqual([
+        'generator gen: Refusing path outside the problem folder: ../gen.cpp',
+      ]);
+    });
+
+    it.each([
+      'legend',
+      'input',
+      'output',
+      'notes',
+      'tutorial',
+      'interaction',
+      'scoring',
+    ])('should not read statement %s outside the folder', async field => {
+      const { sdk, mocks } = buildSdk();
+      const failures: string[] = [];
+      const cfg = asConfig({
+        name: 'Prob',
+        statements: {
+          english: { encoding: 'UTF-8', name: 'Prob', [field]: outside },
+        },
+      });
+      await pushing.uploadStatements(sdk, 1, 'dir', cfg, failures);
+      expect(mockedReadFileSync).not.toHaveBeenCalled();
+      expect(mocks.saveStatement).not.toHaveBeenCalled();
+      expect(failures).toEqual([
+        `statement english: Refusing path outside the problem folder: ${outside}`,
+      ]);
+    });
+
+    it('should refuse an absolute solution path outside the folder', async () => {
+      const { sdk, mocks } = buildSdk();
+      const failures: string[] = [];
+      const cfg = asConfig({
+        solutions: [{ name: 'sol', source: '/etc/passwd', tag: 'MA' }],
+      });
+      const result = await pushing.uploadSolutions(
+        sdk,
+        1,
+        'dir',
+        cfg,
+        failures
+      );
+      expect(result).toBe(0);
+      expect(mockedReadFileSync).not.toHaveBeenCalled();
+      expect(mocks.saveSolution).not.toHaveBeenCalled();
+      expect(failures).toEqual([
+        'solution sol: Refusing path outside the problem folder: /etc/passwd',
+      ]);
+    });
+
+    it('should refuse an absolute statement path outside the folder', async () => {
+      const { sdk, mocks } = buildSdk();
+      const failures: string[] = [];
+      const cfg = asConfig({
+        name: 'Prob',
+        statements: {
+          english: {
+            encoding: 'UTF-8',
+            name: 'Prob',
+            legend: '/etc/passwd',
+          },
+        },
+      });
+      await pushing.uploadStatements(sdk, 1, 'dir', cfg, failures);
+      expect(mockedReadFileSync).not.toHaveBeenCalled();
+      expect(mocks.saveStatement).not.toHaveBeenCalled();
+      expect(failures).toEqual([
+        'statement english: Refusing path outside the problem folder: /etc/passwd',
+      ]);
+    });
+
+    it('should not read a manual test outside the folder', async () => {
+      const { sdk, mocks } = buildSdk();
+      const failures: string[] = [];
+      const cfg = asConfig({
+        testsets: [
+          { name: 'tests', manualTests: [{ input: '../t.txt', index: 1 }] },
+        ],
+      });
+      await pushing.uploadTestsets(sdk, 1, 'dir', cfg, failures);
+      expect(mocks.saveTest).not.toHaveBeenCalled();
+      expect(failures).toEqual([
+        'testset tests: Refusing path outside the problem folder: ../t.txt',
+      ]);
+    });
+
+    it('should refuse a generator scriptFile outside the folder', async () => {
+      const { sdk, mocks } = buildSdk();
+      const failures: string[] = [];
+      const cfg = asConfig({
+        testsets: [{ name: 'tests', generatorScript: { scriptFile: '../x' } }],
+      });
+      await pushing.uploadTestsets(sdk, 1, 'dir', cfg, failures);
+      expect(mocks.saveScript).not.toHaveBeenCalled();
+      expect(failures).toEqual([
+        'testset tests: Refusing path outside the problem folder: ../x',
+      ]);
+    });
+
+    it('should refuse a manual test outside the folder before clearing the testset', async () => {
+      const { sdk, mocks } = buildSdk();
+      const cfg = asConfig({
+        testsets: [
+          {
+            name: 'tests',
+            manualTests: [
+              { input: 'ok.txt', index: 1 },
+              { input: '../t.txt', index: 2 },
+            ],
+          },
+        ],
+      });
+      await pushing.uploadTestsets(sdk, 1, 'dir', cfg, []);
+      expect(mocks.enableGroups).not.toHaveBeenCalled();
+      expect(mocks.saveScript).not.toHaveBeenCalled();
+      expect(mocks.saveTest).not.toHaveBeenCalled();
+    });
+
+    it('should still read a file whose name starts with two dots', async () => {
+      const { sdk, mocks } = buildSdk();
+      const cfg = asConfig({
+        solutions: [{ name: 'sol', source: '..sol.cpp', tag: 'MA' }],
+      });
+      const result = await pushing.uploadSolutions(sdk, 1, 'dir', cfg);
+      expect(result).toBe(1);
+      expect(mocks.saveSolution).toHaveBeenCalled();
     });
   });
 });

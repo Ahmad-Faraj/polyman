@@ -1,0 +1,12 @@
+{
+  "description": "Cloud Run moved to the gen2 execution environment (no gVisor sandbox)",
+  "expect": "run-gen1",
+  "ops": [
+    {
+      "op": "set",
+      "address": "google_cloud_run_v2_service.verify",
+      "path": ["template", 0, "execution_environment"],
+      "value": "EXECUTION_ENVIRONMENT_GEN2"
+    }
+  ]
+}

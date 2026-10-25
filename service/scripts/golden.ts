@@ -1,0 +1,312 @@
+/**
+ * Runs every sample problem against a running service and compares the result
+ * with what it should be (samples/NAME.expected.json in this repository, not
+ * what the service says): whether the problem passed, which solutions matched
+ * their tags, and which guideline checks failed. CI uses it three times:
+ * against the image built in the pipeline, against the candidate revision
+ * before it gets traffic, and against production after the switch.
+ *
+ *   node service/scripts/golden.ts https://verify.example.run.app [--json report.json] [--traffic traffic.json]
+ *
+ * One sample also goes through the upload route (/api/verify) as a zip, the
+ * way visitors send problems, so the gate covers that path too.
+ *
+ * --traffic also writes what each route did (requests, share of wrong or
+ * failed answers, p95 time) in the shape engine/src/cli/monitor.ts reads, so
+ * the release monitor can check the routes the review asked it to watch.
+ *
+ * Exits 1 if any sample differs or is missing from the service, or the
+ * service can't be reached; 2 on bad usage.
+ */
+import { readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { join, relative } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { crc32 } from 'node:zlib';
+
+export interface Expected {
+  ok: boolean;
+  solutions: Record<string, boolean>;
+  readinessFailures: string[];
+}
+
+export interface SampleResult {
+  sample: string;
+  ok: boolean;
+  seconds: number;
+  differences: string[];
+}
+
+/** One request golden.ts sent, by route as .autonomy.yml (monitor.measured_routes) names it. */
+export interface RouteCall {
+  route: string;
+  /** false when the request failed or the answer was wrong */
+  ok: boolean;
+  seconds: number;
+}
+
+export interface RouteStats {
+  count: number;
+  errorRate: number;
+  p95Ms: number;
+}
+
+interface ProblemEvent {
+  type: 'problem';
+  ok: boolean;
+  seconds: number;
+  error?: string;
+  report: { solutions: { name: string; matchesTag: boolean }[] } | null;
+  readiness: { id: string; ok: boolean }[];
+}
+
+/** What differs between a run and what the sample should give; empty when they agree. */
+export function compare(expected: Expected, got: ProblemEvent | undefined): string[] {
+  if (!got) return ['no result came back'];
+  const diffs: string[] = [];
+  if (got.ok !== expected.ok) diffs.push(`expected ok=${expected.ok}, got ok=${got.ok}${got.error ? ` (${got.error})` : ''}`);
+  const solutions = new Map((got.report?.solutions ?? []).map((s) => [s.name, s.matchesTag]));
+  for (const [name, matches] of Object.entries(expected.solutions)) {
+    if (!solutions.has(name)) diffs.push(`solution ${name} is missing from the report`);
+    else if (solutions.get(name) !== matches) diffs.push(`solution ${name}: expected matchesTag=${matches}, got ${solutions.get(name)}`);
+  }
+  const failed = got.readiness.filter((c) => !c.ok).map((c) => c.id).sort();
+  const want = [...expected.readinessFailures].sort();
+  if (failed.join() !== want.join()) diffs.push(`guideline failures: expected [${want.join(', ')}], got [${failed.join(', ')}]`);
+  return diffs;
+}
+
+/** Reads one streamed answer: the problem result, plus whatever went wrong with the stream itself. */
+export function readStream(text: string): { problem?: ProblemEvent; problems: string[] } {
+  const problems: string[] = [];
+  let problem: ProblemEvent | undefined;
+  let done = false;
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+    let ev: { type?: string; message?: string };
+    try {
+      ev = JSON.parse(line);
+    } catch {
+      problems.push(`unreadable line: ${line.slice(0, 120)}`);
+      continue;
+    }
+    if (ev.type === 'problem') problem = ev as ProblemEvent;
+    else if (ev.type === 'error') problems.push(`the service reported an error: ${ev.message}`);
+    else if (ev.type === 'done') done = true;
+  }
+  if (!done) problems.push('the answer ended without a "done" event');
+  return { problem, problems };
+}
+
+/**
+ * A fire drill: the first sample's expected result turned around, so a correct
+ * service fails the check exactly as a service that judges wrongly would. Lets
+ * a person rehearse the rollback and the incident on demand.
+ */
+export function drillExpected(expected: Map<string, Expected>): { expected: Map<string, Expected>; sample: string } {
+  const [sample, want] = [...expected][0] ?? [];
+  if (!sample || !want) throw new Error('no sample to turn around for the drill');
+  return { expected: new Map([...expected].map(([name, w]) => [name, name === sample ? { ...w, ok: !w.ok } : w])), sample };
+}
+
+/** The expected results kept in this repository, by sample name. */
+export function expectedSamples(dir = fileURLToPath(new URL('../samples/', import.meta.url))): Map<string, Expected> {
+  const out = new Map<string, Expected>();
+  for (const file of readdirSync(dir).filter((f) => f.endsWith('.expected.json')).sort()) {
+    out.set(file.replace(/\.expected\.json$/, ''), JSON.parse(readFileSync(`${dir}/${file}`, 'utf8')) as Expected);
+  }
+  return out;
+}
+
+/** The calls grouped by route, as monitor.ts expects them in traffic.json. */
+export function trafficFrom(calls: RouteCall[]): Record<string, RouteStats> {
+  const routes: Record<string, RouteStats> = {};
+  for (const route of [...new Set(calls.map((c) => c.route))]) {
+    const mine = calls.filter((c) => c.route === route);
+    const ms = mine.map((c) => c.seconds * 1000).sort((a, b) => a - b);
+    routes[route] = {
+      count: mine.length,
+      errorRate: mine.filter((c) => !c.ok).length / mine.length,
+      // nearest rank: with few requests this is the slowest one
+      p95Ms: Math.round(ms[Math.ceil(ms.length * 0.95) - 1]),
+    };
+  }
+  return routes;
+}
+
+const timeout = (ms: number) => AbortSignal.timeout(ms);
+const samplesDir = fileURLToPath(new URL('../samples/', import.meta.url));
+
+/**
+ * A request, waiting out 429s: on a live service real visitors may hold every
+ * instance (a whole contest can take most of an hour), and a busy service is
+ * not a broken one. 15 s apart, for up to an hour by default. `sentAt` is when
+ * the answered request went out, so the time spent waiting isn't counted as
+ * the route being slow.
+ */
+async function whenFree(url: string, init: RequestInit = {}, waitMs = 15_000, tries = 240): Promise<{ res: Response; sentAt: number }> {
+  for (let i = 1; ; i++) {
+    const sentAt = Date.now();
+    const res = await fetch(url, { ...init, signal: timeout(init.method === 'POST' ? 60 * 60_000 : 30_000) });
+    if (res.status !== 429 || i >= tries) return { res, sentAt };
+    await res.body?.cancel();
+    await new Promise((r) => setTimeout(r, waitMs));
+  }
+}
+
+/** A zip (stored, not compressed) of a folder: enough for the upload route, no dependency. */
+export function zipFolder(dir: string, prefix: string): Buffer {
+  const files: string[] = [];
+  const walk = (d: string) => {
+    for (const name of readdirSync(d).sort()) {
+      const path = join(d, name);
+      if (statSync(path).isDirectory()) walk(path);
+      else files.push(path);
+    }
+  };
+  walk(dir);
+  const local: Buffer[] = [];
+  const central: Buffer[] = [];
+  let offset = 0;
+  for (const path of files) {
+    const name = Buffer.from(`${prefix}/${relative(dir, path).split('\\').join('/')}`);
+    const data = readFileSync(path);
+    const crc = crc32(data);
+    const head = Buffer.alloc(30);
+    head.writeUInt32LE(0x04034b50, 0);
+    head.writeUInt16LE(20, 4);
+    head.writeUInt32LE(crc, 14);
+    head.writeUInt32LE(data.length, 18);
+    head.writeUInt32LE(data.length, 22);
+    head.writeUInt16LE(name.length, 26);
+    local.push(head, name, data);
+    const entry = Buffer.alloc(46);
+    entry.writeUInt32LE(0x02014b50, 0);
+    entry.writeUInt16LE(20, 4);
+    entry.writeUInt16LE(20, 6);
+    entry.writeUInt32LE(crc, 16);
+    entry.writeUInt32LE(data.length, 20);
+    entry.writeUInt32LE(data.length, 24);
+    entry.writeUInt16LE(name.length, 28);
+    entry.writeUInt32LE(offset, 42);
+    central.push(entry, name);
+    offset += head.length + name.length + data.length;
+  }
+  const dirBytes = Buffer.concat(central);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(files.length, 8);
+  end.writeUInt16LE(files.length, 10);
+  end.writeUInt32LE(dirBytes.length, 12);
+  end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...local, dirBytes, end]);
+}
+
+/**
+ * `uploadSample`: which sample also goes through the upload route (default: the first; null: none).
+ * `calls` gets every request that was answered, for the traffic file.
+ */
+export async function runGolden(
+  base: string,
+  expected = expectedSamples(),
+  waitMs?: number,
+  uploadSample?: string | null,
+  calls: RouteCall[] = [],
+): Promise<SampleResult[]> {
+  const { res: listed, sentAt } = await whenFree(`${base}/api/samples`, {}, waitMs);
+  const listing: RouteCall = { route: 'GET /api/samples', ok: listed.ok, seconds: (Date.now() - sentAt) / 1000 };
+  calls.push(listing);
+  if (!listed.ok) throw new Error(`GET /api/samples answered HTTP ${listed.status}`);
+  const text = await listed.text();
+  let names: string[];
+  try {
+    const list = JSON.parse(text) as unknown;
+    if (!Array.isArray(list)) throw new Error('not a list');
+    names = list.map((s: { name?: unknown }) => String(s?.name));
+  } catch {
+    // a 200 that isn't the sample list is a failed request, not a working route
+    listing.ok = false;
+    throw new Error(`GET /api/samples answered HTTP ${listed.status} without a JSON list: ${text.slice(0, 120)}`);
+  }
+  const offered = new Set(names);
+  listing.seconds = (Date.now() - sentAt) / 1000;
+  // a list without one of the samples is a wrong answer from this route
+  listing.ok = [...expected.keys()].every((name) => offered.has(name));
+
+  const results: SampleResult[] = [];
+  for (const [name, want] of expected) {
+    const started = Date.now();
+    let differences: string[];
+    if (!offered.has(name)) {
+      differences = ['the service does not offer this sample'];
+    } else {
+      differences = await check(`${base}/api/samples/${encodeURIComponent(name)}/verify`, {}, want, waitMs, 'POST /api/samples/:name/verify', calls);
+    }
+    results.push({ sample: name, ok: differences.length === 0, seconds: (Date.now() - started) / 1000, differences });
+  }
+
+  // the upload route, with the first sample as a visitor would send it
+  const upload = uploadSample === undefined ? [...expected.keys()][0] : uploadSample;
+  if (upload && offered.has(upload)) {
+    const started = Date.now();
+    const body = new FormData();
+    body.append('problem', new Blob([new Uint8Array(zipFolder(join(samplesDir, upload), upload))], { type: 'application/zip' }), `${upload}.zip`);
+    const differences = await check(`${base}/api/verify`, { body }, expected.get(upload)!, waitMs, 'POST /api/verify', calls);
+    results.push({ sample: `${upload} (uploaded as a zip)`, ok: differences.length === 0, seconds: (Date.now() - started) / 1000, differences });
+  }
+  return results;
+}
+
+async function check(url: string, init: RequestInit, want: Expected, waitMs: number | undefined, route: string, calls: RouteCall[]): Promise<string[]> {
+  const { res, sentAt } = await whenFree(url, { ...init, method: 'POST' }, waitMs);
+  const text = await res.text();
+  let differences = [`HTTP ${res.status}: ${text.slice(0, 200)}`];
+  if (res.ok) {
+    const { problem, problems } = readStream(text);
+    differences = [...problems, ...compare(want, problem)];
+  }
+  calls.push({ route, ok: differences.length === 0, seconds: (Date.now() - sentAt) / 1000 });
+  return differences;
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const base = (process.argv[2] ?? '').replace(/\/$/, '');
+  if (!/^https?:\/\//.test(base)) {
+    console.error('usage: golden.ts BASE_URL [--json FILE] [--traffic FILE] [--drill]');
+    process.exit(2);
+  }
+  const jsonAt = process.argv.indexOf('--json');
+  const trafficAt = process.argv.indexOf('--traffic');
+  const calls: RouteCall[] = [];
+  // the sample a drill turned around, recorded so the incident responder can tell a drill from an outage
+  let drilled: string | undefined;
+  const write = (body: object) => {
+    if (jsonAt > 0) writeFileSync(process.argv[jsonAt + 1], JSON.stringify({ base, ...(drilled ? { drill: drilled } : {}), ...body }, null, 2));
+    if (trafficAt > 0) writeFileSync(process.argv[trafficAt + 1], JSON.stringify({ base, routes: trafficFrom(calls) }, null, 2));
+  };
+  let expected = expectedSamples();
+  if (process.argv.includes('--drill') && expected.size) {
+    const drill = drillExpected(expected);
+    expected = drill.expected;
+    drilled = drill.sample;
+    console.log(`DRILL: the expected result for ${drill.sample} is turned around on purpose. A failure below is the drill working, not the service judging wrongly.`);
+  }
+  if (!expected.size) {
+    console.error('no samples with an expected result in service/samples');
+    write({ error: 'no expected samples' });
+    process.exit(1);
+  }
+  let results: SampleResult[];
+  try {
+    results = await runGolden(base, expected, undefined, undefined, calls);
+  } catch (err) {
+    console.error(`could not check ${base}: ${(err as Error).message}`);
+    write({ error: (err as Error).message });
+    process.exit(1);
+  }
+  for (const r of results) {
+    console.log(`${r.ok ? 'ok  ' : 'FAIL'} ${r.sample} (${r.seconds.toFixed(1)} s)`);
+    for (const d of r.differences) console.log(`     ${d}`);
+  }
+  write({ results });
+  if (results.some((r) => !r.ok)) process.exit(1);
+}

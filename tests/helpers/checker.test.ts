@@ -3,10 +3,13 @@ import type ConfigFile from '../../src/types';
 import type { CheckerVerdict, LocalChecker } from '../../src/types';
 import type { ExecutionOptions, ExecutionResult } from '../../src/executor';
 import * as checker from '../../src/helpers/checker';
+import { LimitExceededError, PolymanError } from '../../src/errors';
 import { executor } from '../../src/executor';
+import { report } from '../../src/report';
 import * as utils from '../../src/helpers/utils';
 import { fmt } from '../../src/formatter';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 
 // Mock dependencies
@@ -131,19 +134,17 @@ type ReadFileSimulator = (filePath: string) => {
 };
 
 function installReadFileMock(simulator: ReadFileSimulator): void {
-  mockedFsReadFile.mockImplementation(
-    (
-      filePath: fs.PathOrFileDescriptor,
-      optionsOrCb: unknown,
-      maybeCb?: unknown
-    ) => {
-      const callback = (
-        typeof optionsOrCb === 'function' ? optionsOrCb : maybeCb
-      ) as (err: NodeJS.ErrnoException | null, data: string) => void;
-      const result = simulator(String(filePath));
-      callback(result.err, result.data);
-    }
-  );
+  mockedFsReadFile.mockImplementation(((
+    filePath: fs.PathOrFileDescriptor,
+    optionsOrCb: unknown,
+    maybeCb?: unknown
+  ) => {
+    const callback = (
+      typeof optionsOrCb === 'function' ? optionsOrCb : maybeCb
+    ) as (err: NodeJS.ErrnoException | null, data: string) => void;
+    const result = simulator(String(filePath));
+    callback(result.err, result.data);
+  }) as unknown as typeof fs.readFile);
 }
 
 describe('checker.ts', () => {
@@ -287,6 +288,54 @@ describe('checker.ts', () => {
       ).rejects.toThrow('Wrong answer expected...');
     });
 
+    it('should throw a PresentationError if expected OK and the checker exits with code 2', async () => {
+      mockedExecute.mockImplementation(
+        (_cmd: string, options: ExecutionOptions) => {
+          const failResult = makeExecResult({
+            stderr: 'FAIL wrong output format',
+            exitCode: 2,
+            success: false,
+          });
+          if (options.onError) {
+            options.onError(failResult);
+          }
+          return Promise.resolve(failResult);
+        }
+      );
+
+      const rejection = checker.runChecker(
+        mockExecCommand,
+        mockInput,
+        mockOutput,
+        mockAnswer,
+        'OK'
+      );
+      await expect(rejection).rejects.toBeInstanceOf(checker.PresentationError);
+      await expect(rejection).rejects.toThrow('FAIL wrong output format');
+    });
+
+    it('should throw a plain Error, not a PresentationError, for exit code 1', async () => {
+      mockedExecute.mockImplementation(
+        (_cmd: string, options: ExecutionOptions) => {
+          const failResult = makeExecResult({
+            stderr: 'wrong answer',
+            exitCode: 1,
+            success: false,
+          });
+          if (options.onError) {
+            options.onError(failResult);
+          }
+          return Promise.resolve(failResult);
+        }
+      );
+
+      const error = await checker
+        .runChecker(mockExecCommand, mockInput, mockOutput, mockAnswer, 'OK')
+        .catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(Error);
+      expect(error).not.toBeInstanceOf(checker.PresentationError);
+    });
+
     it('should throw "Expected OK but got WA" if stderr is empty on failure', async () => {
       mockedExecute.mockImplementation(
         (_cmd: string, options: ExecutionOptions) => {
@@ -358,74 +407,312 @@ describe('checker.ts', () => {
       ).rejects.toThrow('Expected WA but got OK');
     });
 
-    it('should handle timeout callback correctly', async () => {
+    describe('expected failure verdicts', () => {
+      function mockCheckerExit(exitCode: number): void {
+        mockedExecute.mockImplementation(
+          (_cmd: string, options: ExecutionOptions) => {
+            const result = makeExecResult({
+              stderr: 'checker said no',
+              exitCode,
+              success: exitCode === 0,
+            });
+            if (exitCode !== 0 && options.onError) {
+              options.onError(result);
+            }
+            return Promise.resolve(result);
+          }
+        );
+      }
+
+      const run = (verdict: string) =>
+        checker.runChecker(
+          mockExecCommand,
+          mockInput,
+          mockOutput,
+          mockAnswer,
+          verdict as CheckerVerdict
+        );
+
+      it.each(['WRONG_ANSWER', 'wrong_answer', 'WA'])(
+        'should fail expected %s when the checker accepts the output',
+        async verdict => {
+          mockCheckerExit(0);
+          await expect(run(verdict)).rejects.toThrow(
+            `Expected ${verdict} but got OK`
+          );
+        }
+      );
+
+      it.each(['PRESENTATION_ERROR', 'PE'])(
+        'should fail expected %s when the checker accepts the output',
+        async verdict => {
+          mockCheckerExit(0);
+          await expect(run(verdict)).rejects.toThrow(
+            `Expected ${verdict} but got OK`
+          );
+        }
+      );
+
+      it.each(['WRONG_ANSWER', 'WA'])(
+        'should pass expected %s when the checker exits with 1',
+        async verdict => {
+          mockCheckerExit(1);
+          await expect(run(verdict)).resolves.toBeUndefined();
+        }
+      );
+
+      it.each(['PRESENTATION_ERROR', 'PE'])(
+        'should pass expected %s when the checker exits with 2',
+        async verdict => {
+          mockCheckerExit(2);
+          await expect(run(verdict)).resolves.toBeUndefined();
+        }
+      );
+
+      it.each(['PRESENTATION_ERROR', 'PE'])(
+        'should fail expected %s when the checker reports a wrong answer',
+        async verdict => {
+          mockCheckerExit(1);
+          await expect(run(verdict)).rejects.toThrow(
+            `Expected ${verdict} but got WA`
+          );
+        }
+      );
+
+      it.each(['WRONG_ANSWER', 'WA'])(
+        'should fail expected %s when the checker reports a presentation error',
+        async verdict => {
+          mockCheckerExit(2);
+          await expect(run(verdict)).rejects.toThrow(
+            `Expected ${verdict} but got PE`
+          );
+        }
+      );
+
+      it.each(['CRASHED', 'crashed', 'Crashed'])(
+        'should fail expected %s when the checker accepts the output',
+        async verdict => {
+          mockCheckerExit(0);
+          await expect(run(verdict)).rejects.toThrow(
+            `Expected ${verdict} but got OK`
+          );
+        }
+      );
+
+      it('should fail expected CRASHED when the checker reports a wrong answer', async () => {
+        mockCheckerExit(1);
+        await expect(run('CRASHED')).rejects.toThrow(
+          'Expected CRASHED but got WA'
+        );
+      });
+
+      it('should fail expected CRASHED when the checker reports a presentation error', async () => {
+        mockCheckerExit(2);
+        await expect(run('CRASHED')).rejects.toThrow(
+          'Expected CRASHED but got PE'
+        );
+      });
+
+      it.each([4, 5, 7, 8, 16, 17, 50])(
+        'should fail expected CRASHED on testlib verdict exit code %i',
+        async exitCode => {
+          mockCheckerExit(exitCode);
+          await expect(run('CRASHED')).rejects.toThrow(
+            `Expected CRASHED but got exit code ${exitCode}`
+          );
+        }
+      );
+
+      it.each([3, 6, 9, 15, 134, 139])(
+        'should pass expected CRASHED on exit code %i',
+        async exitCode => {
+          mockCheckerExit(exitCode);
+          await expect(run('CRASHED')).resolves.toBeUndefined();
+          await expect(run('crashed')).resolves.toBeUndefined();
+        }
+      );
+
+      describe('a checker killed by a signal (exit code 128 + signal)', () => {
+        const segv = 128 + os.constants.signals.SIGSEGV;
+
+        it.each(['CRASHED', 'crashed'])(
+          'should pass expected %s on SIGSEGV',
+          async verdict => {
+            mockCheckerExit(segv);
+            await expect(run(verdict)).resolves.toBeUndefined();
+          }
+        );
+
+        it('should fail expected OK', async () => {
+          mockCheckerExit(segv);
+          await expect(run('OK')).rejects.toThrow('checker said no');
+        });
+
+        it.each([
+          ['WA', 'WRONG_ANSWER'],
+          ['WRONG_ANSWER', 'WRONG_ANSWER'],
+          ['PE', 'PRESENTATION_ERROR'],
+          ['PRESENTATION_ERROR', 'PRESENTATION_ERROR'],
+        ])('should fail expected %s', async verdict => {
+          mockCheckerExit(segv);
+          await expect(run(verdict)).rejects.toThrow(
+            `Expected ${verdict} but got exit code ${segv}`
+          );
+        });
+      });
+
+      it('should fail expected WRONG_ANSWER on an unrelated exit code', async () => {
+        mockCheckerExit(3);
+        await expect(run('WRONG_ANSWER')).rejects.toThrow(
+          'Expected WRONG_ANSWER but got exit code 3'
+        );
+      });
+    });
+
+    it('should throw a PolymanError with code 1 on a checker timeout', async () => {
       const exitSpy = vi
         .spyOn(process, 'exit')
         .mockImplementation((() => undefined) as (code?: number) => never);
 
       mockedExecute.mockImplementation(
         (_cmd: string, options: ExecutionOptions) => {
-          if (options.onTimeout) {
-            options.onTimeout(
-              makeExecResult({ exitCode: 124, success: false })
-            );
-          }
+          options.onTimeout?.(
+            makeExecResult({ exitCode: 124, success: false })
+          );
           return Promise.resolve(
             makeExecResult({ exitCode: 124, success: false })
           );
         }
       );
 
-      await checker.runChecker(
-        mockExecCommand,
-        mockInput,
-        mockOutput,
-        mockAnswer,
-        'OK'
-      ); // This shouldn't throw in itself because onTimeout calls process.exit, but we mocked process.exit.
-      // Wait, executor.execute itself finishes. runChecker returns void.
-      // If onTimeout is called, 'didCatchInvalid' is NOT set to true.
-      // If expectedVerdict is OK, runChecker might not throw, but in reality process.exit kills it.
-      // We just verify callbacks here.
+      const error = await checker
+        .runChecker(mockExecCommand, mockInput, mockOutput, mockAnswer, 'OK')
+        .catch((e: unknown) => e);
 
+      expect(error).toBeInstanceOf(PolymanError);
+      expect((error as PolymanError).exitCode).toBe(1);
+      expect((error as PolymanError).message).toContain('time limit');
       expect(mockedFmtError).toHaveBeenCalledWith(
         expect.stringContaining('Checker Unexpectedly Exceeded Time Limit')
       );
       expect(mockedCleanup).toHaveBeenCalled();
-      expect(exitSpy).toHaveBeenCalledWith(1);
+      expect(exitSpy).not.toHaveBeenCalled();
     });
 
-    it('should handle memory limit callback correctly', async () => {
+    it('should throw a PolymanError with code 1 on a checker memory limit', async () => {
       const exitSpy = vi
         .spyOn(process, 'exit')
         .mockImplementation((() => undefined) as (code?: number) => never);
 
       mockedExecute.mockImplementation(
         (_cmd: string, options: ExecutionOptions) => {
-          if (options.onMemoryExceeded) {
-            options.onMemoryExceeded(
-              makeExecResult({ exitCode: 137, success: false })
-            );
-          }
+          options.onMemoryExceeded?.(
+            makeExecResult({ exitCode: 137, success: false })
+          );
           return Promise.resolve(
             makeExecResult({ exitCode: 137, success: false })
           );
         }
       );
 
-      await checker.runChecker(
-        mockExecCommand,
-        mockInput,
-        mockOutput,
-        mockAnswer,
-        'OK'
-      );
+      const error = await checker
+        .runChecker(mockExecCommand, mockInput, mockOutput, mockAnswer, 'OK')
+        .catch((e: unknown) => e);
 
+      expect(error).toBeInstanceOf(PolymanError);
+      expect((error as PolymanError).exitCode).toBe(1);
+      expect((error as PolymanError).message).toContain('memory limit');
       expect(mockedFmtError).toHaveBeenCalledWith(
         expect.stringContaining('Checker Unexpectedly Exceeded Memory Limit')
       );
       expect(mockedCleanup).toHaveBeenCalled();
-      expect(exitSpy).toHaveBeenCalledWith(1);
+      expect(exitSpy).not.toHaveBeenCalled();
+    });
+
+    it('should stop runCheckerTests at the first limit hit instead of counting it', async () => {
+      // The real throwError rethrows an Error as it is; the file-level mock
+      // wraps it, which would hide the error class.
+      vi.mocked(utils.throwError).mockImplementationOnce((err: unknown) => {
+        throw err;
+      });
+      mockedGetCompiledCommandToRun.mockReturnValue('./checker');
+      installReadFileMock(() => ({
+        err: null,
+        data: JSON.stringify({
+          tests: [
+            { input: '1', output: '1', answer: '1', expectedVerdict: 'OK' },
+            { input: '2', output: '2', answer: '2', expectedVerdict: 'OK' },
+          ],
+        }),
+      }));
+      mockedExecute.mockImplementation(
+        (_cmd: string, options: ExecutionOptions) => {
+          options.onTimeout?.(
+            makeExecResult({ exitCode: 124, success: false })
+          );
+          return Promise.resolve(
+            makeExecResult({ exitCode: 124, success: false })
+          );
+        }
+      );
+
+      const error = await checker
+        .runCheckerTests({
+          name: 'check',
+          source: 'check.cpp',
+          testsFilePath: 'tests.json',
+        })
+        .catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(LimitExceededError);
+      expect(mockedExecute).toHaveBeenCalledTimes(1);
+      expect(mockedFmtError).not.toHaveBeenCalledWith(
+        expect.stringContaining('Checker Test 1 failed')
+      );
+    });
+
+    it('should report failed checker tests with exit code 1', async () => {
+      mockedGetCompiledCommandToRun.mockReturnValue('./checker');
+      installReadFileMock(() => ({
+        err: null,
+        data: JSON.stringify({
+          tests: [
+            { input: '1', output: '2', answer: '1', expectedVerdict: 'OK' },
+          ],
+        }),
+      }));
+      mockedExecute.mockImplementation(
+        (_cmd: string, options: ExecutionOptions) => {
+          options.onError?.(
+            makeExecResult({ exitCode: 1, success: false, stderr: 'wrong' })
+          );
+          return Promise.resolve(
+            makeExecResult({ exitCode: 1, success: false })
+          );
+        }
+      );
+
+      const error = await checker
+        .runCheckerTests({
+          name: 'check',
+          source: 'check.cpp',
+          testsFilePath: 'tests.json',
+        })
+        .catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(PolymanError);
+      expect((error as PolymanError).exitCode).toBe(1);
+    });
+
+    it('should report a missing checker as a usage error (code 2)', () => {
+      let error: unknown;
+      try {
+        checker.ensureCheckerExists(undefined);
+      } catch (e) {
+        error = e;
+      }
+      expect(error).toBeInstanceOf(PolymanError);
+      expect((error as PolymanError).exitCode).toBe(2);
     });
   });
 
@@ -595,7 +882,7 @@ describe('checker.ts', () => {
       );
 
       installReadFileMock(() => ({
-        err: new Error('ENOENT'),
+        err: new Error('ENOENT') as NodeJS.ErrnoException,
         data: '',
       }));
 
@@ -701,6 +988,303 @@ describe('checker.ts', () => {
       await expect(checker.runCheckerTests(mockChecker)).rejects.toThrow(
         'Failed to run checker tests'
       );
+    });
+
+    it('should record every case with expected, actual and message', async () => {
+      const recordSpy = vi
+        .spyOn(report, 'recordSelfTestCase')
+        .mockImplementation(() => {});
+      const mockChecker: LocalChecker = {
+        name: 'c',
+        source: 'c.cpp',
+        testsFilePath: 't.json',
+      };
+      const testCase = (expectedVerdict: string) => ({
+        index: 1,
+        input: '',
+        output: '',
+        answer: '',
+        expectedVerdict,
+      });
+      installReadFileMock(() => ({
+        err: null,
+        data: JSON.stringify({
+          tests: [testCase('OK'), testCase('WA'), testCase('PE')],
+        }),
+      }));
+      mockedGetCompiledCommandToRun.mockReturnValue('./c.exe');
+      // case 1 accepted, case 2 rejected with WA, case 3 accepted (but PE expected)
+      const exits = [0, 1, 0];
+      mockedExecute.mockImplementation(
+        (_cmd: string, options: ExecutionOptions) => {
+          const exitCode = exits.shift() ?? 0;
+          const result = makeExecResult({
+            stderr: exitCode === 0 ? 'ok 1 number\n' : 'wrong answer 1st\n',
+            exitCode,
+            success: exitCode === 0,
+          });
+          if (exitCode === 0) options.onSuccess?.(result);
+          else options.onError?.(result);
+          return Promise.resolve(result);
+        }
+      );
+
+      await expect(checker.runCheckerTests(mockChecker)).rejects.toThrow(
+        'Some checker tests failed'
+      );
+
+      expect(recordSpy.mock.calls.map(call => call[0])).toEqual([
+        {
+          index: 1,
+          expected: 'OK',
+          actual: 'OK',
+          ok: true,
+          message: 'ok 1 number',
+        },
+        {
+          index: 2,
+          expected: 'WRONG_ANSWER',
+          actual: 'WRONG_ANSWER',
+          ok: true,
+          message: 'wrong answer 1st',
+        },
+        {
+          index: 3,
+          expected: 'PRESENTATION_ERROR',
+          actual: 'OK',
+          ok: false,
+          message: 'Expected PE but got OK',
+        },
+      ]);
+    });
+
+    it.each([4, 5, 8, 127])(
+      'should record actual null and exitCode %i when CRASHED is expected and the checker exits with it',
+      async exitCode => {
+        const recordSpy = vi
+          .spyOn(report, 'recordSelfTestCase')
+          .mockImplementation(() => {});
+        installReadFileMock(() => ({
+          err: null,
+          data: JSON.stringify({
+            tests: [
+              {
+                index: 1,
+                input: '',
+                output: '',
+                answer: '',
+                expectedVerdict: 'CRASHED',
+              },
+            ],
+          }),
+        }));
+        mockedGetCompiledCommandToRun.mockReturnValue('./c.exe');
+        mockedExecute.mockImplementation(
+          (_cmd: string, options: ExecutionOptions) => {
+            const result = makeExecResult({
+              stderr: 'some verdict',
+              exitCode,
+              success: false,
+            });
+            options.onError?.(result);
+            return Promise.resolve(result);
+          }
+        );
+
+        await expect(
+          checker.runCheckerTests({
+            name: 'c',
+            source: 'c.cpp',
+            testsFilePath: 't.json',
+          })
+        ).rejects.toThrow('Some checker tests failed');
+
+        expect(recordSpy).toHaveBeenCalledTimes(1);
+        expect(recordSpy).toHaveBeenCalledWith({
+          index: 1,
+          expected: 'CRASHED',
+          actual: null,
+          exitCode,
+          ok: false,
+          message: `Expected CRASHED but got exit code ${exitCode}`,
+        });
+      }
+    );
+
+    it('should record actual CRASHED without exitCode for a crash exit code', async () => {
+      const recordSpy = vi
+        .spyOn(report, 'recordSelfTestCase')
+        .mockImplementation(() => {});
+      installReadFileMock(() => ({
+        err: null,
+        data: JSON.stringify({
+          tests: [
+            {
+              index: 1,
+              input: '',
+              output: '',
+              answer: '',
+              expectedVerdict: 'CRASHED',
+            },
+          ],
+        }),
+      }));
+      mockedGetCompiledCommandToRun.mockReturnValue('./c.exe');
+      mockedExecute.mockImplementation(
+        (_cmd: string, options: ExecutionOptions) => {
+          const result = makeExecResult({
+            stderr: 'fail',
+            exitCode: 3,
+            success: false,
+          });
+          options.onError?.(result);
+          return Promise.resolve(result);
+        }
+      );
+
+      await checker.runCheckerTests({
+        name: 'c',
+        source: 'c.cpp',
+        testsFilePath: 't.json',
+      });
+
+      expect(recordSpy).toHaveBeenCalledWith({
+        index: 1,
+        expected: 'CRASHED',
+        actual: 'CRASHED',
+        ok: true,
+        message: 'fail',
+      });
+    });
+
+    it('should record ERROR as the actual verdict when the checker cannot run', async () => {
+      const recordSpy = vi
+        .spyOn(report, 'recordSelfTestCase')
+        .mockImplementation(() => {});
+      installReadFileMock(() => ({
+        err: null,
+        data: JSON.stringify({
+          tests: [
+            {
+              index: 1,
+              input: '',
+              output: '',
+              answer: '',
+              expectedVerdict: 'OK',
+            },
+          ],
+        }),
+      }));
+      mockedGetCompiledCommandToRun.mockReturnValue('./c.exe');
+      mockedExecute.mockRejectedValue(new Error('spawn failed'));
+
+      await expect(
+        checker.runCheckerTests({
+          name: 'c',
+          source: 'c.cpp',
+          testsFilePath: 't.json',
+        })
+      ).rejects.toThrow('Some checker tests failed');
+
+      expect(recordSpy).toHaveBeenCalledWith({
+        index: 1,
+        expected: 'OK',
+        actual: 'ERROR',
+        ok: false,
+        message: 'spawn failed',
+      });
+    });
+  });
+
+  describe('checkerVerdictForExitCode', () => {
+    it.each([
+      [0, 'OK'],
+      [1, 'WRONG_ANSWER'],
+      [2, 'PRESENTATION_ERROR'],
+      [3, 'CRASHED'],
+      [-1, 'CRASHED'],
+    ])('should name exit code %i as %s', (exitCode, verdict) => {
+      expect(checker.checkerVerdictForExitCode(exitCode)).toBe(verdict);
+    });
+  });
+
+  describe('normalizeCheckerVerdict', () => {
+    it.each([
+      ['WA', 'WRONG_ANSWER'],
+      ['wa', 'WRONG_ANSWER'],
+      ['PE', 'PRESENTATION_ERROR'],
+      ['ok', 'OK'],
+      ['WRONG_ANSWER', 'WRONG_ANSWER'],
+      ['CRASHED', 'CRASHED'],
+    ])('should write %s as %s', (verdict, expected) => {
+      expect(checker.normalizeCheckerVerdict(verdict as CheckerVerdict)).toBe(
+        expected
+      );
+    });
+  });
+
+  describe('runChecker observe', () => {
+    it('should report the verdict and stderr before throwing on a mismatch', async () => {
+      mockedExecute.mockImplementation(
+        (_cmd: string, options: ExecutionOptions) => {
+          const result = makeExecResult({
+            stderr: 'wrong output format\n',
+            exitCode: 2,
+            success: false,
+          });
+          options.onError?.(result);
+          return Promise.resolve(result);
+        }
+      );
+      const observe = vi.fn();
+      await expect(
+        checker.runChecker('./c', 'i', 'o', 'a', 'OK', observe)
+      ).rejects.toBeInstanceOf(checker.PresentationError);
+      expect(observe).toHaveBeenCalledWith(
+        'PRESENTATION_ERROR',
+        'wrong output format',
+        2
+      );
+    });
+
+    it.each([
+      [4, null],
+      [5, null],
+      [7, null],
+      [8, null],
+      [16, null],
+      [127, null],
+      [3, 'CRASHED'],
+      [139, 'CRASHED'],
+      [1, 'WRONG_ANSWER'],
+    ])(
+      'should report exit code %i as verdict %s with the exit code',
+      async (exitCode, verdict) => {
+        mockedExecute.mockImplementation(
+          (_cmd: string, options: ExecutionOptions) => {
+            const result = makeExecResult({
+              stderr: 'msg\n',
+              exitCode,
+              success: false,
+            });
+            options.onError?.(result);
+            return Promise.resolve(result);
+          }
+        );
+        const observe = vi.fn();
+        await checker
+          .runChecker('./c', 'i', 'o', 'a', 'CRASHED', observe)
+          .catch(() => undefined);
+        expect(observe).toHaveBeenCalledWith(verdict, 'msg', exitCode);
+      }
+    );
+
+    it('should report OK once when the checker accepts', async () => {
+      mockedExecute.mockResolvedValue(makeExecResult());
+      const observe = vi.fn();
+      await checker.runChecker('./c', 'i', 'o', 'a', 'OK', observe);
+      expect(observe).toHaveBeenCalledTimes(1);
+      expect(observe).toHaveBeenCalledWith('OK', '', 0);
     });
   });
 });

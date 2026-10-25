@@ -70,6 +70,9 @@
    - [Solution Execution](#solution-execution)
    - [Testing Components](#testing-components)
    - [Full Verification](#full-verification)
+   - [Running Without a Terminal](#running-without-a-terminal)
+   - [Exit Codes](#exit-codes)
+   - [AI Provider Keys](#ai-provider-keys)
 
 10. [Remote Operations (Polygon Integration)](#remote-operations-polygon-integration)
     - [Setup and Registration](#setup-and-registration)
@@ -125,7 +128,7 @@ Polyman is a command-line tool designed for competitive programming problem sett
 
 ### Prerequisites
 
-- **Node.js** v14 or higher
+- **Node.js** ^20.19.0 or ≥ 22.12.0
 - **C++ Compiler** (g++ with C++23 support by default; set `cppStandard` in `Config.json` to target an older standard, or use another compiler with `POLYMAN_CXX` or `compiler.cpp`, see [Local Compiler Overrides](#local-compiler-overrides))
 - **Java JDK** (optional, for Java solutions)
 - **Python** (optional, for Python solutions)
@@ -239,6 +242,15 @@ my-problem/
 
 `cppStandard` only affects local compilation (`generate`, `validate`, `run`, `verify`). The compiler used on Polygon is chosen per file through `sourceType` (see [Source Types](#source-types)).
 
+A C++ solution whose `sourceType` names a standard (`cpp.g++17`, `cpp.gcc14-64-msys2-g++23`, `cpp.clang++20`, ...) is built locally with that standard, so it gets the same build as on Polygon. For a solution, the `-std=` comes from the first of these that is set:
+
+1. a `-std=` item in `compiler.flags`,
+2. `cppStandard` in `Config.json`,
+3. the standard in the solution's `sourceType`,
+4. the default `c++23`.
+
+So `cppStandard` still sets one standard for every file when you want that. A `sourceType` with no standard in it (`cpp.ms2017`, `cpp.ms2019`) uses the default. Generators, the validator and the checker do not read `sourceType` locally, they use `cppStandard` or the default.
+
 `timeLimitMultipliers` also only affects local runs. Java and Python are slower than C++ at the same task (JVM startup, interpreter), so a correct `OK` solution can get TLE locally against a C++-sized limit and fail `polyman verify` even though the problem is fine. A factor scales `timeLimit` for that language only:
 
 ```json
@@ -283,7 +295,7 @@ So the order is: environment variable, then `Config.json`, then the default. An 
 - a `-std=` flag in `flags` replaces `cppStandard`,
 - an `-O` flag in `flags` (`-O0`, `-O3`, `-Ofast`, ...) replaces `-O2`.
 
-With the example above, polyman runs `g++-15 -O2 -std=c++20 -Wall -DLOCAL ...`. With `"flags": ["-O0", "-std=gnu++17"]` it runs `g++-15 -O0 -std=gnu++17 ...`, so `cppStandard` is not used. The same flags are used for every C++ source: solutions, generators, the validator and the checker.
+With the example above, polyman runs `g++-15 -O2 -std=c++20 -Wall -DLOCAL ...`. With `"flags": ["-O0", "-std=gnu++17"]` it runs `g++-15 -O0 -std=gnu++17 ...`, so `cppStandard` is not used. The same flags are used for every C++ source: solutions, generators, the validator and the checker. The one difference: C++ solutions also get `-DONLINE_JUDGE` right after the standard, like on Codeforces, so a solution with `#ifndef ONLINE_JUDGE freopen(...) #endif` writes to stdout. It is not added twice if `flags` already defines `ONLINE_JUDGE`.
 
 Paths with spaces work, polyman quotes the executable and each flag. Because each item is one argument, write `["-Wall", "-Wextra"]` and not `["-Wall -Wextra"]`. On Windows, use the full path with backslashes in JSON (`"C:\\mingw64\\bin\\g++.exe"`) or forward slashes.
 
@@ -384,13 +396,13 @@ Define all solutions with their expected behavior:
 - `cpp.ms2017`, `cpp.ms2019`
 - `cpp.clang++17`, `cpp.clang++20`
 
-`sourceType` is honored on `polyman remote push` for solutions, generators, the checker and the validator. C++ files without one are uploaded as `cpp.g++17`. Polygon retires compilers over time, so check the problem's compiler list in the Polygon UI if an upload is rejected.
+`sourceType` is honored on `polyman remote push` for solutions, generators, the checker and the validator. C++ files without one are uploaded as `cpp.g++17`. `polyman remote pull` writes each file's `sourceType` into `Config.json`, so a pull then a push keeps the same compilers. Locally, a C++ solution is built with the standard in its `sourceType` unless `cppStandard` or `compiler.flags` sets one (see [Optional Fields](#optional-fields)). Polygon retires compilers over time, so check the problem's compiler list in the Polygon UI if an upload is rejected.
 
 C++ sources may use the `.cpp`, `.cc` or `.cxx` extension.
 
 **Java Versions:**
 
-- `java.8`, `java.11`, `java.17`, `java.21`
+- `java8`, `java21` (Polygon rejects `java11` and the dotted forms such as `java.11`)
 
 **Python Versions:**
 
@@ -946,6 +958,8 @@ Create `validator_tests.json`:
 ]
 ```
 
+**Why INVALID self-tests matter:** every test generated for the problem is checked with `VALID`-style input, so a validator that accepts everything (for example one that reads to EOF and returns) passes all of them. Only an INVALID self-test, an input the validator must reject, proves it rejects anything. `polyman verify` prints a warning, and lists it under `warnings` in the `--json` report, when the validator has no self-test with the `INVALID` verdict. It is a warning, not a failure: verification still passes.
+
 ### ✅ Do's:
 
 1. **Validate all constraints** mentioned in the problem statement
@@ -1463,6 +1477,7 @@ polyman generate --all                                    # All testsets
 polyman generate --testset tests                          # One testset only
 polyman generate --testset tests --group samples          # Just one group
 polyman generate --testset tests --index 5                # Single test by command index
+polyman generate --all --json > generate.json             # JSON report on stdout
 ```
 
 **What Happens:**
@@ -1471,6 +1486,26 @@ polyman generate --testset tests --index 5                # Single test by comma
 2. Runs each `manual` (copy) or `generator` (execute over `range`) command and writes outputs to `testsets/<testset-name>/test<N>.txt`
 
 The `--testset`, `--group`, and `--index` flags successively narrow which commands are executed.
+
+**`--json`:** stdout carries exactly one JSON document and every human-readable line goes to stderr. Each test is listed with where its input came from and whether it was written:
+
+```json
+{
+  "schemaVersion": 1,
+  "polymanVersion": "3.1.0",
+  "ok": false,
+  "command": "generate",
+  "exitCode": 1,
+  "durationMs": 912,
+  "errors": ["Some tests failed to generate"],
+  "tests": [
+    { "testset": "tests", "index": 1, "source": "manual", "ok": true },
+    { "testset": "tests", "index": 2, "source": "generator", "generator": "gen-random", "args": ["10"], "ok": false, "error": "Generator execution failed" }
+  ]
+}
+```
+
+`generator` and `args` are present only for generated tests, and `error` only when `ok` is false. `exitCode` is the code the process exits with.
 
 ---
 
@@ -1487,6 +1522,7 @@ polyman validate --all                                    # All tests in all tes
 polyman validate --testset tests                          # One testset
 polyman validate --testset tests --group samples          # One group
 polyman validate --testset tests --index 5                # One test
+polyman validate --all --json > validate.json             # JSON report on stdout
 ```
 
 **What Happens:**
@@ -1495,6 +1531,26 @@ polyman validate --testset tests --index 5                # One test
 2. Runs `./val < test<N>.txt` for each selected test and reports VALID / INVALID with error details
 
 If tests fail: check validator constraints, fix the generator, or correct manual test files.
+
+**`--json`:** stdout carries exactly one JSON document and every human-readable line goes to stderr. Each test is listed as valid or not, with the validator message:
+
+```json
+{
+  "schemaVersion": 1,
+  "polymanVersion": "3.1.0",
+  "ok": false,
+  "command": "validate",
+  "exitCode": 1,
+  "durationMs": 140,
+  "errors": ["Some tests failed validation"],
+  "tests": [
+    { "testset": "tests", "index": 1, "valid": true, "message": "" },
+    { "testset": "tests", "index": 2, "valid": false, "message": "FAIL Integer parameter [name=n] equals to 0, violates the range [1, 1000] (test case 1, stdin, line 1)" }
+  ]
+}
+```
+
+`group` is present only with `--group`. `message` is empty for a valid test.
 
 ---
 
@@ -1592,9 +1648,57 @@ polyman test wa-solution
 **What Happens:**
 
 1. Generates tests if needed, runs the main solution to get jury answers, then runs the target solution
-2. Uses the checker to compare outputs and confirms the target solution behaves as its tag advertises (e.g., a `WA`-tagged solution must fail at least one test)
+2. Uses the checker to compare outputs and confirms the target solution behaves as its tag advertises (e.g., a `WA`-tagged solution passes when it gets WA or PE on at least one test, as on Polygon)
+3. If the main solution prints nothing on every test while the target solution prints output on some test, it stops with an error that names the main solution. This is usually a build or flag problem (for example `freopen` under `#ifndef ONLINE_JUDGE`). The main output is the answer for the checker, so it would only show up as a wrong verdict on the other solution. An empty answer on some tests is fine, those tests go to the checker as usual. `verify` does the same check
 
 **Use Case:** Verify that WA/TL/RE solutions actually fail as expected.
+
+---
+
+#### `polyman test ... --json`
+
+All three forms accept `--json`. Like `run --json`, stdout carries exactly one JSON document and the human output goes to stderr. `exitCode` in the report is the exit code of the process.
+
+`test validator --json` and `test checker --json` give one entry per self-test:
+
+```json
+{
+  "schemaVersion": 1,
+  "polymanVersion": "3.1.0",
+  "ok": false,
+  "command": "test checker",
+  "exitCode": 1,
+  "durationMs": 1591,
+  "errors": ["Some checker tests failed"],
+  "target": "checker",
+  "cases": [
+    { "index": 1, "expected": "OK", "actual": "OK", "ok": true, "message": "ok answer is YES" },
+    { "index": 2, "expected": "WRONG_ANSWER", "actual": "OK", "ok": false, "message": "Expected WA but got OK" }
+  ]
+}
+```
+
+`index` is the position of the case in the tests file. The checker short forms `WA` and `PE` are written as `WRONG_ANSWER` and `PRESENTATION_ERROR`. `actual` is `ERROR` when the program could not run at all. A checker case has `exitCode`, the exit code the checker returned, only when `actual` is `null` (other cases have no `exitCode`). For a checker, `actual` is `OK` for exit code 0, `WRONG_ANSWER` for 1, `PRESENTATION_ERROR` for 2 and `CRASHED` for a crash code (3, a signal exit of 128 and up, or an `exit(N)` with N in 6 or 9 to 15). For the other testlib exit codes (4, 5, 7, 8 and 16 to 127) `actual` is `null`, so a self-test that expects `CRASHED` and gets, say, exit code 4 reports `"actual": null, "exitCode": 4, "ok": false`. `cases` is empty when the self-tests are skipped (standard checker, or no `testsFilePath`).
+
+`test <solution> --json` gives the `run` report of that solution, with each verdict judged by the checker against the main solution, plus `mainSolution`, `matchesTag` and `reason`:
+
+```json
+{
+  "command": "test",
+  "ok": true,
+  "exitCode": 0,
+  "solution": "tle_solution",
+  "tag": "TL",
+  "mainSolution": "main",
+  "matchesTag": true,
+  "reason": "Behaves as expected",
+  "tests": [
+    { "testset": "tests", "index": 1, "verdict": "TLE", "timeMs": 1002, "message": "Time Limit Exceeded after 1000ms" }
+  ],
+  "summary": { "total": 1, "byVerdict": { "TLE": 1 } },
+  "errors": []
+}
+```
 
 ---
 
@@ -1634,11 +1738,12 @@ polyman verify --json > verify.json     # JSON report on stdout, human log on st
       ]
     }
   ],
+  "warnings": [],
   "solutions": []
 }
 ```
 
-Step names, in pipeline order: `read-config`, `compile-generators`, `generate-tests`, `compile-validator`, `test-validator`, `validate-tests`, `compile-checker`, `test-checker`, `compile-solutions`, `run-solutions`, `verify-solutions`. `failedStep` names the first failing step (null on success) and later steps are absent because verify stops there. `steps[].errors` holds the error lines printed during a failed step and is empty for steps that passed.
+Step names, in pipeline order: `read-config`, `compile-generators`, `generate-tests`, `compile-validator`, `test-validator`, `validate-tests`, `compile-checker`, `test-checker`, `compile-solutions`, `run-solutions`, `verify-solutions`. `failedStep` names the first failing step (null on success) and later steps are absent because verify stops there. `steps[].errors` holds the error lines printed during a failed step and is empty for steps that passed. `warnings` lists non-fatal findings as plain strings and is empty when there are none; a warning never changes `ok` or the exit code. Currently the only warning is "the validator has no INVALID self-tests, so nothing checks that it rejects bad input".
 
 On success `solutions[]` has one entry per solution that ran:
 
@@ -1787,7 +1892,7 @@ Compiling testlib-based C++ takes seconds per file, and most runs recompile sour
 
 - the source file's contents,
 - the contents of every local header it reaches through `#include "..."`, followed recursively (`testlib.h`, your own helpers),
-- the compile flags (`-O2`, `-std=<cppStandard>` and `compiler.flags`),
+- the compile flags (`-O2`, `-std=<cppStandard>`, `-DONLINE_JUDGE` for solutions and `compiler.flags`),
 - the compiler executable (`POLYMAN_CXX`, `compiler.cpp` or `g++`) and its `--version` output.
 
 If any of these change, the source is recompiled; otherwise the cached binary is copied into place and the compiler does not run. A cached binary whose checksum no longer matches is discarded and rebuilt. `verify` prints how much compile time the cache saved:
@@ -1797,6 +1902,13 @@ If any of these change, the source is recompiled; otherwise the cached binary is
 ```
 
 **testlib is compiled once.** Most of a generator's, validator's or checker's compile time is spent on `testlib.h` itself. The first compile that needs it splits a copy of the problem's `testlib.h` into declarations and definitions, compiles the definitions once into `.polyman/cache/testlib/<key>/testlib.o`, and every testlib program then only parses the declarations and links that object (about 1s instead of 5s per program). The problem's `testlib.h` is never modified. A source compiles against the original header as before when it defines a macro or uses a pragma before `#include "testlib.h"` (testlib reads settings such as `EJUDGE` that way), keeps its own `testlib.h` next to it, is compiled with `--no-cache`, or fails to build against the split while it builds against the original.
+
+**Precompiled `<bits/stdc++.h>`.** With g++, most of a solution's compile time is parsing `<bits/stdc++.h>`. When a source's first directive is `#include <bits/stdc++.h>`, polyman builds `bits/stdc++.h.gch` once and reuses it for every problem you compile with the same compiler and flags. It is stored in your user cache (`~/.cache/polyman/pch` on Linux, `~/Library/Caches/polyman/pch` on macOS, `%LOCALAPPDATA%\polyman\pch` on Windows; `POLYMAN_CACHE_DIR` moves it). Binaries and verdicts are the same with or without it. If a compile fails with the PCH, it is retried without it and reports the normal error.
+
+- **Disk use.** Each `.gch` is about 140 MB. At most 2 are kept (different compilers, `cppStandard` or `compiler.flags` each need their own); the least recently used is removed when a third is built.
+- **Not used** with clang or Apple's `g++`, with `--no-cache`, when `CPLUS_INCLUDE_PATH` is set, or for flags the compile cache does not accept.
+- **A failed build** is retried after a day and after a polyman upgrade; until then compiles go on normally.
+- **Turn it off** with `POLYMAN_PCH=0`, or delete the `pch` folder to free the space. `POLYMAN_DEBUG=1` logs which path each compile took.
 
 **Managing the cache.**
 
@@ -1810,7 +1922,7 @@ polyman verify --no-cache # recompile everything this run, without reading or wr
 
 Entries unused for 30 days are removed, and the cache is capped at 256 MB (least recently used entries go first). The cache lives with the problem, so it survives across sessions; add `.polyman/` to your `.gitignore`.
 
-**Limitations.** Java solutions are not cached. Headers pulled in through angle brackets (`#include <...>`), or found only through your own `-I` flags in `compiler.flags`, are not tracked, so after editing such a header, run `polyman cache clear`.
+**Limitations.** Java solutions are not cached. Headers pulled in through angle brackets (`#include <...>`) are not tracked, so after editing such a header, run `polyman cache clear`. The compile cache is used only when every flag in `compiler.flags` is on a known-safe list: `-O...`, `-std=`, `-D`/`-U`, `-W...` (not `-Wl,`/`-Wp,`/`-Wa,`), `-w`, `-pedantic`, a named set of `-f` flags (`-fno-omit-frame-pointer`, `-fopenmp`, `-fstack-protector*`, `-ftrapv`, `-fwrapv`, `-fno-exceptions`, `-fno-rtti`, `-funroll-loops`, ...), `-fsanitize=`, `-g...`, `-m...`, `-static`, `-pthread`, `-pipe` and `-s`. Any other flag (for example `-I`, `-include`, `-L`, `-l`, `-specs=`, `-T`, object files or `@file`) can read files the cache does not hash, so that compile always runs the compiler in full.
 
 ### Terminal Colors
 
@@ -1887,6 +1999,81 @@ polyman generate --testset tests --index 5
 polyman validate --testset tests --index 5
 polyman run main --testset tests --index 5
 ```
+
+---
+
+### Running Without a Terminal
+
+Every command can be run by another program (an agent, a CI job) with no terminal attached. Three rules hold for all of them:
+
+- **No waiting for input.** When stdin is not a terminal, a command never prompts. If it needs an answer it stops with exit code `2` and names the flag to pass. Today only `polyman remote push` can ask: pass `--yes` to confirm creating a new Polygon problem and `--name <name>` to choose its name.
+- **No colors when output is not for a person.** Colors are off when `NO_COLOR` is set to a non-empty value (see [no-color.org](https://no-color.org)), when stdout is not a terminal, and when `POLYMAN_AGENT=1`. This also overrides `FORCE_COLOR`.
+- **`POLYMAN_AGENT=1`** is set by agent runners. It turns colors off and is the switch any spinner or line-redrawing progress bar must obey: in agent mode there are none, only plain lines. polyman prints no spinners or redrawing progress bars today.
+
+```bash
+# headless push of a new problem
+POLYMAN_AGENT=1 polyman remote push . --yes --name two-sum < /dev/null
+
+# plain output for a log file
+NO_COLOR=1 polyman verify > verify.log 2>&1
+```
+
+The exit code tells a script what kind of failure happened, see [Exit Codes](#exit-codes).
+
+### Exit Codes
+
+Every command ends with one of these codes, so a script or an agent can decide what to do next without reading the output:
+
+| Code  | Meaning | Examples | What to do |
+| ----- | ------- | -------- | ---------- |
+| `0`   | The command did what was asked | `verify` passed | Continue |
+| `1`   | The command ran, but the problem is wrong | A test fails validation, a solution does not match its tag, a checker test fails, a compile error | Read the output (or the `--json` report) and fix the problem |
+| `2`   | Usage error | No `Config.json` here or it is not valid JSON, an invalid `compiler` or `cppStandard`, `Config.json` names a file that does not exist, an unknown solution name, an invalid package type, a prompt was needed but stdin is not a terminal | Fix the command or `Config.json` |
+| `3`   | Environment error | Polygon credentials are not registered, Python 3 is not installed, Node.js is too old | Fix the machine, retrying will not help |
+| `4`   | Remote error | A Polygon API call or the network failed, some items were not uploaded by `remote push`, `download-testlib` could not reach GitHub | Retry once, then look at the message |
+| `130` | Cancelled | Ctrl+C (SIGINT) | Nothing, the user stopped it |
+| `143` | Terminated | SIGTERM, for example a CI job that timed out | Nothing, the runner stopped it |
+
+Any other failure, for example an error polyman did not expect, ends with `1`. The error message is printed last, on its own line, with a `Hint:` line under it when polyman knows the fix. With `--json`, the `exitCode` field of the `new`, `download-testlib`, `list`, `generate`, `validate`, `test` and `remote` reports is the same code.
+
+```bash
+polyman verify
+case $? in
+  0) echo "ready to push" ;;
+  1) echo "the problem needs a fix" ;;
+  2) echo "check the command or Config.json" ;;
+  3) echo "check the machine setup" ;;
+  4) echo "Polygon or the network failed, try again" ;;
+esac
+```
+
+### AI Provider Keys
+
+`polyman ai` saves API keys for AI model providers and picks a default model. It only manages these settings: no polyman command sends anything to a provider yet.
+
+| Command | What it does |
+| ------- | ------------ |
+| `polyman ai login <provider>` | Saves a key. It is read from a hidden prompt, or from stdin with `--key-stdin`, never from the command line, so it stays out of shell history. |
+| `polyman ai logout <provider>` | Removes the saved key. |
+| `polyman ai list` | Lists the providers, which have a key (shown masked) and the default model. |
+| `polyman ai models [provider]` | Lists the known models of every provider, or of one, with context size, tool support and price where known. |
+| `polyman ai use <provider>/<model>` | Sets the default model, for example `polyman ai use deepseek/deepseek-flash`. A model that is not in the known list is used as is, with a warning. |
+
+```bash
+polyman ai login deepseek
+polyman ai login openai --key-stdin < key.txt
+polyman ai login custom --base-url https://my-server/v1 --model my-model
+```
+
+**Providers:** `openai`, `anthropic`, `deepseek`, `qwen` (Alibaba Cloud Model Studio), `gemini`, `groq`, `mistral`, `openrouter`, `ollama` (local, needs no key) and `custom` (any OpenAI-compatible server; `--base-url` is required and `--model` can be repeated). `--base-url` and `--model` are only accepted for `custom`.
+
+**Where keys are kept.** In `~/.polyman/ai.json`, written with mode `0600`. If polyman creates `~/.polyman`, it creates it with mode `0700`. If the folder already exists and other users can open it, polyman leaves it as it is (other tools may share it) and warns, for example: `/home/you/.polyman has mode 0755, so other users can open it. ai.json in it stays 0600. To make the folder private: chmod 700 /home/you/.polyman`.
+
+**Environment variables win.** If a provider's variable is set (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`, `DASHSCOPE_API_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY`, `MISTRAL_API_KEY`, `OPENROUTER_API_KEY`), it is used instead of the saved key, and `login` and `logout` say so.
+
+**Keys are never printed.** Output shows only the masked key, and known keys are removed from every error message. A key is only handed out for its own provider's base URL (or the base URL you gave for `custom`).
+
+`polyman ai use` also warns when the provider has no key yet, when `custom` has no base URL yet, and when the model has no tool support. An unknown provider or a malformed `<provider>/<model>` exits with code `2`.
 
 ---
 
@@ -1989,7 +2176,7 @@ polyman remote pull 123456 ./my-problem
    - **Metadata** (description, tags)
 5. **Step 5:** Creates local directory structure
 6. **Step 6:** Generates `Config.json` with all settings
-7. **Step 7:** Downloads tests for specified testsets
+7. **Step 7:** Downloads tests for specified testsets. Without `-t`, only the testset named `tests` is downloaded, and the closing summary says so. Polygon's API cannot list a problem's testsets, so any other testset must be named with `-t a,b`.
 
 Result: a complete problem directory matching the polyman layout (see [Directory Structure](#directory-structure)).
 
@@ -2010,6 +2197,8 @@ polyman remote pull 123456 ./my-problem -t samples,tests
 # Pull everything (default)
 polyman remote pull 123456 ./my-problem --all
 ```
+
+**Note on testsets:** when `-t` is not given, `pull` downloads only the testset named `tests`. Its summary lists the testsets it downloaded and reminds you that others must be named with `-t a,b`, because Polygon's API cannot list a problem's testsets. For a problem with a second testset (for example `generate`), run `polyman remote pull 123456 ./my-problem -t tests,generate`.
 
 **Available Options:**
 
@@ -2196,6 +2385,8 @@ polyman remote package <problem-id> <type>
 | `windows` | Windows package | Generated tests, Windows compiled binaries |
 | `full` | Full package | All three types above |
 
+Every build is verified (Polygon runs all solutions on all tests). `linux` and `windows` build a full package on Polygon, because Polygon only builds those packages as part of a full one; `standard` does not.
+
 **Examples:**
 
 ```bash
@@ -2221,18 +2412,18 @@ polyman remote package ./my-problem standard
 5. **Step 5:** Triggers package build and polls for completion:
    - Gets current package count
    - Submits build request
-   - Polls every 60 seconds
+   - Polls every 30 seconds
    - Detects when package is created
    - Waits for package to finish building (READY or FAILED)
-   - Maximum wait time: 30 minutes
+   - Maximum wait time: 15 minutes (30 polls)
 6. **Step 6:** Displays package information
 
 **Important Notes:**
 
 - Package building is **asynchronous** - it may take several minutes
 - The command automatically waits and polls for completion
-- Progress updates are shown every minute
-- Download the package from Polygon web interface (automatic download coming soon)
+- Progress updates are shown on every 30-second poll
+- The command does not download the package yet. Download it from the Polygon web interface once the build is READY
 - Use `standard` type for most purposes
 - Use `linux` or `full` when you need test files included
 
@@ -2241,6 +2432,51 @@ polyman remote package ./my-problem standard
 - Simple problems: 1-3 minutes
 - Complex problems with many tests: 5-10 minutes
 - Full packages: 10-15 minutes
+
+---
+
+### JSON Output for Remote Commands
+
+`remote pull`, `push`, `view`, `commit` and `package` accept `--json`. Same rule as `run` and `verify`: stdout carries exactly one JSON document, and every human line goes to stderr. The exit code is unchanged.
+
+```bash
+polyman remote push . --json > push.json
+polyman remote commit . "Fix validator" --json
+```
+
+Shape:
+
+```json
+{
+  "schemaVersion": 1,
+  "polymanVersion": "3.1.0",
+  "command": "remote push",
+  "ok": false,
+  "exitCode": 4,
+  "durationMs": 5321,
+  "errors": ["solution wa: Polygon API Error: ..."],
+  "problemId": 123456,
+  "actions": [
+    { "component": "solution", "name": "main", "action": "upload", "ok": true },
+    { "component": "solution", "name": "wa", "action": "upload", "ok": false, "error": "Polygon API Error: ..." }
+  ],
+  "warnings": []
+}
+```
+
+- Each upload, download, fetch or change is one entry in `actions`. `error` is there only when `ok` is false.
+- `exitCode` is the code the process exits with. A push where some items failed to upload exits 4.
+- `problemId` is always in the report. For a push that creates the problem, it is the new ID. It is `null` only when the command failed before it knew the ID.
+- `errors` is plain text. The API key and secret are replaced with `[REDACTED]` everywhere in the report.
+- With `--json`, `push` never prompts. To create a new problem, pass `--yes` (and `--name <slug>` if needed), or it exits 2.
+- `pull` lists the files it saved and each testset it tried.
+- `warnings` lists what did not fail the command but needs a look. For `pull`, it has one line for each placeholder put in `Config.json` instead of a file: the `acc.cpp` main solution (no solution downloaded), the standard `ncmp` checker, the `val.cpp` validator (none on Polygon, or the download failed) and an empty generator list (the file list could not be fetched). Placeholders alone keep `ok: true` and exit 0.
+- A file that `pull` could not download fails it, like a failed upload fails `push`. The pull still writes every other file and `Config.json`, then ends with `ok: false` and exit 4. Each such file is an `ok: false` `download` entry in `actions`, and one line in `errors` with the reason:
+  - a solution, a generator, a statement language, or all statements. `Config.json` does not list it;
+  - checker or validator tests. `Config.json` then has no `testsFilePath` for it, so its self-tests are skipped instead of pointing at a missing file;
+  - the description or the tags. `Config.json` then has no `description` (or `tags`) key, not an empty value, so a later `remote push` leaves the one on Polygon as it is.
+
+  The human output lists the same files under "PULL COMPLETED WITH ERRORS" and repeats the warnings at the end. A testset Polygon refused is an `ok: false` entry in `actions`, and a refused problem fetch fails the pull.
 
 ---
 
@@ -2420,6 +2656,20 @@ Thumbs.db
 ---
 
 ## Troubleshooting
+
+### A crashing solution is judged TLE on Ubuntu
+
+**Problem:** On an Ubuntu desktop, a solution that aborts (for example a failed `assert`, or `abort()`) gets Time Limit Exceeded instead of Runtime Error, so a solution tagged `RE` fails `verify`.
+
+**Cause:** Ubuntu's crash reporter, apport, writes a core dump when a program aborts, and the process ends only after that. On one machine this took about 1.15 s, more than a 1000 ms time limit, so the run was stopped as a timeout. CI runners and machines without apport are not affected.
+
+**Solution:** stop apport while you verify:
+
+```bash
+sudo systemctl stop apport
+```
+
+It starts again at the next boot. With a larger `timeLimit` the same solution is judged RE.
 
 ### Compilation Errors
 
@@ -2915,12 +3165,12 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v2
+        uses: actions/setup-node@v4
         with:
-          node-version: '16'
+          node-version: '20'
 
       - name: Install Polyman
         run: npm install -g polyman-cli
@@ -2938,16 +3188,15 @@ This automatically tests your problem on every commit.
 
 ### 10. Can I export my problem to Codeforces Polygon?
 
-**Answer:** Polyman uses Polygon-compatible format. To upload:
+**Answer:** Yes. `polyman remote push` uploads your local problem to Polygon:
 
-1. **Create problem on Polygon** (manually for now)
-2. **Upload files** via Polygon interface:
-   - Validator, Checker, Generators
-   - Solutions
-   - Tests (can be generated on Polygon too)
-3. **Configure** using Polygon UI
+```bash
+polyman remote push ./my-problem
+```
 
-**Future:** Polyman will support direct Polygon API integration for automated upload.
+It uploads solutions, checker, validator, generators, statements, tests, metadata and limits. Use the per-component flags (for example `-s -c` for solutions and checker only) to push part of the problem. If `Config.json` has no `problemId`, it creates the Polygon problem first. See [Push to Polygon](#basic-push) for details.
+
+If you prefer to do it by hand, create the problem on Polygon and upload the validator, checker, generators, solutions and tests through the Polygon web interface.
 
 ---
 

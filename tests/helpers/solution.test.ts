@@ -24,6 +24,7 @@ const executor: {
 } = executorModule.executor;
 import * as utils from '../../src/helpers/utils';
 import * as checker from '../../src/helpers/checker';
+import { LimitExceededError, PolymanError } from '../../src/errors';
 import * as formatterModule from '../../src/formatter';
 import { report } from '../../src/report';
 import * as testsetHelper from '../../src/helpers/testset';
@@ -67,7 +68,15 @@ vi.mock('../../src/helpers/utils', async () => {
     readFirstLine: vi.fn().mockResolvedValue(''),
   };
 });
-vi.mock('../../src/helpers/checker');
+vi.mock('../../src/helpers/checker', async importOriginal => {
+  const actual =
+    await importOriginal<typeof import('../../src/helpers/checker')>();
+  return {
+    ...actual,
+    runChecker: vi.fn(),
+    ensureCheckerExists: vi.fn(),
+  };
+});
 vi.mock('../../src/helpers/testset');
 vi.mock('fs');
 vi.mock('path', async () => {
@@ -113,6 +122,37 @@ const mockedFsExistsSync = vi.mocked(fs.existsSync);
 const mockedFsMkdirSync = vi.mocked(fs.mkdirSync);
 const mockedFsUnlinkSync = vi.mocked(fs.unlinkSync);
 const mockedFsWriteFileSync = vi.mocked(fs.writeFileSync);
+// The automock of 'fs' leaves `promises` undefined, so give it an `open` mock.
+const mockedFsOpen = vi.fn<typeof fs.promises.open>();
+Object.defineProperty(fs, 'promises', {
+  value: { open: mockedFsOpen },
+  configurable: true,
+});
+
+/**
+ * Makes `fs.promises.open` serve `contentOf(path)` through a fake handle that
+ * reads in the chunks the caller asks for, like a real file would.
+ */
+function mockFileContents(contentOf: (file: unknown) => string) {
+  mockedFsOpen.mockImplementation(file => {
+    const data = Buffer.from(contentOf(file), 'utf-8');
+    let position = 0;
+    const handle = {
+      read: vi.fn((buffer: Buffer, offset: number, length: number) => {
+        const bytesRead = data.copy(
+          buffer,
+          offset,
+          position,
+          position + length
+        );
+        position += bytesRead;
+        return Promise.resolve({ bytesRead, buffer });
+      }),
+      close: vi.fn(() => Promise.resolve()),
+    };
+    return Promise.resolve(handle as unknown as fs.promises.FileHandle);
+  });
+}
 
 // Same indirection as the executor proxy: `fmt` is the mocked formatter object,
 // and reading `log` through a function-typed local keeps `vi.mocked` lint-clean.
@@ -144,9 +184,9 @@ function makeConfig(overrides: Partial<ConfigFile> = {}): ConfigFile {
 }
 
 describe('solution.ts', () => {
-  const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
+  const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {
     throw new Error('process.exit called');
-  });
+  }) as (code?: number | string | null) => never);
   void exitSpy;
 
   beforeEach(() => {
@@ -158,6 +198,7 @@ describe('solution.ts', () => {
     mockedReadConfigFile.mockReturnValue(makeConfig());
     mockedGetCompiledCommandToRun.mockReturnValue('./solution');
     mockedReadFirstLine.mockResolvedValue('');
+    mockFileContents(() => '');
   });
 
   afterEach(() => {
@@ -208,21 +249,53 @@ describe('solution.ts', () => {
         solution.findMatchingSolutions(solutions, 'missing')
       ).toThrow(/Solution named "missing" not found/);
     });
+
+    it('should fail with exit code 2 (usage error) if solution not found', () => {
+      expect(() =>
+        solution.findMatchingSolutions(solutions, 'missing')
+      ).toThrow(expect.objectContaining({ exitCode: 2 }));
+      expect(() =>
+        solution.findMatchingSolutions(solutions, 'missing')
+      ).toThrow(PolymanError);
+    });
   });
 
   describe('compileSolution', () => {
     it('should compile cpp solution', async () => {
       vi.spyOn(path, 'extname').mockReturnValue('.cpp');
       await solution.compileSolution('sol.cpp');
-      expect(mockedCompileCPP).toHaveBeenCalledWith('sol.cpp');
+      expect(mockedCompileCPP).toHaveBeenCalledWith('sol.cpp', {
+        cppStandard: 'c++23',
+        onlineJudge: true,
+      });
     });
+
+    it.each([
+      ['cpp.g++17', 'c++17'],
+      ['cpp.gcc14-64-msys2-g++23', 'c++23'],
+      ['cpp.clang++20', 'c++20'],
+      ['cpp.ms2019', 'c++23'],
+    ])(
+      'should build a cpp solution with sourceType %s as %s',
+      async (sourceType, std) => {
+        vi.spyOn(path, 'extname').mockReturnValue('.cpp');
+        await solution.compileSolution('sol.cpp', sourceType);
+        expect(mockedCompileCPP).toHaveBeenCalledWith('sol.cpp', {
+          cppStandard: std,
+          onlineJudge: true,
+        });
+      }
+    );
 
     it.each(['.cc', '.cxx'])(
       'should compile %s solution with compileCPP',
       async ext => {
         vi.spyOn(path, 'extname').mockReturnValue(ext);
         await solution.compileSolution(`sol${ext}`);
-        expect(mockedCompileCPP).toHaveBeenCalledWith(`sol${ext}`);
+        expect(mockedCompileCPP).toHaveBeenCalledWith(`sol${ext}`, {
+          cppStandard: 'c++23',
+          onlineJudge: true,
+        });
         expect(mockedCompileJava).not.toHaveBeenCalled();
       }
     );
@@ -253,14 +326,109 @@ describe('solution.ts', () => {
       const solutions: LocalSolution[] = [
         { name: 's1', source: 's1.cpp', tag: 'MA' },
         { name: 's2', source: 's2.java', tag: 'WA' },
+        { name: 's3', source: 's3.cpp', tag: 'OK', sourceType: 'cpp.g++17' },
       ];
       vi.spyOn(path, 'extname').mockImplementation(p =>
         p.endsWith('.cpp') ? '.cpp' : '.java'
       );
 
       await solution.compileAllSolutions(solutions);
-      expect(mockedCompileCPP).toHaveBeenCalledWith('s1.cpp');
+      expect(mockedCompileCPP).toHaveBeenCalledWith('s1.cpp', {
+        cppStandard: 'c++23',
+        onlineJudge: true,
+      });
+      expect(mockedCompileCPP).toHaveBeenCalledWith('s3.cpp', {
+        cppStandard: 'c++17',
+        onlineJudge: true,
+      });
       expect(mockedCompileJava).toHaveBeenCalledWith('s2.java');
+    });
+
+    it('should use the default standard when sourceType is not a string', async () => {
+      const solutions = [
+        {
+          name: 's1',
+          source: 's1.cpp',
+          tag: 'MA',
+          sourceType: 17,
+        },
+      ] as unknown as LocalSolution[];
+      vi.spyOn(path, 'extname').mockReturnValue('.cpp');
+
+      await solution.compileAllSolutions(solutions);
+      expect(mockedCompileCPP).toHaveBeenCalledWith('s1.cpp', {
+        cppStandard: 'c++23',
+        onlineJudge: true,
+      });
+    });
+
+    const makeSolutions = (n: number): LocalSolution[] =>
+      Array.from({ length: n }, (_, i) => ({
+        name: `s${i}`,
+        source: `s${i}.cpp`,
+        tag: 'MA' as const,
+      }));
+
+    it('should run at most `limit` compiles at once and compile all', async () => {
+      vi.spyOn(path, 'extname').mockReturnValue('.cpp');
+      let running = 0;
+      let peak = 0;
+      const started: string[] = [];
+      mockedCompileCPP.mockImplementation(async (source: string) => {
+        started.push(source);
+        running++;
+        peak = Math.max(peak, running);
+        await new Promise(resolve => setTimeout(resolve, 5));
+        running--;
+        return source;
+      });
+
+      await solution.compileAllSolutions(makeSolutions(7), 2);
+
+      expect(peak).toBe(2);
+      expect(started).toEqual(makeSolutions(7).map(s => s.source));
+    });
+
+    it('should reject with the failing compile error and skip solutions not started', async () => {
+      vi.spyOn(path, 'extname').mockReturnValue('.cpp');
+      const started: string[] = [];
+      mockedCompileCPP.mockImplementation((source: string) => {
+        started.push(source);
+        return source === 's1.cpp'
+          ? Promise.reject(new Error('boom s1'))
+          : Promise.resolve(source);
+      });
+
+      await expect(
+        solution.compileAllSolutions(makeSolutions(5), 1)
+      ).rejects.toThrow('boom s1');
+      expect(started).toEqual(['s0.cpp', 's1.cpp']);
+    });
+
+    it('should compile everything when the limit exceeds the solution count', async () => {
+      vi.spyOn(path, 'extname').mockReturnValue('.cpp');
+      mockedCompileCPP.mockImplementation((source: string) =>
+        Promise.resolve(source)
+      );
+
+      await solution.compileAllSolutions(makeSolutions(3), 10);
+
+      expect(mockedCompileCPP).toHaveBeenCalledTimes(3);
+    });
+
+    it('should treat a limit below 1 as 1', async () => {
+      vi.spyOn(path, 'extname').mockReturnValue('.cpp');
+      mockedCompileCPP.mockImplementation((source: string) =>
+        Promise.resolve(source)
+      );
+
+      await solution.compileAllSolutions(makeSolutions(2), 0);
+
+      expect(mockedCompileCPP).toHaveBeenCalledTimes(2);
+    });
+
+    it('should resolve for an empty list', async () => {
+      await expect(solution.compileAllSolutions([])).resolves.toBeUndefined();
     });
   });
 
@@ -1053,7 +1221,8 @@ describe('solution.ts', () => {
   });
 
   describe('startTheComparisonProcess', () => {
-    const checkerOk: Awaited<ReturnType<typeof checker.runChecker>> = undefined;
+    const checkerOk: Awaited<ReturnType<typeof checker.runChecker>> =
+      undefined as unknown as Awaited<ReturnType<typeof checker.runChecker>>;
 
     it('should validate expected verdicts', async () => {
       const mainSol: LocalSolution = {
@@ -1110,6 +1279,417 @@ describe('solution.ts', () => {
           testsets
         )
       ).rejects.toThrow('Error during solution comparison process');
+    });
+
+    it('judges every test when the solution is wrong on more than one', async () => {
+      const mainSol: LocalSolution = {
+        name: 'm',
+        source: '',
+        tag: 'MA',
+        sourceType: 'cpp.g++17',
+      };
+      const targetSol: LocalSolution = {
+        name: 'w',
+        source: '',
+        tag: 'WA',
+        sourceType: 'cpp.g++17',
+      };
+      const spy = vi.spyOn(report, 'updateTestVerdict');
+
+      mockedGetTestFiles.mockReturnValue(['t1.txt', 't2.txt', 't3.txt']);
+      mockedRunChecker.mockRejectedValue(new Error('Wrong Answer'));
+
+      await solution.startTheComparisonProcess(
+        { name: 'chk', source: 'chk.cpp' },
+        mainSol,
+        targetSol,
+        [{ name: 'ts1' }]
+      );
+
+      expect(mockedRunChecker).toHaveBeenCalledTimes(3);
+      expect(spy).toHaveBeenCalledTimes(3);
+      for (const index of [1, 2, 3]) {
+        expect(spy).toHaveBeenCalledWith(
+          targetSol,
+          'ts1',
+          index,
+          'WA',
+          'Wrong Answer'
+        );
+      }
+      spy.mockRestore();
+    });
+
+    describe('presentation errors', () => {
+      const mainSol: LocalSolution = {
+        name: 'm',
+        source: '',
+        tag: 'MA',
+        sourceType: 'cpp.g++17',
+      };
+      const solutionWithTag = (tag: LocalSolution['tag']): LocalSolution => ({
+        name: 'p',
+        source: '',
+        tag,
+        sourceType: 'cpp.g++17',
+      });
+      const checkerConfig: LocalChecker = { name: 'chk', source: 'chk.cpp' };
+
+      it('records PE on every test and accepts a PE-tagged solution', async () => {
+        const targetSol = solutionWithTag('PE');
+        const spy = vi.spyOn(report, 'updateTestVerdict');
+
+        mockedGetTestFiles.mockReturnValue(['t1.txt', 't2.txt', 't3.txt']);
+        mockedRunChecker.mockRejectedValue(
+          new checker.PresentationError('wrong output format')
+        );
+
+        await expect(
+          solution.startTheComparisonProcess(
+            checkerConfig,
+            mainSol,
+            targetSol,
+            [{ name: 'ts1' }]
+          )
+        ).resolves.not.toThrow();
+
+        expect(mockedRunChecker).toHaveBeenCalledTimes(3);
+        expect(spy).toHaveBeenCalledTimes(3);
+        for (const index of [1, 2, 3]) {
+          expect(spy).toHaveBeenCalledWith(
+            targetSol,
+            'ts1',
+            index,
+            'PE',
+            'wrong output format'
+          );
+        }
+        expect(spy).not.toHaveBeenCalledWith(
+          targetSol,
+          'ts1',
+          expect.anything(),
+          'WA',
+          expect.anything()
+        );
+        spy.mockRestore();
+      });
+
+      it('rejects an MA-tagged solution that gets a presentation error', async () => {
+        mockedGetTestFiles.mockReturnValue(['t1.txt']);
+        mockedRunChecker.mockRejectedValue(
+          new checker.PresentationError('wrong output format')
+        );
+
+        await expect(
+          solution.startTheComparisonProcess(
+            checkerConfig,
+            mainSol,
+            solutionWithTag('MA'),
+            [{ name: 'ts1' }]
+          )
+        ).rejects.toThrow(/Presentation Error/);
+      });
+
+      it('rejects a PE-tagged solution that passes every test', async () => {
+        mockedGetTestFiles.mockReturnValue(['t1.txt']);
+        mockedRunChecker.mockResolvedValue(undefined);
+
+        await expect(
+          solution.startTheComparisonProcess(
+            checkerConfig,
+            mainSol,
+            solutionWithTag('PE'),
+            [{ name: 'ts1' }]
+          )
+        ).rejects.toThrow(/did not get Presentation Error/);
+      });
+
+      it('rejects a PE-tagged solution that only gets wrong answers', async () => {
+        mockedGetTestFiles.mockReturnValue(['t1.txt']);
+        mockedRunChecker.mockRejectedValue(new Error('Wrong Answer'));
+
+        await expect(
+          solution.startTheComparisonProcess(
+            checkerConfig,
+            mainSol,
+            solutionWithTag('PE'),
+            [{ name: 'ts1' }]
+          )
+        ).rejects.toThrow(/did not get Presentation Error/);
+      });
+
+      it('accepts a PE-tagged solution with both PE and WA tests, and records each', async () => {
+        const targetSol = solutionWithTag('PE');
+        const spy = vi.spyOn(report, 'updateTestVerdict');
+
+        mockedGetTestFiles.mockReturnValue(['t1.txt', 't2.txt']);
+        mockedRunChecker
+          .mockRejectedValueOnce(new checker.PresentationError('bad format'))
+          .mockRejectedValueOnce(new Error('Wrong Answer'));
+
+        await expect(
+          solution.startTheComparisonProcess(
+            checkerConfig,
+            mainSol,
+            targetSol,
+            [{ name: 'ts1' }]
+          )
+        ).resolves.not.toThrow();
+
+        expect(spy).toHaveBeenCalledWith(
+          targetSol,
+          'ts1',
+          1,
+          'PE',
+          'bad format'
+        );
+        expect(spy).toHaveBeenCalledWith(
+          targetSol,
+          'ts1',
+          2,
+          'WA',
+          'Wrong Answer'
+        );
+        spy.mockRestore();
+      });
+
+      it('still records WA for a plain checker failure', async () => {
+        const targetSol = solutionWithTag('WA');
+        const spy = vi.spyOn(report, 'updateTestVerdict');
+
+        mockedGetTestFiles.mockReturnValue(['t1.txt']);
+        mockedRunChecker.mockRejectedValue(new Error('Wrong Answer'));
+
+        await solution.startTheComparisonProcess(
+          checkerConfig,
+          mainSol,
+          targetSol,
+          [{ name: 'ts1' }]
+        );
+
+        expect(spy).toHaveBeenCalledWith(
+          targetSol,
+          'ts1',
+          1,
+          'WA',
+          'Wrong Answer'
+        );
+        spy.mockRestore();
+      });
+
+      it('rethrows a checker limit hit and does not record it as WA', async () => {
+        const targetSol = solutionWithTag('WA');
+        const spy = vi.spyOn(report, 'updateTestVerdict');
+
+        mockedGetTestFiles.mockReturnValue(['t1.txt', 't2.txt']);
+        mockedRunChecker.mockRejectedValue(
+          new LimitExceededError('Checker exceeded the time limit (1000ms)')
+        );
+
+        await expect(
+          solution.startTheComparisonProcess(
+            checkerConfig,
+            mainSol,
+            targetSol,
+            [{ name: 'ts1' }]
+          )
+        ).rejects.toBeInstanceOf(LimitExceededError);
+
+        expect(mockedRunChecker).toHaveBeenCalledTimes(1);
+        expect(spy).not.toHaveBeenCalled();
+        spy.mockRestore();
+      });
+    });
+
+    describe('empty main output', () => {
+      const mainSol: LocalSolution = { name: 'main', source: '', tag: 'MA' };
+      const otherSol: LocalSolution = { name: 'other', source: '', tag: 'OK' };
+      const checkerConfig: LocalChecker = { name: 'chk', source: 'chk.cpp' };
+      const isMainOutput = (file: unknown) =>
+        String(file).replace(/\\/g, '/').includes('/main/');
+      const compare = (target: LocalSolution = otherSol) =>
+        solution.startTheComparisonProcess(checkerConfig, mainSol, target, [
+          { name: 'tests' },
+        ]);
+
+      /** Serves `outputs[name][testFile]` for both readFirstLine and open. */
+      function mockOutputs(outputs: {
+        main: Record<string, string>;
+        other: Record<string, string>;
+      }) {
+        const contentOf = (file: unknown) => {
+          const name = String(file);
+          const byTest = isMainOutput(name) ? outputs.main : outputs.other;
+          const test = path.basename(name).replace(/^output_/, '');
+          return byTest[test] ?? '';
+        };
+        mockedReadFirstLine.mockImplementation(file =>
+          Promise.resolve(contentOf(file).split(/\r?\n/)[0] ?? '')
+        );
+        mockFileContents(contentOf);
+      }
+
+      it('sends a single empty answer to the checker like any other answer', async () => {
+        mockedGetTestFiles.mockReturnValue(['test1.txt', 'test2.txt']);
+        mockOutputs({
+          main: { 'test1.txt': '', 'test2.txt': '7\n' },
+          other: { 'test1.txt': '', 'test2.txt': '7\n' },
+        });
+        mockedRunChecker.mockResolvedValue(undefined);
+
+        await expect(compare()).resolves.toBeUndefined();
+        expect(mockedRunChecker).toHaveBeenCalledTimes(2);
+      });
+
+      it('does not fail when the main is empty on one test and the other prints output there', async () => {
+        mockedGetTestFiles.mockReturnValue(['test1.txt', 'test2.txt']);
+        mockOutputs({
+          main: { 'test1.txt': '', 'test2.txt': '7\n' },
+          other: { 'test1.txt': '42\n', 'test2.txt': '7\n' },
+        });
+        mockedRunChecker.mockRejectedValueOnce(new Error('Wrong Answer'));
+        mockedRunChecker.mockResolvedValue(undefined);
+        const wrongSol: LocalSolution = { ...otherSol, tag: 'WA' };
+
+        await expect(compare(wrongSol)).resolves.toBeUndefined();
+        expect(mockedRunChecker).toHaveBeenCalledTimes(2);
+      });
+
+      it('fails and names the main when it prints nothing on every test and the other prints output', async () => {
+        mockedGetTestFiles.mockReturnValue(['test1.txt', 'test2.txt']);
+        mockOutputs({
+          main: { 'test1.txt': '', 'test2.txt': '' },
+          other: { 'test1.txt': '', 'test2.txt': '42\n' },
+        });
+
+        const rejection = compare();
+        await expect(rejection).rejects.toThrow(
+          'Main solution "main" printed nothing on every test (2 in total), but "other" printed output (first on test test2.txt in testset tests).'
+        );
+        await expect(rejection).rejects.toThrow(/ONLINE_JUDGE/);
+        expect(mockedRunChecker).not.toHaveBeenCalled();
+      });
+
+      it('treats a main output of only whitespace as nothing', async () => {
+        mockedGetTestFiles.mockReturnValue(['test1.txt']);
+        mockOutputs({
+          main: { 'test1.txt': '\n  \n' },
+          other: { 'test1.txt': '42\n' },
+        });
+
+        await expect(compare()).rejects.toThrow(
+          /Main solution "main" printed nothing on every test/
+        );
+      });
+
+      it('accepts a main output that starts with an empty line', async () => {
+        mockedGetTestFiles.mockReturnValue(['test1.txt']);
+        mockOutputs({
+          main: { 'test1.txt': '\n42\n' },
+          other: { 'test1.txt': '42\n' },
+        });
+        mockedRunChecker.mockResolvedValue(undefined);
+
+        await expect(compare()).resolves.toBeUndefined();
+        expect(mockedRunChecker).toHaveBeenCalledTimes(1);
+      });
+
+      it('does not fail when the main and the other solution print nothing on every test', async () => {
+        mockedGetTestFiles.mockReturnValue(['test1.txt', 'test2.txt']);
+        mockedRunChecker.mockResolvedValue(undefined);
+
+        await expect(compare()).resolves.toBeUndefined();
+        expect(mockedRunChecker).toHaveBeenCalledTimes(2);
+      });
+
+      it('does not count a runtime error marker as output of the other solution', async () => {
+        mockedGetTestFiles.mockReturnValue(['test1.txt']);
+        mockOutputs({
+          main: { 'test1.txt': '' },
+          other: { 'test1.txt': 'Runtime Error: segfault' },
+        });
+        const crashingSol: LocalSolution = { ...otherSol, tag: 'RE' };
+
+        await expect(compare(crashingSol)).resolves.toBeUndefined();
+        expect(mockedRunChecker).not.toHaveBeenCalled();
+      });
+
+      it('does not count a missing output of the other solution as output', async () => {
+        mockedGetTestFiles.mockReturnValue(['test1.txt']);
+        mockedFsExistsSync.mockImplementation(file => isMainOutput(file));
+
+        await expect(compare()).resolves.toBeUndefined();
+        expect(mockedRunChecker).not.toHaveBeenCalled();
+      });
+
+      it('leaves a missing main output to the per-test check instead of calling it nothing printed', async () => {
+        // test1: main blank, test2: main output file is missing. The other
+        // solution prints 42 on both.
+        const isMissingMain = (file: unknown) =>
+          isMainOutput(file) && /[/\\]output_test2\.txt$/.test(String(file));
+        mockedGetTestFiles.mockReturnValue(['test1.txt', 'test2.txt']);
+        mockedFsExistsSync.mockImplementation(file => !isMissingMain(file));
+        // Like the real readFirstLine, reading a missing file rejects.
+        mockedReadFirstLine.mockImplementation(file =>
+          isMissingMain(file)
+            ? Promise.reject(
+                new Error(`ENOENT: no such file or directory, open '${file}'`)
+              )
+            : Promise.resolve(isMainOutput(file) ? '' : '42')
+        );
+        mockFileContents(file => (isMainOutput(file) ? '' : '42\n'));
+        mockedRunChecker.mockResolvedValue(undefined);
+
+        const rejection = compare();
+        await expect(rejection).rejects.toThrow(
+          /^Error during solution comparison process: ENOENT: no such file or directory, open '.*[/\\]main[/\\]tests[/\\]output_test2\.txt'$/
+        );
+        await expect(rejection).rejects.not.toThrow(/printed nothing/);
+        // test1 went to the checker before the per-test check hit test2.
+        expect(mockedRunChecker).toHaveBeenCalledTimes(1);
+      });
+
+      describe('several testsets', () => {
+        const testsets: LocalTestset[] = [{ name: 'ts1' }, { name: 'ts2' }];
+        const compareTestsets = () =>
+          solution.startTheComparisonProcess(
+            checkerConfig,
+            mainSol,
+            otherSol,
+            testsets
+          );
+
+        beforeEach(() => {
+          mockedGetTestFiles.mockImplementation(dir =>
+            /[/\\]ts1$/.test(String(dir))
+              ? ['test1.txt', 'test2.txt']
+              : ['test3.txt']
+          );
+        });
+
+        it('counts the tests of every testset and names the testset where the other printed output', async () => {
+          mockOutputs({
+            main: { 'test1.txt': '', 'test2.txt': '', 'test3.txt': '' },
+            other: { 'test1.txt': '', 'test2.txt': '', 'test3.txt': '42\n' },
+          });
+
+          await expect(compareTestsets()).rejects.toThrow(
+            'Main solution "main" printed nothing on every test (3 in total), but "other" printed output (first on test test3.txt in testset ts2).'
+          );
+          expect(mockedRunChecker).not.toHaveBeenCalled();
+        });
+
+        it('does not fail when the main is blank in one testset and prints output in another', async () => {
+          mockOutputs({
+            main: { 'test1.txt': '', 'test2.txt': '', 'test3.txt': '7\n' },
+            other: { 'test1.txt': '42\n', 'test2.txt': '', 'test3.txt': '7\n' },
+          });
+          mockedRunChecker.mockResolvedValue(undefined);
+
+          await expect(compareTestsets()).resolves.toBeUndefined();
+          expect(mockedRunChecker).toHaveBeenCalledTimes(3);
+        });
+      });
     });
 
     it('should handle skip logic via checkIfShouldSkipRest interception', () => {
@@ -1445,7 +2025,7 @@ describe('solution.ts', () => {
           );
 
           expect(mockedFsMkdirSync).toHaveBeenCalledWith(
-            expect.stringContaining('main/ts1'),
+            expect.stringMatching(/main[\\/]ts1/),
             expect.anything()
           );
         });
@@ -1473,6 +2053,144 @@ describe('solution.ts', () => {
       });
     });
   });
+  describe('tag rules', () => {
+    type Tag = LocalSolution['tag'];
+    type Outcome = 'pass' | 'TLE' | 'MLE' | 'RTE' | 'WA' | 'PE';
+
+    const mainSol: LocalSolution = {
+      name: 'sol_main',
+      source: '',
+      tag: 'MA',
+      sourceType: 'cpp.g++17',
+    };
+    const checkerConfig: LocalChecker = { name: 'chk', source: 'chk.cpp' };
+
+    // What the target solution produced, as the comparison process sees it.
+    function arrange(outcome: Outcome) {
+      const firstLines: Partial<Record<Outcome, string>> = {
+        TLE: 'Time Limit Exceeded after 1000ms',
+        MLE: 'Memory Limit Exceeded (256 MB)',
+        RTE: 'Runtime Error: segmentation fault',
+      };
+      mockedGetTestFiles.mockReturnValue(['t1.txt']);
+      mockedReadFirstLine.mockImplementation((p: string) =>
+        Promise.resolve(
+          p.includes('sol_main') ? '42' : (firstLines[outcome] ?? '42')
+        )
+      );
+      if (outcome === 'WA') {
+        mockedRunChecker.mockRejectedValue(new Error('Wrong Answer'));
+      } else if (outcome === 'PE') {
+        mockedRunChecker.mockRejectedValue(
+          new checker.PresentationError('bad format')
+        );
+      } else {
+        mockedRunChecker.mockResolvedValue(
+          undefined as unknown as Awaited<ReturnType<typeof checker.runChecker>>
+        );
+      }
+    }
+
+    function compare(tag: Tag, outcome: Outcome) {
+      arrange(outcome);
+      const target: LocalSolution = {
+        name: 'sol_target',
+        source: '',
+        tag,
+        sourceType: 'cpp.g++17',
+      };
+      return solution.startTheComparisonProcess(
+        checkerConfig,
+        mainSol,
+        target,
+        [{ name: 'ts1' }]
+      );
+    }
+
+    const verdictName: Record<Exclude<Outcome, 'pass'>, string> = {
+      TLE: 'Time Limit Exceeded',
+      MLE: 'Memory Limit Exceeded',
+      RTE: 'Runtime Error',
+      WA: 'Wrong Answer',
+      PE: 'Presentation Error',
+    };
+
+    // Tags that must accept / reject a solution that got only this verdict.
+    const verdictRules: {
+      outcome: Exclude<Outcome, 'pass'>;
+      accepted: Tag[];
+      rejected: Tag[];
+    }[] = [
+      {
+        outcome: 'TLE',
+        accepted: ['TL', 'TO', 'RJ'],
+        rejected: ['MA', 'OK', 'WA', 'PE', 'ML', 'RE'],
+      },
+      {
+        outcome: 'MLE',
+        accepted: ['ML', 'RJ'],
+        rejected: ['MA', 'OK', 'TL', 'TO', 'WA', 'PE', 'RE'],
+      },
+      {
+        outcome: 'RTE',
+        accepted: ['RE', 'RJ'],
+        rejected: ['MA', 'OK', 'TL', 'TO', 'WA', 'PE', 'ML'],
+      },
+      {
+        outcome: 'WA',
+        // PE is not accepted here: a PE-tagged solution needs a PE verdict
+        accepted: ['WA', 'RJ'],
+        rejected: ['MA', 'OK', 'TL', 'TO', 'ML', 'RE'],
+      },
+      {
+        outcome: 'PE',
+        accepted: ['WA', 'PE', 'RJ'],
+        rejected: ['MA', 'OK', 'TL', 'TO', 'ML', 'RE'],
+      },
+    ];
+
+    for (const { outcome, accepted, rejected } of verdictRules) {
+      describe(`when the solution gets ${verdictName[outcome]}`, () => {
+        for (const tag of accepted) {
+          it(`accepts tag ${tag}`, async () => {
+            await expect(compare(tag, outcome)).resolves.toBeUndefined();
+          });
+        }
+        for (const tag of rejected) {
+          it(`rejects tag ${tag}`, async () => {
+            await expect(compare(tag, outcome)).rejects.toThrow(
+              `marked as ${tag} but got ${verdictName[outcome]} on some tests`
+            );
+          });
+        }
+      });
+    }
+
+    describe('when the solution passes every test', () => {
+      for (const tag of ['MA', 'OK', 'TO'] as Tag[]) {
+        it(`accepts tag ${tag}`, async () => {
+          await expect(compare(tag, 'pass')).resolves.toBeUndefined();
+        });
+      }
+
+      const mustFail: [Tag, string][] = [
+        ['TL', 'marked as TL but did not get Time Limit Exceeded on any test'],
+        [
+          'ML',
+          'marked as ML but did not get Memory Limit Exceeded on any test',
+        ],
+        ['WA', 'marked as WA but did not get Wrong Answer on any test'],
+        ['PE', 'marked as PE but did not get Presentation Error on any test'],
+        ['RJ', 'marked as RJ but passed all tests correctly'],
+      ];
+      for (const [tag, message] of mustFail) {
+        it(`rejects tag ${tag}`, async () => {
+          await expect(compare(tag, 'pass')).rejects.toThrow(message);
+        });
+      }
+    });
+  });
+
   describe('parseTestIndex', () => {
     it('extracts the numeric index from a test file name', () => {
       expect(solution.parseTestIndex('test12.txt')).toBe(12);
@@ -1550,7 +2268,9 @@ describe('solution.ts', () => {
       await solution.runSolutionOnGroup(
         mockSolution,
         mockConfig,
-        { name: 'tests' },
+        { name: 'tests' } as unknown as Parameters<
+          typeof solution.runSolutionOnGroup
+        >[2],
         'samples'
       );
       expect(spy).toHaveBeenCalledWith(

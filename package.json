@@ -1,6 +1,6 @@
 {
   "name": "polyman-cli",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "Polyman is a CLI tool that will allow codeforces problem setters to never get out of their coding environment to create a new problem. You can create, test, or update your problems and then submit them to polygon directly from your terminal.",
   "author": "Hamza Hassanain",
   "license": "MIT",
@@ -8,6 +8,9 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/HamzaHassanain/polyman.git"
+  },
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
   },
   "main": "cli.js",
   "bin": {
@@ -50,9 +53,9 @@
     "@types/commander": "^2.12.0",
     "@types/node": "^24.10.0",
     "@types/ora": "^3.1.0",
-    "@typescript-eslint/eslint-plugin": "^8.46.3",
-    "@typescript-eslint/parser": "^8.46.3",
-    "@vitest/coverage-v8": "^4.0.16",
+    "@typescript-eslint/eslint-plugin": "~8.48.0",
+    "@typescript-eslint/parser": "~8.48.0",
+    "@vitest/coverage-v8": "^4.1.12",
     "eslint": "^9.39.1",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.4",
@@ -60,12 +63,17 @@
     "ts-node": "^10.9.2",
     "typedoc": "^0.28.14",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.46.3",
-    "vitest": "^4.0.16"
+    "typescript-eslint": "~8.48.0",
+    "vitest": "^4.1.12"
   },
   "dependencies": {
     "chalk": "^5.6.2",
     "commander": "^14.0.2",
     "execa": "^5.1.1"
+  },
+  "overrides": {
+    "typedoc": {
+      "minimatch": "^9.0.9"
+    }
   }
 }

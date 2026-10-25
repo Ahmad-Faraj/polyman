@@ -6,6 +6,7 @@
  */
 
 import * as crypto from 'crypto';
+import { PolymanError } from './errors';
 import type {
   Problem,
   ProblemInfo,
@@ -82,6 +83,107 @@ export interface PolygonConfig {
   apiSecret: string;
   baseUrl?: string;
 }
+
+/**
+ * Wait before the single retry of a Polygon call, in milliseconds.
+ *
+ * @internal
+ */
+const RETRY_DELAY_MS = 1500;
+
+/**
+ * Methods that `request()` repeats once after a transient failure (network
+ * error, HTTP 5xx, or an HTML page instead of JSON). A method is listed only
+ * if a second call leaves Polygon in the same state as one call: reads, and
+ * uploads that replace the same named item.
+ *
+ * Deliberately NOT listed (never retried), and why:
+ * - problem.create: a second call creates a second problem.
+ * - problem.commitChanges: a second call makes a second commit.
+ * - problem.buildPackage: a second call starts a second build.
+ * - problem.updateWorkingCopy: state-changing, and a repeat after a lost
+ *   success could overwrite newer edits.
+ * - problem.discardWorkingCopy: a repeat after a lost success could discard
+ *   edits made in between.
+ * - problem.saveValidatorTest: checkExisting semantics and test-index
+ *   handling are not certain enough to repeat.
+ * - problem.saveCheckerTest: same reason as problem.saveValidatorTest.
+ *
+ * A call sent with `checkExisting: true` is never retried either: Polygon
+ * would reject the second attempt after the first one actually landed.
+ *
+ * @internal
+ */
+const RETRYABLE_METHODS: ReadonlySet<string> = new Set([
+  // reads
+  'problems.list',
+  'problem.info',
+  'problem.statements',
+  'problem.statementResources',
+  'problem.checker',
+  'problem.validator',
+  'problem.extraValidators',
+  'problem.interactor',
+  'problem.validatorTests',
+  'problem.checkerTests',
+  'problem.files',
+  'problem.viewFile',
+  'problem.solutions',
+  'problem.viewSolution',
+  'problem.script',
+  'problem.tests',
+  'problem.testInput',
+  'problem.testAnswer',
+  'problem.viewTestGroup',
+  'problem.viewTags',
+  'problem.viewGeneralDescription',
+  'problem.viewGeneralTutorial',
+  'problem.packages',
+  'problem.package',
+  'contest.problems',
+  // uploads that replace the same named item
+  'problem.saveStatement',
+  'problem.saveStatementResource',
+  'problem.setChecker',
+  'problem.setValidator',
+  'problem.setInteractor',
+  'problem.saveFile',
+  'problem.saveSolution',
+  'problem.saveScript',
+  'problem.saveTest', // fixed test index
+  'problem.setTestGroup',
+  'problem.saveTestGroup',
+  'problem.saveTags',
+  'problem.saveGeneralDescription',
+  'problem.saveGeneralTutorial',
+  'problem.updateInfo',
+  'problem.enableGroups',
+  'problem.enablePoints',
+  'problem.editSolutionExtraTags', // sets or removes an explicit tag
+]);
+
+/** Matches the start of an HTML error page (gateway timeouts, 502 pages). */
+const HTML_PAGE = /^\s*<(?:!doctype\s+html|html)\b/i;
+
+/**
+ * Builds the error for a failed Polygon call. It carries exit code 4, so an
+ * agent knows the problem itself is fine and the call can be retried.
+ *
+ * @internal
+ */
+function polygonError(message: string, cause?: unknown): PolymanError {
+  return new PolymanError(
+    message,
+    4,
+    undefined,
+    cause === undefined ? undefined : { cause }
+  );
+}
+
+/** Outcome of one HTTP attempt against Polygon. @internal */
+type Attempt =
+  | { ok: true; value: unknown }
+  | { ok: false; retry: boolean; error: Error };
 
 /**
  * Comprehensive SDK for Codeforces Polygon API.
@@ -208,6 +310,44 @@ export class PolygonSDK {
     params: Record<string, string | number | boolean> = {},
     returnRaw: boolean = false
   ): Promise<T> {
+    const mayRetry =
+      RETRYABLE_METHODS.has(methodName) && params['checkExisting'] !== true;
+
+    let outcome = await this.attempt(methodName, params, returnRaw);
+    if (!outcome.ok && outcome.retry && mayRetry) {
+      await new Promise<void>(resolve => setTimeout(resolve, RETRY_DELAY_MS));
+      outcome = await this.attempt(methodName, params, returnRaw);
+    }
+    if (!outcome.ok) {
+      throw outcome.error;
+    }
+
+    if (returnRaw) {
+      return outcome.value as T;
+    }
+
+    const data = outcome.value as PolygonResponse<T>;
+
+    if (data.status === 'FAILED') {
+      throw polygonError(`Polygon API Error: ${data.comment}`);
+    }
+
+    return data.result as T;
+  }
+
+  /**
+   * Sends one signed request and classifies the result. A fresh signature is
+   * built on every attempt. `retry` is true only for transient failures:
+   * network errors, HTTP 5xx, and an HTML page or unreadable body that did
+   * not come with a 4xx status.
+   *
+   * @internal
+   */
+  private async attempt(
+    methodName: string,
+    params: Record<string, string | number | boolean>,
+    returnRaw: boolean
+  ): Promise<Attempt> {
     const time = Math.floor(Date.now() / 1000);
     const apiSig = this.generateSignature(methodName, params);
 
@@ -226,25 +366,110 @@ export class PolygonSDK {
 
     const url = `${this.baseUrl}/${methodName}`;
 
-    const response = await fetch(url, {
-      method: 'POST',
-      body: requestParams,
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-    });
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        body: requestParams,
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+      });
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      return {
+        ok: false,
+        retry: true,
+        error: polygonError(
+          `Polygon request ${methodName} failed: ${reason}`,
+          err
+        ),
+      };
+    }
+
+    if (response.status >= 500) {
+      // Polygon can answer a 5xx with a JSON FAILED body that carries the
+      // real reason. That is a definitive answer, so do not retry it.
+      if (!returnRaw) {
+        const failed = await this.readFailedBody(response);
+        if (failed !== undefined) {
+          return { ok: true, value: failed };
+        }
+      }
+      return {
+        ok: false,
+        retry: true,
+        error: polygonError(
+          `Polygon request ${methodName} failed: HTTP ${response.status}`
+        ),
+      };
+    }
+
+    const isClientError = response.status >= 400;
 
     if (returnRaw) {
-      return (await response.text()) as T;
+      let text: string;
+      try {
+        text = await response.text();
+      } catch (err) {
+        return {
+          ok: false,
+          retry: !isClientError,
+          error: polygonError(
+            `Polygon request ${methodName} failed: could not read the response body`,
+            err
+          ),
+        };
+      }
+      if (HTML_PAGE.test(text)) {
+        return {
+          ok: false,
+          retry: !isClientError,
+          error: polygonError(
+            `Polygon request ${methodName} returned an HTML page instead of the file`
+          ),
+        };
+      }
+      return { ok: true, value: text };
     }
 
-    const data = (await response.json()) as PolygonResponse<T>;
-
-    if (data.status === 'FAILED') {
-      throw new Error(`Polygon API Error: ${data.comment}`);
+    try {
+      return { ok: true, value: await response.json() };
+    } catch (err) {
+      return {
+        ok: false,
+        retry: !isClientError,
+        error: polygonError(
+          `Polygon request ${methodName} did not return JSON (HTML page or unreadable body)`,
+          err
+        ),
+      };
     }
+  }
 
-    return data.result as T;
+  /**
+   * Reads a 5xx body and returns it only when it is JSON with
+   * `status: 'FAILED'`. Anything else (HTML, empty, unreadable) gives
+   * undefined so the caller treats the response as a transient failure.
+   *
+   * @internal
+   */
+  private async readFailedBody(
+    response: Response
+  ): Promise<PolygonResponse<unknown> | undefined> {
+    try {
+      const body: unknown = await response.json();
+      if (
+        typeof body === 'object' &&
+        body !== null &&
+        (body as { status?: unknown }).status === 'FAILED'
+      ) {
+        return body as PolygonResponse<unknown>;
+      }
+    } catch {
+      // Not JSON or unreadable: fall through to the generic 5xx handling.
+    }
+    return undefined;
   }
 
   // ==================== General Methods ====================

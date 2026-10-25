@@ -139,10 +139,12 @@ interface ExecutionResult {
 **Implementation:**
 
 ```typescript
-// Linux memory limiting
-if (process.platform === 'linux' && memoryLimitMB > 0) {
+// Memory limiting (Java gets -Xmx instead)
+if (memoryLimitMB > 0 && process.platform === 'darwin') {
+  // macOS: ulimit -v fails there, so the limit is skipped and a warning is shown once
+} else if (memoryLimitMB > 0 && process.platform !== 'win32') {
   const memoryLimitKB = memoryLimitMB * 1024;
-  command = `ulimit -v ${memoryLimitKB} && ${command}`;
+  command = `(ulimit -v ${memoryLimitKB}; ${command})`;
 }
 
 // Spawn process with timeout
@@ -226,7 +228,7 @@ The on-disk `Config.json` schema is described in [GUIDE.md - Configuration File 
 g++ -O2 -std=<cppStandard> <compiler.flags...> -iquote <problem-root> -o output source.cpp
 ```
 
-The executable comes from `POLYMAN_CXX`, then `compiler.cpp` in `Config.json`, then `g++` (`resolveCppCompiler` in `src/helpers/utils.ts`). The flags come from `resolveCppFlags`: a `-std=` item in `compiler.flags` replaces `-std=<cppStandard>` and an `-O` item replaces `-O2`. The resolved executable and flags are part of the compile-cache key.
+The executable comes from `POLYMAN_CXX`, then `compiler.cpp` in `Config.json`, then `g++` (`resolveCppCompiler` in `src/helpers/utils.ts`). The flags come from `resolveCppFlags`: a `-std=` item in `compiler.flags` replaces `-std=<cppStandard>` and an `-O` item replaces `-O2`. For a solution, `compileSolution` in `src/helpers/solution.ts` passes the standard named in its `sourceType` (`cpp.g++17` gives `c++17`) as the fallback when `Config.json` has no `cppStandard`. Solutions are compiled with `{ onlineJudge: true }`, which adds `-DONLINE_JUDGE` after the standard (like Codeforces), unless `compiler.flags` already defines it. Checkers, validators and generators do not get it. The resolved executable and flags are part of the compile-cache key.
 
 The problem root (the current working directory) is passed via `-iquote` so sources in subdirectories such as `generators/` can `#include "testlib.h"` from the root-level copy without a system-wide install. Every path and argument that reaches the shell is quoted with `quoteShellArgument` (`src/helpers/shell.ts`), so problem directories containing spaces or shell metacharacters work.
 
@@ -331,11 +333,11 @@ Polyman provides comprehensive error handling with formatted output and proper e
 
 ### Error Flow
 
-1. **Catch Error:** In action or helper function
-2. **Log Error:** Via `logError`
-3. **Handle Error:**
-   - Exit: `logErrorAndExit`
-   - Throw: `logErrorAndThrow`
+1. **Throw:** Helpers and steps throw. When the kind of failure is known they throw a `PolymanError(message, exitCode, hint?)` from `src/errors.ts` (codes: `1` problem failed, `2` usage error, `3` environment error, `4` remote error).
+2. **Catch in the action:** The action prints its error box, finishes the `--json` report with the code, and throws the error again.
+3. **Exit in one place:** The `.catch` on `program.parseAsync` in `cli.ts` prints the message (and the hint) and exits with `exitCodeFor(error)`. Any error that is not a `PolymanError` exits with `1`.
+
+Only two places call `process.exit` on their own: the SIGINT/SIGTERM handler in `executor.ts` (exit `130`/`143`, a signal does not go through an action) and `node-version-check.ts` (exit `3`, it runs before anything else loads). See [GUIDE.md](GUIDE.md#exit-codes) for the full table.
 
 ### Error Types
 

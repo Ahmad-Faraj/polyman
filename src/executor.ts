@@ -1,15 +1,17 @@
 /**
  * @fileoverview Command execution engine with timeout, memory limits, and process management.
  * Thin wrapper over `execa` that adds the bits execa does not handle for a competitive-programming judge:
- *   - Memory limits via `ulimit -v` (Unix) and `-Xmx` (Java).
+ *   - Memory limits via `ulimit -v` (Linux) and `-Xmx` (Java). Not enforced on macOS or Windows.
  *   - Cross-platform process-tree kill on TLE (`taskkill /T /F` on Windows, process groups on Unix).
  *   - MLE detection from exit codes (137, SIGABRT) and stderr patterns (`bad_alloc`, `OutOfMemory`, ...).
  *   - Callback-style completion (`onSuccess` / `onError` / `onTimeout` / `onMemoryExceeded`).
  */
 
 import { spawn } from 'child_process';
+import os from 'os';
 import execa from 'execa';
 import { fmt } from './formatter';
+import { EXIT_CANCELLED, EXIT_TERMINATED } from './errors';
 import { quoteShellArgument } from './helpers/shell';
 
 /**
@@ -58,6 +60,8 @@ export interface ExecutionOptions {
 
 const TIMEOUT_EXIT_CODE = 124;
 const OOM_KILL_EXIT_CODE = 137;
+/** A shell reports a process killed by signal N as exit code 128 + N. */
+const SIGNAL_EXIT_CODE_BASE = 128;
 const KILL_GRACE_PERIOD_MS = 100;
 const WINDOWS_HANDLE_RELEASE_DELAY_MS = 150;
 
@@ -79,6 +83,7 @@ const WINDOWS_HANDLE_RELEASE_DELAY_MS = 150;
 export class CommandExecutor {
   private tempFiles: string[] = [];
   private activeProcesses: Set<execa.ExecaChildProcess> = new Set();
+  private warnedMacMemoryLimit = false;
 
   /**
    * Execute a shell command with timeout and memory limits.
@@ -153,8 +158,14 @@ export class CommandExecutor {
 
     const stdout = typeof raw.stdout === 'string' ? raw.stdout : '';
     const stderr = typeof raw.stderr === 'string' ? raw.stderr : '';
-    const exitCode = raw.exitCode ?? 1;
     const signal = (raw.signal ?? null) as NodeJS.Signals | null;
+    // A process killed by a signal has no exit code in execa. Report it the way
+    // a shell does (128 + signal number) so a crash looks the same on every
+    // platform, and keep it out of the spawn-error path below.
+    const killedBySignal = raw.exitCode === undefined && signal !== null;
+    const exitCode = killedBySignal
+      ? SIGNAL_EXIT_CODE_BASE + (os.constants.signals[signal] ?? 0)
+      : (raw.exitCode ?? 1);
 
     if (didTimeout) {
       return this.finalizeTimeout(stdout, options);
@@ -162,7 +173,7 @@ export class CommandExecutor {
 
     // Spawn failure (ENOENT, EACCES, ...). execa marks `failed: true` and leaves
     // `exitCode` undefined; the human-readable reason lives on `shortMessage`.
-    if (raw.failed && raw.exitCode === undefined) {
+    if (raw.failed && raw.exitCode === undefined && !killedBySignal) {
       const errLike = raw as execa.ExecaError;
       return this.finalizeSpawnError(
         new Error(errLike.shortMessage || errLike.message || stderr),
@@ -191,8 +202,9 @@ export class CommandExecutor {
 
   /**
    * Applies memory limit to a command using platform-specific methods.
-   * For Java programs, uses `-Xmx` flag. For Unix, wraps in a `ulimit -v` subshell.
-   * Windows memory limits are not enforced.
+   * For Java programs, uses `-Xmx` flag. On Linux, wraps in a `ulimit -v` subshell.
+   * Windows and macOS memory limits are not enforced (`ulimit -v` fails on macOS);
+   * on macOS a warning is printed once per executor, even for silent calls.
    */
   private applyMemoryLimit(command: string, memoryLimitMB?: number): string {
     if (!memoryLimitMB) return command;
@@ -206,6 +218,16 @@ export class CommandExecutor {
 
     if (isJava) {
       return command.replace(/^java\s+/, `java -Xmx${memoryLimitMB}m `);
+    }
+
+    if (process.platform === 'darwin') {
+      if (!this.warnedMacMemoryLimit) {
+        this.warnedMacMemoryLimit = true;
+        fmt.warning(
+          `${fmt.warningIcon()} Memory limits are not enforced on macOS`
+        );
+      }
+      return command;
     }
 
     const memoryLimitKB = memoryLimitMB * 1024;
@@ -520,6 +542,12 @@ export const executor = new CommandExecutor();
 /**
  * Register signal handlers to ensure child processes are cleaned up
  * when the parent process is terminated (e.g., via Ctrl+C).
+ *
+ * It keeps its own `process.exit` (with `node-version-check.ts`, the only
+ * ones outside `cli.ts`): a signal does not come through an action, so
+ * nothing could catch a thrown error.
+ * SIGINT exits with {@link EXIT_CANCELLED} and SIGTERM with
+ * {@link EXIT_TERMINATED}.
  */
 const setupProcessCleanup = () => {
   let isCleaningUp = false;
@@ -534,7 +562,13 @@ const setupProcessCleanup = () => {
       // Ignore cleanup errors during exit
     }
 
-    process.exit(signal === 'SIGINT' ? 130 : signal === 'SIGTERM' ? 143 : 1);
+    process.exit(
+      signal === 'SIGINT'
+        ? EXIT_CANCELLED
+        : signal === 'SIGTERM'
+          ? EXIT_TERMINATED
+          : 1
+    );
   };
 
   process.on('SIGINT', () => {

@@ -1,0 +1,47 @@
+# What GitLab Duo's code review should know about polyman. polyman is a judge:
+# it tells problem setters whether every solution gets the right verdict, so a
+# small change in the rules below can let a wrong solution pass silently.
+instructions:
+  - name: Verdicts
+    fileFilters:
+      - "src/helpers/solution.ts"
+      - "src/helpers/checker.ts"
+      - "src/helpers/validator.ts"
+      - "src/types.d.ts"
+    instructions: |
+      1. Any change to how a solution's verdicts are compared with its tag (MA, OK, RJ, TL, TO, WA, PE, ML, RE) must come with a unit test for both a matching and a non-matching solution. The tag helpers (isWATag, isTLTag, isMLTag, isRTETag) are barely covered: mutation testing shows a one-line change there passes all unit tests.
+      2. Every test recorded in the JSON report must be one the checker actually judged; flag code that records a verdict before the comparison or stops early without correcting later entries.
+      3. A presentation error is not a wrong answer: flag code that reports PE as WA.
+      4. Point the author at the corpus job (`corpus/`) and its "Corpus verdicts" report; the unit tests mostly mock processes and can't show a wrong verdict.
+  - name: Running solutions
+    fileFilters:
+      - "src/executor.ts"
+      - "src/helpers/utils.ts"
+      - "src/helpers/shell.ts"
+      - "src/helpers/compile-cache.ts"
+    instructions: |
+      1. Commands run through a shell: flag file names or arguments that reach the shell without quoting.
+      2. Don't assume an interpreter name: Debian and Ubuntu have `python3` but no `python`; Java needs the class name to match the file.
+      3. Time limits are wall clock and memory limits use `ulimit -v`, which macOS rejects; flag changes that assume Linux behaviour everywhere.
+  - name: Polygon
+    fileFilters:
+      - "src/polygon.ts"
+      - "src/helpers/remote/**"
+    instructions: |
+      1. Names that come back from Polygon (solutions, files, statements) must never become paths without checking for separators and `..`.
+      2. A push step must not report success when any upload in it failed, and the command must exit non-zero; scripts and agents only see the exit code.
+      3. Source types must be ones Polygon accepts (for Java: `java8`, `java21`, not `java.11`); check the argument order of API helpers like buildPackage(problemId, full, verify).
+      4. The API key and secret must never be logged or sent anywhere but Polygon.
+  - name: Verify service sandbox
+    fileFilters:
+      - "service/src/**"
+      - "service/Dockerfile"
+      - "service/deploy/**"
+    instructions: |
+      1. The service runs code strangers upload. Uploaded code must run as the unprivileged runner user, with no environment variables of ours, and everything it started or created must be gone after the run; flag any path where cleanup can fail open.
+      2. Every path from an upload (zip entries, Config.json fields, solution and generator names) must stay inside the problem folder: reject `..`, absolute paths, symlinks and path separators in names.
+      3. On Cloud Run: no route to the internet, a service account with no roles, one request per instance. Flag changes that widen any of these.
+  - name: Everything
+    instructions: |
+      1. Follow CLAUDE.md: Vitest tests for every fix, no refactors the issue didn't ask for.
+      2. Agents may not change `.gitlab-ci.yml`, `.gitlab/`, `.autonomy.yml`, `engine/`, `corpus/`, `service/samples/`, `service/scripts/golden.ts` or `service/ci/`; flag any MR where an agent's commit does.

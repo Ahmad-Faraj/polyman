@@ -1,0 +1,360 @@
+#!/usr/bin/env node
+/**
+ * Golden + mutant corpus check for polyman.
+ *
+ * Runs `polyman verify --json` on every problem in corpus/problems and
+ * compares each solution's per-test verdicts with corpus/expected/<problem>.json.
+ * Exits 1 on any difference, so a change that makes polyman judge differently
+ * fails the pipeline even when the unit tests stay green.
+ *
+ * Timing is not judged exactly: an expected OK that comes back TLE is reported
+ * as a warning (slow runner), never the other way round, and only while some
+ * expected OK stays OK. A solution that spins forever must keep getting TLE.
+ * The judging logic is in lib.mjs.
+ *
+ * Usage:
+ *   node corpus/run.mjs [--polyman dist/cli.js] [--record] [--only a,b]
+ *                       [--junit corpus/out/junit.xml] [--keep]
+ *                       [--cache <dir> [--save-cache]]
+ *
+ * Every problem is verified cold unless --cache is given: then polyman's
+ * compile cache for problem <name> starts as a copy of <dir>/<name>, and with
+ * --save-cache the cache the verify left is copied back there. survivors.mjs
+ * uses it so the g++ binaries of the unmutated build are reused by every
+ * mutant (a mutant changes polyman, not the problems' sources).
+ */
+
+import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import {
+  compare,
+  failedStepReason,
+  outcomeOf,
+  selectProblems,
+} from './lib.mjs';
+
+const CORPUS = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.dirname(CORPUS);
+const PROBLEMS = path.join(CORPUS, 'problems');
+const EXPECTED = path.join(CORPUS, 'expected');
+const TESTLIB = path.join(CORPUS, 'vendor', 'testlib.h');
+const VERIFY_TIMEOUT_MS = 10 * 60 * 1000;
+
+/** The value after a flag, or a clear error when it's missing. */
+function valueOf(argv, i, flag) {
+  const value = argv[i];
+  if (value === undefined || value.startsWith('--'))
+    throw new Error(`${flag} needs a value`);
+  return value;
+}
+
+function parseArgs(argv) {
+  const args = {
+    polyman: path.join(ROOT, 'dist', 'cli.js'),
+    record: false,
+    only: null,
+    junit: path.join(CORPUS, 'out', 'junit.xml'),
+    keep: false,
+    cache: null,
+    saveCache: false,
+  };
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === '--record') args.record = true;
+    else if (arg === '--keep') args.keep = true;
+    else if (arg === '--save-cache') args.saveCache = true;
+    else if (arg === '--cache')
+      args.cache = path.resolve(valueOf(argv, ++i, arg));
+    else if (arg === '--polyman')
+      args.polyman = path.resolve(valueOf(argv, ++i, arg));
+    else if (arg === '--junit')
+      args.junit = path.resolve(valueOf(argv, ++i, arg));
+    else if (arg === '--only')
+      args.only = new Set(valueOf(argv, ++i, arg).split(','));
+    else throw new Error(`Unknown argument: ${arg}`);
+  }
+  if (args.saveCache && !args.cache)
+    throw new Error('--save-cache needs --cache <dir>');
+  return args;
+}
+
+/** First line of `<tool> --version`, or null when the tool is missing. */
+function toolVersion(command, args = ['--version']) {
+  const result = spawnSync(command, args, { encoding: 'utf8' });
+  if (result.error || result.status !== 0) return null;
+  const text = `${result.stdout}${result.stderr}`.trim();
+  return text.split('\n')[0];
+}
+
+function toolchain() {
+  return {
+    node: process.version,
+    'g++': toolVersion('g++'),
+    java: toolVersion('java', ['-version']),
+    python: toolVersion('python'),
+    python3: toolVersion('python3'),
+  };
+}
+
+/** Runs polyman verify on a fresh copy of the problem and returns its JSON report. */
+function verifyProblem(name, args) {
+  const work = fs.mkdtempSync(
+    path.join(os.tmpdir(), `polyman-corpus-${name}-`)
+  );
+  fs.cpSync(path.join(PROBLEMS, name), work, { recursive: true });
+  fs.copyFileSync(TESTLIB, path.join(work, 'testlib.h'));
+  // polyman keeps its compile cache in <problem>/.polyman/cache
+  const cacheIn = args.cache && path.join(args.cache, name);
+  const cacheHere = path.join(work, '.polyman', 'cache');
+  if (cacheIn && fs.existsSync(cacheIn))
+    fs.cpSync(cacheIn, cacheHere, { recursive: true });
+
+  const started = Date.now();
+  const result = spawnSync(
+    process.execPath,
+    [args.polyman, 'verify', '--json'],
+    {
+      cwd: work,
+      encoding: 'utf8',
+      timeout: VERIFY_TIMEOUT_MS,
+      maxBuffer: 64 * 1024 * 1024,
+    }
+  );
+  const seconds = (Date.now() - started) / 1000;
+  if (args.saveCache && fs.existsSync(cacheHere)) {
+    fs.rmSync(cacheIn, { recursive: true, force: true });
+    fs.cpSync(cacheHere, cacheIn, { recursive: true });
+  }
+  if (!args.keep) fs.rmSync(work, { recursive: true, force: true });
+
+  let report = null;
+  try {
+    report = JSON.parse(result.stdout);
+  } catch {
+    // Reported below with the captured stderr.
+  }
+  return { report, seconds, stderr: result.stderr ?? '', work };
+}
+
+const xml = text =>
+  String(text).replace(
+    /[<>&"]/g,
+    c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' })[c]
+  );
+
+function writeJUnit(file, results) {
+  const cases = [];
+  for (const r of results) {
+    const failures = r.diffs.filter(d => d.kind === 'failure');
+    const warnings = r.diffs.filter(d => d.kind === 'warning');
+    const body = failures.length
+      ? `<failure message="${xml(failures.length)} difference(s)">${xml(failures.map(d => d.message).join('\n'))}</failure>`
+      : '';
+    const out = warnings.length
+      ? `<system-out>${xml(warnings.map(d => d.message).join('\n'))}</system-out>`
+      : '';
+    cases.push(
+      `  <testcase classname="corpus" name="${xml(r.name)}" time="${r.seconds}">${body}${out}</testcase>`
+    );
+  }
+  const failed = results.filter(r =>
+    r.diffs.some(d => d.kind === 'failure')
+  ).length;
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(
+    file,
+    `<?xml version="1.0" encoding="UTF-8"?>\n<testsuite name="polyman-corpus" tests="${results.length}" failures="${failed}">\n${cases.join('\n')}\n</testsuite>\n`
+  );
+}
+
+const html = text =>
+  String(text).replace(
+    /[<>&"]/g,
+    c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' })[c]
+  );
+
+/** One verdict cell: what polyman said, and what it should have said if different. */
+function cell(want, got) {
+  const verdict = s => (s ? s.split(':').pop() : '—');
+  if (want === got) return `<td class="ok">${html(verdict(got))}</td>`;
+  const timing = want?.endsWith(':OK') && got?.endsWith(':TLE');
+  return `<td class="${timing ? 'warn' : 'bad'}" title="expected ${html(verdict(want))}">${html(verdict(got))}<small>want ${html(verdict(want))}</small></td>`;
+}
+
+/**
+ * A page anyone can read without the logs: per problem, every solution's
+ * verdict on every test, with mismatches against the true verdicts in red.
+ */
+function writeReport(file, results, tools, polyman) {
+  const sections = results.map(r => {
+    const failures = r.diffs.filter(d => d.kind === 'failure');
+    const head = `<h2>${html(r.name)} <span class="${failures.length ? 'bad' : 'ok'}">${failures.length ? `${failures.length} difference(s)` : 'matches'}</span></h2>`;
+    if (!r.expected || !r.actual)
+      return `${head}<pre>${html(failures.map(d => d.message).join('\n'))}</pre>`;
+    const names = Object.keys(r.expected.solutions);
+    const width = Math.max(
+      ...names.map(n => r.expected.solutions[n].verdicts.length)
+    );
+    const header = Array.from(
+      { length: width },
+      (_, i) => `<th>${i + 1}</th>`
+    ).join('');
+    const rows = names.map(name => {
+      const want = r.expected.solutions[name];
+      const got = r.actual.solutions[name] ?? {
+        verdicts: [],
+        matchesTag: null,
+      };
+      const cells = Array.from({ length: width }, (_, i) =>
+        cell(want.verdicts[i], got.verdicts[i])
+      ).join('');
+      const tagOk = got.matchesTag === want.matchesTag;
+      return `<tr><th class="name">${html(name)}</th><td class="tag">${html(want.tag)}</td>${cells}<td class="${tagOk ? 'ok' : 'bad'}">${got.matchesTag ? 'yes' : 'no'}</td></tr>`;
+    });
+    const steps = Object.entries(r.expected.steps)
+      .map(
+        ([step, ok]) =>
+          `<li class="${r.actual.steps[step] === ok ? 'ok' : 'bad'}">${html(step)}: ${r.actual.steps[step] ? 'passed' : 'failed'}${r.actual.steps[step] === ok ? '' : ` (should have ${ok ? 'passed' : 'failed'})`}</li>`
+      )
+      .join('');
+    return `${head}<ul class="steps">${steps}</ul><div class="scroll"><table><thead><tr><th>solution</th><th>tag</th>${header}<th>matches tag</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>`;
+  });
+  const env = process.env;
+  const where = env.CI_PIPELINE_URL
+    ? `<a href="${html(env.CI_PIPELINE_URL)}">pipeline ${html(env.CI_PIPELINE_ID)}</a>, commit ${html(env.CI_COMMIT_SHORT_SHA)}`
+    : 'local run';
+  const page = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>polyman corpus verdicts</title><style>
+:root{--ground:#f3f5f9;--surface:#fff;--ink:#0d1321;--soft:#47506a;--rule:#d5dbe7;--navy:#0e1a3a;--on-navy-soft:#a9b6dc;--ok:#11622e;--okbg:#e3f3e8;--bad:#9b2219;--badbg:#fbe6e4;--warn:#6e4300;--warnbg:#fdf0d5;--link:#1d3fa8}
+@media (prefers-color-scheme:dark){:root{--ground:#090e1c;--surface:#121a30;--ink:#e9edf6;--soft:#a3adc6;--rule:#26314f;--navy:#0f1c40;--ok:#7fd99c;--okbg:#12301f;--bad:#ff9a90;--badbg:#3a1714;--warn:#f2c46b;--warnbg:#352508;--link:#a9b9ff}}
+body{background:var(--ground);color:var(--ink);font:14px/1.55 ui-sans-serif,system-ui,sans-serif;font-variant-numeric:tabular-nums;margin:0}
+a{color:var(--link)}a:focus-visible{outline:3px solid var(--link);outline-offset:2px}.band a:focus-visible{outline-color:#f2c230}.band{background:var(--navy);color:#fff;padding:32px max(24px,calc((100% - 1232px) / 2)) 28px}.band h1{font-size:28px;letter-spacing:-.02em;margin:0 0 10px}.band p{color:var(--on-navy-soft);margin:0;max-width:80ch}.band a{color:#fff}
+main{max-width:1280px;margin:0 auto;padding:8px 24px 48px}h2{font-size:18px;margin:32px 0 10px;display:flex;align-items:center;gap:10px}
+.scroll{overflow-x:auto;background:var(--surface);border:1px solid var(--rule);border-radius:4px}table{border-collapse:separate;border-spacing:3px}th,td{padding:6px 8px;text-align:center;white-space:nowrap;border-radius:3px}
+thead th{color:var(--soft);font-weight:600;font-size:12px}thead th:first-child{text-align:left}th.name{text-align:left;font-weight:600}td.tag{color:var(--soft);font-weight:600}td.ok{color:var(--ok);background:var(--okbg)}td.bad{color:var(--bad);background:var(--badbg);font-weight:700}
+td.warn{color:var(--warn);background:var(--warnbg)}td small{display:block;font-weight:400;font-size:11px}span.ok,span.bad{font-size:13px;font-weight:700;padding:1px 8px;border-radius:3px}span.ok{color:var(--ok);background:var(--okbg)}span.bad{color:var(--bad);background:var(--badbg)}
+ul.steps{list-style:none;padding:0;margin:0 0 10px;display:flex;flex-wrap:wrap;gap:4px 16px}li.bad{color:var(--bad);font-weight:700}li.ok{color:var(--soft)}pre{white-space:pre-wrap;background:var(--surface);border:1px solid var(--rule);border-radius:4px;padding:12px}
+</style></head><body><header class="band"><h1>polyman corpus verdicts</h1><p class="meta">Real compilers judging real solutions, compared with pinned true verdicts. ${where}. polyman: ${html(polyman)}. Node ${html(tools.node)}, ${html(tools['g++'] ?? 'no g++')}.</p></header><main>${sections.join('')}</main></body></html>`;
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, page);
+}
+
+function main() {
+  const args = parseArgs(process.argv.slice(2));
+  const tools = toolchain();
+  console.log('toolchain:', JSON.stringify(tools));
+
+  const available = fs
+    .readdirSync(PROBLEMS)
+    .filter(name => fs.statSync(path.join(PROBLEMS, name)).isDirectory());
+  const { names, unknown } = selectProblems(available, args.only);
+  if (unknown.length || !names.length) {
+    console.error(
+      unknown.length
+        ? `no such corpus problem: ${unknown.join(', ')} (have ${available.join(', ')})`
+        : 'no corpus problems to judge'
+    );
+    process.exit(1);
+  }
+
+  const results = [];
+  for (const name of names) {
+    const run = verifyProblem(name, args);
+    const expectedFile = path.join(EXPECTED, `${name}.json`);
+    if (!run.report) {
+      results.push({
+        name,
+        seconds: run.seconds,
+        diffs: [
+          {
+            kind: 'failure',
+            message: `polyman produced no JSON report:\n${run.stderr.slice(-2000)}`,
+          },
+        ],
+      });
+      continue;
+    }
+    const actual = outcomeOf(run.report);
+
+    if (args.record) {
+      fs.mkdirSync(EXPECTED, { recursive: true });
+      fs.writeFileSync(expectedFile, `${JSON.stringify(actual, null, 2)}\n`);
+      console.log(`recorded ${name} (${run.seconds}s)`);
+      results.push({ name, seconds: run.seconds, diffs: [] });
+      continue;
+    }
+    if (!fs.existsSync(expectedFile)) {
+      results.push({
+        name,
+        seconds: run.seconds,
+        diffs: [
+          {
+            kind: 'failure',
+            message: 'no expected file; run with --record and review it',
+          },
+        ],
+      });
+      continue;
+    }
+    const expected = JSON.parse(fs.readFileSync(expectedFile, 'utf8'));
+    results.push({
+      name,
+      seconds: run.seconds,
+      // the step's own errors, so a failed step says why (#88)
+      diffs: compare(
+        expected,
+        actual,
+        failedStepReason(run.report, [
+          process.env.POLYGON_API_KEY,
+          process.env.POLYGON_API_SECRET,
+        ])
+      ),
+      expected,
+      actual,
+    });
+  }
+
+  writeJUnit(args.junit, results);
+  writeReport(
+    path.join(path.dirname(args.junit), 'report.html'),
+    results,
+    tools,
+    path.relative(ROOT, args.polyman)
+  );
+  const summary = {
+    polyman: path.relative(ROOT, args.polyman),
+    toolchain: tools,
+    problems: results.map(r => ({
+      name: r.name,
+      seconds: r.seconds,
+      failures: r.diffs.filter(d => d.kind === 'failure').map(d => d.message),
+      warnings: r.diffs.filter(d => d.kind === 'warning').map(d => d.message),
+    })),
+  };
+  fs.writeFileSync(
+    path.join(path.dirname(args.junit), 'summary.json'),
+    `${JSON.stringify(summary, null, 2)}\n`
+  );
+
+  let failed = 0;
+  for (const p of summary.problems) {
+    const status = p.failures.length ? 'FAIL' : 'ok';
+    if (p.failures.length) failed++;
+    console.log(`${status.padEnd(4)} ${p.name} (${p.seconds}s)`);
+    for (const message of p.failures) console.log(`     ✗ ${message}`);
+    for (const message of p.warnings) console.log(`     ! ${message}`);
+  }
+  console.log(
+    `${summary.problems.length - failed}/${summary.problems.length} problems match the corpus`
+  );
+  process.exit(failed ? 1 : 0);
+}
+
+try {
+  main();
+} catch (error) {
+  console.error(error instanceof Error ? error.message : error);
+  process.exit(2);
+}

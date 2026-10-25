@@ -1,0 +1,92 @@
+{
+  "$schema": "./Config.schema.json",
+  "name": "not-ready",
+  "description": "Runs correctly, but is not ready for a contest: only four tests and no tutorial.",
+  "timeLimit": 1000,
+  "memoryLimit": 256,
+  "inputFile": "stdin",
+  "outputFile": "stdout",
+  "interactive": false,
+  "tags": [
+    "implementation",
+    "math"
+  ],
+  "statements": {
+    "english": {
+      "encoding": "UTF-8",
+      "name": "Even Sum",
+      "legend": "./statements/english/legend.tex",
+      "input": "./statements/english/input-format.tex",
+      "output": "./statements/english/output-format.tex",
+      "notes": "./statements/english/notes.tex"
+    }
+  },
+  "solutions": [
+    {
+      "name": "main",
+      "source": "./solutions/acc.cpp",
+      "tag": "MA",
+      "sourceType": "cpp.g++17"
+    },
+    {
+      "name": "correct2",
+      "source": "./solutions/acc2.java",
+      "tag": "OK",
+      "sourceType": "java21"
+    },
+    {
+      "name": "tle_solution",
+      "source": "./solutions/tle.py",
+      "tag": "TL",
+      "sourceType": "python.3"
+    },
+    {
+      "name": "first_only",
+      "source": "./solutions/wa.cpp",
+      "tag": "WA",
+      "sourceType": "cpp.g++17"
+    }
+  ],
+  "generators": [
+    {
+      "name": "gen-random",
+      "source": "./generators/gen.cpp"
+    }
+  ],
+  "checker": {
+    "name": "custom_checker",
+    "source": "./checker/chk.cpp",
+    "testsFilePath": "./checker/checker_tests.json",
+    "isStandard": false
+  },
+  "validator": {
+    "name": "validator",
+    "source": "./validator/val.cpp",
+    "testsFilePath": "./validator/validator_tests.json"
+  },
+  "testsets": [
+    {
+      "name": "tests",
+      "generatorScript": {
+        "scriptFile": "./generators/gen-script.txt"
+      },
+      "manualTests": [
+        {
+          "input": "./manual/tests/m-01-sample.in",
+          "index": 1,
+          "group": "samples",
+          "useInStatements": true
+        }
+      ],
+      "groupsEnabled": true,
+      "groups": [
+        {
+          "name": "samples"
+        },
+        {
+          "name": "main"
+        }
+      ]
+    }
+  ]
+}

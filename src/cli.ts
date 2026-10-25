@@ -6,7 +6,8 @@
  * This is the main entry point when running polyman from the terminal.
  */
 
-import { Command } from 'commander';
+import './node-version-check';
+import { Argument, Command } from 'commander';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
@@ -32,10 +33,20 @@ import {
   cacheStatusAction,
   cacheClearAction,
 } from './actions';
-import { fmt } from './formatter';
+import {
+  SHELLS,
+  generateCompletionScript,
+  isCompletionKind,
+  readCompletionNames,
+} from './completion';
 import { printComprehensiveHelp } from './help';
 import { setCacheEnabled } from './helpers/compile-cache';
+import { configureTerminal } from './terminal';
+import { PolymanError, exitCodeFor } from './errors';
+import { fmt } from './formatter';
 import { resolveTheme, type Theme } from './theme';
+
+configureTerminal();
 
 const program = new Command();
 
@@ -60,7 +71,10 @@ program
   .version(pkg.version)
   .helpOption(false)
   .option('-h, --help', 'display help for command', () => {
+    // The callback fires while commander parses, before any action, so stop
+    // here: otherwise `polyman new x --help` prints help and then creates x/.
     printComprehensiveHelp(program, theme);
+    process.exit(0);
   })
   // Commands that compile sources accept `--no-cache`; commander stores it as
   // `cache: false` on the command that runs.
@@ -87,7 +101,13 @@ const NO_CACHE_DESCRIPTION =
 program
   .command('new <directory>')
   .description('Create a new problem template in the specified directory')
-  .action(createTemplateAction);
+  .option(
+    '--json',
+    'Print a JSON report to stdout (human output goes to stderr)'
+  )
+  .action((directory: string, options: { json?: boolean }) => {
+    createTemplateAction(directory, { json: options.json === true });
+  });
 
 /**
  * Command: download-testlib
@@ -100,7 +120,13 @@ program
 program
   .command('download-testlib')
   .description('Download testlib.h to the current directory')
-  .action(downloadTestlibAction);
+  .option(
+    '--json',
+    'Print a JSON report to stdout (human output goes to stderr)'
+  )
+  .action(async (options: { json?: boolean }) => {
+    await downloadTestlibAction({ json: options.json === true });
+  });
 
 // ============================================================================
 // LIST COMMANDS
@@ -119,7 +145,13 @@ const list = program.command('list').description('List local resources');
 list
   .command('checkers')
   .description('List all available standard checkers')
-  .action(listAvailableCheckersAction);
+  .option(
+    '--json',
+    'Print a JSON report to stdout (human output goes to stderr)'
+  )
+  .action((options: { json?: boolean }) => {
+    listAvailableCheckersAction({ json: options.json === true });
+  });
 
 /**
  * Command: list testsets
@@ -132,7 +164,13 @@ list
 list
   .command('testsets')
   .description('List all testsets in the configuration')
-  .action(listTestsetsAction);
+  .option(
+    '--json',
+    'Print a JSON report to stdout (human output goes to stderr)'
+  )
+  .action((options: { json?: boolean }) => {
+    listTestsetsAction({ json: options.json === true });
+  });
 
 /**
  * Command: list solutions
@@ -145,7 +183,13 @@ list
 list
   .command('solutions')
   .description('List all solutions in the configuration')
-  .action(listSolutionsAction);
+  .option(
+    '--json',
+    'Print a JSON report to stdout (human output goes to stderr)'
+  )
+  .action((options: { json?: boolean }) => {
+    listSolutionsAction({ json: options.json === true });
+  });
 
 /**
  * Command: list generators
@@ -158,7 +202,13 @@ list
 list
   .command('generators')
   .description('List all generators in the configuration')
-  .action(listGeneratorsAction);
+  .option(
+    '--json',
+    'Print a JSON report to stdout (human output goes to stderr)'
+  )
+  .action((options: { json?: boolean }) => {
+    listGeneratorsAction({ json: options.json === true });
+  });
 
 // ============================================================================
 // GENERATE COMMAND
@@ -179,6 +229,7 @@ list
  * polyman generate --testset tests
  * polyman generate --testset tests --group samples
  * polyman generate --testset tests --index 5
+ * polyman generate --all --json   # machine-readable report on stdout
  */
 program
   .command('generate')
@@ -188,12 +239,17 @@ program
   .option('-g, --group <name>', 'Generate specific group within testset')
   .option('-i, --index <number>', 'Generate specific test by index')
   .option('--no-cache', NO_CACHE_DESCRIPTION)
+  .option(
+    '--json',
+    'Print a JSON report to stdout (human output goes to stderr)'
+  )
   .action(
     async (options: {
       all?: boolean;
       testset?: string;
       group?: string;
       index?: string;
+      json?: boolean;
     }) => {
       let target = 'all';
       let modifier: string | undefined;
@@ -209,7 +265,9 @@ program
         }
       }
 
-      await generateTestsAction(target, modifier);
+      await generateTestsAction(target, modifier, {
+        json: options.json === true,
+      });
     }
   );
 
@@ -232,6 +290,7 @@ program
  * polyman validate --testset tests
  * polyman validate --testset tests --group samples
  * polyman validate --testset tests --index 5
+ * polyman validate --all --json   # machine-readable report on stdout
  */
 program
   .command('validate')
@@ -241,12 +300,17 @@ program
   .option('-g, --group <name>', 'Validate specific group within testset')
   .option('-i, --index <number>', 'Validate specific test by index')
   .option('--no-cache', NO_CACHE_DESCRIPTION)
+  .option(
+    '--json',
+    'Print a JSON report to stdout (human output goes to stderr)'
+  )
   .action(
     async (options: {
       all?: boolean;
       testset?: string;
       group?: string;
       index?: string;
+      json?: boolean;
     }) => {
       let target = 'all';
       let modifier: string | undefined;
@@ -262,7 +326,9 @@ program
         }
       }
 
-      await validateTestsAction(target, modifier);
+      await validateTestsAction(target, modifier, {
+        json: options.json === true,
+      });
     }
   );
 
@@ -345,12 +411,19 @@ program
  * polyman test validator
  * polyman test checker
  * polyman test wa-solution
+ * polyman test checker --json   # machine-readable report on stdout
  */
 program
   .command('test <what>')
   .description('Test validator, checker, or a solution against main correct')
+  .option(
+    '--json',
+    'Print a JSON report to stdout (human output goes to stderr)'
+  )
   .option('--no-cache', NO_CACHE_DESCRIPTION)
-  .action(testWhatAction);
+  .action(async (what: string, options: { json?: boolean }) => {
+    await testWhatAction(what, { json: options.json === true });
+  });
 
 // ============================================================================
 // VERIFY COMMAND
@@ -411,6 +484,41 @@ cache
   .action(cacheClearAction);
 
 // ============================================================================
+// SHELL COMPLETION COMMANDS
+// ============================================================================
+
+/**
+ * Command: completion <shell>
+ * Prints a completion script for bash, zsh or fish to stdout.
+ *
+ * @example
+ * eval "$(polyman completion bash)"
+ * polyman completion fish > ~/.config/fish/completions/polyman.fish
+ */
+program
+  .command('completion')
+  .description('Print a shell completion script (bash, zsh or fish)')
+  .addArgument(new Argument('<shell>', 'Target shell').choices(SHELLS))
+  .action((shell: string) => {
+    process.stdout.write(generateCompletionScript(program, shell));
+  });
+
+/**
+ * Command: __complete <kind> [testset]
+ * Hidden helper that the completion scripts call to list testset, group,
+ * solution or generator names from Config.json, one per line. It prints
+ * nothing, and never fails, when Config.json is missing or invalid.
+ */
+program
+  .command('__complete <kind> [testset]', { hidden: true })
+  .description('List names from Config.json for shell completion')
+  .action((kind: string, testset: string | undefined) => {
+    if (!isCompletionKind(kind)) return;
+    const names = readCompletionNames(kind, testset);
+    if (names.length > 0) process.stdout.write(`${names.join('\n')}\n`);
+  });
+
+// ============================================================================
 // REMOTE COMMANDS
 // ============================================================================
 
@@ -467,6 +575,10 @@ remote
   )
   .option('-m, --metadata', 'Pull metadata (description and tags)')
   .option('-i, --info', 'Pull problem info (time/memory limits)')
+  .option(
+    '--json',
+    'Print a JSON report to stdout (human output goes to stderr)'
+  )
   .action(
     async (
       problemId: string,
@@ -481,6 +593,7 @@ remote
         tests?: string;
         metadata?: boolean;
         info?: boolean;
+        json?: boolean;
       }
     ) => {
       await remotePullProblemAction(problemId, directory, options);
@@ -510,6 +623,10 @@ remote
   .option('-i, --info', 'Update problem info (time/memory limits)')
   .option('-y, --yes', 'Create a new Polygon problem without confirmation')
   .option('-n, --name <name>', 'Name (slug) for a new Polygon problem')
+  .option(
+    '--json',
+    'Print a JSON report to stdout (human output goes to stderr)'
+  )
   .action(
     async (
       directory: string,
@@ -525,6 +642,7 @@ remote
         info?: boolean;
         yes?: boolean;
         name?: string;
+        json?: boolean;
       }
     ) => {
       await remotePushProblemAction(directory, options);
@@ -541,7 +659,13 @@ remote
 remote
   .command('view <problem-id>')
   .description('View problem details from Polygon')
-  .action(remoteViewProblemAction);
+  .option(
+    '--json',
+    'Print a JSON report to stdout (human output goes to stderr)'
+  )
+  .action(async (problemId: string, options: { json?: boolean }) => {
+    await remoteViewProblemAction(problemId, { json: options.json === true });
+  });
 
 /**
  * Command: remote commit <problem-id> <message>
@@ -553,7 +677,17 @@ remote
 remote
   .command('commit <problem-id> <message>')
   .description('Commit changes to Polygon problem')
-  .action(remoteCommitProblemAction);
+  .option(
+    '--json',
+    'Print a JSON report to stdout (human output goes to stderr)'
+  )
+  .action(
+    async (problemId: string, message: string, options: { json?: boolean }) => {
+      await remoteCommitProblemAction(problemId, message, {
+        json: options.json === true,
+      });
+    }
+  );
 
 /**
  * Command: remote package <problem-id> <type>
@@ -565,12 +699,132 @@ remote
 remote
   .command('package <problem-id> <type>')
   .description('Build problem package on Polygon')
-  .action(remotePackageProblemAction);
+  .option(
+    '--json',
+    'Print a JSON report to stdout (human output goes to stderr)'
+  )
+  .action(
+    async (problemId: string, type: string, options: { json?: boolean }) => {
+      await remotePackageProblemAction(problemId, type, {
+        json: options.json === true,
+      });
+    }
+  );
 
-// Detecting the theme may ask the terminal for its background color, which is
-// async, so it runs once here before commander starts any action.
-void resolveTheme().then(resolved => {
+// ============================================================================
+// AI COMMANDS
+// ============================================================================
+
+/**
+ * Loads the `ai` commands only when one of them runs, so other commands do
+ * not load the agent code and do not get slower to start.
+ */
+const loadAiCommands = () => import('./agent/ai-commands.js');
+
+const ai = program
+  .command('ai')
+  .description('Manage AI provider keys and the default model');
+
+/**
+ * Command: ai login <provider>
+ * Saves a provider key in ~/.polyman/ai.json. The key is read from a hidden
+ * prompt or from stdin, never from argv, so it stays out of shell history.
+ * @example
+ * polyman ai login deepseek
+ * polyman ai login openai --key-stdin < key.txt
+ * polyman ai login custom --base-url https://my-server/v1 --model my-model
+ */
+ai.command('login <provider>')
+  .description('Save an API key for a provider (hidden prompt or stdin)')
+  // A key typed after the provider must fail, not be silently ignored.
+  .allowExcessArguments(false)
+  .option('--key-stdin', 'Read the key from stdin instead of a prompt')
+  .option('--base-url <url>', 'Base URL of the server (custom only)')
+  .option(
+    '--model <id>',
+    'A model the server offers (custom only, can be repeated)',
+    (value: string, previous: string[]) => [...previous, value],
+    [] as string[]
+  )
+  .action(
+    async (
+      provider: string,
+      options: { keyStdin?: boolean; baseUrl?: string; model: string[] }
+    ) => {
+      const { aiLoginAction } = await loadAiCommands();
+      await aiLoginAction(provider, {
+        keyStdin: options.keyStdin === true,
+        ...(options.baseUrl !== undefined ? { baseUrl: options.baseUrl } : {}),
+        model: options.model,
+      });
+    }
+  );
+
+/**
+ * Command: ai logout <provider>
+ * @example
+ * polyman ai logout deepseek
+ */
+ai.command('logout <provider>')
+  .description('Remove the saved API key of a provider')
+  .action(async (provider: string) => {
+    const { aiLogoutAction } = await loadAiCommands();
+    await aiLogoutAction(provider);
+  });
+
+/**
+ * Command: ai list
+ * @example
+ * polyman ai list
+ */
+ai.command('list')
+  .description('List providers, which have keys (masked), and the default')
+  .action(async () => {
+    const { aiListAction } = await loadAiCommands();
+    await aiListAction();
+  });
+
+/**
+ * Command: ai models [provider]
+ * @example
+ * polyman ai models
+ * polyman ai models groq
+ */
+ai.command('models [provider]')
+  .description('List the known models of every provider, or of one')
+  .action(async (provider: string | undefined) => {
+    const { aiModelsAction } = await loadAiCommands();
+    await aiModelsAction(provider);
+  });
+
+/**
+ * Command: ai use <provider/model>
+ * @example
+ * polyman ai use deepseek/deepseek-flash
+ */
+ai.command('use <provider/model>')
+  .description('Set the default provider and model')
+  .action(async (spec: string) => {
+    const { aiUseAction } = await loadAiCommands();
+    await aiUseAction(spec);
+  });
+
+/**
+ * The one place that turns a failed action into a message and an exit code.
+ * A {@link PolymanError} exits with its own code, anything else with 1.
+ *
+ * Detecting the theme may ask the terminal for its background color, which is
+ * async, so it runs once here before commander starts any action.
+ */
+void resolveTheme().then(async resolved => {
   theme = resolved;
   fmt.setTheme(resolved);
-  program.parse(process.argv);
+  await program.parseAsync(process.argv).catch((error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    fmt.error(message);
+    if (error instanceof PolymanError && error.hint) {
+      fmt.error(`Hint: ${error.hint}`);
+    }
+    process.exit(exitCodeFor(error));
+  });
 });

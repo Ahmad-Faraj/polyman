@@ -1,6 +1,12 @@
 import { Command } from 'commander';
 import { getTheme, type Theme } from './theme';
 
+/** Commands shown in help: hidden ones (such as `__complete`) are left out. */
+const visibleCommands = (cmd: Command): readonly Command[] => {
+  const visible = cmd.createHelp().visibleCommands(cmd);
+  return cmd.commands.filter(sub => visible.includes(sub));
+};
+
 /**
  * Prints the comprehensive help message for the CLI.
  * Recursively lists all commands, subcommands, and options.
@@ -52,7 +58,7 @@ export const printComprehensiveHelp = (
     }
 
     // Recursively print subcommands
-    const subcommands = cmd.commands;
+    const subcommands = visibleCommands(cmd);
     if (subcommands && subcommands.length > 0) {
       if (depth === 0) {
         console.log(`\n${theme.underline('Commands:')}\n`);
@@ -70,7 +76,7 @@ export const printComprehensiveHelp = (
   // but here we are passed 'program' which is 'polyman'.
 
   // We iterate over the top-level commands directly
-  command.commands.forEach(cmd => {
+  visibleCommands(command).forEach(cmd => {
     printCommand(cmd, 0);
     console.log(
       theme.muted('--------------------------------------------------')

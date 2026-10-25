@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>polyman on GitLab</title>
+<meta name="description" content="polyman, our GitLab Transcend entry (Path B, Assisted): where to check it yourself, with no login.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%230e1a3a'/%3E%3Cpath d='M5 13V3h3.5a3 3 0 0 1 0 6H5' fill='none' stroke='%23f2c230' stroke-width='2'/%3E%3C/svg%3E">
+<style>
+/* the tokens and the band come from the ledger and SCI pages (engine/src/page-style.ts), so the site looks like one thing */
+:root { --ground: #f3f5f9; --surface: #ffffff; --ink: #0d1321; --soft: #47506a; --rule: #d5dbe7; --navy: #0e1a3a; --on-navy: #ffffff; --on-navy-soft: #a9b6dc; --link: #1d3fa8; --gold: #f2c230; color-scheme: light; }
+@media (prefers-color-scheme: dark) { :root { --ground: #090e1c; --surface: #121a30; --ink: #e9edf6; --soft: #a3adc6; --rule: #26314f; --navy: #0f1c40; --link: #a9b9ff; color-scheme: dark; } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--ground); color: var(--ink); font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; font-variant-numeric: tabular-nums; }
+::selection { background: var(--gold); color: var(--navy); }
+a { color: var(--link); text-underline-offset: 3px; }
+a:focus-visible { outline: 3px solid var(--link); outline-offset: 2px; }
+.band a:focus-visible { outline-color: var(--gold); }
+.band { background: var(--navy); color: var(--on-navy); border-bottom: 4px solid var(--gold); }
+.band .wrap { padding-block: 32px 28px; }
+.band h1 { font-size: 32px; line-height: 1.1; letter-spacing: -0.02em; font-weight: 800; margin: 0 0 14px; }
+.band h1 span { color: var(--gold); font-weight: 700; }
+.band p { color: var(--on-navy-soft); margin: 0; max-width: 72ch; }
+.band p + p { margin-top: 8px; }
+.band p.rule { color: var(--gold); font-weight: 700; }
+.band a { color: var(--on-navy); }
+.band code { background: rgba(255, 255, 255, 0.1); color: var(--on-navy); }
+.wrap { max-width: 1040px; margin: 0 auto; padding-inline: 24px; }
+main.wrap { padding-block: 4px 40px; }
+h2 { font-size: 18px; letter-spacing: -0.01em; margin: 28px 0 12px; }
+code { font: 13px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace; background: var(--ground); padding: 1px 4px; border-radius: 3px; }
+.links { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: 4px; overflow: hidden; margin: 0; padding: 0; list-style: none; }
+.links a { display: block; height: 100%; background: var(--surface); padding: 14px 18px; text-decoration: none; color: var(--ink); }
+.links a:hover strong, .links a:focus-visible strong { text-decoration: underline; }
+.links strong { display: block; color: var(--link); font-size: 15px; }
+.links span { display: block; color: var(--soft); font-size: 13px; margin-top: 2px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: 4px; overflow: hidden; margin: 0; }
+.tile { background: var(--surface); padding: 16px 18px; }
+.tile .label { color: var(--soft); font-size: 13px; font-weight: 600; }
+.tile .value { font-size: 24px; font-weight: 800; letter-spacing: -0.01em; margin: 2px 0 4px; line-height: 1.25; }
+.tile .value span { display: block; }
+.tile .sub { color: var(--soft); font-size: 13px; }
+footer { color: var(--soft); font-size: 13px; }
+footer p { margin: 20px 0 0; }
+@media (max-width: 520px) {
+  .wrap { padding-inline: 16px; }
+  .band .wrap { padding-block: 28px 24px; }
+  .band h1 { font-size: 26px; }
+  .tile .value { font-size: 22px; }
+}
+</style>
+</head>
+<body>
+<header class="band"><div class="wrap">
+<h1>polyman on GitLab <span>· Path B · Assisted</span></h1>
+<p>polyman (<code>polyman-cli</code> on npm, MIT) is a command-line tool that checks that every solution of a contest problem gets the verdict it should. A wrong verdict means a broken problem in a live contest round.</p>
+<p>On GitLab, Duo agents maintain it. Every agent step waits for a go-ahead from a person who did not ask for the work, and CI refuses an agent push without one.</p>
+<p class="rule">An agent never raises its own level; only a person does.</p>
+<!-- Video (under 3 minutes): put its link here, once it is published. For example:
+<p><a href="VIDEO_URL">Watch the video (under 3 minutes)</a></p>
+-->
+</div></header>
+<main class="wrap">
+<h2>Check it yourself, no login</h2>
+<ul class="links">
+<li><a href="https://polyman-verify-ncvkutguda-ue.a.run.app"><strong>Live verify service</strong><span>polyman verify on Cloud Run. Try it on a sample problem.</span></a></li>
+<li><a href="https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/blob/main/JUDGES.md#assisted-in-60-seconds"><strong>Assisted in 60 seconds</strong><span>One real loop from an agent's proposal to a person's merge, and one push the guard refused.</span></a></li>
+<li><a href="./ledger/"><strong>Go-ahead ledger</strong><span>Every agent push and the go-ahead it ran on, chained by SHA-256.</span></a></li>
+<li><a href="./sci/"><strong>Agent carbon</strong><span>What the review agents emit per merge request, as Software Carbon Intensity.</span></a></li>
+<li><a href="https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase"><strong>Repository</strong><span>The code, pipelines, issues and merge requests.</span></a></li>
+<li><a href="./docs/"><strong>API docs</strong><span>TypeDoc for the polyman source.</span></a></li>
+</ul>
+
+<h2>Key numbers</h2>
+<div class="tiles">
+<div class="tile"><div class="label">Go-ahead from someone other than the requester</div><div class="value"><span id="loops">57 of 57 loops</span><span id="pushes">79 of 79 agent pushes</span></div><div class="sub" id="goahead-sub">to 24 Oct 23:29 UTC, from the go-ahead ledger</div></div>
+<div class="tile"><div class="label">Corpus problems with the expected verdicts</div><div class="value"><span>3.0.0: 0 of 5</span><span>3.0.1: 5 of 5</span></div><div class="sub">the published 3.0.0 against 3.0.1, installed from npm and judged on 18 Oct (<a href="https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/30770856/showcase/-/jobs/17267989872">job</a>)</div></div>
+<div class="tile"><div class="label">People who gave every go-ahead</div><div class="value" id="people">3 people</div><div class="sub">always a different person than the one who asked</div></div>
+</div>
+
+<footer><p>MIT licence. Built for GitLab Transcend: Life After Code, October 2026.</p></footer>
+</main>
+<script>
+// The first and third tiles, read live from the ledger. If either file cannot
+// be read, or reads oddly, the numbers written above (from README.md) stay.
+const isDate = (iso) => typeof iso === 'string' && !Number.isNaN(Date.parse(iso));
+const count = (n) => Number.isInteger(n) && n >= 0;
+/** The go-ahead counts from ledger.json and loops.json, or null when they read oddly. */
+function landingCounts(ledger, loops) {
+  const recs = Array.isArray(ledger?.records) ? ledger.records : [];
+  const s = loops?.summary;
+  if (!recs.length || !recs.every((r) => isDate(r?.merged_at))) return null;
+  if (!count(s?.loops) || !count(s?.approverNotRequester) || s.approverNotRequester > s.loops || !s.loops) return null;
+  const accepted = recs.filter((r) => r.accepted === true);
+  if (!accepted.every((r) => typeof r?.go_ahead?.by === 'string')) return null;
+  return {
+    loops: s.loops,
+    loopsOk: s.approverNotRequester,
+    pushes: recs.length,
+    pushesOk: accepted.filter((r) => r.approver_not_requester === true).length,
+    people: new Set(accepted.map((r) => r.go_ahead.by)).size,
+    newest: recs.map((r) => r.merged_at).sort().at(-1),
+  };
+}
+/** A UTC time as "23 Oct 13:08 UTC". */
+function when(iso) {
+  const d = new Date(iso);
+  const month = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getUTCMonth()];
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getUTCDate()} ${month} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())} UTC`;
+}
+if (typeof document !== 'undefined') {
+  const getJSON = (url) => fetch(url).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status} for ${url}`))));
+  Promise.all([getJSON('./ledger/ledger.json'), getJSON('./ledger/loops.json')])
+    .then(([ledger, loops]) => {
+      const c = landingCounts(ledger, loops);
+      if (!c) throw new Error('the ledger reads oddly');
+      document.getElementById('loops').textContent = `${c.loopsOk} of ${c.loops} loops`;
+      document.getElementById('pushes').textContent = `${c.pushesOk} of ${c.pushes} agent pushes`;
+      document.getElementById('goahead-sub').textContent = `to ${when(c.newest)}, read live from the go-ahead ledger`;
+      document.getElementById('people').textContent = `${c.people} ${c.people === 1 ? 'person' : 'people'}`;
+    })
+    .catch((err) => console.warn('ledger numbers unavailable, showing the README ones', err));
+}
+</script>
+</body>
+</html>
