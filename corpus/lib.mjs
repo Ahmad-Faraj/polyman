@@ -251,6 +251,25 @@ export function pushFailureSummary(tail, max = 600) {
   return picked.length > max ? `${picked.slice(0, max - 3)}...` : picked;
 }
 
+/**
+ * The GitHub Actions run this process is part of, read from the runner's
+ * environment, or null outside GitHub Actions. `marker` is unique to the job
+ * and to the attempt, so a re-run job never reuses an earlier marker.
+ */
+export function ciRun(env = process.env) {
+  const { GITHUB_ACTIONS, GITHUB_REPOSITORY, GITHUB_RUN_ID } = env;
+  if (GITHUB_ACTIONS !== 'true' || !GITHUB_REPOSITORY || !GITHUB_RUN_ID)
+    return null;
+  const server = env.GITHUB_SERVER_URL || 'https://github.com';
+  const attempt = env.GITHUB_RUN_ATTEMPT || '1';
+  return {
+    id: GITHUB_RUN_ID,
+    url: `${server}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}`,
+    commit: (env.GITHUB_SHA ?? '').slice(0, 8),
+    marker: `${GITHUB_RUN_ID}.${attempt}${env.GITHUB_JOB ? `.${env.GITHUB_JOB}` : ''}`,
+  };
+}
+
 /** A marker unique to this run, written into a statement before the push. */
 export const freshnessMarker = runId => `% polyman corpus run ${runId}`;
 

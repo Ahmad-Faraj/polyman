@@ -1,210 +1,117 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import {
+  asList,
+  asMap,
+  asString,
+  globToRegExp,
+  jobOf,
+  readWorkflow,
+  runsOf,
+  strings,
+} from './workflow-yaml';
 
-// Pins the rules of the survivors jobs in corpus/corpus.gitlab-ci.yml: a merge to the
-// default branch runs them only when an input changed; non-push pipelines always run
-// them. Neither js-yaml nor yaml is a direct dependency, so the file is read as text.
-// corpus/corpus.gitlab-ci.yml was removed with the GitLab CI; read it only if
-// it is there so the skipped suite below still loads.
-const ciFile = resolve(__dirname, '../../corpus/corpus.gitlab-ci.yml');
-const file = existsSync(ciFile) ? readFileSync(ciFile, 'utf8') : '';
-const lines = file.split(/\r?\n/);
+// Pins when the mutation jobs run (.github/workflows/mutation.yml): a pull
+// request that changes the verdict code or its tests runs Stryker only; a push
+// to the default branch runs everything, but only when something the survivors
+// read changed; the weekly schedule and workflow_dispatch always run everything.
+const mutation = readWorkflow('mutation.yml');
+const on = asMap(mutation['on'], 'on');
 
-interface Rule {
-  if?: string;
-  changes?: string[];
-  when?: string;
-  allow_failure?: string;
-}
+const NOT_PR = "github.event_name != 'pull_request'";
 
-const anchors = new Map<string, string[]>();
-for (const m of file.matchAll(/&([\w-]+) \[([^\]]*)\]/g)) {
-  anchors.set(m[1], splitList(m[2]));
-}
-
-function splitList(s: string): string[] {
-  return s
-    .split(',')
-    .map(p => p.trim())
-    .filter(Boolean);
-}
-
-function parseChanges(value: string): string[] {
-  const v = value.replace(/^&[\w-]+\s+/, '').trim();
-  if (v.startsWith('*')) {
-    const list = anchors.get(v.slice(1));
-    if (!list) throw new Error(`unknown alias ${v}`);
-    return list;
-  }
-  const m = /^\[(.*)\]$/.exec(v);
-  if (!m) throw new Error(`unsupported changes value: ${value}`);
-  return splitList(m[1]);
-}
-
-function rulesOf(job: string): Rule[] {
-  if (file === '') return []; // file removed, suite skipped
-  const start = lines.findIndex(l => l === `${job}:`);
-  expect(start, `job ${job} exists`).toBeGreaterThanOrEqual(0);
-  let i = start + 1;
-  while (i < lines.length && lines[i] !== '  rules:') {
-    if (/^\S/.test(lines[i])) throw new Error(`${job} has no rules`);
-    i++;
-  }
-  const rules: Rule[] = [];
-  for (i++; i < lines.length; i++) {
-    const line = lines[i];
-    if (line.trim() === '' || line.trim().startsWith('#')) continue;
-    if (!line.startsWith('    ')) break;
-    let body = line;
-    if (line.startsWith('    - ')) {
-      rules.push({});
-      body = '      ' + line.slice(6);
-    }
-    const m = /^ {6}([a-z_]+):\s*(.*)$/.exec(body);
-    if (!m) throw new Error(`cannot parse rules line: ${line}`);
-    const rule = rules[rules.length - 1];
-    if (m[1] === 'changes') rule.changes = parseChanges(m[2]);
-    else if (m[1] === 'if' || m[1] === 'when' || m[1] === 'allow_failure')
-      rule[m[1]] = m[2].trim();
-    else throw new Error(`unexpected rule key ${m[1]}`);
-  }
-  return rules;
-}
-
-function globToRegExp(glob: string): RegExp {
-  let re = '';
-  for (let i = 0; i < glob.length; i++) {
-    const c = glob[i];
-    if (c === '*' && glob[i + 1] === '*') {
-      re += '.*';
-      i++;
-      if (glob[i + 1] === '/') i++;
-    } else if (c === '*') re += '[^/]*';
-    else re += c.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
-  }
-  return new RegExp(`^${re}$`);
-}
-
-const PUSH =
-  '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"';
-const NOT_PUSH =
-  '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "push"';
-const BARE = '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH';
-
-const ORIGINAL_PATTERNS = [
-  'src/**/*',
-  'tests/**/*',
-  'corpus/**/*',
-  'template/**/*',
-  'assets/**/*',
+/** What the survivors read: polyman, its tests, the corpus, the configs, the CI. */
+const SURVIVORS_INPUTS = [
+  'src/**',
+  'tests/**',
+  'corpus/**',
+  'template/**',
+  'assets/**',
   'package.json',
   'package-lock.json',
   'tsconfig*.json',
   'vitest.config.ts',
-  '.gitlab-ci.yml',
-];
-const CI_PATTERNS = [
-  'engine/ci/**/*',
-  'service/ci/**/*',
-  'infra/infra.gitlab-ci.yml',
-  '.gitlab/ci/**/*',
+  '.github/workflows/mutation.yml',
 ];
 
-const JOBS = ['.corpus-survivors', 'corpus:survivors:mutants'];
+describe('mutation workflow triggers', () => {
+  const push = asMap(on['push'], 'push');
+  const pr = asMap(on['pull_request'], 'pull_request');
 
-const quoted = (v?: string) => (v ? v.replace(/^'|'$/g, '') : v);
+  it('runs a push to the default branch only when inputs changed', () => {
+    expect(strings(push['branches'])).toEqual(['main', 'master']);
+    expect(strings(push['paths'])).toEqual(SURVIVORS_INPUTS);
+  });
 
-// re-pointed to .github/workflows in the CI commit
-describe.skip('survivors job rules', () => {
-  for (const job of JOBS) {
-    describe(job, () => {
-      const rules = rulesOf(job);
-
-      // GitLab takes the first matching rule, so the order is part of the behaviour:
-      // a changes-only rule above the non-push rule would make nightly runs manual.
-      it('keeps the rules in order: push with changes, non-push, merge request', () => {
-        const manual = job === 'corpus:survivors:mutants';
-        expect(
-          rules.map(r => ({
-            if: quoted(r.if),
-            changes: r.changes !== undefined,
-            when: r.when,
-            allow_failure: r.allow_failure,
-          }))
-        ).toEqual([
-          {
-            if: PUSH,
-            changes: true,
-            when: undefined,
-            allow_failure: undefined,
-          },
-          {
-            if: NOT_PUSH,
-            changes: false,
-            when: undefined,
-            allow_failure: undefined,
-          },
-          {
-            if: undefined,
-            changes: true,
-            when: manual ? 'manual' : undefined,
-            allow_failure: manual ? 'true' : undefined,
-          },
-        ]);
-      });
-
-      it('runs a push to the default branch only when inputs changed', () => {
-        const rule = rules.find(r => quoted(r.if) === PUSH);
-        expect(rule).toBeDefined();
-        expect(rule!.changes?.length).toBeGreaterThan(0);
-        expect(rule!.when).toBeUndefined();
-      });
-
-      it('always runs a non-push pipeline on the default branch', () => {
-        const rule = rules.find(r => quoted(r.if) === NOT_PUSH);
-        expect(rule).toBeDefined();
-        expect(rule!.changes).toBeUndefined();
-        expect(rule!.when).toBeUndefined();
-      });
-
-      it('has no bare default-branch rule', () => {
-        expect(rules.filter(r => quoted(r.if) === BARE)).toEqual([]);
-      });
-
-      it('watches the original inputs and the CI files', () => {
-        const rule = rules.find(r => quoted(r.if) === PUSH)!;
-        expect(rule.changes).toEqual(
-          expect.arrayContaining([...ORIGINAL_PATTERNS, ...CI_PATTERNS])
-        );
-      });
-
-      it('has a merge request rule for the survivors inputs', () => {
-        const mr = rules.filter(r => r.if === undefined);
-        expect(mr).toHaveLength(1);
-        const paths = mr[0].changes ?? [];
-        expect(paths).toContain('src/helpers/solution.ts');
-        const push = rules.find(r => quoted(r.if) === PUSH)!.changes!;
-        const globs = push.map(globToRegExp);
-        for (const p of paths) {
-          expect(
-            globs.some(g => g.test(p)),
-            `${p} is matched by a push pattern`
-          ).toBe(true);
-        }
-        if (job === 'corpus:survivors:mutants') {
-          expect(mr[0].when).toBe('manual');
-          expect(mr[0].allow_failure).toBe('true');
-        }
-      });
-    });
-  }
-
-  it('uses the same push changes list on both jobs', () => {
-    const [a, b] = JOBS.map(
-      j => rulesOf(j).find(r => quoted(r.if) === PUSH)?.changes
+  it('always runs on the weekly schedule and by hand', () => {
+    const crons = asList(on['schedule'], 'schedule').map(s =>
+      asString(asMap(s, 'schedule entry')['cron'], 'cron')
     );
-    expect(a).toBeDefined();
-    expect(b).toEqual(a);
+    expect(crons).toHaveLength(1);
+    // minute hour * * weekday: once a week
+    expect(crons[0]).toMatch(/^\d+ \d+ \* \* \d$/);
+    expect(on).toHaveProperty('workflow_dispatch');
+  });
+
+  it('has a pull request rule for the verdict code', () => {
+    const paths = strings(pr['paths']);
+    expect(paths).toContain('src/helpers/solution.ts');
+    expect(paths).toContain('.github/workflows/mutation.yml');
+    // every pull request path is also an input of the push rule
+    const globs = SURVIVORS_INPUTS.map(globToRegExp);
+    for (const p of paths)
+      expect(
+        globs.some(g => g.test(p)),
+        `${p} is matched by a push pattern`
+      ).toBe(true);
+  });
+});
+
+describe('mutation jobs', () => {
+  const stryker = jobOf(mutation, 'mutation');
+  const shards = jobOf(mutation, 'survivors');
+  const report = jobOf(mutation, 'survivors-report');
+
+  it('runs Stryker on every trigger, pull requests included', () => {
+    expect(stryker['if']).toBeUndefined();
+    expect(asMap(stryker['env'], 'env')['TZ']).toBe('Asia/Kolkata');
+    expect(runsOf(stryker)).toEqual(
+      expect.arrayContaining([
+        './node_modules/.bin/stryker run corpus/stryker.config.json',
+      ])
+    );
+  });
+
+  it('puts the score in the run summary', () => {
+    const summary = runsOf(stryker).find(r =>
+      r.includes('corpus/mutation-metrics.mjs')
+    );
+    expect(summary).toContain('corpus/out/mutation/mutation.json');
+    expect(summary).toMatch(/>> "\$GITHUB_STEP_SUMMARY"/);
+  });
+
+  it('judges the survivors on every trigger but pull requests', () => {
+    expect(shards['if']).toBe(NOT_PR);
+    expect(asString(report['if'])).toContain(NOT_PR);
+    expect(shards['needs']).toBe('mutation');
+    expect(report['needs']).toBe('survivors');
+  });
+
+  it('is a measurement: never fails the run', () => {
+    expect(shards['continue-on-error']).toBe('true');
+    expect(report['continue-on-error']).toBe('true');
+    expect(stryker['continue-on-error']).toBeUndefined();
+  });
+
+  it('splits the mutants in as many shards as the report sums', () => {
+    const matrix = asMap(asMap(shards['strategy'])['matrix']);
+    const list = strings(matrix['shard']);
+    expect(list).toEqual(['1', '2', '3', '4', '5', '6', '7', '8']);
+    const total = String(list.length);
+    expect(runsOf(shards)).toContain(
+      `node corpus/survivors.mjs --report corpus/out/mutation/mutation.json --shard "\${{ matrix.shard }}/${total}"`
+    );
+    expect(runsOf(report).join('\n')).toContain(
+      `node corpus/survivors.mjs report --shards ${total}`
+    );
   });
 });

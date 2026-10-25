@@ -12,10 +12,10 @@
  *       [--shard 1/8] [--out corpus/out/survivors] [--timeout 600] [--only 12,57]
  *   node corpus/survivors.mjs report [--out corpus/out/survivors] [--shards 8]
  *
- * The first form judges one shard and writes shard-<i>-of-<n>.json, a JUnit
- * file (a mutant the judges miss is a failed test case) and that shard's
- * metrics. `report` sums the shards into one metrics file and summary.md, and
- * fails if a shard is missing. The source file is always put back, also when a
+ * The first form judges one shard and writes shard-<i>-of-<n>.json and a
+ * JUnit file (a mutant the judges miss is a failed test case), and prints that
+ * shard's counts. `report` sums the shards into summary.md (the workflow puts
+ * it in the run's summary), and fails if a shard is missing. The source file is always put back, also when a
  * build or a run fails or the job is stopped.
  */
 
@@ -25,20 +25,20 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { regressions } from './lib.mjs';
+import { ciRun, regressions } from './lib.mjs';
 
 const CORPUS = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.dirname(CORPUS);
 const TSC = path.join(ROOT, 'node_modules', 'typescript', 'bin', 'tsc');
 const BUILD_TIMEOUT_MS = 5 * 60 * 1000;
 
-/** The statuses judged, and what each set is called in the metrics. */
+/** The statuses judged, and what each set is called in the counts. */
 export const GROUPS = {
   Survived: 'corpus_kills_unit_survivors',
   NoCoverage: 'corpus_kills_untested_mutants',
 };
 
-/** `i/n` (1-based, as GitLab's CI_NODE_INDEX/CI_NODE_TOTAL) → { index, total }. */
+/** `i/n` (1-based, as the shard matrix in .github/workflows/mutation.yml) → { index, total }. */
 export function parseShard(text) {
   const match = /^(\d+)\/(\d+)$/.exec(String(text ?? ''));
   const index = match ? Number(match[1]) : NaN;
@@ -222,7 +222,7 @@ export function tally(results) {
 }
 
 /**
- * The GitLab metrics report (one `name value` per line). A Timeout counts as
+ * The counts, one `name value` per line, printed at the end of the log. A Timeout counts as
  * a kill, as in Stryker: a judge that never finishes is noticed. An error (the
  * mutant couldn't be judged) is in the total but not a kill.
  */
@@ -513,10 +513,12 @@ export function parseArgs(argv) {
   return args;
 }
 
-const where = () =>
-  process.env.CI_PIPELINE_URL
-    ? `Pipeline [${process.env.CI_PIPELINE_ID}](${process.env.CI_PIPELINE_URL}), commit ${process.env.CI_COMMIT_SHORT_SHA}.`
+const where = () => {
+  const run = ciRun();
+  return run
+    ? `Run [${run.id}](${run.url}), commit ${run.commit}.`
     : 'Local run.';
+};
 
 /**
  * How one planted mutant ends: `build()` compiles it, `judge(problem, ms)`
@@ -745,10 +747,6 @@ async function judgeShard(args) {
     path.join(args.out, `junit-${name}.xml`),
     junitXml(results, `corpus-survivors-${name}`)
   );
-  fs.writeFileSync(
-    path.join(args.out, `metrics-${name}.txt`),
-    metricsText(results)
-  );
   process.stdout.write(metricsText(results));
 }
 
@@ -762,7 +760,6 @@ function reportShards(args) {
   const total = args.shards ?? shards[0]?.shard.total;
   if (!total) throw new Error(`no shard results in ${args.out}`);
   const results = combineShards(shards, total);
-  fs.writeFileSync(path.join(args.out, 'metrics.txt'), metricsText(results));
   const names = new Set();
   const red = new Set();
   const flaky = new Set();

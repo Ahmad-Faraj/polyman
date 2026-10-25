@@ -30,6 +30,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  ciRun,
   compare,
   failedStepReason,
   outcomeOf,
@@ -222,9 +223,9 @@ function writeReport(file, results, tools, polyman) {
       .join('');
     return `${head}<ul class="steps">${steps}</ul><div class="scroll"><table><thead><tr><th>solution</th><th>tag</th>${header}<th>matches tag</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>`;
   });
-  const env = process.env;
-  const where = env.CI_PIPELINE_URL
-    ? `<a href="${html(env.CI_PIPELINE_URL)}">pipeline ${html(env.CI_PIPELINE_ID)}</a>, commit ${html(env.CI_COMMIT_SHORT_SHA)}`
+  const run = ciRun();
+  const where = run
+    ? `<a href="${html(run.url)}">run ${html(run.id)}</a>, commit ${html(run.commit)}`
     : 'local run';
   const page = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>polyman corpus verdicts</title><style>
 :root{--ground:#f3f5f9;--surface:#fff;--ink:#0d1321;--soft:#47506a;--rule:#d5dbe7;--navy:#0e1a3a;--on-navy-soft:#a9b6dc;--ok:#11622e;--okbg:#e3f3e8;--bad:#9b2219;--badbg:#fbe6e4;--warn:#6e4300;--warnbg:#fdf0d5;--link:#1d3fa8}

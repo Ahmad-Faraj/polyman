@@ -1,16 +1,18 @@
 #!/usr/bin/env node
 /**
- * Turns Stryker's JSON report into a GitLab metrics report, so the merge
- * request widget shows how the mutation score of polyman's verdict code moves.
+ * Turns Stryker's JSON report into a Markdown summary: the mutation score of
+ * polyman's verdict code, the counts per file and the mutants no unit test
+ * catches. The mutation workflow appends it to the run's summary
+ * ($GITHUB_STEP_SUMMARY), so a pull request shows how the score moves.
  *
- * Usage: node corpus/mutation-metrics.mjs [mutation.json] [metrics.txt]
+ * Usage: node corpus/mutation-metrics.mjs [mutation.json] [summary.md]
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { isInside } from './lib.mjs';
 
-const [input = 'corpus/out/mutation/mutation.json', output = 'metrics.txt'] =
+const [input = 'corpus/out/mutation/mutation.json', output = 'summary.md'] =
   process.argv.slice(2);
 
 // The real path of `file`, symlinks followed. The output may not exist yet,
@@ -69,7 +71,11 @@ const outputPath = inside(output);
 
 const report = JSON.parse(fs.readFileSync(inputPath, 'utf8'));
 
-const lines = [];
+/** The most survivors listed; the run's summary has a size limit. */
+const MAX_LISTED = 200;
+
+const rows = [];
+const missed = [];
 let detected = 0;
 let valid = 0;
 for (const [file, { mutants }] of Object.entries(report.files)) {
@@ -78,12 +84,44 @@ for (const [file, { mutants }] of Object.entries(report.files)) {
   const total = caught + count('Survived') + count('NoCoverage');
   detected += caught;
   valid += total;
-  const name = file.replace(/^src\//, '').replace(/[^a-zA-Z0-9]+/g, '_');
-  lines.push(`mutants_${name} ${total}`);
-  lines.push(`mutants_survived_${name} ${count('Survived')}`);
-  lines.push(`mutants_untested_${name} ${count('NoCoverage')}`);
+  rows.push(
+    `| \`${file}\` | ${total} | ${caught} | ${count('Survived')} | ${count('NoCoverage')} |`
+  );
+  for (const m of mutants)
+    if (m.status === 'Survived' || m.status === 'NoCoverage')
+      missed.push({ file, ...m });
 }
 const score = valid ? Math.round((1000 * detected) / valid) / 10 : 0;
-lines.unshift(`mutation_score ${score}`);
+
+// Markdown code spans can't hold a backtick or a line break
+const code = value =>
+  `\`${String(value ?? '')
+    .replace(/`/g, "'")
+    .replace(/\s+/g, ' ')}\``;
+const where = m =>
+  m.location?.start
+    ? `${m.file}:${m.location.start.line}:${m.location.start.column}`
+    : m.file;
+
+const lines = [
+  `## Mutation score: ${score}%`,
+  '',
+  `${detected} of ${valid} mutants caught by the unit tests (Killed or Timeout).`,
+  '',
+  '| File | Mutants | Caught | Survived | No coverage |',
+  '| --- | ---: | ---: | ---: | ---: |',
+  ...rows,
+];
+if (missed.length) {
+  lines.push('', `### Not caught (${missed.length})`, '');
+  for (const m of missed.slice(0, MAX_LISTED))
+    lines.push(
+      `- ${m.status} #${m.id ?? '?'} ${code(where(m))} ${m.mutatorName ?? 'mutant'}: ${m.replacement ? code(m.replacement) : '(no replacement)'}`
+    );
+  if (missed.length > MAX_LISTED)
+    lines.push(
+      `- and ${missed.length - MAX_LISTED} more: see the mutation report artifact`
+    );
+}
 fs.writeFileSync(outputPath, `${lines.join('\n')}\n`);
 console.log(lines.join('\n'));

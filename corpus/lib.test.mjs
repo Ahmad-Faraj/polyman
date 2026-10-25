@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ciRun,
   compare,
   failedStepReason,
   freshnessCheck,
@@ -536,5 +537,51 @@ describe('failedStepReason: why a step failed', () => {
     expect(failures(compare(want, got))).toContain(
       'failed step: expected none, got compile-solutions'
     );
+  });
+});
+
+describe('ciRun: the GitHub Actions run', () => {
+  const env = {
+    GITHUB_ACTIONS: 'true',
+    GITHUB_SERVER_URL: 'https://github.com',
+    GITHUB_REPOSITORY: 'HamzaHassanain/polyman',
+    GITHUB_RUN_ID: '123456',
+    GITHUB_RUN_ATTEMPT: '2',
+    GITHUB_JOB: 'polygon',
+    GITHUB_SHA: '0123456789abcdef0123456789abcdef01234567',
+  };
+
+  it('links the run and names the commit', () => {
+    expect(ciRun(env)).toEqual({
+      id: '123456',
+      url: 'https://github.com/HamzaHassanain/polyman/actions/runs/123456',
+      commit: '01234567',
+      marker: '123456.2.polygon',
+    });
+  });
+
+  it('gives each attempt and each job its own marker', () => {
+    const marker = e => ciRun({ ...env, ...e }).marker;
+    expect(marker({ GITHUB_RUN_ATTEMPT: '3' })).toBe('123456.3.polygon');
+    expect(marker({ GITHUB_JOB: 'production' })).toBe('123456.2.production');
+    expect(marker({ GITHUB_RUN_ATTEMPT: undefined })).toBe('123456.1.polygon');
+  });
+
+  it('uses the server of a GitHub Enterprise instance', () => {
+    expect(
+      ciRun({ ...env, GITHUB_SERVER_URL: 'https://git.example.com' }).url
+    ).toBe(
+      'https://git.example.com/HamzaHassanain/polyman/actions/runs/123456'
+    );
+  });
+
+  it('is null outside GitHub Actions', () => {
+    expect(ciRun({})).toBeNull();
+    expect(ciRun({ ...env, GITHUB_ACTIONS: undefined })).toBeNull();
+    expect(ciRun({ ...env, GITHUB_RUN_ID: '' })).toBeNull();
+    // GitLab's variables are not read any more
+    expect(
+      ciRun({ CI_PIPELINE_URL: 'https://gitlab.com/x/-/pipelines/1' })
+    ).toBeNull();
   });
 });

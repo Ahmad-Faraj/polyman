@@ -30,10 +30,20 @@ beforeEach(() => {
 });
 afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
 
-const METRICS =
-  'mutation_score 50\nmutants_helpers_solution_ts 2\n' +
-  'mutants_survived_helpers_solution_ts 1\n' +
-  'mutants_untested_helpers_solution_ts 0\n';
+const SUMMARY = [
+  '## Mutation score: 50%',
+  '',
+  '1 of 2 mutants caught by the unit tests (Killed or Timeout).',
+  '',
+  '| File | Mutants | Caught | Survived | No coverage |',
+  '| --- | ---: | ---: | ---: | ---: |',
+  '| `src/helpers/solution.ts` | 2 | 1 | 1 | 0 |',
+  '',
+  '### Not caught (1)',
+  '',
+  '- Survived #? `src/helpers/solution.ts` mutant: (no replacement)',
+  '',
+].join('\n');
 const OUTSIDE = 'path outside the working directory';
 
 const run = (...args) =>
@@ -42,16 +52,78 @@ const run = (...args) =>
     encoding: 'utf8',
   });
 
+describe('mutation-metrics.mjs summary', () => {
+  const mutant = (id, status, extra = {}) => ({
+    id: String(id),
+    status,
+    mutatorName: 'ConditionalExpression',
+    replacement: 'true',
+    location: { start: { line: id, column: 3 }, end: { line: id, column: 9 } },
+    ...extra,
+  });
+  const write = files =>
+    fs.writeFileSync(path.join(work, 'r.json'), JSON.stringify({ files }));
+  const summary = () => fs.readFileSync(path.join(work, 's.md'), 'utf8');
+
+  it('scores timeouts as caught and lists every survivor with its place', () => {
+    write({
+      'src/helpers/solution.ts': {
+        mutants: [
+          mutant(1, 'Killed'),
+          mutant(2, 'Timeout'),
+          mutant(3, 'Survived', { replacement: 'a `b`\n c' }),
+          mutant(4, 'NoCoverage'),
+          mutant(5, 'CompileError'),
+        ],
+      },
+    });
+    expect(run('r.json', 's.md').status).toBe(0);
+    const text = summary();
+    expect(text).toContain('## Mutation score: 50%');
+    expect(text).toContain('2 of 4 mutants caught');
+    expect(text).toContain('| `src/helpers/solution.ts` | 4 | 2 | 1 | 1 |');
+    expect(text).toContain(
+      "- Survived #3 `src/helpers/solution.ts:3:3` ConditionalExpression: `a 'b' c`"
+    );
+    expect(text).toContain(
+      '- NoCoverage #4 `src/helpers/solution.ts:4:3` ConditionalExpression: `true`'
+    );
+    expect(text).not.toContain('#5');
+  });
+
+  it('caps the list so the run summary stays small', () => {
+    write({
+      'src/a.ts': {
+        mutants: Array.from({ length: 205 }, (_, i) =>
+          mutant(i + 1, 'Survived')
+        ),
+      },
+    });
+    expect(run('r.json', 's.md').status).toBe(0);
+    const text = summary();
+    expect(text).toContain('### Not caught (205)');
+    expect(text.match(/^- Survived/gm)).toHaveLength(200);
+    expect(text).toContain('- and 5 more: see the mutation report artifact');
+  });
+
+  it('scores an empty report 0', () => {
+    write({});
+    expect(run('r.json', 's.md').status).toBe(0);
+    expect(summary()).toContain('## Mutation score: 0%');
+    expect(summary()).not.toContain('Not caught');
+  });
+});
+
 describe('mutation-metrics.mjs path guard', () => {
-  it('writes the metrics for paths inside the working directory', () => {
-    const r = run('m.json', 'metrics.txt');
+  it('writes the summary for paths inside the working directory', () => {
+    const r = run('m.json', 'summary.md');
     expect(r.status).toBe(0);
-    expect(fs.readFileSync(path.join(work, 'metrics.txt'), 'utf8')).toBe(
-      METRICS
+    expect(fs.readFileSync(path.join(work, 'summary.md'), 'utf8')).toBe(
+      SUMMARY
     );
   });
 
-  it('runs with the arguments the corpus:mutation job passes', () => {
+  it('runs with the arguments the mutation workflow passes', () => {
     fs.mkdirSync(path.join(work, 'corpus/out/mutation'), { recursive: true });
     fs.writeFileSync(
       path.join(work, 'corpus/out/mutation/mutation.json'),
@@ -59,32 +131,29 @@ describe('mutation-metrics.mjs path guard', () => {
     );
     const r = run(
       'corpus/out/mutation/mutation.json',
-      'corpus/out/mutation-metrics.txt'
+      'corpus/out/mutation-summary.md'
     );
     expect(r.status).toBe(0);
     expect(
-      fs.readFileSync(
-        path.join(work, 'corpus/out/mutation-metrics.txt'),
-        'utf8'
-      )
-    ).toBe(METRICS);
+      fs.readFileSync(path.join(work, 'corpus/out/mutation-summary.md'), 'utf8')
+    ).toBe(SUMMARY);
   });
 
   it('accepts absolute paths inside the working directory', () => {
     const real = fs.realpathSync(work);
     const r = run(path.join(real, 'm.json'), path.join(real, 'abs.txt'));
     expect(r.status).toBe(0);
-    expect(fs.readFileSync(path.join(work, 'abs.txt'), 'utf8')).toBe(METRICS);
+    expect(fs.readFileSync(path.join(work, 'abs.txt'), 'utf8')).toBe(SUMMARY);
   });
 
   it('accepts symlinks that stay inside the working directory', () => {
     fs.mkdirSync(path.join(work, 'sub'));
     fs.symlinkSync(path.join(work, 'sub'), path.join(work, 'sub-link'));
     fs.symlinkSync('m.json', path.join(work, 'in.json'));
-    const r = run('in.json', 'sub-link/metrics.txt');
+    const r = run('in.json', 'sub-link/summary.md');
     expect(r.status).toBe(0);
-    expect(fs.readFileSync(path.join(work, 'sub/metrics.txt'), 'utf8')).toBe(
-      METRICS
+    expect(fs.readFileSync(path.join(work, 'sub/summary.md'), 'utf8')).toBe(
+      SUMMARY
     );
   });
 
@@ -93,7 +162,7 @@ describe('mutation-metrics.mjs path guard', () => {
     const r = run('m.json', 'outlink.txt');
     expect(r.status).toBe(0);
     expect(fs.readFileSync(path.join(work, 'target.txt'), 'utf8')).toBe(
-      METRICS
+      SUMMARY
     );
   });
 
@@ -106,27 +175,27 @@ describe('mutation-metrics.mjs path guard', () => {
   });
 
   it('refuses a sibling folder whose name starts like the working directory', () => {
-    const r = run('../work-evil/m.json', 'metrics.txt');
+    const r = run('../work-evil/m.json', 'summary.md');
     expect(r.status).toBe(1);
     expect(r.stderr).toContain(`${OUTSIDE}: ../work-evil/m.json`);
   });
 
   it('refuses an output outside the working directory', () => {
-    const r = run('m.json', path.join(outside, 'metrics.txt'));
+    const r = run('m.json', path.join(outside, 'summary.md'));
     expect(r.status).toBe(1);
     expect(r.stderr).toContain(OUTSIDE);
-    expect(fs.existsSync(path.join(outside, 'metrics.txt'))).toBe(false);
+    expect(fs.existsSync(path.join(outside, 'summary.md'))).toBe(false);
   });
 
   it('refuses a symlink inside the working directory that points outside it', () => {
     fs.symlinkSync(outside, path.join(work, 'link'));
-    const input = run('link/m.json', 'metrics.txt');
+    const input = run('link/m.json', 'summary.md');
     expect(input.status).toBe(1);
     expect(input.stderr).toContain(`${OUTSIDE}: link/m.json`);
-    const r = run('m.json', 'link/metrics.txt');
+    const r = run('m.json', 'link/summary.md');
     expect(r.status).toBe(1);
-    expect(r.stderr).toContain(`${OUTSIDE}: link/metrics.txt`);
-    expect(fs.existsSync(path.join(outside, 'metrics.txt'))).toBe(false);
+    expect(r.stderr).toContain(`${OUTSIDE}: link/summary.md`);
+    expect(fs.existsSync(path.join(outside, 'summary.md'))).toBe(false);
   });
 
   it('refuses a dangling symlink that points outside the working directory', () => {

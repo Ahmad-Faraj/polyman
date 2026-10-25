@@ -16,14 +16,13 @@ node corpus/run.mjs --record        # draft expected/ from polyman's own output 
 
 `--record` only drafts a file. A recorded file trusts polyman, so it would freeze polyman's
 bugs into the corpus. Every pinned verdict is checked against an independent judgment of the
-solution's actual output before it is committed. Agents may not change anything in `corpus/`
-(the `autonomy:guard` job), so an agent's change to polyman cannot also change what judges it.
+solution's actual output before it is committed.
 
 `truth.mjs` is that independent judgment, without polyman: it compiles the generators,
 validator, checker and solutions with g++ and javac itself, generates the tests from the
 script, runs each solution with the time limit and asks the checker about every test that
-ran. `corpus:truth` runs it on every problem and fails if a pinned file disagrees, so the
-expected verdicts are re-derived on each pipeline instead of trusted.
+ran. The `truth` job (`.github/workflows/corpus.yml`) runs it on every problem and fails if a
+pinned file disagrees, so the expected verdicts are re-derived on each run instead of trusted.
 
 ```bash
 node corpus/truth.mjs pair-target          # print what expected/pair-target.json should say
@@ -69,8 +68,6 @@ else: the tests after a solution's first wrong answer are reported `OK` although
 never judged them (#21), and a presentation error is reported as `WA` (#28). Every `OK`, `TLE`
 and `RTE`, and every solution's match with its tag, is right, Java and Python time limits included.
 
-The verify service's sample problems (`service/samples/`, !8) are the other half: its golden set checks each solution against its tag through the service, including `wrong-tag` (a wrong solution tagged OK, which `verify` must reject). The corpus judges the CLI, test by test.
-
 ## Precompiled header
 
 `pch-check.mjs` checks the precompiled `<bits/stdc++.h>` (#113) on one corpus solution: the
@@ -88,12 +85,12 @@ node corpus/pch-check.mjs                       # needs g++ and clang++
 node corpus/pch-check.mjs --problem sum-parity --clang clang++-17 --keep
 ```
 
-In CI it runs as `corpus:pch`, on the same pipelines as `corpus`.
+In CI it runs as the `pch` job of `.github/workflows/corpus.yml`, on the same events as `corpus`.
 
 Known limits: `main()` is tested on its pieces (path parsing, run folders, judging each
 result, exit codes) and on a bad argument, not end to end. A full run needs g++ and clang++,
 so the exit 0 and 1 outcomes, a missing compiler, a failing `generate` and `--keep` are
-proved by the `corpus:pch` job itself, not by a unit test.
+proved by the `pch` job itself, not by a unit test.
 
 ## Polygon round trip
 
@@ -114,16 +111,16 @@ POLYGON_API_KEY=... POLYGON_API_SECRET=... node corpus/polygon-roundtrip.mjs --p
 POLYGON_API_KEY=... POLYGON_API_SECRET=... node corpus/polygon-roundtrip.mjs --all
 ```
 
-In CI it runs as `corpus:polygon` on the default branch only, where `POLYGON_API_KEY` and
-`POLYGON_API_SECRET` are masked, protected variables of a test Polygon account. It runs with
-`--all`: every problem listed in `polygon.json` with its Polygon problem, one JUnit report each.
+In CI it runs nightly as the `polygon` job of `.github/workflows/nightly.yml`, on the default
+branch only and only when the repository has the `POLYGON_API_KEY` and `POLYGON_API_SECRET`
+secrets of a test Polygon account; without them the job is skipped. It runs with `--all`: every problem listed in `polygon.json` with its Polygon problem, one JUnit report each.
 Each problem needs a Polygon problem of its own, and creating one is a person's decision, so a
 problem that isn't listed is reported as skipped (by name, in the log and as skipped test cases)
 instead of silently left out. Today only `sum-parity` (605330) is listed.
 
 ## Mutation testing
 
-`corpus:mutation` runs [Stryker](https://stryker-mutator.io/) on `src/helpers/solution.ts`, where
+The `mutation` job of `.github/workflows/mutation.yml` runs [Stryker](https://stryker-mutator.io/) on `src/helpers/solution.ts`, where
 verdicts are decided: it makes hundreds of small changes ("mutants") to the code and counts how many
 the unit tests catch. On 3.0.0: 463 mutants, 115 survive and 34 are never executed by any test, a
 score of 67.8%. One survivor: `isWATag` returning `true` for every tag passes all 967 tests. With
@@ -132,7 +129,11 @@ that bug, a solution tagged OK that gives wrong answers would no longer fail `ve
 ```bash
 npm i --no-save --legacy-peer-deps @stryker-mutator/core@9 @stryker-mutator/vitest-runner@9
 TZ=Asia/Kolkata ./node_modules/.bin/stryker run corpus/stryker.config.json   # report: corpus/out/mutation/index.html
+node corpus/mutation-metrics.mjs corpus/out/mutation/mutation.json corpus/out/mutation-summary.md
 ```
+
+`mutation-metrics.mjs` writes the score and the mutants no unit test catches as Markdown; in CI it
+goes to the run's summary, and the HTML report is the `mutation-report` artifact.
 
 ### Judges vs the mutants the unit tests miss
 
@@ -154,18 +155,27 @@ node corpus/survivors.mjs --report corpus/out/mutation/mutation.json --shard 1/8
 node corpus/survivors.mjs report --shards 8     # sums corpus/out/survivors/shard-*.json
 ```
 
-In CI, `corpus:survivors:mutants` runs Stryker, eight `corpus:survivors` shards judge the mutants
-and `corpus:survivors:report` writes `summary.md` (exposed in the merge request as "Judges vs
-surviving mutants") and the metrics `corpus_kills_unit_survivors` and
-`corpus_kills_untested_mutants`, each with a `_total`. It runs on every scheduled, web and API
-pipeline of the default branch, on pushes to it that change something it reads (polyman's source,
-tests, `template/`, `assets/`, the corpus, the dependencies, `tsconfig*.json`, `vitest.config.ts`,
-`.gitlab-ci.yml`), and on demand (play `corpus:survivors:mutants`) in merge requests that change the script or
-`src/helpers/solution.ts`. The summary lists every mutant both the unit tests and the judges miss.
+In CI (`.github/workflows/mutation.yml`), the `mutation` job runs Stryker, eight `survivors`
+shards judge the mutants from its report and `survivors-report` puts `summary.md` in the run's
+summary, with the kills of the unit survivors and of the untested mutants and their totals. It runs
+on the weekly schedule and on workflow_dispatch, and on pushes to the default branch that change
+something it reads (polyman's source, tests, `template/`, `assets/`, the corpus, the dependencies,
+`tsconfig*.json`, `vitest.config.ts`, the workflow). Pull requests run the `mutation` job only; to
+judge a pull request's survivors, run the workflow by hand on its branch. The summary lists every mutant both the unit tests and the judges miss.
 
 ## Upstream drift
 
 polyman depends on two things it doesn't control: Polygon's API (documented in
 `codeforces/polygon-misc`) and `testlib.h`. `upstream.mjs` compares their latest commits with the
-ones pinned in `upstream.json` and fails, listing what changed, when either moved (`corpus:upstream`,
-nightly). After checking polyman against the change, `node corpus/upstream.mjs --update` moves the pins.
+ones pinned in `upstream.json` and fails, listing what changed, when either moved (the `upstream` job of
+`.github/workflows/nightly.yml`). After checking polyman against the change, `node corpus/upstream.mjs --update` moves the pins.
+
+## In CI
+
+| Workflow                          | Jobs                                                                                       |
+| --------------------------------- | ------------------------------------------------------------------------------------------ |
+| `corpus.yml` (push, pull request) | `corpus`, `toolchain` (node-20.19, no-python-alias), `pch`, `truth`                        |
+| `ci.yml`                          | `macos`: the corpus with Homebrew GNU g++, on the default branch and by hand               |
+| `mutation.yml`                    | `mutation`, `survivors` (8 shards), `survivors-report`                                     |
+| `nightly.yml`                     | `production` (the corpus on `polyman-cli@latest`), `upstream`, `polygon`                   |
+| `release.yml` (`v*` tags)         | `publish` to npm `next`, `next-check` (no regression against `latest`), `promote`, Release |

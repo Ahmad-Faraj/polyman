@@ -33,6 +33,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  ciRun,
   freshnessCheck,
   freshnessMarker,
   inputCountCheck,
@@ -532,10 +533,9 @@ async function roundTrip(args, creds) {
 
   // The Polygon problem is reused across runs: mark this run's upload so a
   // push that uploads nothing can't pass on what the last run left there. The
-  // job ID, not the pipeline ID: a retried job must not reuse the marker.
-  const marker = freshnessMarker(
-    process.env.CI_JOB_ID ?? `local-${Date.now()}`
-  );
+  // run, its attempt and the job: a re-run job, or another job of the same
+  // run (nightly has two), must not reuse the marker.
+  const marker = freshnessMarker(ciRun()?.marker ?? `local-${Date.now()}`);
   const before = JSON.parse(fs.readFileSync(configPath, 'utf8'));
   const [markedLang, markedStatement] =
     Object.entries(before.statements ?? {}).find(([, st]) => st.legend) ?? [];

@@ -174,7 +174,7 @@ describe('selecting and sharding', () => {
     expect(shardOf(list, { index: 1, total: 1 })).toHaveLength(103);
   });
 
-  it('parses i/n as GitLab numbers parallel jobs (1-based)', () => {
+  it('parses i/n as the shard matrix numbers them (1-based)', () => {
     expect(parseShard('3/8')).toEqual({ index: 3, total: 8 });
     for (const bad of ['0/8', '9/8', '1/0', '1', 'a/b', undefined])
       expect(() => parseShard(bad)).toThrow(/--shard/);
