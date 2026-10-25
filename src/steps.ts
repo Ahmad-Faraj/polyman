@@ -159,12 +159,31 @@ export async function stepDownloadTestlib(stepNum: number): Promise<string> {
   return testlibContent;
 }
 
+/**
+ * Step: Save the downloaded testlib.h to the current directory.
+ *
+ * An existing testlib.h with other contents is kept: it may be the one
+ * `remote pull` downloaded from Polygon, which the problem is built with.
+ * Line endings are ignored in the comparison.
+ *
+ * @throws {PolymanError} With exit code 2 if testlib.h exists and differs
+ */
 export function stepSaveTestlibToDirectory(
   stepNum: number,
   testlibContent: string
 ): void {
   fmt.step(stepNum, 'Saving to Current Directory');
   const targetPath = path.join(process.cwd(), 'testlib.h');
+  if (fs.existsSync(targetPath)) {
+    const lf = (text: string): string => text.replace(/\r\n/g, '\n');
+    if (lf(fs.readFileSync(targetPath, 'utf-8')) !== lf(testlibContent)) {
+      throw new PolymanError(
+        `${targetPath} already exists and is not the upstream testlib.h, so it was not replaced. It may be the testlib.h that remote pull downloaded from Polygon`,
+        2,
+        'Keep it to build like Polygon does. Delete it first if you want the upstream testlib.h.'
+      );
+    }
+  }
   fs.writeFileSync(targetPath, testlibContent, 'utf-8');
   fmt.stepComplete('File saved');
 }
@@ -1171,23 +1190,29 @@ export function stepCreatePulledProblemDirectory(
 /**
  * Step: Download all problem files from Polygon and create Config.json
  *
- * @returns {Promise<{ warnings: string[]; failures: PullFailure[] }>}
+ * @returns {Promise<{ warnings: string[]; failures: PullFailure[]; resources: string[] }>}
+ *   `resources` are the resource files (testlib.h, headers, ...) written next
+ *   to Config.json, for the caller's summary.
  *   `warnings` are the placeholders the caller should repeat in its summary:
  *   no validator on Polygon, and each placeholder (solution, checker,
  *   validator, generators) put in Config.json instead of a downloaded file.
  *   They are also added to the `--json` report's `warnings`; they do not fail
- *   the pull. `failures` has each file (solution, generator, checker or
- *   validator tests, statement, description, tags) that could not be
- *   downloaded and is left out of Config.json. Each one is recorded as a
- *   failed `download` action; the caller fails the pull for them after the
- *   other files are written.
+ *   the pull. `failures` has each file (solution, generator, resource file,
+ *   checker or validator tests, statement, description, tags) that could not
+ *   be downloaded and is left out of Config.json or the problem folder. Each
+ *   one is recorded as a failed `download` action; the caller fails the pull
+ *   for them after the other files are written.
  */
 export async function stepDownloadProblemFilesAndSetUpConfig(
   stepNum: number,
   sdk: PolygonSDK,
   problemId: number,
   savePath: string
-): Promise<{ warnings: string[]; failures: PullFailure[] }> {
+): Promise<{
+  warnings: string[];
+  failures: PullFailure[];
+  resources: string[];
+}> {
   fmt.step(stepNum, 'Downloading Problem Files & Creating Config');
   const problemDir = path.resolve(process.cwd(), savePath);
   let downloadCount = 0;
@@ -1287,6 +1312,9 @@ export async function stepDownloadProblemFilesAndSetUpConfig(
   for (const generator of generatorsResult.data) {
     downloaded('generator', generator.name);
   }
+  for (const resource of generatorsResult.resources) {
+    downloaded('resource', resource);
+  }
   failed(generatorsResult.failures);
   for (const language of Object.keys(statementsResult.config)) {
     downloaded('statement', language);
@@ -1339,6 +1367,7 @@ export async function stepDownloadProblemFilesAndSetUpConfig(
   for (const warning of warnings) report.addWarning(warning);
   return {
     warnings,
+    resources: generatorsResult.resources,
     failures: [
       ...solutionsResult.failures,
       ...checkerResult.failures,

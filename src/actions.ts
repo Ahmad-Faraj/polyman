@@ -1458,6 +1458,7 @@ export const remotePullProblemAction = async (
 
   let pullWarnings: string[];
   let pullFailures: PullFailure[];
+  let pullResources: string[];
   let pullTests: boolean;
   let defaultTestsDownloaded = false;
 
@@ -1507,6 +1508,7 @@ export const remotePullProblemAction = async (
     );
     pullWarnings = downloadResult.warnings;
     pullFailures = downloadResult.failures;
+    pullResources = downloadResult.resources;
 
     // step 7: Download test files
     if (pullTests) {
@@ -1548,6 +1550,11 @@ export const remotePullProblemAction = async (
     fmt.successBox('PROBLEM PULLED SUCCESSFULLY!');
   }
   fmt.info(`  ${fmt.infoIcon()} Problem saved to: ${fmt.highlight(savePath)}`);
+  if (pullResources.length > 0) {
+    fmt.info(
+      `  ${fmt.infoIcon()} Resource files (next to Config.json): ${fmt.highlight(pullResources.join(', '))}`
+    );
+  }
   fmt.info(
     `  ${fmt.infoIcon()} Review Config.json and update solution tags as needed`
   );

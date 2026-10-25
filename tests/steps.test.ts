@@ -143,6 +143,39 @@ describe('steps.ts', () => {
   });
 
   describe('stepSaveTestlibToDirectory', () => {
+    it('does not replace a testlib.h with other contents, such as a pulled one', () => {
+      vi.mocked(fs.existsSync).mockReturnValueOnce(true);
+      vi.mocked(fs.readFileSync).mockReturnValueOnce('// Polygon testlib.h\n');
+      vi.mocked(fs.writeFileSync).mockImplementation(() => undefined);
+
+      let thrown: unknown;
+      try {
+        steps.stepSaveTestlibToDirectory(1, '// upstream testlib.h\n');
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect(thrown).toBeInstanceOf(PolymanError);
+      expect((thrown as PolymanError).exitCode).toBe(2);
+      expect((thrown as PolymanError).message).toContain('was not replaced');
+      expect((thrown as PolymanError).hint).toContain('Delete it first');
+      expect(fs.writeFileSync).not.toHaveBeenCalled();
+    });
+
+    it('writes over a testlib.h that only differs in line endings', () => {
+      vi.mocked(fs.existsSync).mockReturnValueOnce(true);
+      vi.mocked(fs.readFileSync).mockReturnValueOnce('a\r\nb\r\n');
+      vi.mocked(fs.writeFileSync).mockImplementation(() => undefined);
+
+      steps.stepSaveTestlibToDirectory(1, 'a\nb\n');
+
+      expect(fs.writeFileSync).toHaveBeenCalledWith(
+        expect.stringContaining('testlib.h'),
+        'a\nb\n',
+        'utf-8'
+      );
+    });
+
     it('should write testlib content to current dir', () => {
       vi.mocked(fs.writeFileSync).mockImplementation(() => undefined);
       steps.stepSaveTestlibToDirectory(1, 'content');
@@ -1107,6 +1140,7 @@ describe('steps.ts', () => {
         count: 2,
         data: [],
         failures: [],
+        resources: [],
         sourceTypes,
       } as any);
       vi.mocked(pulling.downloadStatements).mockResolvedValue({
@@ -1154,7 +1188,7 @@ describe('steps.ts', () => {
         source: 'wcmp.cpp',
         isStandard: true,
       });
-      expect(result).toEqual({ warnings: [], failures: [] });
+      expect(result).toEqual({ warnings: [], failures: [], resources: [] });
     });
 
     it('should return a warning when Polygon has no validator', async () => {
@@ -1206,9 +1240,13 @@ describe('steps.ts', () => {
         failures: [failure('validator', 'validator tests', 'boom')],
       } as any);
       vi.mocked(pulling.downloadGenerators).mockResolvedValue({
-        count: 0,
+        count: 1,
         data: [],
-        failures: [failure('generator', 'gen', 'boom')],
+        failures: [
+          failure('generator', 'gen', 'boom'),
+          failure('resource', 'olymp.sty', 'boom'),
+        ],
+        resources: ['testlib.h'],
         sourceTypes: {},
       } as any);
       vi.mocked(pulling.downloadStatements).mockResolvedValue({
@@ -1238,9 +1276,11 @@ describe('steps.ts', () => {
         'checker tests',
         'validator tests',
         'gen',
+        'olymp.sty',
         'statements',
         'tags',
       ]);
+      expect(result.resources).toEqual(['testlib.h']);
       const failedAction = (
         component: string,
         name: string,
@@ -1259,7 +1299,14 @@ describe('steps.ts', () => {
         failedAction('checker', 'checker tests', 'boom'),
         { component: 'validator', name: 'val', action: 'download', ok: true },
         failedAction('validator', 'validator tests', 'boom'),
+        {
+          component: 'resource',
+          name: 'testlib.h',
+          action: 'download',
+          ok: true,
+        },
         failedAction('generator', 'gen', 'boom'),
+        failedAction('resource', 'olymp.sty', 'boom'),
         failedAction('statement', 'statements', 'boom'),
         failedAction('metadata', 'tags', 'boom'),
         { component: 'config', name: 'Config.json', action: 'write', ok: true },
@@ -1296,6 +1343,7 @@ describe('steps.ts', () => {
         count: 0,
         data: [],
         failures: [],
+        resources: [],
         sourceTypes: {},
       } as any);
       vi.mocked(pulling.downloadStatements).mockResolvedValue({

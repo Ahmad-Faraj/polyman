@@ -68,7 +68,7 @@ function reason(error: unknown): string {
  * in `remote push`.
  *
  * @property {string} component - Report component (solution, generator,
- *   checker, validator, statement, metadata)
+ *   resource, checker, validator, statement, metadata)
  * @property {string} name - Which one, as named in the report actions
  * @property {string} error - Plain-text reason from Polygon
  * @property {string} message - Full line for the summary and the report
@@ -394,16 +394,28 @@ export async function downloadValidator(
 }
 
 /**
+ * Names a resource file must not have: the problem folder already uses them.
+ * Compared in lower case, for case-insensitive file systems.
+ */
+const RESERVED_RESOURCE_NAMES = new Set(['config.json', '.polyman']);
+
+/**
  * Downloads generators and resource files from Polygon.
+ *
+ * Resource files (testlib.h, headers the sources include, ...) are saved in
+ * the problem folder next to Config.json, where `download-testlib` puts
+ * testlib.h and where the compiler looks for `#include "..."`.
  *
  * @param {PolygonSDK} sdk - Polygon SDK instance
  * @param {number} problemId - Problem ID
  * @param {string} problemDir - Target directory
  * @param {string[]} skipNames - Checker and validator names (without extension) to skip
- * @returns {Promise<{ data: Array<LocalGenerator>; count: number; failures: PullFailure[]; placeholder?: string; sourceTypes: Record<string, string> }>}
+ * @returns {Promise<{ data: Array<LocalGenerator>; count: number; failures: PullFailure[]; resources: string[]; placeholder?: string; sourceTypes: Record<string, string> }>}
  *   `failures` has one entry per file that could not be downloaded
- *   (Config.json does not list it). `placeholder` is a warning, set when the
- *   file list could not be fetched and Config.json lists no generators.
+ *   (Config.json does not list a generator, a resource file is not written).
+ *   `resources` has the name of each resource file written to the problem
+ *   folder. `placeholder` is a warning, set when the file list could not be
+ *   fetched, so no generator and no resource file was downloaded.
  *   `sourceTypes` maps every source file name on Polygon (generators, the
  *   checker, the validator, ...) to its `sourceType`
  */
@@ -416,11 +428,13 @@ export async function downloadGenerators(
   data: Array<LocalGenerator>;
   count: number;
   failures: PullFailure[];
+  resources: string[];
   placeholder?: string;
   sourceTypes: Record<string, string>;
 }> {
   const generatorsData: Array<LocalGenerator> = [];
   const failures: PullFailure[] = [];
+  const resources: string[] = [];
   // No prototype: a Polygon file named `__proto__` or `constructor` must not
   // read back an inherited value.
   const sourceTypes: Record<string, string> = Object.create(null) as Record<
@@ -480,18 +494,50 @@ export async function downloadGenerators(
         });
       }
     }
+
+    // Resource files go next to Config.json, as on Polygon they are
+    // available to every source of the problem.
+    for (const file of files.resourceFiles ?? []) {
+      try {
+        assertPlainName(file.name);
+        if (RESERVED_RESOURCE_NAMES.has(file.name.toLowerCase())) {
+          throw new Error(
+            `${file.name} is a polyman file in the problem folder`
+          );
+        }
+        const content = await sdk.viewFile(problemId, 'resource', file.name);
+        fs.writeFileSync(
+          path.join(problemDir, file.name),
+          normalizeLineEndingsFromRemoteToSystem(content),
+          'utf-8'
+        );
+        count++;
+        resources.push(file.name);
+      } catch (error) {
+        fmt.warning(
+          `  ⚠️  Failed to download the resource file: ${printable(file.name)} (${reason(error)})`
+        );
+        failures.push({
+          component: 'resource',
+          name: printable(file.name),
+          error: reason(error),
+          message: `Could not download the resource file ${printable(file.name)} (${reason(error)}): it is not in the problem folder`,
+        });
+      }
+    }
   } catch (error) {
     fmt.warning('  ⚠️  Could not fetch files');
     return {
       data: generatorsData,
       count,
       failures,
-      placeholder: `Could not fetch the problem files (${reason(error)}): Config.json lists no generators`,
+      resources,
+      placeholder: `Could not fetch the problem files (${reason(error)}): Config.json lists no generators and no resource files were downloaded`,
       sourceTypes,
     };
   }
 
-  return { data: generatorsData, count, failures, sourceTypes };
+  return { data: generatorsData, count, failures, resources, sourceTypes };
 }
 
 /**
