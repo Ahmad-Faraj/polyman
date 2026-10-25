@@ -50,7 +50,7 @@ jobs:
       - run: node corpus/run.mjs
       - name: Upload the verdicts
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: corpus-verdicts
           path: corpus/out/
@@ -89,7 +89,7 @@ jobs:
       - run: node corpus/run.mjs --junit corpus/out/junit-${{ matrix.lane }}.xml
       - name: Upload the verdicts
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: corpus-verdicts-${{ matrix.lane }}
           path: corpus/out/
@@ -112,7 +112,7 @@ jobs:
       - run: node corpus/pch-check.mjs
       - name: Upload the PCH check
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: corpus-pch
           path: corpus/out/

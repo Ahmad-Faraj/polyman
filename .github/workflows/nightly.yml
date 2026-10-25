@@ -59,7 +59,7 @@ jobs:
           exit $status
       - name: Upload the verdicts
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: production-verdicts
           path: corpus/out/
@@ -125,7 +125,7 @@ jobs:
       - run: node corpus/polygon-roundtrip.mjs --all
       - name: Upload the round trip reports
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: polygon-roundtrip
           path: corpus/out/
