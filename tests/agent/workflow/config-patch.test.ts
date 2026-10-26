@@ -5,10 +5,12 @@ import path from 'path';
 import {
   applyConfigPatch,
   configErrors,
+  dropTemplateExamples,
   sourceTypeFor,
 } from '../../../src/agent/workflow/config-patch';
 
 const TEMPLATE = path.resolve(__dirname, '../../../template/Config.json');
+const TEMPLATE_DIR = path.dirname(TEMPLATE);
 
 let dir: string;
 
@@ -217,5 +219,70 @@ describe('sourceTypeFor', () => {
     expect(sourceTypeFor('A.java')).toBe('java21');
     expect(sourceTypeFor('a.py')).toBe('python.3');
     expect(sourceTypeFor('a.rb')).toBeNull();
+  });
+});
+
+describe('dropTemplateExamples', () => {
+  beforeEach(async () => {
+    await fs.cp(TEMPLATE_DIR, dir, { recursive: true });
+  });
+
+  it('removes the template examples a workflow does not replace', async () => {
+    const dropped = await dropTemplateExamples(dir, TEMPLATE_DIR);
+    expect(dropped).toEqual({
+      solutions: ['correct2', 'tle_solution'],
+      manualTests: ['./manual/tests/m-01-sample.in'],
+      statements: ['english', 'russian'],
+    });
+    const config = await readConfig();
+    expect((config['solutions'] as Solution[]).map(s => s.name)).toEqual([
+      'main',
+    ]);
+    const [testset] = config['testsets'] as { manualTests: unknown[] }[];
+    expect(testset?.manualTests).toEqual([]);
+    expect(config['statements']).toEqual({});
+    // The files stay on disk.
+    await fs.access(path.join(dir, 'solutions', 'acc2.java'));
+
+    // A second run finds nothing and does not write.
+    const before = await fs.readFile(path.join(dir, 'Config.json'), 'utf-8');
+    expect(await dropTemplateExamples(dir, TEMPLATE_DIR)).toEqual({
+      solutions: [],
+      manualTests: [],
+      statements: [],
+    });
+    expect(await fs.readFile(path.join(dir, 'Config.json'), 'utf-8')).toBe(
+      before
+    );
+  });
+
+  it('keeps what the user changed', async () => {
+    await fs.appendFile(path.join(dir, 'solutions', 'acc2.java'), '// mine\n');
+    await fs.writeFile(
+      path.join(dir, 'manual', 'tests', 'm-01-sample.in'),
+      '1\n'
+    );
+    await fs.appendFile(
+      path.join(dir, 'statements', 'english', 'legend.tex'),
+      'More.\n'
+    );
+    const dropped = await dropTemplateExamples(dir, TEMPLATE_DIR);
+    expect(dropped).toEqual({
+      solutions: ['tle_solution'],
+      manualTests: [],
+      statements: ['russian'],
+    });
+    const config = await readConfig();
+    expect((config['solutions'] as Solution[]).map(s => s.name)).toEqual([
+      'main',
+      'correct2',
+    ]);
+    expect(Object.keys(config['statements'] as object)).toEqual(['english']);
+  });
+
+  it('fails when Config.json is missing', async () => {
+    await fs.rm(path.join(dir, 'Config.json'));
+    const dropped = await dropTemplateExamples(dir, TEMPLATE_DIR);
+    expect(dropped).toHaveProperty('error');
   });
 });
