@@ -821,22 +821,34 @@ const loadChat = () => import('./agent/index.js');
 
 /**
  * Command: chat [dir]
- * Starts the AI agent in the terminal, in a problem folder.
+ * Starts the AI agent in the terminal. A folder with Config.json is the
+ * problem; else the chat starts in "new problem" mode and the folder name is
+ * used for the new problem.
  * @example
  * polyman chat
  * polyman chat my-problem --model google/gemma-4-31b-it
+ * polyman chat my-problem --plain
  */
 program
   .command('chat [dir]')
-  .description('Chat with the AI agent to build and fix a problem')
+  .description(
+    'Chat with the AI agent to think about, build and fix a problem (a folder without Config.json starts a new problem)'
+  )
   .option('--model <id>', 'Model to use, like google/gemma-4-31b-it')
-  .action(async (dir: string | undefined, options: { model?: string }) => {
-    const { startChat } = await loadChat();
-    await startChat({
-      ...(dir !== undefined ? { dir } : {}),
-      ...(options.model !== undefined ? { model: options.model } : {}),
-    });
-  });
+  .option('--plain', 'Line mode without the terminal UI, works with pipes')
+  .action(
+    async (
+      dir: string | undefined,
+      options: { model?: string; plain?: boolean }
+    ) => {
+      const { startChat } = await loadChat();
+      await startChat({
+        ...(dir !== undefined ? { dir } : {}),
+        ...(options.model !== undefined ? { model: options.model } : {}),
+        ...(options.plain === true ? { plain: true } : {}),
+      });
+    }
+  );
 
 /**
  * The one place that turns a failed action into a message and an exit code.
