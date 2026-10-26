@@ -128,7 +128,11 @@ function block(t: Token, key: string): ReactNode {
  * lists, inline code and code blocks in another color. No highlighting.
  */
 export function Markdown({ text }: { text: string }) {
-  const blocks = lexer(text).filter(t => t.type !== 'space');
+  // Ink counts a tab as one column but the terminal moves to the next tab
+  // stop, so lines get longer than Ink thinks and the redraw breaks.
+  const blocks = lexer(text.replace(/\t/g, '    ')).filter(
+    t => t.type !== 'space'
+  );
   return (
     <Box flexDirection="column" gap={1}>
       {blocks.map((t, i) => block(t, String(i)))}

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Box, Text } from 'ink';
 import type { Plan, PlanTask } from '../../workflow/types.js';
 import {
@@ -7,6 +7,7 @@ import {
   type TaskView,
   type WorkflowView,
 } from '../store.js';
+import { windowOf } from '../layout.js';
 import { fg, formatCost, type ColorName } from '../theme.js';
 import { Spinner } from './Spinner.js';
 
@@ -155,17 +156,41 @@ export function PlanTree({
   tasks,
   live,
   selected = null,
+  maxRows = Infinity,
 }: {
   plan: Plan;
   tasks: Record<string, TaskView>;
   live: boolean;
   /** The row with the ❯ cursor (task details open), or null. */
   selected?: number | null;
+  /**
+   * Most lines the tree may use. A bigger plan shows a window around the
+   * selected task (or the first unfinished one) and `… +N` lines.
+   */
+  maxRows?: number;
 }) {
   const width = titleWidth(plan.tasks);
+  const n = plan.tasks.length;
+  let start = 0;
+  let end = n;
+  let markers = false;
+  if (n > maxRows) {
+    const unfinished = plan.tasks.findIndex(t => {
+      const st = tasks[t.id]?.status ?? 'pending';
+      return st === 'running' || st === 'pending';
+    });
+    const focus = selected ?? (unfinished >= 0 ? unfinished : n - 1);
+    // Two lines for "… +N above" and "… +N below", when there is room.
+    markers = maxRows >= 3;
+    ({ start, end } = windowOf(n, markers ? maxRows - 2 : maxRows, focus));
+  }
   return (
     <Box flexDirection="column">
-      {plan.tasks.map((task, i) => {
+      {markers && start > 0 && (
+        <Text dimColor>{`    … +${start} tasks above`}</Text>
+      )}
+      {plan.tasks.slice(start, end).map((task, j) => {
+        const i = start + j;
         const view: TaskView = tasks[task.id] ?? {
           taskId: task.id,
           title: task.title,
@@ -198,6 +223,9 @@ export function PlanTree({
           </Box>
         );
       })}
+      {markers && end < n && (
+        <Text dimColor>{`    … +${n - end} tasks below`}</Text>
+      )}
     </Box>
   );
 }
@@ -255,12 +283,15 @@ export function PlanView({
   problem,
   costUsd,
   selected = null,
+  maxRows = Infinity,
 }: {
   workflow: WorkflowView;
   problem: string | null;
   /** The session cost now. The header shows the part since the plan. */
   costUsd: number;
   selected?: number | null;
+  /** Most lines of the task rows (the header and hint not counted). */
+  maxRows?: number;
 }) {
   const now = useNow();
   return (
@@ -277,6 +308,7 @@ export function PlanView({
         tasks={workflow.tasks}
         live
         selected={selected}
+        maxRows={maxRows}
       />
       {selected === null && (
         <Text dimColor>{'  ctrl+o shows the details of a task'}</Text>
@@ -338,20 +370,71 @@ function statusWord(view: TaskView): string {
 export function TaskDetails({
   workflow,
   index,
+  maxLines = Infinity,
 }: {
   workflow: WorkflowView;
   /** Index into `plan.tasks`. */
   index: number;
+  /** Most lines of the attempts part. The newest lines are kept. */
+  maxLines?: number;
 }) {
   const task = workflow.plan.tasks[index];
   if (!task) return null;
   const view = workflow.tasks[task.id];
   const attempts = view?.attempts ?? [];
   const live = view?.status === 'running';
+  // The attempts as flat lines, so a long history can be cut to fit.
+  const lines: ReactNode[] = [];
+  if (attempts.length === 0) {
+    lines.push(<Text dimColor>No attempts yet.</Text>);
+  }
+  attempts.forEach((a, ai) => {
+    lines.push(<Text>attempt {a.attempt}</Text>);
+    if (a.checkpoints.length === 0) {
+      lines.push(
+        <Text dimColor>
+          {'  '}
+          {live && ai === attempts.length - 1
+            ? 'working, no checkpoint yet'
+            : 'no checkpoint'}
+        </Text>
+      );
+    }
+    for (const cp of a.checkpoints) {
+      lines.push(
+        <Text>
+          {'  '}
+          <Text {...fg(cp.ok ? 'ok' : 'error')}>{cp.ok ? '✔' : '✗'}</Text>{' '}
+          {cp.name}
+        </Text>
+      );
+      const digest = cp.digest.trim().split('\n');
+      if (cp.digest.trim().length === 0) continue;
+      const shown = digest.slice(0, MAX_DIGEST_LINES);
+      for (const line of shown) {
+        lines.push(
+          <Text dimColor wrap="truncate-end">
+            {'    '}
+            {line}
+          </Text>
+        );
+      }
+      if (digest.length > shown.length) {
+        lines.push(
+          <Text dimColor>
+            {'    '}… +{digest.length - shown.length} lines
+          </Text>
+        );
+      }
+    }
+  });
+  const keep = Math.max(1, maxLines);
+  const cut = lines.length > keep ? lines.length - (keep - 1) : 0;
+  const shownLines = cut > 0 ? lines.slice(cut) : lines;
   return (
     <Box flexDirection="column" marginBottom={1}>
       <Box flexDirection="column" borderStyle="round" paddingX={1}>
-        <Text>
+        <Text wrap="truncate-end">
           <Text bold>{task.id}</Text> <TaskTitle task={task} />
           <Text dimColor> · {view ? statusWord(view) : 'not started'}</Text>
         </Text>
@@ -364,46 +447,9 @@ export function TaskDetails({
           </Text>
         )}
         <Box flexDirection="column" marginTop={1}>
-          {attempts.length === 0 && <Text dimColor>No attempts yet.</Text>}
-          {attempts.map((a, ai) => (
-            <Box key={a.attempt} flexDirection="column">
-              <Text>attempt {a.attempt}</Text>
-              {a.checkpoints.length === 0 && (
-                <Text dimColor>
-                  {'  '}
-                  {live && ai === attempts.length - 1
-                    ? 'working, no checkpoint yet'
-                    : 'no checkpoint'}
-                </Text>
-              )}
-              {a.checkpoints.map((cp, ci) => {
-                const digest = cp.digest.trim().split('\n');
-                const shown = digest.slice(0, MAX_DIGEST_LINES);
-                return (
-                  <Box key={ci} flexDirection="column">
-                    <Text>
-                      {'  '}
-                      <Text {...fg(cp.ok ? 'ok' : 'error')}>
-                        {cp.ok ? '✔' : '✗'}
-                      </Text>{' '}
-                      {cp.name}
-                    </Text>
-                    {cp.digest.trim().length > 0 &&
-                      shown.map((line, li) => (
-                        <Text key={li} dimColor wrap="truncate-end">
-                          {'    '}
-                          {line}
-                        </Text>
-                      ))}
-                    {digest.length > shown.length && (
-                      <Text dimColor>
-                        {'    '}… +{digest.length - shown.length} lines
-                      </Text>
-                    )}
-                  </Box>
-                );
-              })}
-            </Box>
+          {cut > 0 && <Text dimColor>… {cut} earlier lines</Text>}
+          {shownLines.map((line, i) => (
+            <Box key={cut + i}>{line}</Box>
           ))}
         </Box>
         {view?.result && (

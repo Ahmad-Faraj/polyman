@@ -52,12 +52,15 @@ export function PlanApproval({
   problem,
   resolveApproval,
   isActive = true,
+  maxRows = MAX_ROWS,
 }: {
   approvalId: string;
   plan: Plan;
   problem: string | null;
   resolveApproval: (approvalId: string, decision: ApprovalDecision) => void;
   isActive?: boolean;
+  /** Most task rows, less than 20 when the terminal is short. */
+  maxRows?: number;
 }) {
   const [selected, setSelected] = useState(0);
   const [answered, setAnswered] = useState(false);
@@ -92,7 +95,12 @@ export function PlanApproval({
     { isActive: isActive && !answered }
   );
 
-  const rows = plan.tasks.slice(0, MAX_ROWS);
+  const max = Math.max(1, Math.min(MAX_ROWS, maxRows));
+  // The "+N more tasks" line takes one of the rows.
+  const rows =
+    plan.tasks.length > max
+      ? plan.tasks.slice(0, Math.max(1, max - 1))
+      : plan.tasks;
   const idWidth = Math.max(...plan.tasks.map(t => t.id.length), 2) + 2;
   const width = titleWidth(plan.tasks);
   const n = plan.tasks.length;

@@ -1,5 +1,5 @@
 import { useEffect, useReducer, useRef, useState, type ReactNode } from 'react';
-import { Box, Text, useApp, useInput } from 'ink';
+import { Box, Text, useApp, useInput, useStdout } from 'ink';
 import type { ApprovalDecision, EventBus } from '../core/events.js';
 import type { AgentSessionApi } from '../core/session-types.js';
 import type { PermissionMode } from '../tools/types.js';
@@ -24,6 +24,21 @@ import { PlanView, TaskDetails } from './components/PlanView.js';
 import { StatusLine } from './components/StatusLine.js';
 import { Transcript } from './components/Transcript.js';
 import { fg } from './theme.js';
+import { liveBudget, sizeOf, visualLines } from './layout.js';
+
+/** The terminal size, updated when the window is resized. */
+function useTerminalSize(): { columns: number; rows: number } {
+  const { stdout } = useStdout();
+  const [size, setSize] = useState(() => sizeOf(stdout));
+  useEffect(() => {
+    const onResize = () => setSize(sizeOf(stdout));
+    stdout.on('resize', onResize);
+    return () => {
+      stdout.off('resize', onResize);
+    };
+  }, [stdout]);
+  return size;
+}
 
 /** What the chat shows about itself in the header and the status line. */
 export interface TuiInfo {
@@ -46,6 +61,7 @@ export interface AppProps {
 /** The chat: transcript, live area, approval, input and status line. */
 export function App({ session, bus, info }: AppProps) {
   const { exit } = useApp();
+  const { columns, rows } = useTerminalSize();
   const [state, dispatch] = useReducer(reduce, info, initialState);
   const [editor, setEditor] = useState<EditorState>(EMPTY_EDITOR);
   const [hint, setHint] = useState<string | null>(null);
@@ -213,6 +229,32 @@ export function App({ session, bus, info }: AppProps) {
     }
   };
 
+  const showPlan = state.workflow !== null && state.planApproval === null;
+  const promptKind = state.approval
+    ? 'approval'
+    : state.planApproval
+      ? 'plan'
+      : details !== null && state.workflow
+        ? 'details'
+        : null;
+  const running = state.live.runningTools;
+  const budget = liveBudget({
+    rows,
+    toolLines: running.reduce((n, t) => n + (t.lastLine === null ? 2 : 3), 0),
+    workingLines:
+      state.status.busy &&
+      running.length === 0 &&
+      state.live.streamingText.trim().length === 0
+        ? 2
+        : 0,
+    hintLines: hint === BUSY_HINT ? 1 : 0,
+    inputLines:
+      promptKind === null ? visualLines(editor.text, columns - 3) : null,
+    prompt: promptKind,
+    treeTasks:
+      showPlan && state.workflow ? state.workflow.plan.tasks.length : 0,
+  });
+
   let prompt: ReactNode = null;
   if (state.approval) {
     prompt = (
@@ -221,6 +263,7 @@ export function App({ session, bus, info }: AppProps) {
         approval={state.approval}
         resolveApproval={answer}
         onCancel={interrupt}
+        maxPreviewLines={budget.preview}
       />
     );
   } else if (state.planApproval) {
@@ -231,13 +274,18 @@ export function App({ session, bus, info }: AppProps) {
         plan={state.planApproval.plan}
         problem={state.status.problem}
         resolveApproval={answerPlan}
+        maxRows={budget.planRows}
       />
     );
   } else if (details !== null && state.workflow) {
-    prompt = <TaskDetails workflow={state.workflow} index={details} />;
+    prompt = (
+      <TaskDetails
+        workflow={state.workflow}
+        index={details}
+        maxLines={budget.details}
+      />
+    );
   }
-
-  const showPlan = state.workflow !== null && state.planApproval === null;
 
   return (
     <Box flexDirection="column">
@@ -248,13 +296,19 @@ export function App({ session, bus, info }: AppProps) {
       />
       {!exiting && (
         <>
-          <LiveArea live={state.live} busy={state.status.busy} />
+          <LiveArea
+            live={state.live}
+            busy={state.status.busy}
+            maxLines={budget.streaming}
+            width={columns}
+          />
           {showPlan && state.workflow && (
             <PlanView
               workflow={state.workflow}
               problem={state.status.problem}
               costUsd={state.status.costUsd}
               selected={state.approval ? null : details}
+              maxRows={budget.tree}
             />
           )}
           {prompt}
@@ -264,6 +318,7 @@ export function App({ session, bus, info }: AppProps) {
               onChange={changeEditor}
               onSubmit={submit}
               history={history}
+              maxLines={budget.input}
             />
           )}
           {hint === BUSY_HINT && <Text {...fg('warn')}> {hint}</Text>}

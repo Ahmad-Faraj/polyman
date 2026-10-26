@@ -57,12 +57,15 @@ export function ApprovalPrompt({
   resolveApproval,
   onCancel,
   isActive = true,
+  maxPreviewLines = MAX_PREVIEW_LINES,
 }: {
   approval: ApprovalView;
   resolveApproval: (approvalId: string, decision: ApprovalDecision) => void;
   /** esc on the options: interrupt the turn. */
   onCancel?: () => void;
   isActive?: boolean;
+  /** Most preview lines, less than 12 when the terminal is short. */
+  maxPreviewLines?: number;
 }) {
   const options = optionsOf(approval.toolName);
   const [selected, setSelected] = useState(0);
@@ -132,7 +135,10 @@ export function ApprovalPrompt({
 
   const body = approval.command ?? approval.preview;
   const lines = body === undefined ? [] : body.replace(/\n+$/, '').split('\n');
-  const shown = lines.slice(0, MAX_PREVIEW_LINES);
+  const max = Math.max(1, Math.min(MAX_PREVIEW_LINES, maxPreviewLines));
+  // The "more lines" line takes one of the lines.
+  const shown =
+    lines.length > max ? lines.slice(0, Math.max(1, max - 1)) : lines;
 
   return (
     <Box
