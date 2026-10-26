@@ -7,11 +7,13 @@ import type { Key } from 'ink';
 import type { PermissionMode } from '../tools/types.js';
 
 /** What a key press means for the whole app (not for the input box). */
-export type AppKey = 'interrupt' | 'ctrl_c' | 'toggle_mode' | null;
+export type AppKey =
+  'interrupt' | 'ctrl_c' | 'toggle_mode' | 'toggle_details' | null;
 
 /** Maps a key press to an app action. Editing keys return null. */
 export function appKeyOf(input: string, key: Key): AppKey {
   if (key.ctrl && input === 'c') return 'ctrl_c';
+  if (key.ctrl && input === 'o') return 'toggle_details';
   if (key.tab && key.shift) return 'toggle_mode';
   if (key.escape) return 'interrupt';
   return null;
@@ -58,6 +60,7 @@ export const HELP_TEXT = [
   '  up / down          input history (when the input is empty)',
   '  esc                interrupt the agent',
   '  shift+tab          switch mode: ask / auto-edit',
+  '  ctrl+o             details of a workflow task (while it runs)',
   '  ctrl+c             clear the input, twice to exit',
   'Commands:',
   '  /help              this help',
