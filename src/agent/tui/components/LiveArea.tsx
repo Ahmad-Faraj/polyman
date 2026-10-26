@@ -1,4 +1,5 @@
 import { Box, Text } from 'ink';
+import { tailLines } from '../layout.js';
 import type { UiState } from '../store.js';
 import { AssistantText } from './MessageView.js';
 import { Spinner } from './Spinner.js';
@@ -17,17 +18,35 @@ function lastLine(text: string): string {
 export function LiveArea({
   live,
   busy,
+  maxLines = Infinity,
+  width = 80,
 }: {
   live: UiState['live'];
   busy: boolean;
+  /**
+   * Most lines the streamed answer may use. A longer answer shows its end
+   * only; the whole answer is printed when it is done.
+   */
+  maxLines?: number;
+  /** The terminal width. */
+  width?: number;
 }) {
   const streaming = live.streamingText.trim();
   const idle = streaming.length === 0 && live.runningTools.length === 0;
+  // The bullet takes 2 columns, the "lines above" line takes 1 line.
+  let tail = { text: streaming, hidden: 0 };
+  if (Number.isFinite(maxLines)) {
+    tail = tailLines(streaming, maxLines, width - 2);
+    if (tail.hidden > 0) tail = tailLines(streaming, maxLines - 1, width - 2);
+  }
   return (
     <Box flexDirection="column">
+      {tail.hidden > 0 && (
+        <Text dimColor>{`  … ${tail.hidden} lines above`}</Text>
+      )}
       {streaming.length > 0 && (
         <Box marginBottom={1}>
-          <AssistantText text={streaming} />
+          <AssistantText text={tail.text} />
         </Box>
       )}
       {live.runningTools.map(t => (
