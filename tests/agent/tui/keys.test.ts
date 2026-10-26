@@ -45,8 +45,10 @@ const noKey: Key = {
 };
 
 describe('keybindings', () => {
-  it('maps ctrl+c, shift+tab and esc', () => {
+  it('maps ctrl+c, ctrl+z, shift+tab and esc', () => {
     expect(appKeyOf('c', { ...noKey, ctrl: true })).toBe('ctrl_c');
+    expect(appKeyOf('z', { ...noKey, ctrl: true })).toBe('force_exit');
+    expect(appKeyOf('z', noKey)).toBeNull();
     expect(appKeyOf('o', { ...noKey, ctrl: true })).toBe('toggle_details');
     expect(appKeyOf('', { ...noKey, tab: true, shift: true })).toBe(
       'toggle_mode'
@@ -135,7 +137,7 @@ describe('theme', () => {
   it('gives colors, and none with NO_COLOR', () => {
     delete process.env['NO_COLOR'];
     expect(fg('error')).toEqual({ color: 'red' });
-    expect(fg('agent')).toEqual({ color: 'blue' });
+    expect(fg('agent')).toEqual({ color: '#636ff6' });
     process.env['NO_COLOR'] = '1';
     expect(fg('error')).toEqual({});
   });

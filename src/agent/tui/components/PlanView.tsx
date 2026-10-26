@@ -9,7 +9,15 @@ import {
   type WorkflowView,
 } from '../store.js';
 import { windowOf } from '../layout.js';
-import { fg, formatCost, type ColorName } from '../theme.js';
+import {
+  fg,
+  formatCost,
+  gradient,
+  gradientStops,
+  noColor,
+  verdictStyle,
+  type ColorName,
+} from '../theme.js';
 import { Spinner } from './Spinner.js';
 
 /** Most title columns of the task tree. Longer titles are cut. */
@@ -20,21 +28,6 @@ const MAX_DIGEST_LINES = 6;
 
 /** Most tool calls in the task details. */
 const MAX_DETAIL_TOOLS = 10;
-
-/** The color of a solution tag: MA green, TO cyan, WA red, TL amber. */
-export function tagColor(tag: string): ColorName {
-  switch (tag) {
-    case 'MA':
-    case 'OK':
-      return 'ok';
-    case 'TO':
-      return 'info';
-    case 'TL':
-      return 'warn';
-    default:
-      return 'error';
-  }
-}
 
 const TAGS = new Set(['MA', 'OK', 'WA', 'TL', 'TO', 'ML', 'RE', 'PE', 'RJ']);
 
@@ -62,7 +55,7 @@ export function TaskTitle({ task }: { task: PlanTask }) {
   return (
     <Text wrap="truncate-end">
       {title}
-      {tag && <Text {...fg(tagColor(tag))}> {tag}</Text>}
+      {tag && <Text {...verdictStyle(tag)}> {tag}</Text>}
     </Text>
   );
 }
@@ -249,33 +242,83 @@ export function PlanTree({
   );
 }
 
-/** `● Workflow: <recipe> (<problem>)` on the left, cost and time on the right. */
+/** Cells of the progress bar. */
+const BAR_CELLS = 10;
+
+/** Tasks that are over: passed, failed or skipped. */
+export function finishedCount(
+  plan: Plan,
+  tasks: Record<string, TaskView>
+): number {
+  return plan.tasks.filter(t => {
+    const s = tasks[t.id]?.status;
+    return s === 'passed' || s === 'failed' || s === 'skipped';
+  }).length;
+}
+
+/** Full cells of the progress bar for `done` of `total` tasks. */
+export function progressCells(done: number, total: number): number {
+  if (total <= 0) return 0;
+  return Math.round((Math.min(done, total) / total) * BAR_CELLS);
+}
+
+/** The progress bar, the full cells in the gradient: `▰▰▰▱▱ 7/12`. */
+export function ProgressBar({ done, total }: { done: number; total: number }) {
+  const full = progressCells(done, total);
+  const stops = gradientStops(BAR_CELLS);
+  return (
+    <Text>
+      {stops.slice(0, full).map((color, i) => (
+        <Text key={i} {...(noColor() ? {} : { color })}>
+          ▰
+        </Text>
+      ))}
+      <Text dimColor>{'▱'.repeat(BAR_CELLS - full)}</Text>
+      <Text>{` ${done}/${total}`}</Text>
+    </Text>
+  );
+}
+
+/**
+ * `✦ Workflow: <recipe> (<problem>)` on the left in the gradient, the
+ * progress bar, cost and time on the right.
+ */
 function WorkflowHeader({
   recipe,
   problem,
   costUsd,
   elapsedMs,
   bullet,
+  done,
+  total,
   suffix = '',
 }: {
   recipe: string;
   problem: string | null;
   costUsd: number;
   elapsedMs: number;
-  bullet: ColorName;
+  /** The live workflow has the gradient ✦, a finished one a colored ●. */
+  bullet: ColorName | 'live';
+  done: number;
+  total: number;
   suffix?: string;
 }) {
+  const title = `Workflow: ${recipe} (${problem ?? 'new problem'})`;
   return (
     <Box justifyContent="space-between">
       <Text wrap="truncate-end">
-        <Text {...fg(bullet)}>●</Text>{' '}
-        <Text bold>
-          Workflow: {recipe} ({problem ?? 'new problem'})
-        </Text>
+        {bullet === 'live' ? gradient('✦') : <Text {...fg(bullet)}>●</Text>}{' '}
+        {bullet === 'live' ? (
+          gradient(title, { bold: true })
+        ) : (
+          <Text bold>{title}</Text>
+        )}
         {suffix}
       </Text>
       <Box flexShrink={0} marginLeft={2}>
+        <ProgressBar done={done} total={total} />
         <Text dimColor>
+          {' · '}
           {formatCost(costUsd)} · {formatElapsed(elapsedMs)}
         </Text>
       </Box>
@@ -320,7 +363,9 @@ export function PlanView({
         problem={problem}
         costUsd={Math.max(0, costUsd - workflow.costAtStart)}
         elapsedMs={now - workflow.startedAt}
-        bullet="agent"
+        bullet="live"
+        done={finishedCount(workflow.plan, workflow.tasks)}
+        total={workflow.plan.tasks.length}
       />
       <PlanTree
         plan={workflow.plan}
@@ -351,6 +396,8 @@ export function WorkflowSummary({
         costUsd={item.costUsd}
         elapsedMs={item.elapsedMs}
         bullet={item.ok ? 'ok' : 'error'}
+        done={finishedCount(item.plan, item.tasks)}
+        total={item.plan.tasks.length}
         suffix={item.ok ? ' done' : ' failed'}
       />
       <PlanTree plan={item.plan} tasks={item.tasks} live={false} />

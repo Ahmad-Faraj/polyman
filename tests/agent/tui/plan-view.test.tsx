@@ -22,7 +22,6 @@ import {
   TaskDetails,
   formatElapsed,
   splitTag,
-  tagColor,
 } from '../../../src/agent/tui/components/PlanView.js';
 import { MessageView } from '../../../src/agent/tui/components/MessageView.js';
 import { App } from '../../../src/agent/tui/App.js';
@@ -329,10 +328,6 @@ describe('plan helpers', () => {
       title: 'validator',
       tag: null,
     });
-    expect(tagColor('MA')).toBe('ok');
-    expect(tagColor('TO')).toBe('info');
-    expect(tagColor('WA')).toBe('error');
-    expect(tagColor('TL')).toBe('warn');
   });
 
   it('formats the timer and the files column', () => {
@@ -465,7 +460,7 @@ describe('PlanView', () => {
     );
     const frame = lastFrame() ?? '';
     expect(frame).toMatch(
-      /● Workflow: build_problem \(pairs-sum\)\s+\$0\.06 · 0:0\d/
+      /✦ Workflow: build_problem \(pairs-sum\)\s+▰{3}▱{7} 1\/4 · \$0\.06 · 0:0\d/
     );
     expect(frame).toMatch(/✔ scaffold\n/);
     expect(frame).toMatch(
@@ -675,7 +670,7 @@ describe('finished workflow in the transcript', () => {
     );
     const frame = lastFrame() ?? '';
     expect(frame).toMatch(
-      /● Workflow: build_problem \(pairs-sum\) failed\s+\$0\.08 · 3:12/
+      /● Workflow: build_problem \(pairs-sum\) failed\s+▰{3}▱{7} 1\/4 · \$0\.08 · 3:12/
     );
     expect(frame).toMatch(/✔ scaffold/);
     expect(frame).toMatch(/◻ validator\s+stopped/);
@@ -722,7 +717,7 @@ describe('App with a workflow', () => {
       digest: 'testlib.h is missing',
     });
     frame = await waitFor(lastFrame, f => f.includes('↻ scaffold'));
-    expect(frame).toContain('● Workflow: build_problem (pairs-sum)');
+    expect(frame).toContain('✦ Workflow: build_problem (pairs-sum)');
     expect(frame).toContain('Type a message');
 
     await tick();

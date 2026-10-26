@@ -1,9 +1,8 @@
-import { afterEach, describe, it, expect, vi } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { render, cleanup } from 'ink-testing-library';
 import { ToolBlock } from '../../../src/agent/tui/components/ToolBlock.js';
 import { ApprovalPrompt } from '../../../src/agent/tui/components/ApprovalPrompt.js';
 import { StatusLine } from '../../../src/agent/tui/components/StatusLine.js';
-import { Header } from '../../../src/agent/tui/components/Header.js';
 import { Markdown } from '../../../src/agent/tui/components/Markdown.js';
 import { LiveArea } from '../../../src/agent/tui/components/LiveArea.js';
 import { Transcript } from '../../../src/agent/tui/components/Transcript.js';
@@ -11,8 +10,14 @@ import type { ApprovalView } from '../../../src/agent/tui/store.js';
 
 const tick = (ms = 20) => new Promise(r => setTimeout(r, ms));
 
+// The pills show only with colors: do not take NO_COLOR from the shell.
+beforeEach(() => {
+  vi.stubEnv('NO_COLOR', '');
+});
+
 afterEach(() => {
   cleanup();
+  vi.unstubAllEnvs();
 });
 
 describe('ToolBlock', () => {
@@ -26,7 +31,9 @@ describe('ToolBlock', () => {
         summary="notes updated"
       />
     );
-    expect(lastFrame()).toBe('● update_notes(Constraints)\n  ⎿ notes updated');
+    expect(lastFrame()).toBe(
+      '● update_notes(Constraints)\n  ⎿ ✔ notes updated'
+    );
   });
 
   it('shows an error tool with every summary line, cut after 4', () => {
@@ -40,7 +47,7 @@ describe('ToolBlock', () => {
       />
     );
     const frame = lastFrame() ?? '';
-    expect(frame).toContain('● verify\n  ⎿ verify failed\n    line 2');
+    expect(frame).toContain('● verify\n  ⎿ ✗ verify failed\n      line 2');
     expect(frame).toContain('line 4');
     expect(frame).not.toContain('line 5');
     expect(frame).toContain('… +2 lines');
@@ -164,30 +171,22 @@ describe('StatusLine', () => {
     busy: true,
   };
 
-  it('shows problem, model, mode, tokens, cost and the esc hint', () => {
+  it('shows the problem and the mode, model, tokens and cost pills', () => {
     const { lastFrame } = render(<StatusLine status={status} />);
     expect(lastFrame()).toBe(
-      ' pairs-sum · gemma-4-31b · ask mode (shift+tab) · 12.3k tok · $0.01 · esc to interrupt'
+      ' pairs-sum  ask  shift+tab  gemma-4-31b   12.3k tok   $0.01'
     );
   });
 
-  it('shows "new problem" and no esc hint when idle', () => {
+  it('shows "new problem" and the ctrl+c hint', () => {
     const { lastFrame } = render(
-      <StatusLine status={{ ...status, problem: null, busy: false }} />
+      <StatusLine
+        status={{ ...status, problem: null, busy: false }}
+        hint="press ctrl+c again to exit"
+      />
     );
     expect(lastFrame()).toBe(
-      ' new problem · gemma-4-31b · ask mode (shift+tab) · 12.3k tok · $0.01'
-    );
-  });
-});
-
-describe('Header', () => {
-  it('shows the problem, the short model name and the help hint', () => {
-    const { lastFrame } = render(
-      <Header problem={null} model="google/gemma-4-31b-it:free" />
-    );
-    expect(lastFrame()?.trimEnd()).toBe(
-      ' polyman chat · new problem · gemma-4-31b:free (OpenRouter) · /help for commands'
+      ' new problem  ask  shift+tab  gemma-4-31b   12.3k tok   $0.01   press ctrl+c again to exit'
     );
   });
 });
@@ -215,7 +214,8 @@ describe('Markdown', () => {
     expect(frame).toContain('1. read n');
     expect(frame).toContain('2. sort');
     expect(frame).toContain('- nested');
-    expect(frame).toContain('  int main() {}');
+    expect(frame).toContain('╭─ cpp ');
+    expect(frame).toContain('│ int main() {} │');
     expect(frame).not.toContain('```');
   });
 });
@@ -235,8 +235,9 @@ describe('LiveArea', () => {
       />
     );
     const frame = lastFrame() ?? '';
-    expect(frame).toContain('● Now let us run verify.');
+    expect(frame).toContain('✦ Now let us run verify.');
     expect(frame).toContain('⎿ Generating');
+    expect(frame).toMatch(/Generating tests… \(0s · esc to interrupt\)/);
   });
 
   it('shows a working line while the agent thinks', () => {
@@ -250,7 +251,9 @@ describe('LiveArea', () => {
         }}
       />
     );
-    expect(lastFrame()).toContain('Thinking: ask about k');
+    expect(lastFrame()).toMatch(
+      /Thinking… \(0s · esc to interrupt\) ask about k/
+    );
   });
 });
 
@@ -260,13 +263,14 @@ describe('Transcript', () => {
       'The wrong solution `wa-overflow.cpp` passed every test, so the tests are weak. I will add a test with big values near `1e9`.';
     const { lastFrame } = render(
       <Transcript
-        problem="pairs-sum"
+        folder="/tmp/pairs-sum"
         model="m"
+        columns={100}
         items={[{ kind: 'assistant', id: 1, text }]}
       />
     );
     const lines = (lastFrame() ?? '').split('\n');
-    expect(lines.some(l => l.startsWith('● The wrong solution'))).toBe(true);
+    expect(lines.some(l => l.startsWith('✦ The wrong solution'))).toBe(true);
     for (const line of lines) {
       expect(line.length).toBeLessThanOrEqual(100);
     }

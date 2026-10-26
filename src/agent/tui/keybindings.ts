@@ -8,11 +8,18 @@ import type { PermissionMode } from '../tools/types.js';
 
 /** What a key press means for the whole app (not for the input box). */
 export type AppKey =
-  'interrupt' | 'ctrl_c' | 'toggle_mode' | 'toggle_details' | null;
+  | 'interrupt'
+  | 'ctrl_c'
+  | 'force_exit'
+  | 'toggle_mode'
+  | 'toggle_details'
+  | null;
 
 /** Maps a key press to an app action. Editing keys return null. */
 export function appKeyOf(input: string, key: Key): AppKey {
   if (key.ctrl && input === 'c') return 'ctrl_c';
+  // Ink reads keys in raw mode, so ctrl+z is a key here, not SIGTSTP.
+  if (key.ctrl && input === 'z') return 'force_exit';
   if (key.ctrl && input === 'o') return 'toggle_details';
   if (key.tab && key.shift) return 'toggle_mode';
   if (key.escape) return 'interrupt';
@@ -62,6 +69,7 @@ export const HELP_TEXT = [
   '  shift+tab          switch mode: ask / auto-edit',
   '  ctrl+o             details of a workflow task (while it runs)',
   '  ctrl+c             clear the input, twice to exit',
+  '  ctrl+z             quit now, stops the agent',
   'Commands:',
   '  /help              this help',
 ].join('\n');

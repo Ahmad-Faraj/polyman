@@ -1,6 +1,10 @@
-import { afterEach, describe, it, expect, vi } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { render, cleanup } from 'ink-testing-library';
-import { App } from '../../../src/agent/tui/App.js';
+import {
+  App,
+  CLEAR_TERMINAL,
+  RESIZE_SETTLE_MS,
+} from '../../../src/agent/tui/App.js';
 import {
   FakeBus,
   FakeSession,
@@ -51,17 +55,25 @@ function setup(setMode?: (m: string) => void) {
   return { bus, session, ...ui };
 }
 
+// The pills show only with colors: do not take NO_COLOR from the shell.
+beforeEach(() => {
+  vi.stubEnv('NO_COLOR', '');
+});
+
 afterEach(() => {
   cleanup();
+  vi.unstubAllEnvs();
 });
 
 describe('App with the fake session', () => {
-  it('shows the header, the input and the status line', () => {
+  it('shows the welcome box, the input and the status line', () => {
     const { lastFrame } = setup();
     const frame = lastFrame() ?? '';
-    expect(frame).toContain('polyman chat · pairs-sum · gemma-4-31b');
+    expect(frame).toContain('✦ polyman chat · powered by Gemma 4');
+    expect(frame).toMatch(/folder .*pairs-sum/);
+    expect(frame).toContain('model  gemma-4-31b (OpenRouter)');
     expect(frame).toContain('Type a message');
-    expect(frame).toContain('ask mode (shift+tab)');
+    expect(frame).toContain(' ask  shift+tab ');
   });
 
   it('typing and enter shows the user line and then the assistant text', async () => {
@@ -77,9 +89,9 @@ describe('App with the fake session', () => {
     );
     expect(send).toHaveBeenCalledWith('count pairs with sum k');
     expect(frame).toContain('> count pairs with sum k');
-    expect(frame).toContain('● Nice. Before we build anything');
+    expect(frame).toContain('✦ Nice. Before we build anything');
     expect(frame).toContain('● update_notes(Constraints)');
-    expect(frame).toContain('⎿ notes updated');
+    expect(frame).toContain('⎿ ✔ notes updated');
     expect(frame).not.toContain('esc to interrupt');
   });
 
@@ -142,12 +154,12 @@ describe('App with the fake session', () => {
     await tick();
     stdin.write('\u001B[Z');
     const frame = await waitFor(lastFrame, f =>
-      f.includes('auto-edit mode (shift+tab)')
+      f.includes(' auto-edit  shift+tab ')
     );
     expect(frame).toContain(AUTO_EDIT_NOTICE);
     expect(setMode).toHaveBeenCalledWith('auto-edit');
     stdin.write('\u001B[Z');
-    await waitFor(lastFrame, f => f.includes('· ask mode (shift+tab)'));
+    await waitFor(lastFrame, f => f.includes(' ask  shift+tab '));
     expect(setMode).toHaveBeenLastCalledWith('ask');
   });
 
@@ -206,5 +218,52 @@ describe('App with the fake session', () => {
     stdin.write('\u001B[A');
     await waitFor(lastFrame, f => inputOf(f).includes('line one'));
     expect(inputOf(lastFrame())).toBe('> line one\n  line two\n  three');
+  });
+
+  it('ctrl+z stops the agent and exits at once', async () => {
+    const bus = new FakeBus();
+    const session = new FakeSession(bus, { delayScale: 5 });
+    const cancel = vi.spyOn(session, 'cancel');
+    const onForceExit = vi.fn();
+    const { stdin, lastFrame } = render(
+      <App
+        session={session}
+        bus={bus}
+        info={{ problem: null, model: 'm' }}
+        onForceExit={onForceExit}
+      />
+    );
+    await tick();
+    stdin.write('hello');
+    await tick();
+    stdin.write('\r');
+    await waitFor(lastFrame, f => f.includes('esc to interrupt'));
+    stdin.write('\u001A');
+    await waitFor(lastFrame, f => !f.includes('Type a message'));
+    expect(cancel).toHaveBeenCalled();
+    expect(onForceExit).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears the screen and prints the transcript again after a resize', async () => {
+    const { stdout, lastFrame } = setup();
+    await tick();
+    const count = (f: string | undefined) =>
+      (f ?? '').split('powered by Gemma 4').length - 1;
+    expect(count(lastFrame())).toBe(1);
+    const tty = stdout as unknown as { isTTY: boolean };
+    tty.isTTY = true;
+    Object.defineProperty(stdout, 'columns', {
+      get: () => 60,
+      configurable: true,
+    });
+    stdout.emit('resize');
+    // Nothing happens before the width settles.
+    await tick(RESIZE_SETTLE_MS / 3);
+    expect(stdout.frames).not.toContain(CLEAR_TERMINAL);
+    await tick(RESIZE_SETTLE_MS * 2);
+    expect(stdout.frames).toContain(CLEAR_TERMINAL);
+    // The debug renderer of the tests keeps every static line, so the
+    // welcome box printed again shows as a second copy.
+    await waitFor(lastFrame, f => count(f) === 2);
   });
 });

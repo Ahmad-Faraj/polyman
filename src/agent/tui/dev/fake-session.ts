@@ -502,11 +502,42 @@ export class FakeSession implements AgentSessionApi {
     signal: AbortSignal
   ): Promise<string> {
     if (/workflow/i.test(text)) return this.workflowStep(signal);
+    if (/markdown/i.test(text)) return this.markdownStep(signal);
     if (turn === 1) return this.thinkStep(signal);
     if (turn === 2) return this.buildStep(signal);
     const answer = `(fake session) You said: "${text}". The scripted demo is over, this turn only echoes.`;
     await this.stream(answer, signal);
     this.usage(900, 40, 0.0004);
+    return answer;
+  }
+
+  /** An answer with headings and a code block, to see the markdown look. */
+  private async markdownStep(signal: AbortSignal): Promise<string> {
+    const answer = [
+      '# Pairs with sum k',
+      '',
+      '## Idea',
+      '',
+      'Sort the array, then walk **two pointers** from both ends.',
+      '',
+      '```cpp',
+      'sort(a.begin(), a.end());',
+      'int i = 0, j = n - 1;',
+      'while (i < j) {',
+      '    long long s = 1LL * a[i] + a[j];',
+      '    if (s == k) ans++, i++, j--;',
+      '    else if (s < k) i++;',
+      '    else j--;',
+      '}',
+      '```',
+      '',
+      '### Verdicts',
+      '',
+      '- `main.cpp` is MA, `brute.cpp` is TO',
+      '- `wa-overflow.cpp` is WA, `tl-n2.cpp` is TL',
+    ].join('\n');
+    await this.stream(answer, signal);
+    this.usage(1200, 160, 0.0006);
     return answer;
   }
 

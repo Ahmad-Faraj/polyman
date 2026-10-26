@@ -1,16 +1,16 @@
 import { Box, Text } from 'ink';
 import type { Item } from '../store.js';
-import { fg } from '../theme.js';
+import { fg, gradient, noColor, userLine } from '../theme.js';
 import { Markdown } from './Markdown.js';
 import { WorkflowSummary } from './PlanView.js';
 import { ToolBlock } from './ToolBlock.js';
 
-/** An assistant message: a blue `●` and the markdown text. */
+/** An assistant message: the Gemma `✦` and the markdown text. */
 export function AssistantText({ text }: { text: string }) {
   return (
     <Box>
       <Box width={2} flexShrink={0}>
-        <Text {...fg('agent')}>●</Text>
+        <Text>{gradient('✦')}</Text>
       </Box>
       <Box flexDirection="column" flexGrow={1}>
         <Markdown text={text} />
@@ -23,12 +23,17 @@ export function AssistantText({ text }: { text: string }) {
 export function MessageView({ item }: { item: Item }) {
   switch (item.kind) {
     case 'user':
+      // A dim background; bold text when there are no colors.
       return (
         <Box>
           <Box width={2} flexShrink={0}>
-            <Text bold>{'>'}</Text>
+            <Text {...userLine()} bold>
+              {'> '}
+            </Text>
           </Box>
-          <Text bold>{item.text}</Text>
+          <Text {...userLine()} bold={noColor()}>
+            {item.text}{' '}
+          </Text>
         </Box>
       );
     case 'assistant':
