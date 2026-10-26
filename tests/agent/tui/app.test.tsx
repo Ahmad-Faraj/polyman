@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { render, cleanup } from 'ink-testing-library';
-import { App } from '../../../src/agent/tui/App.js';
+import {
+  App,
+  CLEAR_TERMINAL,
+  RESIZE_SETTLE_MS,
+} from '../../../src/agent/tui/App.js';
 import {
   FakeBus,
   FakeSession,
@@ -214,5 +218,52 @@ describe('App with the fake session', () => {
     stdin.write('\u001B[A');
     await waitFor(lastFrame, f => inputOf(f).includes('line one'));
     expect(inputOf(lastFrame())).toBe('> line one\n  line two\n  three');
+  });
+
+  it('ctrl+z stops the agent and exits at once', async () => {
+    const bus = new FakeBus();
+    const session = new FakeSession(bus, { delayScale: 5 });
+    const cancel = vi.spyOn(session, 'cancel');
+    const onForceExit = vi.fn();
+    const { stdin, lastFrame } = render(
+      <App
+        session={session}
+        bus={bus}
+        info={{ problem: null, model: 'm' }}
+        onForceExit={onForceExit}
+      />
+    );
+    await tick();
+    stdin.write('hello');
+    await tick();
+    stdin.write('\r');
+    await waitFor(lastFrame, f => f.includes('esc to interrupt'));
+    stdin.write('\u001A');
+    await waitFor(lastFrame, f => !f.includes('Type a message'));
+    expect(cancel).toHaveBeenCalled();
+    expect(onForceExit).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears the screen and prints the transcript again after a resize', async () => {
+    const { stdout, lastFrame } = setup();
+    await tick();
+    const count = (f: string | undefined) =>
+      (f ?? '').split('powered by Gemma 4').length - 1;
+    expect(count(lastFrame())).toBe(1);
+    const tty = stdout as unknown as { isTTY: boolean };
+    tty.isTTY = true;
+    Object.defineProperty(stdout, 'columns', {
+      get: () => 60,
+      configurable: true,
+    });
+    stdout.emit('resize');
+    // Nothing happens before the width settles.
+    await tick(RESIZE_SETTLE_MS / 3);
+    expect(stdout.frames).not.toContain(CLEAR_TERMINAL);
+    await tick(RESIZE_SETTLE_MS * 2);
+    expect(stdout.frames).toContain(CLEAR_TERMINAL);
+    // The debug renderer of the tests keeps every static line, so the
+    // welcome box printed again shows as a second copy.
+    await waitFor(lastFrame, f => count(f) === 2);
   });
 });

@@ -149,8 +149,11 @@ function block(t: Token, key: string, width: number): ReactNode {
         <Box key={key} flexDirection="column">
           {list.items.map((item, i) => (
             <Box key={`${key}.${i}`}>
-              <Text>{list.ordered ? `${start + i}. ` : '- '}</Text>
-              <Box flexDirection="column" flexGrow={1}>
+              {/* The marker must not shrink, or the text gets its column. */}
+              <Box flexShrink={0}>
+                <Text>{list.ordered ? `${start + i}. ` : '- '}</Text>
+              </Box>
+              <Box flexDirection="column" flexGrow={1} flexShrink={1}>
                 {item.tokens.map((child, j) =>
                   block(child, `${key}.${i}.${j}`, width - 3)
                 )}

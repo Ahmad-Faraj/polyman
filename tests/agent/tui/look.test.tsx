@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, it, expect } from 'vitest';
 import chalk from 'chalk';
+import { Box } from 'ink';
 import { render, cleanup } from 'ink-testing-library';
 import {
   Welcome,
@@ -8,7 +9,10 @@ import {
 } from '../../../src/agent/tui/components/Welcome.js';
 import { StatusLine } from '../../../src/agent/tui/components/StatusLine.js';
 import { ToolBlock } from '../../../src/agent/tui/components/ToolBlock.js';
-import { CodeBlock } from '../../../src/agent/tui/components/Markdown.js';
+import {
+  CodeBlock,
+  Markdown,
+} from '../../../src/agent/tui/components/Markdown.js';
 import { MessageView } from '../../../src/agent/tui/components/MessageView.js';
 import {
   ProgressBar,
@@ -243,6 +247,22 @@ describe('Markdown look', () => {
     const lines = (lastFrame() ?? '').split('\n');
     expect(lines[0]).toBe(`╭${'─'.repeat(18)}╮`);
     for (const line of lines) expect([...line].length).toBeLessThanOrEqual(20);
+  });
+});
+
+describe('Markdown lists', () => {
+  it('never get wider than their box', () => {
+    const text =
+      '3. What are the limits on k? I guess |k| <= 2e9, so the sum needs long long.';
+    const { lastFrame } = render(
+      <Box width={58}>
+        <Markdown text={text} width={58} />
+      </Box>
+    );
+    const lines = (lastFrame() ?? '').split('\n');
+    expect(lines).toHaveLength(2);
+    for (const line of lines) expect([...line].length).toBeLessThanOrEqual(58);
+    expect(lines[1]?.startsWith('   ')).toBe(true);
   });
 });
 

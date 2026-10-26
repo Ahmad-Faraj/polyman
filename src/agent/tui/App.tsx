@@ -57,12 +57,48 @@ export interface AppProps {
   session: AgentSessionApi;
   bus: EventBus;
   info: TuiInfo;
+  /** Called on ctrl+z, before the app exits, so the caller can force it. */
+  onForceExit?: () => void;
+}
+
+/** Clears the screen and the scrollback, and moves the cursor home. */
+export const CLEAR_TERMINAL = '\u001B[2J\u001B[3J\u001B[H';
+
+/** How long the width must stay the same before we draw everything again. */
+export const RESIZE_SETTLE_MS = 150;
+
+/**
+ * A number that grows when the terminal width changed and stayed for
+ * {@link RESIZE_SETTLE_MS}. The screen is cleared at the same time.
+ *
+ * When the width gets smaller, the terminal wraps the old wide lines into
+ * more lines than Ink erases, and the lines in the scrollback keep the old
+ * width. So, like Claude Code, we clear everything and print the transcript
+ * again (the caller remounts `<Static>` with this number as its key).
+ */
+function useRedrawOnResize(columns: number): number {
+  const { stdout } = useStdout();
+  const [generation, setGeneration] = useState(0);
+  const first = useRef(true);
+  useEffect(() => {
+    if (first.current) {
+      first.current = false;
+      return;
+    }
+    const timer = setTimeout(() => {
+      if (stdout.isTTY) stdout.write(CLEAR_TERMINAL);
+      setGeneration(g => g + 1);
+    }, RESIZE_SETTLE_MS);
+    return () => clearTimeout(timer);
+  }, [columns, stdout]);
+  return generation;
 }
 
 /** The chat: transcript, live area, approval, input and status line. */
-export function App({ session, bus, info }: AppProps) {
+export function App({ session, bus, info, onForceExit }: AppProps) {
   const { exit } = useApp();
   const { columns, rows } = useTerminalSize();
+  const generation = useRedrawOnResize(columns);
   const [state, dispatch] = useReducer(reduce, info, initialState);
   const [editor, setEditor] = useState<EditorState>(EMPTY_EDITOR);
   const [hint, setHint] = useState<string | null>(null);
@@ -196,6 +232,10 @@ export function App({ session, bus, info }: AppProps) {
       }
       setEditor(EMPTY_EDITOR);
       setHint(CTRL_C_HINT);
+    } else if (action === 'force_exit') {
+      session.cancel();
+      onForceExit?.();
+      setExiting(true);
     } else if (action === 'toggle_mode') {
       switchMode();
     } else if (action === 'toggle_details') {
@@ -286,6 +326,7 @@ export function App({ session, bus, info }: AppProps) {
   return (
     <Box flexDirection="column">
       <Transcript
+        key={generation}
         items={state.finished}
         folder={path.resolve(info.problem ?? process.cwd())}
         model={info.model}
