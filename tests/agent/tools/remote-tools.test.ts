@@ -336,6 +336,7 @@ describe('remote_commit, remote_package, remote_view', () => {
     });
     const out = await tool('remote_package').run({ type: 'linux' }, ctx);
     expect(out.content).toContain('linux package build FAILED');
+    expect(out.isError).toBe(true);
   });
 
   it('rejects the full package type', async () => {

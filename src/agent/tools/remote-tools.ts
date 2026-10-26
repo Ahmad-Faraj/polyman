@@ -397,6 +397,10 @@ function remotePackage(opts: RemoteToolsOptions): Tool<{ type: PackageType }> {
             ...detailLines(report),
           ];
         }
+      ).then(out =>
+        / package build FAILED /.test(out.content)
+          ? { ...out, isError: true }
+          : out
       );
     },
   };
