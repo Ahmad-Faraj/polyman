@@ -186,6 +186,137 @@ export function workerFirstMessage(
   return lines.join('\n');
 }
 
+const SOLUTION_TAGS = ['MA', 'OK', 'TO', 'WA', 'TL', 'ML', 'RE', 'PE', 'RJ'];
+
+const fileEntry = (what: string): Record<string, unknown> => ({
+  type: 'object',
+  properties: {
+    name: { type: 'string', description: `The ${what} name.` },
+    source: {
+      type: 'string',
+      description: 'The file, like "./generators/gen-random.cpp".',
+    },
+  },
+  required: ['name', 'source'],
+});
+
+/**
+ * The JSON schema of `finish_task`'s `configPatch` for a task kind, so the
+ * model sees the exact shape (a plain `object` made it guess). Only the
+ * fields of that kind. Fields polyman can fill itself (the testset) are
+ * optional.
+ */
+export function configPatchSchema(kind: TaskKind): Record<string, unknown> {
+  const base = (
+    properties: Record<string, unknown>,
+    required: string[]
+  ): Record<string, unknown> => ({
+    type: 'object',
+    description: 'The Config.json change of your task.',
+    properties,
+    required,
+  });
+  switch (kind) {
+    case 'main_solution':
+    case 'brute_force':
+    case 'wrong_solution':
+      return base(
+        {
+          addSolutions: {
+            type: 'array',
+            description: 'Your solution, one entry.',
+            items: {
+              type: 'object',
+              properties: {
+                name: {
+                  type: 'string',
+                  description: 'The file name without .cpp, like "wa-1".',
+                },
+                source: {
+                  type: 'string',
+                  description: 'Like "./solutions/wa-1.cpp".',
+                },
+                tag: { type: 'string', enum: SOLUTION_TAGS },
+              },
+              required: ['name', 'source', 'tag'],
+            },
+          },
+        },
+        ['addSolutions']
+      );
+    case 'validator':
+      return base(
+        {
+          validator: {
+            type: 'object',
+            properties: {
+              name: { type: 'string', description: 'Use "validator".' },
+              source: { type: 'string', description: '"./validator/val.cpp".' },
+              testsFilePath: {
+                type: 'string',
+                description: '"./validator/validator_tests.json".',
+              },
+            },
+            required: ['name', 'source', 'testsFilePath'],
+          },
+        },
+        ['validator']
+      );
+    case 'generators':
+      return base(
+        {
+          generators: {
+            type: 'array',
+            description:
+              'Every generator the script uses, same names as in the script.',
+            items: fileEntry('generator'),
+          },
+          generatorScript: {
+            type: 'object',
+            properties: {
+              testset: {
+                type: 'string',
+                description: 'The testset, "tests".',
+              },
+              scriptFile: {
+                type: 'string',
+                description: '"./generators/gen-script.txt".',
+              },
+            },
+            required: ['scriptFile'],
+          },
+        },
+        ['generators', 'generatorScript']
+      );
+    case 'statement':
+      return base(
+        {
+          statements: {
+            type: 'object',
+            description:
+              'By language, like { "english": { "encoding": "UTF-8", "name": "<title>", "legend": "./statements/english/legend.tex", "input": "...", "output": "...", "notes": "..." } }.',
+          },
+        },
+        ['statements']
+      );
+    default:
+      return {
+        type: 'object',
+        description: 'The Config.json change, if your task has one.',
+      };
+  }
+}
+
+/** Kinds whose `finish_task` must carry a configPatch. */
+const PATCH_KINDS: ReadonlySet<TaskKind> = new Set<TaskKind>([
+  'main_solution',
+  'brute_force',
+  'wrong_solution',
+  'validator',
+  'generators',
+  'statement',
+]);
+
 /** What one `run` collects from the session. */
 interface RunState {
   finish?: { summary: string; configPatch?: ConfigPatch };
@@ -422,12 +553,11 @@ function finishTaskTool(
       type: 'object',
       properties: {
         summary: { type: 'string', description: '1 to 3 lines.' },
-        configPatch: {
-          type: 'object',
-          description: 'The Config.json change, like in your instructions.',
-        },
+        configPatch: configPatchSchema(entry.task.kind),
       },
-      required: ['summary'],
+      required: PATCH_KINDS.has(entry.task.kind)
+        ? ['summary', 'configPatch']
+        : ['summary'],
       additionalProperties: false,
     },
     risk: 'read',

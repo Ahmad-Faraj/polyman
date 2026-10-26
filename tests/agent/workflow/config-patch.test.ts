@@ -6,6 +6,7 @@ import {
   applyConfigPatch,
   configErrors,
   dropTemplateExamples,
+  fillPatchDefaults,
   sourceTypeFor,
 } from '../../../src/agent/workflow/config-patch';
 
@@ -284,5 +285,60 @@ describe('dropTemplateExamples', () => {
     await fs.rm(path.join(dir, 'Config.json'));
     const dropped = await dropTemplateExamples(dir, TEMPLATE_DIR);
     expect(dropped).toHaveProperty('error');
+  });
+});
+
+describe('patch defaults', () => {
+  it('fills a missing generatorScript testset with the first testset', async () => {
+    const result = await applyConfigPatch(dir, {
+      generatorScript: { scriptFile: './generators/gen-script.txt' },
+    });
+    expect(result).toEqual({ ok: true });
+    const testsets = (await readConfig())['testsets'] as {
+      name: string;
+      generatorScript?: { scriptFile: string };
+    }[];
+    expect(testsets).toHaveLength(1);
+    expect(testsets[0].generatorScript).toEqual({
+      scriptFile: './generators/gen-script.txt',
+    });
+  });
+
+  it('accepts a generatorScript given as a plain path', () => {
+    expect(
+      fillPatchDefaults(
+        { generatorScript: './generators/gen-script.txt' },
+        { testsets: [{ name: 'main' }] }
+      )
+    ).toEqual({
+      generatorScript: {
+        testset: 'main',
+        scriptFile: './generators/gen-script.txt',
+      },
+    });
+  });
+
+  it('fills manual test testsets and the validator name, keeps the rest', () => {
+    expect(
+      fillPatchDefaults(
+        {
+          manualTests: [{ input: './manual/a.in' }, 'odd'],
+          validator: { source: './validator/val.cpp' },
+          set: { timeLimit: 2000 },
+        },
+        {}
+      )
+    ).toEqual({
+      manualTests: [{ input: './manual/a.in', testset: 'tests' }, 'odd'],
+      validator: { source: './validator/val.cpp', name: 'validator' },
+      set: { timeLimit: 2000 },
+    });
+  });
+
+  it('still refuses what it cannot fill', async () => {
+    const result = await applyConfigPatch(dir, {
+      generatorScript: { testset: 'tests' },
+    });
+    expect(result).toMatchObject({ ok: false });
   });
 });

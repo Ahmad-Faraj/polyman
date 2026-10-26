@@ -6,6 +6,7 @@ import {
   MAX_PRECHECKS,
   STEP_LIMIT_SUMMARY,
   checkpointPrecheck,
+  configPatchSchema,
   workerToolNames,
   type GemmaWorkerOptions,
   type WorkerPrecheck,
@@ -709,5 +710,51 @@ describe('checkpointPrecheck', () => {
     );
     expect(refused).toMatchObject({ name: 'config patch', ok: false });
     await fs.rm(dir, { recursive: true, force: true });
+  });
+});
+
+describe('configPatchSchema', () => {
+  it('shows the exact patch shape of each kind', () => {
+    const gen = configPatchSchema('generators') as {
+      properties: Record<string, { required?: string[] }>;
+      required: string[];
+    };
+    expect(gen.required).toEqual(['generators', 'generatorScript']);
+    // polyman fills the testset when it is missing.
+    expect(gen.properties['generatorScript'].required).toEqual(['scriptFile']);
+    const sol = JSON.stringify(configPatchSchema('wrong_solution'));
+    expect(sol).toContain('addSolutions');
+    expect(sol).toContain('"WA"');
+    expect(JSON.stringify(configPatchSchema('validator'))).toContain(
+      'testsFilePath'
+    );
+    expect(configPatchSchema('fix')).toEqual({
+      type: 'object',
+      description: expect.any(String) as string,
+    });
+  });
+
+  it('makes configPatch required in finish_task for kinds with a patch', async () => {
+    const t = setup([finish('done')]);
+    await t.worker.run(
+      {
+        task: task('generators', ['generators/gen.cpp']),
+        spec: SPEC,
+        attempt: 1,
+        fresh: true,
+      },
+      signal()
+    );
+    const spec = t.provider.requests[0].tools.find(
+      x => x.name === 'finish_task'
+    )!;
+    const params = spec.parameters as {
+      required: string[];
+      properties: Record<string, unknown>;
+    };
+    expect(params.required).toEqual(['summary', 'configPatch']);
+    expect(params.properties['configPatch']).toEqual(
+      configPatchSchema('generators')
+    );
   });
 });
