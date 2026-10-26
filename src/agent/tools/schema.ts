@@ -81,7 +81,10 @@ function validateObject(
   }
 
   for (const [key, child] of Object.entries(value)) {
-    const childSchema = properties[key];
+    // Own keys only: `properties["__proto__"]` is Object.prototype.
+    const childSchema = Object.prototype.hasOwnProperty.call(properties, key)
+      ? properties[key]
+      : undefined;
     if (isSchema(childSchema)) {
       if (child !== undefined) {
         errors.push(...validate(childSchema, child, `${path}.${key}`));

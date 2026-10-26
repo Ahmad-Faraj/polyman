@@ -233,10 +233,10 @@ describe('safety: permissions', () => {
     expect(exists('a.txt')).toBe(false);
   });
 
-  // BUG: the approval title shows the raw path, so control characters from
-  // the model can hide where the write really goes. This path writes
-  // Config.json but a terminal shows only "Write solutions/brute.cpp".
-  it.skip('BUG: approval title has no control characters that can hide the real path', async () => {
+  // Control characters from the model could hide where the write really
+  // goes. This path writes Config.json, but a raw title shows only
+  // "Write solutions/brute.cpp" in a terminal. The gate escapes them.
+  it('approval title has no control characters that can hide the real path', async () => {
     const h = makeHarness(f.root, { mode: 'ask' });
     const asked = h.next('approval_needed');
     const running = h.call('write_file', {
@@ -250,5 +250,24 @@ describe('safety: permissions', () => {
     const control = /[\u0000-\u001f\u007f]/;
     expect(approval.title).not.toMatch(control);
     expect(approval.command ?? '').not.toMatch(control);
+    expect(approval.title).toContain('\\u001b[8m/../../Config.json');
+  });
+
+  it('approval title shows bidi overrides as text, not as reordering', async () => {
+    const h = makeHarness(f.root, { mode: 'ask' });
+    const asked = h.next('approval_needed');
+    const running = h.call('write_file', {
+      path: 'a\u202enosj.gifnoC\u2066/b\u0085.txt',
+      content: '{}',
+    });
+    const approval = await asked;
+    h.gate.resolve(approval.approvalId, { kind: 'deny', reason: 'test' });
+    await running;
+    expect(approval.title).not.toMatch(
+      /[\u0080-\u009f\u202a-\u202e\u2066-\u2069]/
+    );
+    expect(approval.title).toContain('\\u202e');
+    expect(approval.title).toContain('\\u2066');
+    expect(approval.title).toContain('\\u0085');
   });
 });
