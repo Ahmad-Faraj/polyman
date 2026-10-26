@@ -13,6 +13,7 @@ import { spawn } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { PRESETS } from '../providers/presets';
 import { killTree } from './kill-tree';
 import { cliLock } from './lock';
 import type { CliRunner, RunOptions, RunResult } from './types';
@@ -153,7 +154,7 @@ export class NodeCliRunner implements CliRunner {
         detached: process.platform !== 'win32',
         stdio: ['ignore', 'pipe', 'pipe'],
         env: {
-          ...process.env,
+          ...childEnv(process.env),
           NO_COLOR: '1',
           FORCE_COLOR: '0',
           POLYMAN_AGENT: '1',
@@ -278,4 +279,24 @@ export class NodeCliRunner implements CliRunner {
       });
     });
   }
+}
+
+/** Env vars of provider keys, from the presets. */
+const KEY_VARS = new Set(
+  PRESETS.map(p => p.envVar.toUpperCase()).filter(v => v !== '')
+);
+
+/**
+ * The env of the CLI child: `env` without API keys. The child compiles and
+ * runs code the model wrote, so it must not see the provider keys. Polygon
+ * commands read `~/.polyman/credentials.json`, not env.
+ */
+export function childEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const out: NodeJS.ProcessEnv = {};
+  for (const [name, value] of Object.entries(env)) {
+    const upper = name.toUpperCase();
+    if (upper.endsWith('_API_KEY') || KEY_VARS.has(upper)) continue;
+    out[name] = value;
+  }
+  return out;
 }

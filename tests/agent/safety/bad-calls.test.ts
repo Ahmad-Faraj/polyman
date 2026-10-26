@@ -154,10 +154,10 @@ describe('safety: bad tool calls', () => {
     expect(spy.runs).toHaveLength(0);
   });
 
-  // BUG: schema.ts looks up `properties[key]`, and `properties.__proto__` is
-  // Object.prototype, an object, so it is taken as a schema with no rules.
-  // `additionalProperties: false` does not stop a `__proto__` argument.
-  it.skip('BUG: a __proto__ argument is refused like any unknown property', async () => {
+  // `properties.__proto__` is Object.prototype, an object, so a plain
+  // `properties[key]` lookup took it as a schema with no rules and
+  // `additionalProperties: false` did not stop a `__proto__` argument.
+  it('a __proto__ argument is refused like any unknown property', async () => {
     const spy = spyTool('spy_write');
     const h = makeHarness(f.root, { mode: 'auto-edit', extraTools: [spy] });
     const args = JSON.parse('{"path": "a", "__proto__": {"x": 1}}') as unknown;

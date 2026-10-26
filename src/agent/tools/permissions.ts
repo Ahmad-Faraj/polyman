@@ -141,8 +141,43 @@ export class DefaultPermissionGate implements PermissionGate {
   }
 }
 
-/** The title and command of an approval prompt. */
+/**
+ * Characters that can change what a terminal shows: C0 and C1 controls
+ * (ESC starts colour and cursor sequences), DEL, and the bidi marks and
+ * overrides that reorder text.
+ */
+const HIDING_CHARS =
+  // eslint-disable-next-line no-control-regex
+  /[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
+
+/**
+ * Writes every hiding character as a visible `\uXXXX`, so the user sees the
+ * literal text the model sent, like the real path of a write.
+ */
+export function escapeForTerminal(text: string): string {
+  return text.replace(
+    HIDING_CHARS,
+    c => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`
+  );
+}
+
+/** The title and command of an approval prompt, safe to print. */
 function describeCall(
+  tool: Tool,
+  args: unknown
+): { title: string; command?: string } {
+  const shown = rawDescription(tool, args);
+  const out: { title: string; command?: string } = {
+    title: escapeForTerminal(shown.title),
+  };
+  if (shown.command !== undefined) {
+    out.command = escapeForTerminal(shown.command);
+  }
+  return out;
+}
+
+/** The title and command of an approval prompt, as the tool gives them. */
+function rawDescription(
   tool: Tool,
   args: unknown
 ): { title: string; command?: string } {
