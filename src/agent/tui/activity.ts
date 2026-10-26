@@ -8,6 +8,7 @@ import type { UiState } from './store.js';
 /** The word of each tool when its progress line says nothing better. */
 const TOOL_WORDS: Record<string, string> = {
   create_problem: 'Creating the problem',
+  find_ideas: 'Finding ideas',
   edit_file: 'Editing',
   generate: 'Generating tests',
   list_files: 'Reading',
@@ -48,9 +49,9 @@ export function activityWord(
 ): string {
   if (ctx.waiting) return 'Waiting for you…';
   if (ctx.workflow) {
-    return ctx.recipe === 'prove_idea'
-      ? 'Proving the idea…'
-      : 'Running the workflow…';
+    if (ctx.recipe === 'prove_idea') return 'Proving the idea…';
+    if (ctx.recipe === 'find_ideas') return 'Finding ideas…';
+    return 'Running the workflow…';
   }
   const tool = live.runningTools[live.runningTools.length - 1];
   if (tool) {

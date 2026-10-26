@@ -35,6 +35,9 @@ const ALL_KINDS: Record<TaskKind, true> = {
   sample_check: true,
   max_test: true,
   kill_wrong: true,
+  ideate: true,
+  idea_critic: true,
+  idea_rank: true,
 };
 
 describe('worker prompts', () => {
@@ -129,6 +132,7 @@ describe('manager prompts', () => {
       'fix_verify',
       'strengthen_tests',
       'prove_idea',
+      'find_ideas',
     ] as const) {
       expect(recipeDescription(r)).toContain(`Recipe ${r}`);
     }
@@ -169,6 +173,8 @@ describe('chat prompt', () => {
       /every check of it passed, call start_workflow with recipe build_problem/
     );
     expect(p).toMatch(/When prove_idea fails, do not build/);
+    expect(p).toMatch(/problem ideas .* call find_ideas/);
+    expect(p).toMatch(/Never think out loud/);
     expect(p).toContain('none yet');
     expect(chatSystemPrompt({ problemDir: '/x/pairs' })).toContain(
       'Problem folder: /x/pairs'

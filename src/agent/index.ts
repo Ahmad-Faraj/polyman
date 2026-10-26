@@ -23,6 +23,7 @@ import type { CliRunner } from './runner/types';
 import { skillTools } from './skills';
 import { cliTools } from './tools/cli-tools';
 import { fsTools } from './tools/fs-tools';
+import { ideasTool, type IdeasRunner } from './tools/ideas-tool';
 import { NotesStore, notesTools } from './tools/notes-tools';
 import {
   readPolygonCredentials,
@@ -38,6 +39,7 @@ import {
   workflowTool,
   type WorkflowToolOptions,
 } from './tools/workflow-tool';
+import { IdeaWorkflow } from './workflow/ideas';
 
 /** Where the chat starts. */
 export interface ChatStart {
@@ -89,6 +91,8 @@ export interface ChatRuntimeOptions {
   runner?: CliRunner;
   /** Builds the workflow scheduler. Defaults to Gemma manager and workers. */
   createScheduler?: WorkflowToolOptions['createScheduler'];
+  /** Builds the idea workflow. Defaults to Gemma. */
+  createIdeas?: () => IdeasRunner;
   /** Base folder for a relative `dir`. Defaults to `process.cwd()`. */
   cwd?: string;
   /**
@@ -160,6 +164,16 @@ export function createChatRuntime(opts: ChatRuntimeOptions): ChatRuntime {
     ...skillTools(),
     ...notesTools(notes),
     workflowTool({ readSpec: () => notes.read(), createScheduler, gate }),
+    ideasTool({
+      createRunner:
+        opts.createIdeas ??
+        (() =>
+          new IdeaWorkflow({
+            provider: opts.provider,
+            model: opts.model,
+            bus,
+          })),
+    }),
   ];
   for (const tool of all) tools.register(tool);
 

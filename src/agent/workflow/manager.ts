@@ -219,9 +219,10 @@ export class GemmaManager implements Manager {
   /**
    * Asks the model up to {@link MANAGER_STEPS} times until it calls `tool`
    * with arguments that `parse` accepts. `parse` returns the value or an
-   * error text for the model. Returns null when every try failed.
+   * error text for the model. Returns null when every try failed. The idea
+   * workflow uses it too, for its one-tool calls.
    */
-  private async callForTool<T>(
+  async callForTool<T>(
     system: string,
     userText: string,
     tool: ToolSpec,
