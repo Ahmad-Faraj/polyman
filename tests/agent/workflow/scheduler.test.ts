@@ -13,6 +13,7 @@ import { buildProblemSkeleton } from '../../../src/agent/workflow/recipes';
 import {
   WorkflowScheduler,
   fixFilesFor,
+  fixHints,
 } from '../../../src/agent/workflow/scheduler';
 import type {
   Checkpoint,
@@ -754,5 +755,39 @@ describe('fixFilesFor', () => {
     expect(
       fixFilesFor('test-validator: Validator Test 4 failed', all, config)
     ).toEqual(all);
+  });
+});
+
+describe('fixHints', () => {
+  const config = {
+    solutions: [
+      { name: 'main', source: 'solutions/main.cpp', tag: 'MA' },
+      { name: 'brute', source: 'solutions/brute.cpp', tag: 'TO' },
+      { name: 'wa-int', source: 'solutions/wa-int.cpp', tag: 'WA' },
+    ],
+    generators: ['generators/gen.cpp'],
+    scriptFiles: ['generators/gen-script.txt'],
+  };
+
+  it('names main first when a correct solution gets a wrong answer', () => {
+    const digest = [
+      'failed step: verify-solutions',
+      'solution brute (solutions/brute.cpp) tag TO: Solution brute marked as TO but got Wrong Answer on some tests; test 8: WA x',
+      'solution wa-int (solutions/wa-int.cpp) tag WA: Solution wa-int marked as WA but did not get Wrong Answer or Presentation Error on any test',
+    ].join('\n');
+    const hints = fixHints(digest, config);
+    expect(hints[0]).toBe(
+      'brute (TO) gets a wrong answer against main: first check solutions/main.cpp (overflow, a missed case). Change solutions/brute.cpp only if main is right.'
+    );
+    expect(hints[1]).toContain(
+      'wa-int (WA) passes every test: the tests are weak. Add a test that breaks it in generators/gen-script.txt. Do not change solutions/wa-int.cpp'
+    );
+    expect(hints[2]).toContain('fix main first');
+  });
+
+  it('gives no hint for a validator failure', () => {
+    expect(fixHints('test-validator: Validator Test 4 failed', config)).toEqual(
+      []
+    );
   });
 });

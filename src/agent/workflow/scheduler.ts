@@ -367,6 +367,48 @@ export function fixFilesFor(
   return [...out];
 }
 
+/**
+ * Short hints from the verify digest: which file is the likely cause. The
+ * fixer changed a correct brute force with main when it only read "brute
+ * got WA", so the hint names main first and says what not to touch.
+ */
+export function fixHints(digest: string, config: ConfigFiles): string[] {
+  const mainHints: string[] = [];
+  const weakHints: string[] = [];
+  const main = config.solutions.find(s => s.tag === 'MA');
+  const line = /^solution (\S+)(?: \(([^)]+)\))? tag ([A-Z]+): (.*)$/;
+  for (const text of digest.split('\n')) {
+    const m = line.exec(text.trim());
+    if (!m) continue;
+    const [, name, source, tag, rest] = m;
+    const file = source ?? name ?? '';
+    if (CORRECT_TAGS.includes(tag ?? '') && tag !== 'MA') {
+      if (/wrong answer|; test \d+: (WA|PE)\b/i.test(rest ?? '') && main) {
+        mainHints.push(
+          `${name} (${tag}) gets a wrong answer against main: first check ${main.source} (overflow, a missed case). Change ${file} only if main is right.`
+        );
+      }
+    } else if (
+      !CORRECT_TAGS.includes(tag ?? '') &&
+      /did not get/i.test(rest ?? '')
+    ) {
+      const where = config.scriptFiles[0] ?? 'the generator script';
+      weakHints.push(
+        `${name} (${tag}) passes every test: the tests are weak. Add a test that breaks it in ${where}. Do not change ${file}${main?.source === file ? '' : ' unless it is the main solution'}.`
+      );
+    }
+  }
+  // A wrong solution with the same bug as a wrong main passes too: fixing
+  // main may be enough (main-overflow).
+  const tail =
+    mainHints.length > 0 && weakHints.length > 0
+      ? [
+          'If main was wrong, the passing wrong solution may have the same bug: fix main first, then see.',
+        ]
+      : [];
+  return [...mainHints, ...weakHints, ...tail];
+}
+
 /** The state of one approved plan while it runs. */
 class PlanRun {
   readonly notices: string[] = [];
@@ -800,7 +842,15 @@ class PlanRun {
     for (let round = 1; round <= this.limits.fixRounds; round++) {
       if (this.signal.aborted) break;
       fixTask.ownsFiles = await this.fixFiles(last.checkpoint.digest);
-      fixTask.brief = `verify failed (round ${round} of ${this.limits.fixRounds}). Fix it by changing only your files.\n${last.checkpoint.digest}`;
+      const hints = fixHints(
+        last.checkpoint.digest,
+        await readConfigFiles(this.opts.problemDir)
+      );
+      fixTask.brief = [
+        `verify failed (round ${round} of ${this.limits.fixRounds}). Fix it by changing only your files.`,
+        last.checkpoint.digest,
+        ...(hints.length > 0 ? ['Hints:', ...hints.map(h => `- ${h}`)] : []),
+      ].join('\n');
       fix = await this.workerAttempt(
         { ...fixTask },
         round,
