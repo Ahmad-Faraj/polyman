@@ -22,9 +22,12 @@ import type {
   ToolOutput,
   ToolRegistry,
 } from '../tools/types';
+import { applyConfigPatch } from './config-patch';
 import { workerPrompt } from './prompts';
 import {
   WORKFLOW_LIMITS,
+  type Checkpoint,
+  type Checkpoints,
   type ConfigPatch,
   type PlanTask,
   type Spec,
@@ -39,6 +42,51 @@ export const WORKER_CONTEXT_TOKENS = 16000;
 /** The summary when a worker used all its steps. */
 export const STEP_LIMIT_SUMMARY =
   'stopped at the step limit without finish_task';
+
+/**
+ * Failed checks a worker may get from `finish_task` in one run. After that
+ * `finish_task` ends the task anyway and the scheduler's retry ladder takes
+ * over, so a confused worker does not use all its steps on one error.
+ */
+export const MAX_PRECHECKS = 3;
+
+/** Time limit of `finish_task`, which may run the check. */
+export const FINISH_TIMEOUT_MS = 6 * 60 * 1000;
+
+/**
+ * Runs the task's real check when the worker calls `finish_task`, before the
+ * task ends. It gets the worker's patch, so the check sees the files the
+ * worker wrote and the Config.json entries it asked for.
+ */
+export type WorkerPrecheck = (
+  input: { task: PlanTask; spec: Spec; configPatch?: ConfigPatch },
+  signal: AbortSignal
+) => Promise<Checkpoint>;
+
+/**
+ * The usual {@link WorkerPrecheck}: applies the patch (the same queue the
+ * scheduler uses, so it never races another writer), then runs the
+ * checkpoint of the task. The scheduler applies the same patch again at the
+ * end of the task; applying a patch twice gives the same Config.json.
+ */
+export function checkpointPrecheck(
+  checkpoints: Checkpoints,
+  problemDir: string
+): WorkerPrecheck {
+  return async ({ task, spec, configPatch }, signal) => {
+    if (configPatch) {
+      const applied = await applyConfigPatch(problemDir, configPatch);
+      if (!applied.ok) {
+        return {
+          name: 'config patch',
+          ok: false,
+          digest: `Config.json patch refused: ${applied.error}`,
+        };
+      }
+    }
+    return checkpoints.check(task, spec, problemDir, signal);
+  };
+}
 
 /** What the worker needs. The factories let W0b pass the real classes. */
 export interface GemmaWorkerOptions {
@@ -69,6 +117,12 @@ export interface GemmaWorkerOptions {
   maxOutputTokens?: number;
   /** Sampling temperature, 0.3 by default. */
   temperature?: number;
+  /**
+   * Checks the task when the worker calls `finish_task`. A failed check is
+   * sent back to the worker as the tool result and the task goes on. Without
+   * it, `finish_task` always ends the task.
+   */
+  precheck?: WorkerPrecheck;
 }
 
 /** Kinds that write files. */
@@ -93,15 +147,9 @@ const HARD_KINDS: ReadonlySet<TaskKind> = new Set<TaskKind>([
 export function workerToolNames(kind: TaskKind): string[] {
   const names = ['read_file', 'list_files', 'load_skill'];
   if (WRITING_KINDS.has(kind)) names.push('write_file', 'edit_file');
-  if (
-    kind === 'main_solution' ||
-    kind === 'brute_force' ||
-    kind === 'wrong_solution'
-  ) {
-    names.push('run_solution');
-  }
-  if (kind === 'validator') names.push('test_target');
-  if (kind === 'generators') names.push('generate');
+  // No run_solution, test_target or generate: they read Config.json, which
+  // gets the worker's entries only after finish_task, so before that they
+  // run the wrong files or fail. finish_task runs the real check instead.
   if (kind === 'fix') names.push('verify');
   if (kind === 'statement_critic') names.push('review');
   names.push('finish_task');
@@ -141,6 +189,10 @@ export function workerFirstMessage(
 /** What one `run` collects from the session. */
 interface RunState {
   finish?: { summary: string; configPatch?: ConfigPatch };
+  /** The patch of the last `finish_task` whose check failed. */
+  lastPatch?: ConfigPatch;
+  /** Failed checks from `finish_task` in this run. */
+  prechecksFailed: number;
   cancelRequested: boolean;
   calls: Map<string, { name: string; args: unknown }>;
   filesWritten: string[];
@@ -151,10 +203,17 @@ interface RunState {
 interface TaskSession {
   session: AgentSessionApi;
   state: RunState;
+  task: PlanTask;
+  spec: Spec;
 }
 
 function newState(): RunState {
-  return { cancelRequested: false, calls: new Map(), filesWritten: [] };
+  return {
+    cancelRequested: false,
+    calls: new Map(),
+    filesWritten: [],
+    prechecksFailed: 0,
+  };
 }
 
 /** A worker backed by one model, usually Gemma 4. */
@@ -181,11 +240,13 @@ export class GemmaWorker implements Worker {
     let entry = this.sessions.get(task.id);
     const isNew = fresh || entry === undefined;
     if (isNew || entry === undefined) {
-      entry = this.makeTaskSession(task);
+      entry = this.makeTaskSession(task, spec);
       this.sessions.set(task.id, entry);
     }
     const current = entry;
     current.state = newState();
+    current.task = task;
+    current.spec = spec;
 
     const text = isNew
       ? workerFirstMessage(task, spec, note)
@@ -208,26 +269,33 @@ export class GemmaWorker implements Worker {
       return out;
     }
     signal.throwIfAborted();
+    // The worker asked for these Config.json entries but its check failed:
+    // keep them, so the scheduler's check sees the same state.
+    const kept: Pick<WorkerOutcome, 'configPatch'> = st.lastPatch
+      ? { configPatch: st.lastPatch }
+      : {};
     switch (reason) {
       case 'max_steps':
-        return { summary: STEP_LIMIT_SUMMARY, filesWritten };
+        return { summary: STEP_LIMIT_SUMMARY, filesWritten, ...kept };
       case 'error':
         return {
           summary: `the worker stopped on an error: ${st.error ?? 'unknown error'}`,
           filesWritten,
+          ...kept,
         };
       case 'cancelled':
-        return { summary: 'the worker was cancelled', filesWritten };
+        return { summary: 'the worker was cancelled', filesWritten, ...kept };
       case 'done':
         return {
           summary: `ended without finish_task: ${lastText(current.session) || 'no answer'}`,
           filesWritten,
+          ...kept,
         };
     }
   }
 
   /** Builds a new session with the tools, sandbox and gate of this task. */
-  private makeTaskSession(task: PlanTask): TaskSession {
+  private makeTaskSession(task: PlanTask, spec: Spec): TaskSession {
     const o = this.opts;
     const localBus = new LocalBus();
     const gate = o.createGate(localBus, 'plan-approved');
@@ -237,6 +305,8 @@ export class GemmaWorker implements Worker {
     const entry: TaskSession = {
       session: undefined as unknown as AgentSessionApi,
       state: newState(),
+      task,
+      spec,
     };
     for (const tool of this.toolsFor(task.kind, entry)) registry.register(tool);
 
@@ -272,7 +342,7 @@ export class GemmaWorker implements Worker {
     const pool = new Map<string, Tool>();
     for (const t of skillTools()) pool.set(t.name, t);
     for (const t of this.opts.tools) pool.set(t.name, t);
-    pool.set('finish_task', finishTaskTool(entry));
+    pool.set('finish_task', finishTaskTool(entry, this.opts.precheck));
     pool.set('review', reviewTool(entry));
     const out: Tool[] = [];
     for (const name of workerToolNames(kind)) {
@@ -335,12 +405,19 @@ export class GemmaWorker implements Worker {
   }
 }
 
-/** `finish_task`: stores the summary and the patch, then the task stops. */
-function finishTaskTool(entry: TaskSession): Tool {
+/**
+ * `finish_task`: runs the precheck (when there is one), then stores the
+ * summary and the patch and the task stops. A failed precheck goes back to
+ * the worker as an error, up to {@link MAX_PRECHECKS} times per run.
+ */
+function finishTaskTool(
+  entry: TaskSession,
+  precheck: WorkerPrecheck | undefined
+): Tool {
   const tool: Tool<{ summary: string; configPatch?: ConfigPatch }> = {
     name: 'finish_task',
     description:
-      'Call this once when your task is done. It ends the task. summary: 1 to 3 lines of what you did. configPatch: the Config.json change, if your task has one.',
+      'Call this when your files are written. polyman applies your configPatch and runs the real check of your task. If the check passes, the task ends. If it fails, you get the error: fix your files and call finish_task again. summary: 1 to 3 lines of what you did. configPatch: the Config.json change, if your task has one.',
     parameters: {
       type: 'object',
       properties: {
@@ -355,8 +432,10 @@ function finishTaskTool(entry: TaskSession): Tool {
     },
     risk: 'read',
     needsProblem: false,
+    // The check may run `polyman generate --all` (5 minutes at most).
+    timeoutMs: FINISH_TIMEOUT_MS,
     describe: () => ({ title: 'Finish the task' }),
-    run(args): Promise<ToolOutput> {
+    async run(args, ctx): Promise<ToolOutput> {
       const finish: RunState['finish'] = {
         summary: String(args.summary ?? '').trim() || 'done',
       };
@@ -368,8 +447,41 @@ function finishTaskTool(entry: TaskSession): Tool {
       ) {
         finish.configPatch = patch;
       }
-      entry.state.finish = finish;
-      return Promise.resolve({ content: 'Task finished. Stop now.' });
+      const st = entry.state;
+      if (precheck && st.prechecksFailed < MAX_PRECHECKS) {
+        const input: Parameters<WorkerPrecheck>[0] = {
+          task: entry.task,
+          spec: entry.spec,
+        };
+        if (finish.configPatch) input.configPatch = finish.configPatch;
+        let check: Checkpoint;
+        try {
+          check = await precheck(input, ctx.signal);
+        } catch (error) {
+          check = {
+            name: 'check',
+            ok: false,
+            digest: `the check could not run: ${error instanceof Error ? error.message : String(error)}`,
+          };
+        }
+        if (!check.ok) {
+          st.prechecksFailed++;
+          if (finish.configPatch) st.lastPatch = finish.configPatch;
+          const left = MAX_PRECHECKS - st.prechecksFailed;
+          return {
+            content: [
+              `The check "${check.name}" failed, the task is not done:`,
+              check.digest.trim() || '(no details)',
+              left > 0
+                ? 'Read the error, fix your files, then call finish_task again.'
+                : 'This was the last check in this try: call finish_task once more to end it.',
+            ].join('\n'),
+            isError: true,
+          };
+        }
+      }
+      st.finish = finish;
+      return { content: 'Task finished. Stop now.' };
     },
   };
   return tool;

@@ -71,7 +71,8 @@ describe('worker prompts', () => {
 
   it('has the hard rules of each kind', () => {
     expect(workerPrompt('main_solution')).toMatch(/C\+\+17/);
-    expect(workerPrompt('main_solution')).toMatch(/run_solution/);
+    expect(workerPrompt('main_solution')).not.toMatch(/run_solution/);
+    expect(workerPrompt('main_solution')).toMatch(/call finish_task again/);
     expect(workerPrompt('main_solution')).toMatch(/64-bit/);
     expect(workerPrompt('brute_force')).toMatch(/simplest correct/);
     expect(workerPrompt('brute_force')).toMatch(/do not see the main/);

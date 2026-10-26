@@ -454,7 +454,7 @@ describe.skipIf(!canRun)('e2e: build pairs-sum with a fake Gemma', () => {
   );
 
   it(
-    'retries the validator after its checkpoint fails',
+    'sends a failed validator check back to the worker from finish_task',
     async () => {
       expect(BROKEN_VALIDATOR).not.toBe(GOOD_VALIDATOR);
       const { problem, events, workers } = await buildPairsSum([
@@ -463,7 +463,7 @@ describe.skipIf(!canRun)('e2e: build pairs-sum with a fake Gemma', () => {
           'validator with self-tests',
           VALIDATOR_PATCH
         ),
-        // Attempt 2 continues the same session with the digest.
+        // finish_task ran the real check, it failed, the same session goes on.
         ...writes(
           { 'validator/val.cpp': GOOD_VALIDATOR },
           'n starts at 1 now',
@@ -477,26 +477,27 @@ describe.skipIf(!canRun)('e2e: build pairs-sum with a fake Gemma', () => {
       const started = ofType(events, 'task_started').filter(
         e => e.taskId === validatorId
       );
-      expect(started.map(e => e.attempt)).toEqual([1, 2]);
+      expect(started.map(e => e.attempt)).toEqual([1]);
       const checks = ofType(events, 'task_checkpoint').filter(
         e => e.taskId === validatorId
       );
       expect(checks.map(c => [c.name, c.ok])).toEqual([
-        ['test validator', false],
         ['test validator', true],
       ]);
-      expect(checks[0].digest).toMatch(/expected INVALID got VALID/);
       const done = ofType(events, 'task_done').find(
         e => e.taskId === validatorId
       )!;
-      expect(done.result).toMatchObject({ status: 'passed', attempts: 2 });
+      expect(done.result).toMatchObject({ status: 'passed', attempts: 1 });
 
-      // The second attempt saw the digest of the first one.
+      // The worker saw the failed check as the result of its finish_task.
       const worker = workers.get(validatorId)!;
       expect(worker.remaining).toBe(0);
       const retry = worker.requests[2];
-      const last = retry.messages[retry.messages.length - 1];
-      expect(JSON.stringify(last.parts)).toContain('Last attempt failed');
+      const last = JSON.stringify(
+        retry.messages[retry.messages.length - 1].parts
+      );
+      expect(last).toMatch(/expected INVALID got VALID/);
+      expect(last).toContain('call finish_task again');
       expect(
         fs.readFileSync(path.join(problem, 'validator', 'val.cpp'), 'utf8')
       ).toBe(GOOD_VALIDATOR);
