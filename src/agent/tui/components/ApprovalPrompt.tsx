@@ -74,9 +74,13 @@ export function ApprovalPrompt({
     setReasonState(next);
   };
   const [answered, setAnswered] = useState(false);
+  // A ref, not only the state: keys can come before React draws again, and
+  // the approval must be answered only once.
+  const answeredRef = useRef(false);
 
   const answer = (decision: ApprovalDecision) => {
-    if (answered) return;
+    if (answeredRef.current) return;
+    answeredRef.current = true;
     setAnswered(true);
     resolveApproval(approval.approvalId, decision);
   };
@@ -94,7 +98,7 @@ export function ApprovalPrompt({
 
   useInput(
     (input, key) => {
-      if (key.ctrl) return;
+      if (key.ctrl || answeredRef.current) return;
       const reason = reasonRef.current;
       if (reason !== null) {
         if (key.escape) {

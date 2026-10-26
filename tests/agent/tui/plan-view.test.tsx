@@ -379,11 +379,14 @@ describe('PlanApproval', () => {
       />
     );
     await tick();
+    // The second key comes before React draws again (like on a slow CI
+    // machine): it must do nothing, the plan is answered once.
     stdin.write('1');
-    await tick();
-    expect(resolve).toHaveBeenCalledWith('p1', { kind: 'allow_once' });
-    // A second key does nothing: the plan is answered once.
     stdin.write('3');
+    await tick();
+    expect(resolve).toHaveBeenCalledTimes(1);
+    expect(resolve).toHaveBeenCalledWith('p1', { kind: 'allow_once' });
+    stdin.write('2');
     await tick();
     expect(resolve).toHaveBeenCalledTimes(1);
   });

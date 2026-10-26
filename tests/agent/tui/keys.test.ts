@@ -150,5 +150,6 @@ describe('theme', () => {
     expect(formatCost(0.0123)).toBe('$0.01');
     expect(formatCost(0.0042)).toBe('$0.004');
     expect(formatCost(0)).toBe('$0.00');
+    expect(formatCost(0.0002)).toBe('<$0.001');
   });
 });

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import type { ApprovalDecision } from '../../core/events.js';
 import type { Plan, PlanTask, TaskKind } from '../../workflow/types.js';
@@ -61,18 +61,22 @@ export function PlanApproval({
 }) {
   const [selected, setSelected] = useState(0);
   const [answered, setAnswered] = useState(false);
+  // Keys can come before React draws the answered box again, so a ref (not
+  // the state) makes sure the plan is answered only once.
+  const answeredRef = useRef(false);
   const count = PLAN_OPTIONS.length;
 
   const choose = (index: number) => {
     const option = PLAN_OPTIONS[index];
-    if (!option || answered) return;
+    if (!option || answeredRef.current) return;
+    answeredRef.current = true;
     setAnswered(true);
     resolveApproval(approvalId, option.decision);
   };
 
   useInput(
     (input, key) => {
-      if (key.ctrl) return;
+      if (key.ctrl || answeredRef.current) return;
       if (key.escape) {
         choose(count - 1);
       } else if (key.leftArrow || key.upArrow || (key.tab && key.shift)) {

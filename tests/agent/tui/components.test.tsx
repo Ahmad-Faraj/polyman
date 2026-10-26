@@ -90,7 +90,9 @@ describe('ApprovalPrompt', () => {
       <ApprovalPrompt approval={approval} resolveApproval={resolveApproval} />
     );
     await tick();
+    // Two keys before React draws again: only the first one answers.
     stdin.write('1');
+    stdin.write('2');
     await tick();
     expect(resolveApproval).toHaveBeenCalledTimes(1);
     expect(resolveApproval).toHaveBeenCalledWith('a1', { kind: 'allow_once' });

@@ -3,7 +3,7 @@ import { Box, Text, useApp, useInput } from 'ink';
 import type { ApprovalDecision, EventBus } from '../core/events.js';
 import type { AgentSessionApi } from '../core/session-types.js';
 import type { PermissionMode } from '../tools/types.js';
-import { initialState, pickTask, reduce } from './store.js';
+import { initialState, pickTask, problemName, reduce } from './store.js';
 import { EMPTY_EDITOR, History, type EditorState } from './editor.js';
 import {
   appKeyOf,
@@ -49,6 +49,9 @@ export function App({ session, bus, info }: AppProps) {
   const [state, dispatch] = useReducer(reduce, info, initialState);
   const [editor, setEditor] = useState<EditorState>(EMPTY_EDITOR);
   const [hint, setHint] = useState<string | null>(null);
+  // On exit the live part is drawn empty first, so the input box and the
+  // status line do not stay in the scrollback above "Bye.".
+  const [exiting, setExiting] = useState(false);
   // The task whose details are open (ctrl+o), an index into the plan tasks.
   const [details, setDetailsState] = useState<number | null>(null);
   const detailsRef = useRef<number | null>(null);
@@ -64,6 +67,10 @@ export function App({ session, bus, info }: AppProps) {
 
   useEffect(() => bus.on(e => dispatch(e)), [bus]);
 
+  useEffect(() => {
+    if (exiting) exit();
+  }, [exiting, exit]);
+
   // The details close with the workflow.
   const hasWorkflow = state.workflow !== null;
   useEffect(() => {
@@ -72,6 +79,12 @@ export function App({ session, bus, info }: AppProps) {
       setDetailsState(null);
     }
   }, [hasWorkflow]);
+
+  // The busy hint is gone when the turn is over.
+  const busy = state.status.busy;
+  useEffect(() => {
+    if (!busy) setHint(h => (h === BUSY_HINT ? null : h));
+  }, [busy]);
 
   // The ctrl+c hint is true for one second only.
   useEffect(() => {
@@ -161,7 +174,7 @@ export function App({ session, bus, info }: AppProps) {
     if (action === 'ctrl_c') {
       if (ctrlC.press(Date.now()) === 'exit') {
         if (stateRef.current.status.busy) session.cancel();
-        exit();
+        setExiting(true);
         return;
       }
       setEditor(EMPTY_EDITOR);
@@ -230,32 +243,36 @@ export function App({ session, bus, info }: AppProps) {
     <Box flexDirection="column">
       <Transcript
         items={state.finished}
-        problem={info.problem}
+        problem={problemName(info.problem)}
         model={info.model}
       />
-      <LiveArea live={state.live} busy={state.status.busy} />
-      {showPlan && state.workflow && (
-        <PlanView
-          workflow={state.workflow}
-          problem={state.status.problem}
-          costUsd={state.status.costUsd}
-          selected={state.approval ? null : details}
-        />
+      {!exiting && (
+        <>
+          <LiveArea live={state.live} busy={state.status.busy} />
+          {showPlan && state.workflow && (
+            <PlanView
+              workflow={state.workflow}
+              problem={state.status.problem}
+              costUsd={state.status.costUsd}
+              selected={state.approval ? null : details}
+            />
+          )}
+          {prompt}
+          {prompt === null && (
+            <Composer
+              value={editor}
+              onChange={changeEditor}
+              onSubmit={submit}
+              history={history}
+            />
+          )}
+          {hint === BUSY_HINT && <Text {...fg('warn')}> {hint}</Text>}
+          <StatusLine
+            status={state.status}
+            hint={hint === CTRL_C_HINT ? hint : null}
+          />
+        </>
       )}
-      {prompt}
-      {prompt === null && (
-        <Composer
-          value={editor}
-          onChange={changeEditor}
-          onSubmit={submit}
-          history={history}
-        />
-      )}
-      {hint === BUSY_HINT && <Text {...fg('warn')}> {hint}</Text>}
-      <StatusLine
-        status={state.status}
-        hint={hint === CTRL_C_HINT ? hint : null}
-      />
     </Box>
   );
 }
