@@ -169,10 +169,10 @@ function escapeRe(text: string): string {
 }
 
 describe('resolveChatStart', () => {
-  it('uses a folder with Config.json as the problem', () => {
+  it('uses a folder with Config.json as the problem, new ones go next to it', () => {
     expect(resolveChatStart(problem)).toEqual({
       problemDir: problem,
-      startDir: problem,
+      startDir: path.dirname(problem),
     });
   });
 
@@ -435,6 +435,29 @@ describe('createChatRuntime', () => {
     expect(toolResults(events).map(r => r.ok)).toEqual([true, true, true]);
     expect(provider.requests[0]?.system).toContain('"new-one"');
     expect(provider.requests[1]?.system).toContain('Count pairs');
+  });
+});
+
+describe('create_problem from an open problem', () => {
+  it('makes the new problem next to the open one, not inside it', async () => {
+    const runner = new FakeRunner();
+    const { rt } = build(
+      [
+        { toolCall: { name: 'create_problem', args: { name: 'other' } } },
+        { text: 'Created.' },
+      ],
+      { dir: problem, runner }
+    );
+    allowAll(rt);
+    expect(rt.problemDir()).toBe(problem);
+    expect(await rt.session.send('a new problem please')).toBe('done');
+
+    const parent = path.dirname(problem);
+    expect(runner.calls[0]).toEqual({
+      args: ['new', 'other', '--json'],
+      cwd: parent,
+    });
+    expect(rt.problemDir()).toBe(path.join(parent, 'other'));
   });
 });
 
