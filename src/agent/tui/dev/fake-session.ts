@@ -5,7 +5,7 @@
  * with the word "workflow" runs a scripted workflow: the plan approval, the
  * live task tree with a retried validator, and the final summary. A
  * message with the word "prove" runs a scripted prove_idea workflow that
- * finds a wrong sample.
+ * finds a wrong sample, and one with "idea" runs a scripted find_ideas.
  */
 
 import type {
@@ -537,6 +537,143 @@ const PROVE_RUN: [number, AgentEvent[]][] = [
   ],
 ];
 
+/** The plan of the scripted idea search, like `ideasPlan(3)` makes it. */
+export const IDEAS_PLAN: Plan = {
+  recipe: 'find_ideas',
+  tasks: [
+    task('idea-1', 'ideate', 'Idea 1: a twist on a classic', [], []),
+    task('idea-2', 'ideate', 'Idea 2: a hidden story', [], []),
+    task('idea-3', 'ideate', 'Idea 3: one clever observation', [], []),
+    task('critic-1', 'idea_critic', 'Critic 1', ['idea-1'], []),
+    task('critic-2', 'idea_critic', 'Critic 2', ['idea-2'], []),
+    task('critic-3', 'idea_critic', 'Critic 3', ['idea-3'], []),
+    task(
+      'rank',
+      'idea_rank',
+      'Rank the ideas',
+      ['idea-1', 'idea-2', 'idea-3', 'critic-1', 'critic-2', 'critic-3'],
+      []
+    ),
+    task('polish', 'ideate', 'Polish the best idea', ['rank'], []),
+    task('recheck', 'idea_critic', 'Recheck it', ['polish'], []),
+  ],
+};
+
+/** The scripted idea search: one idea is too slow and is fixed. */
+const IDEAS_RUN: [number, AgentEvent[]][] = [
+  [300, [started('idea-1'), started('idea-2'), started('idea-3')]],
+  [1200, [workerUsage(0.001)]],
+  [
+    700,
+    [
+      checkpoint(
+        'idea-2',
+        'complexity',
+        false,
+        'Courier Window: O(n^2) with n <= 200000 is about 4.0e+10 steps, too slow for 1 second'
+      ),
+      started('idea-2', 2),
+    ],
+  ],
+  [
+    600,
+    [
+      ...passed(
+        'idea-1',
+        'complexity',
+        'Mirror Window: O(n log n) with n <= 200000: about 3.5e+6 steps, fits',
+        'Mirror Window'
+      ),
+      started('critic-1'),
+    ],
+  ],
+  [
+    900,
+    [
+      workerUsage(0.001),
+      ...passed(
+        'idea-3',
+        'complexity',
+        'Heavy Start: O(n) with n <= 200000: about 2.0e+5 steps, fits',
+        'Heavy Start'
+      ),
+      started('critic-3'),
+    ],
+  ],
+  [
+    900,
+    [
+      ...passed(
+        'critic-1',
+        'critic',
+        '●●●○ · ~1700 · fresh · 1 issue',
+        'reviewed'
+      ),
+      ...passed(
+        'idea-2',
+        'complexity',
+        'Courier Window: O(n) with n <= 200000: about 2.0e+5 steps, fits',
+        'Courier Window',
+        2
+      ),
+      started('critic-2'),
+    ],
+  ],
+  [
+    800,
+    passed(
+      'critic-3',
+      'critic',
+      '●●●● · ~1200 · known: plain sliding window',
+      'reviewed'
+    ),
+  ],
+  [
+    900,
+    [
+      workerUsage(0.001),
+      ...passed('critic-2', 'critic', '●●●● · ~1500 · fresh', 'reviewed'),
+      started('rank'),
+    ],
+  ],
+  [
+    300,
+    [
+      ...passed(
+        'rank',
+        'rank',
+        'best: Mirror Window, then Courier Window, Heavy Start',
+        'ranked'
+      ),
+      started('polish'),
+    ],
+  ],
+  [
+    1100,
+    [
+      ...passed(
+        'polish',
+        'polish',
+        'Mirror Window: rewritten for 1 issue',
+        'polished'
+      ),
+      started('recheck'),
+    ],
+  ],
+  [
+    900,
+    [
+      workerUsage(0.001),
+      ...passed(
+        'recheck',
+        'critic',
+        '●●●● · ~1700 · fresh (was 1 issue)',
+        'reviewed'
+      ),
+    ],
+  ],
+];
+
 /** The cost of the scripted workflow: the sum of its usage events. */
 const DEMO_COST = runCost(DEMO_RUN);
 
@@ -701,6 +838,7 @@ export class FakeSession implements AgentSessionApi {
   ): Promise<string> {
     if (/workflow/i.test(text)) return this.workflowStep(signal);
     if (/prove/i.test(text)) return this.proveStep(signal);
+    if (/\bideas?\b/i.test(text)) return this.ideasStep(signal);
     if (/markdown/i.test(text)) return this.markdownStep(signal);
     if (turn === 1) return this.thinkStep(signal);
     if (turn === 2) return this.buildStep(signal);
@@ -947,6 +1085,45 @@ export class FakeSession implements AgentSessionApi {
     ].join('\n');
     await this.stream(answer, signal);
     this.usage(4800, 90, 0.0024);
+    return answer;
+  }
+
+  /** The scripted find_ideas run, with no approval: it only thinks. */
+  private async ideasStep(signal: AbortSignal): Promise<string> {
+    this.usage(2500, 80, 0.0009);
+    this.bus.emit({
+      type: 'tool_call',
+      callId: 'i1',
+      name: 'find_ideas',
+      args: { topic: 'two pointers', wish: 'novel' },
+      risk: 'read',
+    });
+    await this.sleep(300, signal);
+    this.bus.emit({ type: 'plan_created', plan: IDEAS_PLAN });
+    for (const [ms, events] of IDEAS_RUN) {
+      await this.sleep(ms, signal);
+      for (const e of events) this.bus.emit(e);
+    }
+    await this.sleep(300, signal);
+    const summary = 'find_ideas: 3 of 3 ideas passed, best: Mirror Window';
+    this.bus.emit({
+      type: 'workflow_done',
+      ok: true,
+      summary,
+      costUsd: runCost(IDEAS_RUN),
+    });
+    this.bus.emit({ type: 'tool_result', callId: 'i1', ok: true, summary });
+    const answer = [
+      'Three ideas, best first:',
+      '',
+      '1. **Mirror Window** (●●●● · ~1700 · fresh): count the subarrays where each value appears as often in the left half as in the right half.',
+      '2. **Courier Window** (●●●● · ~1500 · fresh): the longest range of packages whose cost, with the first package counted twice, fits in k.',
+      '3. **Heavy Start** (●●●● · ~1200 · known: plain sliding window): the classic, with a small twist.',
+      '',
+      'Which one should we take? Or should I look for other ones?',
+    ].join('\n');
+    await this.stream(answer, signal);
+    this.usage(4100, 120, 0.0016);
     return answer;
   }
 

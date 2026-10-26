@@ -27,7 +27,10 @@ export type TaskKind =
   | 'stress'
   | 'sample_check'
   | 'max_test'
-  | 'kill_wrong';
+  | 'kill_wrong'
+  | 'ideate'
+  | 'idea_critic'
+  | 'idea_rank';
 
 /** One task of a plan. */
 export interface PlanTask {
@@ -48,7 +51,12 @@ export interface PlanTask {
 
 /** A recipe filled in by the manager. */
 export interface Plan {
-  recipe: 'build_problem' | 'fix_verify' | 'strengthen_tests' | 'prove_idea';
+  recipe:
+    | 'build_problem'
+    | 'fix_verify'
+    | 'strengthen_tests'
+    | 'prove_idea'
+    | 'find_ideas';
   tasks: PlanTask[];
 }
 

@@ -31,6 +31,9 @@ export const TASK_KINDS: readonly TaskKind[] = [
   'sample_check',
   'max_test',
   'kill_wrong',
+  'ideate',
+  'idea_critic',
+  'idea_rank',
 ];
 
 /** Kinds that polyman runs without a model. */
@@ -93,6 +96,12 @@ export function recipeDescription(recipe: Plan['recipe']): string {
         'Recipe prove_idea. polyman makes this plan from the spec by itself:',
         '- quick programs: a brute force, the intended solution, a random generator, one per wrong approach.',
         '- checks (no model): stress, sample_check, max_test, kill_wrong.',
+      ].join('\n');
+    case 'find_ideas':
+      return [
+        'Recipe find_ideas. polyman runs it by itself, before there is a spec:',
+        '- ideate: one idea per angle, then a check of its complexity against its constraints.',
+        '- idea_critic: one review per idea. idea_rank (no model) orders them.',
       ].join('\n');
   }
 }
@@ -354,11 +363,25 @@ const KIND_INFO: Record<TaskKind, KindInfo> = {
   sample_check: noModelInfo('check the samples against brute and main'),
   max_test: noModelInfo('time main on max tests'),
   kill_wrong: noModelInfo('check that the wrong approach fails'),
+  ideate: ideaInfo('write one problem idea'),
+  idea_critic: ideaInfo('review one problem idea'),
+  idea_rank: noModelInfo('rank the ideas'),
   scaffold: noModelInfo('create the problem folder'),
   checker: noModelInfo('pick a standard checker'),
   generate_validate: noModelInfo('generate and validate the tests'),
   verify: noModelInfo('run verify'),
 };
+
+/** The idea workflow calls the model itself, with no worker session. */
+function ideaInfo(what: string): KindInfo {
+  return {
+    task: `The idea workflow does this task with one model call (${what}). It is not a worker task.`,
+    files: 'none',
+    skills: [],
+    check: `polyman checks it by itself: it will ${what}.`,
+    rules: ['Do not change files.'],
+  };
+}
 
 function noModelInfo(what: string): KindInfo {
   return {
@@ -466,7 +489,8 @@ export function chatSystemPrompt(env: ChatPromptEnv): string {
     'You help the setter think about a problem, write its spec, then build it with the polyman workflow.',
     '',
     'The flow, in this order:',
-    '1. Think: the user gives an idea. Ask the setter questions first. Do not write the spec in this answer.',
+    '0. Ideas: when the user asks for problem ideas (or other, more novel ones), call find_ideas. Never invent ideas yourself in the answer. Show the ranked ideas and ask which one to take.',
+    '1. Think: the user gives an idea, or picks one from find_ideas. Ask the setter questions first. Do not write the spec in this answer.',
     '2. Spec: after the user answers, write the full spec with write_notes, give a 3 line summary, and ask: "Should I build the problem?"',
     '3. Build: when the user says build, call create_problem if there is no problem folder, then start_workflow with recipe prove_idea. When every check of it passed, call start_workflow with recipe build_problem right away.',
     '4. Report: when start_workflow returns, tell the user the result in 2 or 3 lines and stop.',
@@ -475,6 +499,8 @@ export function chatSystemPrompt(env: ChatPromptEnv): string {
     '- When prove_idea fails, do not build. Tell the user what failed in 2 or 3 lines, with the counterexample.',
     '- If it says a sample looks wrong (brute and main agree on another output), fix that sample with write_notes and say so.',
     '- "prove it" or "check the idea" means start_workflow with recipe prove_idea only, no build.',
+    '- "more novel", "other ideas" or "something else" means find_ideas again: put what the user wants in wish and the titles already shown in avoid.',
+    '- Never think out loud in the answer ("Wait, that is too complex"). Give only the final answer.',
     '',
     'Rules:',
     '- You never write solutions, validators, generators, statements, tests or Config.json yourself. The workflow writes them.',

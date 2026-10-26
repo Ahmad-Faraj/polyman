@@ -216,6 +216,7 @@ describe('createChatRuntime', () => {
       'read_notes',
       'write_notes',
       'start_workflow',
+      'find_ideas',
     ]) {
       expect(names).toContain(name);
     }

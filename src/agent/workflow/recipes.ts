@@ -31,6 +31,7 @@ export const NO_MODEL_KINDS: readonly TaskKind[] = [
   'sample_check',
   'max_test',
   'kill_wrong',
+  'idea_rank',
 ];
 
 /**
@@ -145,6 +146,11 @@ export const RECIPES: Record<Plan['recipe'], Recipe> = {
       max_test: ['proto_main', 'proto_gen'],
       kill_wrong: ['stress'],
     },
+  },
+  find_ideas: {
+    kinds: ['ideate', 'idea_critic', 'idea_rank'],
+    required: ['ideate', 'idea_critic', 'idea_rank'],
+    after: { idea_critic: ['ideate'], idea_rank: '*' },
   },
 };
 
