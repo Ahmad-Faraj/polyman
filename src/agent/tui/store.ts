@@ -47,6 +47,8 @@ export interface ToolView {
   args: string;
   /** The last progress line, or null before the first one. */
   lastLine: string | null;
+  /** What a file write would change, for the approval box. */
+  preview?: string;
 }
 
 /** A tool approval the user must answer. */
@@ -164,7 +166,7 @@ export function initialState(info: {
     planApproval: null,
     workflow: null,
     status: {
-      problem: info.problem,
+      problem: problemName(info.problem),
       model: info.model,
       mode: info.mode ?? 'ask',
       tokens: 0,
@@ -212,10 +214,57 @@ export function shortArgs(args: unknown, max = 50): string {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
+/** Most lines of a file write we keep for the approval preview. */
+const PREVIEW_MAX_LINES = 200;
+
+/** `text` as diff lines, each starting with `sign` and a space. */
+function diffLines(text: string, sign: '+' | '-'): string[] {
+  return text
+    .replace(/\r\n?/g, '\n')
+    .replace(/\n$/, '')
+    .split('\n')
+    .slice(0, PREVIEW_MAX_LINES)
+    .map(line => `${sign} ${line}`);
+}
+
+/**
+ * A short diff of a file write, from the tool arguments: the new content of
+ * `write_file` as `+` lines, the old and new text of `edit_file` as `-` and
+ * `+` lines. The permission gate sends only a title for these tools, so
+ * without this the user would approve a write without seeing it.
+ */
+export function previewOf(args: unknown): string | undefined {
+  if (!args || typeof args !== 'object' || Array.isArray(args)) {
+    return undefined;
+  }
+  const obj = args as Record<string, unknown>;
+  if (typeof obj['content'] === 'string') {
+    return diffLines(obj['content'], '+').join('\n');
+  }
+  if (
+    typeof obj['old_text'] === 'string' &&
+    typeof obj['new_text'] === 'string'
+  ) {
+    return [
+      ...diffLines(obj['old_text'], '-'),
+      ...diffLines(obj['new_text'], '+'),
+    ].join('\n');
+  }
+  return undefined;
+}
+
 /** The last name of a folder path. */
 function baseName(dir: string): string {
   const parts = dir.split(/[\\/]+/).filter(p => p.length > 0);
   return parts[parts.length - 1] ?? dir;
+}
+
+/**
+ * The problem name we show: the last folder name of `dir`, so a full path
+ * like `/home/me/pairs-sum` does not fill the header and the status line.
+ */
+export function problemName(dir: string | null): string | null {
+  return dir === null ? null : baseName(dir);
 }
 
 /** Adds items to `finished`, with ids. */
@@ -495,20 +544,20 @@ export function reduce(state: UiState, e: UiAction): UiState {
 
     case 'tool_call': {
       const flushed = flushText(state);
+      const tool: ToolView = {
+        callId: e.callId,
+        name: e.name,
+        args: shortArgs(e.args),
+        lastLine: null,
+      };
+      const preview = e.risk === 'write' ? previewOf(e.args) : undefined;
+      if (preview !== undefined) tool.preview = preview;
       return {
         ...flushed,
         live: {
           ...flushed.live,
           reasoning: '',
-          runningTools: [
-            ...flushed.live.runningTools,
-            {
-              callId: e.callId,
-              name: e.name,
-              args: shortArgs(e.args),
-              lastLine: null,
-            },
-          ],
+          runningTools: [...flushed.live.runningTools, tool],
         },
       };
     }
@@ -553,8 +602,9 @@ export function reduce(state: UiState, e: UiAction): UiState {
         toolName: tool?.name ?? 'this tool',
         title: e.title,
       };
+      const preview = e.preview ?? tool?.preview;
       if (e.command !== undefined) approval.command = e.command;
-      if (e.preview !== undefined) approval.preview = e.preview;
+      if (preview !== undefined) approval.preview = preview;
       return { ...state, approval };
     }
 

@@ -4,6 +4,7 @@ import type { Plan } from '../../../src/agent/workflow/types';
 import {
   initialState,
   MAX_TASK_TOOLS,
+  previewOf,
   reduce,
   shortArgs,
   type UiAction,
@@ -36,6 +37,14 @@ describe('tui store', () => {
       costUsd: 0,
       busy: false,
     });
+  });
+
+  it('shows only the folder name when the problem is a full path', () => {
+    const s = initialState({ problem: '/home/me/work/pairs-sum', model: 'm' });
+    expect(s.status.problem).toBe('pairs-sum');
+    expect(initialState({ problem: null, model: 'm' }).status.problem).toBe(
+      null
+    );
   });
 
   it('adds the user message and marks busy', () => {
@@ -198,6 +207,46 @@ describe('tui store', () => {
       })
     );
     expect(s.approval).toBeNull();
+  });
+
+  it('a write approval without a preview shows the written content', () => {
+    const write = (args: unknown) =>
+      ev({
+        type: 'tool_call',
+        callId: 'c1',
+        name: 'write_file',
+        args,
+        risk: 'write',
+      });
+    const ask = ev({
+      type: 'approval_needed',
+      approvalId: 'a1',
+      callId: 'c1',
+      title: 'Write hello.txt',
+    });
+    let s = run(start(), [
+      write({ path: 'hello.txt', content: 'hi\nthere\n' }),
+      ask,
+    ]);
+    expect(s.approval?.preview).toBe('+ hi\n+ there');
+    s = run(start(), [
+      ev({
+        type: 'tool_call',
+        callId: 'c1',
+        name: 'edit_file',
+        args: { path: 'a.cpp', old_text: 'int x;', new_text: 'long long x;' },
+        risk: 'write',
+      }),
+      ask,
+    ]);
+    expect(s.approval?.preview).toBe('- int x;\n+ long long x;');
+    // A preview from the gate wins, and read tools keep none.
+    s = run(start(), [
+      write({ path: 'a', content: 'x' }),
+      { ...ask, preview: '+ gate' },
+    ]);
+    expect(s.approval?.preview).toBe('+ gate');
+    expect(previewOf({ path: 'a' })).toBeUndefined();
   });
 
   it('local actions: notice, set_mode, approval_answered, turn_settled', () => {
