@@ -9,7 +9,7 @@ Target at the end: **one problem goes from idea to a passing `verify` live, in u
 - **No project code before 1:00 PM** (MLH rule). Before the event we only have the CLI that already exists, these design docs and the task briefs in [`briefs/`](briefs/). All of it is plan, no agent code.
 - **Coding tools:** the organizers confirmed that Claude Code is allowed for writing the code. Hamza, Faraj (Claude Max) and Mazen use Claude Code. Monir uses Monir's own setup (Antigravity, OpenCode, GitHub Copilot, Codex).
 - **The product runs on an open model:** the agent inside `polyman chat` runs on **Gemma 4** through OpenRouter. The submission and the PR say both things clearly.
-- **The repo for the day: [Ahmad-Faraj/polyman](https://github.com/Ahmad-Faraj/polyman)** (Faraj's fork). Faraj adds Hamza, Monir and Mazen as collaborators with write access. Locally the remote is called `faraj`.
+- **The repo for the day: [Ahmad-Faraj/polyman](https://github.com/Ahmad-Faraj/polyman)** (Faraj's fork). Faraj adds Hamza, Monir and Mazen as collaborators with write access. Locally that repo is the `origin` remote; Hamza's own repo is `hamza`.
 - **One integration branch: `feat/agent-hackday`** on that repo, from the latest `master` (`2993b99`). Its first commits are the plan and "keep only the test workflow". Every task branch comes back to it through a pull request. A draft PR from `feat/agent-hackday` to `master` stays open all day, and Faraj reviews it at the end.
 - **CI: only the test workflow (`ci.yml`) runs.** The other workflows (CodeQL, corpus, mutation, nightly, docs deploy, release) are removed for the hack day, in one separate commit that we can revert later.
 - **API keys never go in the repo.** Keys live in `~/.config/openrouter.env` (mode 600). Before every push: `git grep -n "sk-or-v1"` must find nothing.
@@ -110,7 +110,7 @@ claude --model opus --permission-mode acceptEdits \
 ```mermaid
 %%{init: {"flowchart": {"htmlLabels": false}} }%%
 flowchart LR
-  master["faraj/master"] --> hack["feat/agent-hackday (integration)"]
+  master["origin/master (Faraj)"] --> hack["feat/agent-hackday (integration)"]
   hack --> wa["hack/w0..w4, w0b (Hamza)"]
   hack --> wd["hack/w6, w7, w10 (Faraj)"]
   hack --> w5["hack/w5-tui, w9 (Monir)"]
@@ -144,10 +144,10 @@ git push -u origin hack/w12-safety
 gh pr create --base feat/agent-hackday --title "agent: safety tests" --body "Brief: design/agent/briefs/W12-safety-tests.md"
 
 # Hamza, at the merge time
-git fetch faraj && git switch feat/agent-hackday && git pull
-gh pr merge <n> --merge          # or: git merge --no-ff faraj/hack/w5-tui
+git fetch origin && git switch feat/agent-hackday && git pull
+gh pr merge <n> --merge          # or: git merge --no-ff origin/hack/w5-tui
 npm run build && npm run lint && npm test
-git grep -n "sk-or-v1" && echo "KEY FOUND, DO NOT PUSH" || git push faraj feat/agent-hackday
+git grep -n "sk-or-v1" && echo "KEY FOUND, DO NOT PUSH" || git push origin feat/agent-hackday
 ```
 
 - Commit messages: `agent: ...` for agent code, `tui: ...` for the UI, `evals: ...` for probe and test problems, `docs: ...` for docs. Lowercase, short, like the repo log.
