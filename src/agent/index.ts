@@ -38,17 +38,21 @@ import {
 export interface ChatStart {
   /** The problem folder, or null in "new problem" mode. */
   problemDir: string | null;
-  /** The folder `create_problem` makes the new problem in. */
+  /**
+   * The folder `create_problem` makes a new problem in. For a chat started
+   * in a problem folder it is the parent, so a new problem goes next to it.
+   */
   startDir: string;
   /** The folder name the user asked for, for `create_problem`. */
   suggestedName?: string;
 }
 
 /**
- * Finds where the chat starts. A folder with `Config.json` is the problem.
- * Else there is no problem yet: a folder that does not exist names the new
- * problem and it is made next to it; an existing folder without
- * `Config.json` (or no `dir`) is where new problems are made.
+ * Finds where the chat starts. A folder with `Config.json` is the problem,
+ * and new problems are made next to it. Else there is no problem yet: a
+ * folder that does not exist names the new problem and it is made next to
+ * it; an existing folder without `Config.json` (or no `dir`) is where new
+ * problems are made.
  */
 export function resolveChatStart(
   dir: string | undefined,
@@ -56,7 +60,7 @@ export function resolveChatStart(
 ): ChatStart {
   const target = path.resolve(cwd, dir ?? '.');
   if (fs.existsSync(path.join(target, 'Config.json'))) {
-    return { problemDir: target, startDir: target };
+    return { problemDir: target, startDir: path.dirname(target) };
   }
   if (dir === undefined || fs.existsSync(target)) {
     return { problemDir: null, startDir: target };
@@ -183,16 +187,13 @@ export function createChatRuntime(opts: ChatRuntimeOptions): ChatRuntime {
 
 /**
  * `create_problem` makes the folder in `ctx.problemDir ?? process.cwd()`.
- * Before a problem exists, this makes it use the chat's start folder.
+ * This makes it always use the chat's start folder, so a new problem is
+ * never made inside the problem that is open now.
  */
 function inFolder(tool: Tool, folder: () => string): Tool {
   return {
     ...tool,
-    run: (args, ctx) =>
-      tool.run(
-        args,
-        ctx.problemDir === null ? { ...ctx, problemDir: folder() } : ctx
-      ),
+    run: (args, ctx) => tool.run(args, { ...ctx, problemDir: folder() }),
   };
 }
 

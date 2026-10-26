@@ -6,9 +6,20 @@
 import { render } from 'ink';
 import type { EventBus } from '../core/events.js';
 import type { AgentSessionApi } from '../core/session-types.js';
-import { App, type TuiInfo } from './App.js';
+import { App, CLEAR_TERMINAL, type TuiInfo } from './App.js';
 
 export type { TuiInfo } from './App.js';
+
+/**
+ * Clears the screen and the scrollback, so the chat starts at the top of
+ * the terminal. Only on a terminal: a pipe gets no escape codes.
+ */
+export function clearOnStart(out: {
+  isTTY?: boolean;
+  write(text: string): unknown;
+}): void {
+  if (out.isTTY) out.write(CLEAR_TERMINAL);
+}
 
 /**
  * Draws the chat and resolves when the user exits. Prints `Bye.` after.
@@ -21,6 +32,7 @@ export async function startTui(
   info: TuiInfo
 ): Promise<void> {
   let forced = false;
+  clearOnStart(process.stdout);
   const instance = render(
     <App
       session={session}
