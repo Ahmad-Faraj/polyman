@@ -562,7 +562,7 @@ async function runCase(id, opts, broken = false) {
   const outDir = path.join(
     HERE,
     'results',
-    `${broken ? `broken-${id}-${recipe}` : id}-${stamp}`
+    `${broken ? `broken-${id}-${recipe}` : id}-${stamp}-${process.pid}`
   );
   fs.mkdirSync(outDir, { recursive: true });
   const work = fs.mkdtempSync(path.join(os.tmpdir(), `polyman-real-${id}-`));
