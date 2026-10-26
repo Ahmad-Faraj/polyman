@@ -70,7 +70,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
 }
 
 /** The report, when stdout was a JSON object. */
-function reportOf<T>(result: RunResult): T | undefined {
+export function reportOf<T>(result: RunResult): T | undefined {
   return isObject(result.json) ? (result.json as T) : undefined;
 }
 
@@ -95,11 +95,11 @@ function errorLines(result: RunResult, count: number): string[] {
   return lastStderrLines(result, count);
 }
 
-function logLine(result: RunResult): string {
+export function logLine(result: RunResult): string {
   return `Full log: ${result.logPath || '(not written)'}`;
 }
 
-function oneLine(text: string, max = 300): string {
+export function oneLine(text: string, max = 300): string {
   const flat = text.replace(/\s+/g, ' ').trim();
   return flat.length > max ? `${flat.slice(0, max)}...` : flat;
 }
@@ -117,7 +117,10 @@ function missingToolName(lines: string[]): string {
  * cancel, exit 2, 3, 4 and runs without a JSON report. Null when the report
  * digest of the command should be used.
  */
-function commonDigest(name: string, result: RunResult): ToolOutput | null {
+export function commonDigest(
+  name: string,
+  result: RunResult
+): ToolOutput | null {
   if (result.reason === 'timeout') {
     return {
       content: `${name} timed out after ${Math.round(result.durationMs / SECOND)} s and was stopped. ${logLine(result)}`,
@@ -358,7 +361,11 @@ function verifyDigest(report: VerifyReport): string[] {
 }
 
 /** Joins digest lines, adds the log line, and keeps at most `max` lines. */
-function finish(lines: string[], result: RunResult, max: number): string {
+export function finish(
+  lines: string[],
+  result: RunResult,
+  max: number
+): string {
   const body =
     lines.length > max - 1
       ? [
@@ -385,7 +392,7 @@ function runCli(
 }
 
 /** Runs a command, and says "cancelled" when the run was aborted early. */
-async function runForTool(
+export async function runForTool(
   name: string,
   ctx: ToolContext,
   args: string[],
@@ -402,11 +409,11 @@ async function runForTool(
   }
 }
 
-function isOutput(value: RunResult | ToolOutput): value is ToolOutput {
+export function isOutput(value: RunResult | ToolOutput): value is ToolOutput {
   return 'content' in value;
 }
 
-function problemDirOf(ctx: ToolContext): string {
+export function problemDirOf(ctx: ToolContext): string {
   if (ctx.problemDir === null) {
     throw new Error('No problem folder yet. Create the problem first.');
   }

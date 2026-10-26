@@ -158,6 +158,14 @@ describe('chat prompt', () => {
       'Problem folder: /x/pairs'
     );
   });
+
+  it('sends Polygon work to the remote tools and keeps keys out', () => {
+    const p = chatSystemPrompt({ problemDir: null });
+    expect(p).toContain('remote_push');
+    expect(p).toContain('remote_commit');
+    expect(p).toContain('Never ask for, write or repeat API keys or secrets');
+    expect(p).toContain('polyman remote register');
+  });
 });
 
 describe('wrongSolutionList', () => {

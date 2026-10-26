@@ -24,6 +24,11 @@ import { skillTools } from './skills';
 import { cliTools } from './tools/cli-tools';
 import { fsTools } from './tools/fs-tools';
 import { NotesStore, notesTools } from './tools/notes-tools';
+import {
+  readPolygonCredentials,
+  remoteTools,
+  type PolygonCredentials,
+} from './tools/remote-tools';
 import { DefaultPermissionGate } from './tools/permissions';
 import { DefaultToolRegistry } from './tools/registry';
 import { FolderSandbox } from './tools/sandbox';
@@ -86,6 +91,12 @@ export interface ChatRuntimeOptions {
   createScheduler?: WorkflowToolOptions['createScheduler'];
   /** Base folder for a relative `dir`. Defaults to `process.cwd()`. */
   cwd?: string;
+  /**
+   * The registered Polygon credentials, or null. Defaults to reading
+   * `~/.polyman`. Read on each use, so a `remote register` run in another
+   * terminal works without a restart.
+   */
+  polygonCredentials?: () => PolygonCredentials | null;
 }
 
 /** A chat ready to run, without a UI. */
@@ -104,7 +115,15 @@ export interface ChatRuntime {
  */
 export function createChatRuntime(opts: ChatRuntimeOptions): ChatRuntime {
   const start = resolveChatStart(opts.dir, opts.cwd);
-  const secrets = opts.secrets ?? [];
+  const polygonCredentials = opts.polygonCredentials ?? readPolygonCredentials;
+  // The Polygon key and secret are redacted too, from tool output and errors.
+  const secrets = (): string[] => {
+    const polygon = polygonCredentials();
+    return [
+      ...(opts.secrets ?? []),
+      ...(polygon ? [polygon.apiKey, polygon.secret] : []),
+    ];
+  };
   const bus = new SimpleEventBus();
   const gate = new DefaultPermissionGate(bus, 'ask');
   const runner = opts.runner ?? new NodeCliRunner();
@@ -125,7 +144,7 @@ export function createChatRuntime(opts: ChatRuntimeOptions): ChatRuntime {
       model: opts.model,
       bus,
       gate,
-      secrets: () => secrets,
+      secrets,
     });
 
   const tools = new DefaultToolRegistry({
@@ -137,6 +156,7 @@ export function createChatRuntime(opts: ChatRuntimeOptions): ChatRuntime {
     ...cliTools().map(t =>
       t.name === 'create_problem' ? inFolder(t, () => start.startDir) : t
     ),
+    ...remoteTools({ credentials: polygonCredentials }),
     ...skillTools(),
     ...notesTools(notes),
     workflowTool({ readSpec: () => notes.read(), createScheduler, gate }),
@@ -175,7 +195,7 @@ export function createChatRuntime(opts: ChatRuntimeOptions): ChatRuntime {
         bus.emit({ type: 'problem_dir_changed', problemDir });
       },
     }),
-    secrets: () => secrets,
+    secrets,
     maxSteps: GEMMA_BUDGETS.chatMaxSteps,
     contextBudgetTokens: GEMMA_BUDGETS.contextBudgetTokens,
     maxOutputTokens: GEMMA_BUDGETS.maxOutputTokens,

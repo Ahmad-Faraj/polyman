@@ -3,6 +3,7 @@ import { useEffect, useReducer, useRef, useState, type ReactNode } from 'react';
 import { Box, Text, useApp, useInput, useStdout } from 'ink';
 import type { ApprovalDecision, EventBus } from '../core/events.js';
 import type { AgentSessionApi } from '../core/session-types.js';
+import { looksLikePolygonKey, PASTED_KEY_NOTICE } from '../core/pasted-key.js';
 import type { PermissionMode } from '../tools/types.js';
 import { initialState, pickTask, reduce } from './store.js';
 import { EMPTY_EDITOR, History, type EditorState } from './editor.js';
@@ -167,6 +168,12 @@ export function App({ session, bus, info, onForceExit }: AppProps) {
           text: `Unknown command /${command.name}. Type /help for the commands.`,
         });
       }
+      return;
+    }
+    if (looksLikePolygonKey(text)) {
+      // Not sent to the model and not kept in the history.
+      setEditor(EMPTY_EDITOR);
+      dispatch({ type: 'notice', level: 'warn', text: PASTED_KEY_NOTICE });
       return;
     }
     if (stateRef.current.status.busy) {

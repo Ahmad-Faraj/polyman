@@ -532,6 +532,52 @@ async function plain(
   return text;
 }
 
+describe('Polygon tools in the chat', () => {
+  it('registers them and redacts the Polygon key and secret', async () => {
+    const key = 'a'.repeat(40);
+    const secret = 'b'.repeat(40);
+    fs.writeFileSync(
+      path.join(problem, 'Config.json'),
+      '{"name":"pairs-sum","problemId":12345}'
+    );
+    const runner: CliRunner = {
+      run: () =>
+        Promise.resolve(
+          result({
+            json: {
+              ok: true,
+              problemId: 12345,
+              actions: [],
+              errors: [],
+              warnings: [],
+            },
+            stderrTail: `signed with ${key} and ${secret}\n`,
+          })
+        ),
+    };
+    const { rt, provider } = build(
+      [{ toolCall: { name: 'remote_view', args: {} } }, { text: 'Done.' }],
+      { runner, polygonCredentials: () => ({ apiKey: key, secret }) }
+    );
+    expect(await rt.session.send('show it on polygon')).toBe('done');
+
+    const names = provider.requests[0]?.tools?.map(t => t.name) ?? [];
+    for (const name of [
+      'remote_push',
+      'remote_commit',
+      'remote_package',
+      'remote_view',
+    ]) {
+      expect(names).toContain(name);
+    }
+    const tool = rt.session.messages.find(m => m.role === 'tool');
+    const text = JSON.stringify(tool?.parts);
+    expect(text).toContain('Polygon problem 12345');
+    expect(text).not.toContain(key);
+    expect(text).not.toContain(secret);
+  });
+});
+
 describe('runPlain', () => {
   it('sends a message, asks the approval, prints each event as a line', async () => {
     const { rt } = build([
@@ -559,6 +605,22 @@ describe('runPlain', () => {
         'utf8'
       )
     ).toBe(SPEC);
+  });
+
+  it('does not send a pasted Polygon key to the model', async () => {
+    const { rt, provider } = build([{ text: 'Hi.' }]);
+    const key = 'a'.repeat(40);
+    const secret = 'b'.repeat(40);
+    const out = await plain(rt, [
+      `My API key is ${key} and my secret is ${secret}`,
+      'hello',
+    ]);
+    expect(out).toContain('That looks like a Polygon key.');
+    expect(out).not.toContain(key);
+    expect(out).not.toContain(secret);
+    expect(provider.requests).toHaveLength(1);
+    expect(JSON.stringify(provider.requests)).not.toContain(key);
+    expect(out).toContain('you> hello');
   });
 
   it('denies when the user says no', async () => {

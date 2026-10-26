@@ -143,6 +143,10 @@ export function configSummary(text: string): string {
   lines.push(
     `- statements: ${typeof st === 'object' && st !== null ? Object.keys(st).join(', ') || 'none' : 'none'}`
   );
+  const id = c['problemId'];
+  lines.push(
+    `- polygon: ${typeof id === 'number' && id > 0 ? `problem ${id}` : 'not pushed yet (remote_push needs newProblemName)'}`
+  );
   return lines.join('\n');
 }
 
