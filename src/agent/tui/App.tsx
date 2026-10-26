@@ -3,7 +3,7 @@ import { Box, Text, useApp, useInput } from 'ink';
 import type { ApprovalDecision, EventBus } from '../core/events.js';
 import type { AgentSessionApi } from '../core/session-types.js';
 import type { PermissionMode } from '../tools/types.js';
-import { initialState, reduce, type ApprovalView } from './store.js';
+import { initialState, pickTask, reduce } from './store.js';
 import { EMPTY_EDITOR, History, type EditorState } from './editor.js';
 import {
   appKeyOf,
@@ -19,6 +19,8 @@ import {
 import { ApprovalPrompt } from './components/ApprovalPrompt.js';
 import { Composer } from './components/Composer.js';
 import { LiveArea } from './components/LiveArea.js';
+import { EDIT_PLAN_REASON, PlanApproval } from './components/PlanApproval.js';
+import { PlanView, TaskDetails } from './components/PlanView.js';
 import { StatusLine } from './components/StatusLine.js';
 import { Transcript } from './components/Transcript.js';
 import { fg } from './theme.js';
@@ -41,17 +43,19 @@ export interface AppProps {
   info: TuiInfo;
 }
 
-/** The text of a plan, for the plan approval box. */
-function planPreview(plan: { tasks: { id: string; title: string }[] }) {
-  return plan.tasks.map(t => `${t.id}  ${t.title}`).join('\n');
-}
-
 /** The chat: transcript, live area, approval, input and status line. */
 export function App({ session, bus, info }: AppProps) {
   const { exit } = useApp();
   const [state, dispatch] = useReducer(reduce, info, initialState);
   const [editor, setEditor] = useState<EditorState>(EMPTY_EDITOR);
   const [hint, setHint] = useState<string | null>(null);
+  // The task whose details are open (ctrl+o), an index into the plan tasks.
+  const [details, setDetailsState] = useState<number | null>(null);
+  const detailsRef = useRef<number | null>(null);
+  const setDetails = (next: number | null) => {
+    detailsRef.current = next;
+    setDetailsState(next);
+  };
   const history = useRef(new History()).current;
   const ctrlC = useRef(new CtrlCTracker()).current;
   // Keys can come faster than React renders: handlers read the newest state.
@@ -59,6 +63,15 @@ export function App({ session, bus, info }: AppProps) {
   stateRef.current = state;
 
   useEffect(() => bus.on(e => dispatch(e)), [bus]);
+
+  // The details close with the workflow.
+  const hasWorkflow = state.workflow !== null;
+  useEffect(() => {
+    if (!hasWorkflow) {
+      detailsRef.current = null;
+      setDetailsState(null);
+    }
+  }, [hasWorkflow]);
 
   // The ctrl+c hint is true for one second only.
   useEffect(() => {
@@ -126,6 +139,23 @@ export function App({ session, bus, info }: AppProps) {
     if (stateRef.current.status.busy) session.cancel();
   };
 
+  const toggleDetails = () => {
+    const s = stateRef.current;
+    if (detailsRef.current !== null) {
+      setDetails(null);
+    } else if (s.workflow && !s.planApproval && !s.approval) {
+      setDetails(pickTask(s.workflow));
+    }
+  };
+
+  const moveDetails = (step: number) => {
+    const wf = stateRef.current.workflow;
+    const at = detailsRef.current;
+    if (!wf || at === null) return;
+    const n = wf.plan.tasks.length;
+    setDetails((at + step + n) % n);
+  };
+
   useInput((input, key) => {
     const action = appKeyOf(input, key);
     if (action === 'ctrl_c') {
@@ -138,17 +168,36 @@ export function App({ session, bus, info }: AppProps) {
       setHint(CTRL_C_HINT);
     } else if (action === 'toggle_mode') {
       switchMode();
+    } else if (action === 'toggle_details') {
+      toggleDetails();
     } else if (action === 'interrupt') {
+      const s = stateRef.current;
       // With an approval box open, the box handles esc.
-      if (!stateRef.current.approval && !stateRef.current.planApproval) {
+      if (s.approval || s.planApproval) return;
+      if (detailsRef.current !== null) {
+        setDetails(null);
+      } else {
         interrupt();
       }
+    } else if (detailsRef.current !== null && !stateRef.current.approval) {
+      if (key.upArrow) moveDetails(-1);
+      else if (key.downArrow) moveDetails(1);
     }
   });
 
   const answer = (approvalId: string, decision: ApprovalDecision) => {
     session.resolveApproval(approvalId, decision);
-    dispatch({ type: 'approval_answered', approvalId });
+    dispatch({ type: 'approval_answered', approvalId, decision });
+  };
+
+  const answerPlan = (approvalId: string, decision: ApprovalDecision) => {
+    answer(approvalId, decision);
+    if (decision.reason === EDIT_PLAN_REASON) {
+      dispatch({
+        type: 'notice',
+        text: 'The plan did not run. Type what to change, and the agent makes a new plan.',
+      });
+    }
   };
 
   let prompt: ReactNode = null;
@@ -162,23 +211,20 @@ export function App({ session, bus, info }: AppProps) {
       />
     );
   } else if (state.planApproval) {
-    const view: ApprovalView = {
-      approvalId: state.planApproval.approvalId,
-      callId: '',
-      toolName: 'start_workflow',
-      title: `Run this plan? (${state.planApproval.plan.recipe}, ${state.planApproval.plan.tasks.length} tasks)`,
-      preview: planPreview(state.planApproval.plan),
-    };
     prompt = (
-      <ApprovalPrompt
-        key={view.approvalId}
-        approval={view}
-        variant="plan"
-        resolveApproval={answer}
-        onCancel={interrupt}
+      <PlanApproval
+        key={state.planApproval.approvalId}
+        approvalId={state.planApproval.approvalId}
+        plan={state.planApproval.plan}
+        problem={state.status.problem}
+        resolveApproval={answerPlan}
       />
     );
+  } else if (details !== null && state.workflow) {
+    prompt = <TaskDetails workflow={state.workflow} index={details} />;
   }
+
+  const showPlan = state.workflow !== null && state.planApproval === null;
 
   return (
     <Box flexDirection="column">
@@ -188,6 +234,14 @@ export function App({ session, bus, info }: AppProps) {
         model={info.model}
       />
       <LiveArea live={state.live} busy={state.status.busy} />
+      {showPlan && state.workflow && (
+        <PlanView
+          workflow={state.workflow}
+          problem={state.status.problem}
+          costUsd={state.status.costUsd}
+          selected={state.approval ? null : details}
+        />
+      )}
       {prompt}
       {prompt === null && (
         <Composer

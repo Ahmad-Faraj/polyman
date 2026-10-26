@@ -12,6 +12,8 @@ const PALETTE = {
   error: 'red',
   /** Warnings and TL. */
   warn: '#f5a623',
+  /** The TO tag. */
+  info: 'cyan',
   /** Inline code and code blocks. */
   code: 'magenta',
   /** Added lines of a diff. */
