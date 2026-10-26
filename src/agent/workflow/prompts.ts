@@ -6,7 +6,8 @@
  * long one (doc 06, "System prompt").
  */
 
-import type { Plan, TaskKind } from './types';
+import { parseSpec, wrongSolutionApproaches } from './spec';
+import type { Plan, Spec, TaskKind } from './types';
 
 /** Every task kind, in plan order. */
 export const TASK_KINDS: readonly TaskKind[] = [
@@ -76,6 +77,25 @@ export function recipeDescription(recipe: Plan['recipe']): string {
         '- verify (no model): ownsFiles []. dependsOn [generate_validate].',
       ].join('\n');
   }
+}
+
+/**
+ * The exact wrong_solution tasks a build_problem plan needs, from the spec,
+ * so the manager copies a list instead of counting (it took a TL line that
+ * is not the brute force for the brute force, and the plan was refused).
+ */
+export function wrongSolutionList(spec: Spec): string {
+  const wrong = wrongSolutionApproaches(parseSpec(spec));
+  if (wrong.length === 0) {
+    return 'The spec has no wrong approaches that need a wrong_solution task: the plan has no wrong_solution task.';
+  }
+  return [
+    `The plan needs exactly ${wrong.length} wrong_solution task${wrong.length === 1 ? '' : 's'}, one for each line here (the brute force is not in this list, brute_force covers it):`,
+    ...wrong.map(
+      (a, i) =>
+        `${i + 1}- params { approach: ${JSON.stringify(a.text)}, tag: "${a.verdict}" }`
+    ),
+  ].join('\n');
 }
 
 /** The manager's system prompt when it makes a plan. */
@@ -251,7 +271,10 @@ const KIND_INFO: Record<TaskKind, KindInfo> = {
       'Read the digest first. Find the cause before you edit anything.',
       'Read the files the digest names.',
       'Change only the files you own.',
-      'Never weaken a test or a validator to make a wrong solution pass.',
+      'Never weaken a test or a validator to make a wrong solution pass. Never change a tag, never delete a test or a validator test.',
+      'A correct solution (tag OK or TO) gets a wrong answer: the main solution is often the wrong one. A negative or strange "expected" value means main overflows. Fix main.',
+      'A wrong solution (tag WA, TL, ML, RE) passes every test: the tests are weak. Add a test that breaks it, like a line in the generator script. Do not change the wrong solution.',
+      'A validator test fails: the validator is wrong (read its bounds against the spec), not the test.',
       'Run verify yourself after the fix.',
     ],
   },

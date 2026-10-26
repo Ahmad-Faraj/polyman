@@ -10,7 +10,7 @@ import type { EventBus } from '../core/events';
 import type { Provider } from '../providers/types';
 import type { CliRunner } from '../runner/types';
 import { skillTools } from '../skills';
-import { CliCheckpoints } from '../workflow/checkpoints';
+import { CliCheckpoints, MemoCheckpoints } from '../workflow/checkpoints';
 import { GemmaManager } from '../workflow/manager';
 import {
   WorkflowScheduler,
@@ -176,7 +176,9 @@ export function gemmaSchedulerFactory(
   o: GemmaSchedulerOptions
 ): WorkflowToolOptions['createScheduler'] {
   return (problemDir, runner) => {
-    const checkpoints = new CliCheckpoints(runner);
+    // finish_task runs the check in the session; the memo skips the same
+    // check in the scheduler when nothing changed since.
+    const checkpoints = new MemoCheckpoints(new CliCheckpoints(runner));
     return new WorkflowScheduler({
       manager: new GemmaManager({
         provider: o.provider,

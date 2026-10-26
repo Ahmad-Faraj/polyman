@@ -5,6 +5,7 @@ import os from 'os';
 import path from 'path';
 import {
   CliCheckpoints,
+  MemoCheckpoints,
   chooseChecker,
   verifyDigest,
 } from '../../../src/agent/workflow/checkpoints';
@@ -19,7 +20,11 @@ import type {
   RunOptions,
   RunResult,
 } from '../../../src/agent/runner/types';
-import type { PlanTask } from '../../../src/agent/workflow/types';
+import type {
+  Checkpoint,
+  Checkpoints,
+  PlanTask,
+} from '../../../src/agent/workflow/types';
 
 const FENCE = '```';
 
@@ -104,6 +109,14 @@ beforeEach(async () => {
 afterEach(async () => {
   await fs.rm(dir, { recursive: true, force: true });
 });
+
+/** Writes each file under `dir` with some text of its own. */
+async function writeFiles(files: string[]): Promise<void> {
+  for (const file of files) {
+    await fs.mkdir(path.dirname(path.join(dir, file)), { recursive: true });
+    await fs.writeFile(path.join(dir, file), `written for ${file}\n`);
+  }
+}
 
 describe('sameTokens', () => {
   it('compares whitespace-separated tokens', () => {
@@ -241,6 +254,7 @@ describe('CliCheckpoints with a fake runner', () => {
         },
       },
     });
+    await writeFiles(['validator/val.cpp']);
     const cp = await new CliCheckpoints(runner).check(
       task('validator', ['validator/val.cpp']),
       SPEC,
@@ -256,6 +270,7 @@ describe('CliCheckpoints with a fake runner', () => {
 
   it('generators runs generate --all', async () => {
     const runner = new FakeRunner({});
+    await writeFiles(['generators/gen.cpp']);
     const cp = await new CliCheckpoints(runner).check(
       task('generators', ['generators/gen.cpp']),
       SPEC,
@@ -266,10 +281,99 @@ describe('CliCheckpoints with a fake runner', () => {
     expect(cp.ok).toBe(true);
   });
 
+  it('validator and generators fail when a file is missing or still the template', async () => {
+    const template = await fs.mkdtemp(path.join(os.tmpdir(), 'polyman-tpl-'));
+    try {
+      await fs.mkdir(path.join(template, 'validator'));
+      await fs.writeFile(path.join(template, 'validator/val.cpp'), 'tpl\n');
+      await fs.mkdir(path.join(dir, 'validator'));
+      await fs.writeFile(path.join(dir, 'validator/val.cpp'), 'tpl\n');
+      const runner = new FakeRunner({});
+      const checkpoints = new CliCheckpoints(runner, template);
+
+      const same = await checkpoints.check(
+        task('validator', ['validator/val.cpp', 'validator/tests.json']),
+        SPEC,
+        dir,
+        signal
+      );
+      expect(same.ok).toBe(false);
+      expect(same.name).toBe('validator files');
+      expect(same.digest).toBe(
+        'missing: validator/tests.json\nstill the template file, not written for this problem: validator/val.cpp'
+      );
+
+      const gen = await checkpoints.check(
+        task('generators', ['./generators/gen.cpp']),
+        SPEC,
+        dir,
+        signal
+      );
+      expect(gen.ok).toBe(false);
+      expect(gen.digest).toBe('missing: generators/gen.cpp');
+      // The CLI never ran: a worker that wrote nothing must not pass.
+      expect(runner.calls).toEqual([]);
+
+      await fs.writeFile(path.join(dir, 'validator/val.cpp'), 'mine\n');
+      await writeFiles(['validator/tests.json']);
+      const good = await checkpoints.check(
+        task('validator', ['validator/val.cpp', 'validator/tests.json']),
+        SPEC,
+        dir,
+        signal
+      );
+      expect(good.ok).toBe(true);
+    } finally {
+      await fs.rm(template, { recursive: true, force: true });
+    }
+  });
+
+  it('generate_validate fails when Config.json still uses the template validator or script', async () => {
+    const template = await fs.mkdtemp(path.join(os.tmpdir(), 'polyman-tpl-'));
+    try {
+      await fs.mkdir(path.join(template, 'generators'));
+      await fs.writeFile(
+        path.join(template, 'generators/gen-script.txt'),
+        'g\n'
+      );
+      await fs.mkdir(path.join(dir, 'generators'));
+      await fs.writeFile(path.join(dir, 'generators/gen-script.txt'), 'g\n');
+      await writeFiles(['validator/val.cpp']);
+      await fs.writeFile(
+        path.join(dir, 'Config.json'),
+        JSON.stringify({
+          validator: { name: 'v', source: './validator/val.cpp' },
+          generators: [{ name: 'gen', source: './generators/unused.cpp' }],
+          testsets: [
+            {
+              name: 'tests',
+              generatorScript: { scriptFile: './generators/gen-script.txt' },
+            },
+          ],
+        })
+      );
+      const runner = new FakeRunner({});
+      const out = await new CliCheckpoints(runner, template).runNoModelTask(
+        task('generate_validate'),
+        SPEC,
+        dir,
+        signal
+      );
+      expect(out.checkpoint.ok).toBe(false);
+      expect(out.checkpoint.digest).toContain(
+        'still the template file, not written for this problem: generators/gen-script.txt'
+      );
+      expect(runner.calls).toEqual([]);
+    } finally {
+      await fs.rm(template, { recursive: true, force: true });
+    }
+  });
+
   it('a timeout of the CLI is a failed checkpoint', async () => {
     const runner = new FakeRunner({
       'generate --all --json': { exitCode: null, reason: 'timeout' },
     });
+    await writeFiles(['g.cpp']);
     const cp = await new CliCheckpoints(runner).check(
       task('generators', ['g.cpp']),
       SPEC,
@@ -540,5 +644,50 @@ describe('chooseChecker', () => {
 describe('verifyDigest', () => {
   it('handles a missing report', () => {
     expect(verifyDigest(undefined)).toBe('verify printed no JSON report');
+  });
+});
+
+describe('MemoCheckpoints', () => {
+  class Counting implements Checkpoints {
+    checks = 0;
+    result: Checkpoint = { name: 'generate', ok: true, digest: '' };
+    check(): Promise<Checkpoint> {
+      this.checks++;
+      return Promise.resolve({ ...this.result });
+    }
+    runNoModelTask(): Promise<{ checkpoint: Checkpoint }> {
+      return Promise.resolve({ checkpoint: { ...this.result } });
+    }
+  }
+
+  it('skips the second check of a task when its files did not change', async () => {
+    const inner = new Counting();
+    const memo = new MemoCheckpoints(inner);
+    const t = task('generators', ['gen.cpp']);
+    await fs.writeFile(path.join(dir, 'gen.cpp'), 'v1');
+    await fs.writeFile(path.join(dir, 'Config.json'), '{}');
+
+    expect((await memo.check(t, SPEC, dir, signal)).ok).toBe(true);
+    expect((await memo.check(t, SPEC, dir, signal)).ok).toBe(true);
+    expect(inner.checks).toBe(1);
+
+    // A changed owned file or Config.json runs the check again.
+    await fs.writeFile(path.join(dir, 'gen.cpp'), 'v2');
+    await memo.check(t, SPEC, dir, signal);
+    expect(inner.checks).toBe(2);
+    await fs.writeFile(path.join(dir, 'Config.json'), '{"a":1}');
+    await memo.check(t, SPEC, dir, signal);
+    expect(inner.checks).toBe(3);
+  });
+
+  it('never remembers a failed check', async () => {
+    const inner = new Counting();
+    inner.result = { name: 'generate', ok: false, digest: 'bad' };
+    const memo = new MemoCheckpoints(inner);
+    const t = task('generators', ['gen.cpp']);
+    await fs.writeFile(path.join(dir, 'gen.cpp'), 'v1');
+    await memo.check(t, SPEC, dir, signal);
+    await memo.check(t, SPEC, dir, signal);
+    expect(inner.checks).toBe(2);
   });
 });

@@ -414,12 +414,11 @@ export function renderReport(run, events) {
   L.push(
     `| verify | ${yes(run.verify?.ok)}${run.verify?.ok ? '' : ` (failed step: ${cell(run.verify?.failedStep)})`} |`
   );
-  L.push(
-    `| hidden: reference main on the agent's tests | ${yes(run.hidden?.refOnAgentTests?.ok)}: ${cell(run.hidden?.refOnAgentTests?.detail)} |`
-  );
-  L.push(
-    `| hidden: agent's main on the reference tests | ${yes(run.hidden?.agentMainOnRefTests?.ok)}: ${cell(run.hidden?.agentMainOnRefTests?.detail)} |`
-  );
+  for (const [name, check] of Object.entries(run.hidden ?? {})) {
+    L.push(
+      `| hidden: ${HIDDEN_NAMES[name] ?? name} | ${yes(check?.ok)}: ${cell(check?.detail)} |`
+    );
+  }
   L.push(
     `| time | workflow ${secs(run.workflowMs)}, total ${secs(run.totalMs)} |`
   );
@@ -547,22 +546,36 @@ export function renderReport(run, events) {
   return `${L.join('\n').trimEnd()}\n`;
 }
 
+/** Long names of the hidden checks for the report. */
+const HIDDEN_NAMES = {
+  refOnAgentTests: "reference main on the agent's tests",
+  agentMainOnRefTests: "agent's main on the reference tests",
+  changedFiles: 'files the agent changed',
+  noWrongFix: 'no wrong fix (retag, test change, wrong solution change)',
+};
+
 /** The short table after `--all`. */
 export function renderSummary(runs) {
   const L = [
-    '| case | workflow | verify | ref main on agent tests | agent main on ref tests | time | calls | tokens in/out | cost |',
-    '| --- | --- | --- | --- | --- | --- | --- | --- | --- |',
+    '| case | workflow | verify | hidden checks | time | calls | tokens in/out | cost |',
+    '| --- | --- | --- | --- | --- | --- | --- | --- |',
   ];
   let total = 0;
   for (const r of runs) {
     if (r.crashed) {
-      L.push(`| ${r.case} | crashed: ${cell(r.crashed)} | | | | | | | |`);
+      L.push(`| ${r.case} | crashed: ${cell(r.crashed)} | | | | | | |`);
       continue;
     }
     total += r.costUsd ?? 0;
     const ok = x => (x ? 'pass' : 'FAIL');
     L.push(
-      `| ${r.case} | ${ok(r.workflow?.ok)} | ${ok(r.verify?.ok)} | ${ok(r.hidden?.refOnAgentTests?.ok)} | ${ok(r.hidden?.agentMainOnRefTests?.ok)} | ${secs(r.totalMs)} | ${r.calls} | ${r.inputTokens}/${r.outputTokens} | ${money(r.costUsd)} |`
+      `| ${r.case} | ${ok(r.workflow?.ok)} | ${ok(r.verify?.ok)} | ${Object.values(
+        r.hidden ?? {}
+      )
+        .map(h => ok(h?.ok))
+        .join(
+          ' / '
+        )} | ${secs(r.totalMs)} | ${r.calls} | ${r.inputTokens}/${r.outputTokens} | ${money(r.costUsd)} |`
     );
   }
   L.push('', `Total cost: ${money(total)}`);

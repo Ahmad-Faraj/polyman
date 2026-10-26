@@ -96,6 +96,10 @@ describe('GemmaManager.makePlan', () => {
     expect(firstPart?.type === 'text' && firstPart.text).toContain(
       'Count pairs'
     );
+    // The exact wrong_solution list, so the manager does not count.
+    expect(firstPart?.type === 'text' && firstPart.text).toContain(
+      '1- params { approach: "answer kept in int (overflow)", tag: "WA" }'
+    );
     expect(b.events).toEqual([
       { type: 'usage', inputTokens: 100, outputTokens: 50, costUsd: 0.001 },
     ]);

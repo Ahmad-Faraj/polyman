@@ -8,6 +8,7 @@ import {
   recipeDescription,
   workerPrompt,
   workerSkills,
+  wrongSolutionList,
 } from '../../../src/agent/workflow/prompts';
 import { skillNames } from '../../../src/agent/skills';
 import type { TaskKind } from '../../../src/agent/workflow/types';
@@ -155,6 +156,31 @@ describe('chat prompt', () => {
     expect(p).toContain('none yet');
     expect(chatSystemPrompt({ problemDir: '/x/pairs' })).toContain(
       'Problem folder: /x/pairs'
+    );
+  });
+});
+
+describe('wrongSolutionList', () => {
+  it('lists every wrong approach but the brute force, with its tag', () => {
+    const spec = [
+      '# Wrong approaches',
+      '- sums kept in int (overflow) -> WA',
+      '- brute force over all pairs -> TL',
+      '- O(n^2) over all subarrays with prefix sums -> TL',
+      '',
+    ].join('\n');
+    expect(wrongSolutionList(spec)).toBe(
+      [
+        'The plan needs exactly 2 wrong_solution tasks, one for each line here (the brute force is not in this list, brute_force covers it):',
+        '1- params { approach: "sums kept in int (overflow)", tag: "WA" }',
+        '2- params { approach: "O(n^2) over all subarrays with prefix sums", tag: "TL" }',
+      ].join('\n')
+    );
+  });
+
+  it('says when no wrong_solution task is needed', () => {
+    expect(wrongSolutionList('# Idea\nsum\n')).toContain(
+      'no wrong_solution task'
     );
   });
 });

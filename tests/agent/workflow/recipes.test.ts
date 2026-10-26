@@ -238,6 +238,16 @@ describe('checkPlan', () => {
     );
   });
 
+  it('a task that writes files must own at least one', () => {
+    const plan = withTasks(t => {
+      const val = t.find(x => x.kind === 'validator')!;
+      val.ownsFiles = [];
+    });
+    expect(checkPlan(plan, SPEC).join('\n')).toMatch(
+      /task \S+ \(validator\) writes files and must own at least one/
+    );
+  });
+
   it('needs one wrong_solution per wrong approach, without the brute force', () => {
     const plan = withTasks(t => t.splice(9, 1));
     expect(checkPlan(plan, SPEC).join('\n')).toContain(

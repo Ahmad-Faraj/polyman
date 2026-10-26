@@ -314,7 +314,15 @@ function addReasoning(
   if (ev.signature !== undefined) part.signature = ev.signature;
 }
 
-/** First line of a tool result, at most {@link SUMMARY_MAX} chars. */
-function summaryOf(content: string): string {
-  return (content.split('\n')[0] ?? '').trimEnd().slice(0, SUMMARY_MAX);
+/**
+ * First line of a tool result, at most {@link SUMMARY_MAX} chars, then
+ * `(+N lines)` when there are more lines, so a list of files does not look
+ * like one file.
+ */
+export function summaryOf(content: string): string {
+  const lines = content.trimEnd().split('\n');
+  const first = (lines[0] ?? '').trimEnd().slice(0, SUMMARY_MAX);
+  const more = lines.length - 1;
+  if (more <= 0) return first;
+  return `${first} (+${more} line${more === 1 ? '' : 's'})`;
 }

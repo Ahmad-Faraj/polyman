@@ -10,7 +10,11 @@ import type {
 } from '../../../src/agent/core/events';
 import type { PermissionGate } from '../../../src/agent/tools/types';
 import { buildProblemSkeleton } from '../../../src/agent/workflow/recipes';
-import { WorkflowScheduler } from '../../../src/agent/workflow/scheduler';
+import {
+  WorkflowScheduler,
+  fixFilesFor,
+  fixHints,
+} from '../../../src/agent/workflow/scheduler';
 import type {
   Checkpoint,
   Checkpoints,
@@ -525,13 +529,31 @@ describe('WorkflowScheduler', () => {
     expect(out.ok).toBe(true);
   });
 
-  it('gives up without a skeleton for other recipes', async () => {
+  it('fix_verify uses its fixed plan, with no manager call', async () => {
     const manager = new FakeManager([{ recipe: 'fix_verify', tasks: [] }]);
     const { worker, scheduler } = setup({ manager });
     const out = await run(scheduler, 'fix_verify');
-    expect(out.ok).toBe(false);
-    expect(out.summary).toContain('no valid plan for fix_verify');
+    expect(manager.planCalls).toHaveLength(0);
+    expect(out.ok).toBe(true);
+    expect(out.summary).toContain('fix_verify: 1 of 1 tasks passed');
     expect(worker.calls).toHaveLength(0);
+  });
+
+  it('strengthen_tests falls back to its skeleton after two bad plans', async () => {
+    const manager = new FakeManager([
+      { recipe: 'strengthen_tests', tasks: [] },
+    ]);
+    const { worker, scheduler } = setup({ manager });
+    const out = await run(scheduler, 'strengthen_tests');
+    expect(manager.planCalls).toHaveLength(2);
+    expect(out.summary).toContain('used the default plan');
+    expect(worker.calls.map(c => [c.kind, c.ownsFiles])).toEqual([
+      [
+        'generators',
+        ['generators/gen-strong.cpp', 'generators/gen-script.txt'],
+      ],
+    ]);
+    expect(out.ok).toBe(true);
   });
 
   it('stops when the plan is not approved', async () => {
@@ -687,5 +709,85 @@ describe('WorkflowScheduler', () => {
       );
     }
     expect(bus.listenerCount).toBe(0);
+  });
+});
+
+describe('fixFilesFor', () => {
+  const config = {
+    solutions: [
+      { name: 'main', source: 'solutions/main.cpp', tag: 'MA' },
+      { name: 'brute', source: 'solutions/brute.cpp', tag: 'TO' },
+      { name: 'wa-half', source: 'solutions/wa-half.cpp', tag: 'WA' },
+    ],
+    generators: ['generators/gen.cpp'],
+    scriptFiles: ['generators/gen-script.txt'],
+  };
+  const all = [
+    'solutions/main.cpp',
+    'solutions/brute.cpp',
+    'solutions/wa-half.cpp',
+    'generators/gen.cpp',
+    'validator/val.cpp',
+  ];
+
+  it('adds the main solution when a correct one gets a wrong answer', () => {
+    const digest = [
+      'failed step: verify-solutions',
+      "solution brute (solutions/brute.cpp) tag TO: Solution brute marked as TO but got Wrong Answer on some tests; test 8: WA expected: '-1845002296', found: '2449965000'",
+    ].join('\n');
+    expect(fixFilesFor(digest, all, config)).toEqual([
+      'solutions/brute.cpp',
+      'solutions/main.cpp',
+    ]);
+  });
+
+  it('adds the generators and the script when a wrong solution passes', () => {
+    const digest =
+      'solution wa-half (solutions/wa-half.cpp) tag WA: Solution wa-half marked as WA but did not get Wrong Answer or Presentation Error on any test';
+    expect(fixFilesFor(digest, all, config)).toEqual([
+      'solutions/wa-half.cpp',
+      'generators/gen.cpp',
+      'generators/gen-script.txt',
+    ]);
+  });
+
+  it('gives every candidate when the digest names no file', () => {
+    expect(
+      fixFilesFor('test-validator: Validator Test 4 failed', all, config)
+    ).toEqual(all);
+  });
+});
+
+describe('fixHints', () => {
+  const config = {
+    solutions: [
+      { name: 'main', source: 'solutions/main.cpp', tag: 'MA' },
+      { name: 'brute', source: 'solutions/brute.cpp', tag: 'TO' },
+      { name: 'wa-int', source: 'solutions/wa-int.cpp', tag: 'WA' },
+    ],
+    generators: ['generators/gen.cpp'],
+    scriptFiles: ['generators/gen-script.txt'],
+  };
+
+  it('names main first when a correct solution gets a wrong answer', () => {
+    const digest = [
+      'failed step: verify-solutions',
+      'solution brute (solutions/brute.cpp) tag TO: Solution brute marked as TO but got Wrong Answer on some tests; test 8: WA x',
+      'solution wa-int (solutions/wa-int.cpp) tag WA: Solution wa-int marked as WA but did not get Wrong Answer or Presentation Error on any test',
+    ].join('\n');
+    const hints = fixHints(digest, config);
+    expect(hints[0]).toBe(
+      'brute (TO) gets a wrong answer against main: first check solutions/main.cpp (overflow, a missed case). Change solutions/brute.cpp only if main is right.'
+    );
+    expect(hints[1]).toContain(
+      'wa-int (WA) passes every test: the tests are weak. Add a test that breaks it in generators/gen-script.txt. Do not change solutions/wa-int.cpp'
+    );
+    expect(hints[2]).toContain('fix main first');
+  });
+
+  it('gives no hint for a validator failure', () => {
+    expect(fixHints('test-validator: Validator Test 4 failed', config)).toEqual(
+      []
+    );
   });
 });

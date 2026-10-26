@@ -315,6 +315,54 @@ const writeFile: Tool<WriteArgs> = {
   },
 };
 
+function indentOf(line: string): string {
+  return /^[ \t]*/.exec(line)?.[0] ?? '';
+}
+
+/**
+ * Replaces `oldText` when it matches whole lines of `text` once, comparing
+ * each line without the spaces at its start and end. `newText` gets the
+ * indent of the file: the difference between the file's first matched line
+ * and the first line of `oldText` is added to (or removed from) each line.
+ * Returns the new text, or how many places matched (0 or more than 1).
+ */
+export function looseReplace(
+  text: string,
+  oldText: string,
+  newText: string
+): string | { matches: number } {
+  const strip = (t: string): string => (t.endsWith('\n') ? t.slice(0, -1) : t);
+  const want = strip(oldText).split('\n');
+  if (want.every(l => l.trim() === '')) return { matches: 0 };
+  const lines = text.split('\n');
+  const hits: number[] = [];
+  for (let i = 0; i + want.length <= lines.length; i++) {
+    if (want.every((w, j) => (lines[i + j] ?? '').trim() === w.trim())) {
+      hits.push(i);
+    }
+  }
+  if (hits.length !== 1) return { matches: hits.length };
+  const at = hits[0] ?? 0;
+  const first = want.findIndex(l => l.trim() !== '');
+  const fileIndent = indentOf(lines[at + first] ?? '');
+  const oldIndent = indentOf(want[first] ?? '');
+  const delta = fileIndent.length - oldIndent.length;
+  const pad = (fileIndent[0] ?? ' ').repeat(Math.max(delta, 0));
+  const replaced = strip(newText)
+    .split('\n')
+    .map(line => {
+      if (line.trim() === '' || delta === 0) return line;
+      if (delta > 0) return pad + line;
+      const cut = Math.min(-delta, indentOf(line).length);
+      return line.slice(cut);
+    });
+  return [
+    ...lines.slice(0, at),
+    ...replaced,
+    ...lines.slice(at + want.length),
+  ].join('\n');
+}
+
 const editFile: Tool<EditArgs> = {
   name: 'edit_file',
   description:
@@ -354,6 +402,19 @@ const editFile: Tool<EditArgs> = {
     }
     const count = countOccurrences(text, args.old_text);
     if (count === 0) {
+      // Gemma often copies one space too many from the `12| ` of read_file.
+      const loose = looseReplace(text, args.old_text, args.new_text);
+      if (typeof loose === 'string') {
+        await fs.promises.writeFile(real, loose);
+        return {
+          content: `edited ${rel} (old_text matched with other spaces at the line starts)`,
+        };
+      }
+      if (loose.matches > 1) {
+        return errorOutput(
+          `old_text found ${loose.matches} times (ignoring spaces at the line starts), add more context so it appears once in ${rel}`
+        );
+      }
       return errorOutput(
         `old_text not found in ${rel}. Read the file again and copy the text exactly`
       );

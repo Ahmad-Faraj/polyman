@@ -29,6 +29,19 @@ export const NO_MODEL_KINDS: readonly TaskKind[] = [
   'verify',
 ];
 
+/**
+ * Kinds whose worker must write a file: with no owned file it cannot, and
+ * its check would run the template's files.
+ */
+export const MUST_OWN_FILES: readonly TaskKind[] = [
+  'statement',
+  'main_solution',
+  'brute_force',
+  'wrong_solution',
+  'validator',
+  'generators',
+];
+
 /** True when our code runs the task, not a worker. */
 export function isNoModelKind(kind: TaskKind): boolean {
   return NO_MODEL_KINDS.includes(kind);
@@ -223,6 +236,14 @@ export function checkPlan(plan: Plan, spec: Spec): string[] {
     }
   }
 
+  for (const task of tasks) {
+    if (MUST_OWN_FILES.includes(task.kind) && task.ownsFiles.length === 0) {
+      errors.push(
+        `task ${task.id} (${task.kind}) writes files and must own at least one`
+      );
+    }
+  }
+
   const owners = new Map<string, string>();
   for (const task of tasks) {
     if (isNoModelKind(task.kind) && task.ownsFiles.length > 0) {
@@ -391,4 +412,62 @@ export function buildProblemSkeleton(spec: Spec): Plan {
   });
 
   return { recipe: 'build_problem', tasks };
+}
+
+/**
+ * The plan of `fix_verify`: one verify task, the scheduler adds the fix
+ * rounds. There is nothing for the manager to fill in (Gemma gave a whole
+ * build_problem plan for it, twice, and the recipe failed).
+ */
+export function fixVerifyPlan(): Plan {
+  return {
+    recipe: 'fix_verify',
+    tasks: [
+      {
+        id: 't1',
+        kind: 'verify',
+        title: 'Verify',
+        dependsOn: [],
+        brief: 'Run polyman verify. polyman fixes it when it fails.',
+        ownsFiles: [],
+      },
+    ],
+  };
+}
+
+/**
+ * A valid `strengthen_tests` plan, used when the manager fails twice: one
+ * generator task that may add a generator and change the script.
+ */
+export function strengthenTestsSkeleton(scriptFile: string): Plan {
+  return {
+    recipe: 'strengthen_tests',
+    tasks: [
+      {
+        id: 't1',
+        kind: 'generators',
+        title: 'Stronger tests',
+        dependsOn: [],
+        brief:
+          'verify shows wrong solutions that pass every test. Add a generator or script lines whose tests break them. Keep the old tests.',
+        ownsFiles: ['generators/gen-strong.cpp', normalizePath(scriptFile)],
+      },
+      {
+        id: 't2',
+        kind: 'generate_validate',
+        title: 'Generate and validate tests',
+        dependsOn: ['t1'],
+        brief: 'Generate all tests and validate them.',
+        ownsFiles: [],
+      },
+      {
+        id: 't3',
+        kind: 'verify',
+        title: 'Verify',
+        dependsOn: ['t1', 't2'],
+        brief: 'Run polyman verify.',
+        ownsFiles: [],
+      },
+    ],
+  };
 }
