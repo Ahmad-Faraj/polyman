@@ -304,8 +304,10 @@ describe('tui store', () => {
     );
     expect(s.workflow).toBeNull();
     expect(s.finished.at(-1)).toMatchObject({
-      kind: 'notice',
-      text: 'Workflow done: 2 tasks',
+      kind: 'workflow',
+      ok: true,
+      summary: '2 tasks',
+      costUsd: 0.1,
     });
   });
 

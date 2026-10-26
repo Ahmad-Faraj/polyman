@@ -19,17 +19,8 @@ interface Option {
   decision: ApprovalDecision | null;
 }
 
-/** The options of a tool approval, or of the plan approval fallback. */
-export function optionsOf(
-  variant: 'tool' | 'plan',
-  toolName: string
-): Option[] {
-  if (variant === 'plan') {
-    return [
-      { label: 'Yes, run the plan', decision: { kind: 'allow_once' } },
-      { label: 'No', decision: { kind: 'deny' } },
-    ];
-  }
+/** The options of a tool approval. */
+export function optionsOf(toolName: string): Option[] {
   return [
     { label: 'Yes', decision: { kind: 'allow_once' } },
     {
@@ -65,17 +56,15 @@ export function ApprovalPrompt({
   approval,
   resolveApproval,
   onCancel,
-  variant = 'tool',
   isActive = true,
 }: {
   approval: ApprovalView;
   resolveApproval: (approvalId: string, decision: ApprovalDecision) => void;
   /** esc on the options: interrupt the turn. */
   onCancel?: () => void;
-  variant?: 'tool' | 'plan';
   isActive?: boolean;
 }) {
-  const options = optionsOf(variant, approval.toolName);
+  const options = optionsOf(approval.toolName);
   const [selected, setSelected] = useState(0);
   const [reason, setReasonState] = useState<EditorState | null>(null);
   // Keys can come faster than React renders: keep the newest reason here.

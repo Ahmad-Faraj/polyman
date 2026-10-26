@@ -3,9 +3,9 @@
  * it. No Ink here: this file is pure and tested alone.
  */
 
-import type { SeqEvent } from '../core/events.js';
+import type { ApprovalDecision, SeqEvent } from '../core/events.js';
 import type { PermissionMode } from '../tools/types.js';
-import type { Plan, TaskResult } from '../workflow/types.js';
+import type { Checkpoint, Plan, TaskResult } from '../workflow/types.js';
 
 /** A finished line of the transcript. Printed once, never changed. */
 export type Item =
@@ -25,6 +25,18 @@ export type Item =
       id: number;
       text: string;
       level: 'info' | 'warn' | 'error';
+    }
+  | {
+      /** A finished workflow: the final task tree and the summary. */
+      kind: 'workflow';
+      id: number;
+      plan: Plan;
+      tasks: Record<string, TaskView>;
+      problem: string | null;
+      ok: boolean;
+      summary: string;
+      costUsd: number;
+      elapsedMs: number;
     };
 
 /** A tool that runs now. */
@@ -48,14 +60,35 @@ export interface ApprovalView {
   preview?: string;
 }
 
+/** One attempt of a task and the checkpoints it ran. */
+export interface AttemptView {
+  attempt: number;
+  checkpoints: Checkpoint[];
+}
+
 /** The state of one workflow task. */
 export interface TaskView {
   taskId: string;
   title: string;
   status: 'pending' | 'running' | 'passed' | 'failed' | 'skipped';
   attempt: number;
-  checkpoint: { name: string; ok: boolean; digest: string } | null;
+  /** The last checkpoint of any attempt. */
+  checkpoint: Checkpoint | null;
   result: TaskResult | null;
+  /** Every attempt so far, oldest first, for the task details (ctrl+o). */
+  attempts: AttemptView[];
+}
+
+/** The workflow that runs now. */
+export interface WorkflowView {
+  plan: Plan;
+  tasks: Record<string, TaskView>;
+  /** `Date.now()` at `plan_created`, for the timer. */
+  startedAt: number;
+  /** The session cost when the plan was made, to show the workflow cost. */
+  costAtStart: number;
+  /** The plan approval that is not answered yet, or null. */
+  approvalId: string | null;
 }
 
 /** Everything the screen shows. */
@@ -66,7 +99,7 @@ export interface UiState {
   live: { streamingText: string; reasoning: string; runningTools: ToolView[] };
   approval: ApprovalView | null;
   planApproval: { approvalId: string; plan: Plan } | null;
-  workflow: { plan: Plan; tasks: Record<string, TaskView> } | null;
+  workflow: WorkflowView | null;
   status: {
     problem: string | null;
     model: string;
@@ -88,7 +121,11 @@ export type LocalAction =
   /** The permission mode changed (shift+tab). */
   | { type: 'set_mode'; mode: PermissionMode }
   /** The user answered an approval, hide it before the session confirms. */
-  | { type: 'approval_answered'; approvalId: string }
+  | {
+      type: 'approval_answered';
+      approvalId: string;
+      decision?: ApprovalDecision;
+    }
   /** `session.send()` returned, the turn is surely over. */
   | { type: 'turn_settled' };
 
@@ -221,14 +258,7 @@ function updateTask(
   if (!state.workflow) {
     return state;
   }
-  const old = state.workflow.tasks[taskId] ?? {
-    taskId,
-    title: taskId,
-    status: 'pending',
-    attempt: 0,
-    checkpoint: null,
-    result: null,
-  };
+  const old = state.workflow.tasks[taskId] ?? pendingTask(taskId, taskId);
   return {
     ...state,
     workflow: {
@@ -238,20 +268,89 @@ function updateTask(
   };
 }
 
+/** A task that did not start yet. */
+function pendingTask(taskId: string, title: string): TaskView {
+  return {
+    taskId,
+    title,
+    status: 'pending',
+    attempt: 0,
+    checkpoint: null,
+    result: null,
+    attempts: [],
+  };
+}
+
 /** The task views of a new plan, all pending. */
 function tasksOf(plan: Plan): Record<string, TaskView> {
   const tasks: Record<string, TaskView> = {};
   for (const t of plan.tasks) {
-    tasks[t.id] = {
-      taskId: t.id,
-      title: t.title,
-      status: 'pending',
-      attempt: 0,
-      checkpoint: null,
-      result: null,
-    };
+    tasks[t.id] = pendingTask(t.id, t.title);
   }
   return tasks;
+}
+
+/** A new workflow view for a plan. */
+function newWorkflow(
+  state: UiState,
+  plan: Plan,
+  approvalId: string | null
+): WorkflowView {
+  return {
+    plan,
+    tasks: tasksOf(plan),
+    startedAt: Date.now(),
+    costAtStart: state.status.costUsd,
+    approvalId,
+  };
+}
+
+/** Adds a checkpoint to the last attempt (or a first one). */
+function addCheckpoint(t: TaskView, cp: Checkpoint): AttemptView[] {
+  const last = t.attempts[t.attempts.length - 1];
+  if (!last) {
+    return [{ attempt: Math.max(t.attempt, 1), checkpoints: [cp] }];
+  }
+  return [
+    ...t.attempts.slice(0, -1),
+    { ...last, checkpoints: [...last.checkpoints, cp] },
+  ];
+}
+
+/** The workflow after the user answered an approval. */
+function afterApproval(
+  state: UiState,
+  approvalId: string,
+  decision: ApprovalDecision | undefined
+): WorkflowView | null {
+  const wf = state.workflow;
+  if (!wf || wf.approvalId !== approvalId) return wf;
+  // A denied plan never runs: drop it.
+  if (decision?.kind === 'deny') return null;
+  return { ...wf, approvalId: null };
+}
+
+/**
+ * The task the details (ctrl+o) open on: the first running task, else the
+ * first failed one, else the first task. An index into `plan.tasks`.
+ */
+export function pickTask(wf: WorkflowView): number {
+  const tasks = wf.plan.tasks;
+  const running = tasks.findIndex(t => wf.tasks[t.id]?.status === 'running');
+  if (running >= 0) return running;
+  const failed = tasks.findIndex(t => wf.tasks[t.id]?.status === 'failed');
+  return failed >= 0 ? failed : 0;
+}
+
+/**
+ * What the task tree shows for a task. `retrying` is a running task whose
+ * last checkpoint in this attempt failed: it waits for the next attempt.
+ */
+export function shownStatus(t: TaskView): TaskView['status'] | 'retrying' {
+  if (t.status !== 'running') return t.status;
+  const last = t.attempts[t.attempts.length - 1];
+  const cp = last?.checkpoints[last.checkpoints.length - 1];
+  return cp && !cp.ok ? 'retrying' : 'running';
 }
 
 /** Turns one event (or local action) into the next state. */
@@ -281,6 +380,7 @@ export function reduce(state: UiState, e: UiAction): UiState {
     case 'approval_resolved':
       return {
         ...state,
+        workflow: afterApproval(state, e.approvalId, e.decision),
         approval:
           state.approval?.approvalId === e.approvalId ? null : state.approval,
         planApproval:
@@ -393,6 +493,9 @@ export function reduce(state: UiState, e: UiAction): UiState {
         ...(notice ? push(flushed, notice) : {}),
         live: { streamingText: '', reasoning: '', runningTools: [] },
         approval: null,
+        planApproval: null,
+        // A plan nobody approved will not run after its turn.
+        workflow: flushed.workflow?.approvalId ? null : flushed.workflow,
         status: { ...flushed.status, busy: false },
       };
     }
@@ -417,16 +520,15 @@ export function reduce(state: UiState, e: UiAction): UiState {
       return state;
 
     case 'plan_created':
-      return {
-        ...state,
-        workflow: { plan: e.plan, tasks: tasksOf(e.plan) },
-      };
+      return { ...state, workflow: newWorkflow(state, e.plan, null) };
 
     case 'plan_approval_needed':
       return {
         ...state,
         planApproval: { approvalId: e.approvalId, plan: e.plan },
-        workflow: state.workflow ?? { plan: e.plan, tasks: tasksOf(e.plan) },
+        workflow: state.workflow
+          ? { ...state.workflow, approvalId: e.approvalId }
+          : newWorkflow(state, e.plan, e.approvalId),
       };
 
     case 'task_started':
@@ -434,33 +536,59 @@ export function reduce(state: UiState, e: UiAction): UiState {
         ...t,
         status: 'running',
         attempt: e.attempt,
+        attempts:
+          t.attempts[t.attempts.length - 1]?.attempt === e.attempt
+            ? t.attempts
+            : [...t.attempts, { attempt: e.attempt, checkpoints: [] }],
       }));
 
-    case 'task_checkpoint':
+    case 'task_checkpoint': {
+      const cp: Checkpoint = { name: e.name, ok: e.ok, digest: e.digest };
       return updateTask(state, e.taskId, t => ({
         ...t,
-        checkpoint: { name: e.name, ok: e.ok, digest: e.digest },
+        checkpoint: cp,
+        attempts: addCheckpoint(t, cp),
       }));
+    }
 
     case 'task_done':
-      return updateTask(state, e.taskId, t => ({
-        ...t,
-        status: e.result.status,
-        attempt: e.result.attempts,
-        result: e.result,
-      }));
+      return updateTask(state, e.taskId, t => {
+        const cp = e.result.checkpoint;
+        const last = t.attempts[t.attempts.length - 1];
+        // Some tasks report their checkpoint only in the result.
+        const seen = last?.checkpoints.some(
+          c => c.name === cp.name && c.ok === cp.ok && c.digest === cp.digest
+        );
+        return {
+          ...t,
+          status: e.result.status,
+          attempt: e.result.attempts,
+          result: e.result,
+          checkpoint: cp,
+          attempts: seen ? t.attempts : addCheckpoint(t, cp),
+        };
+      });
 
-    case 'workflow_done':
-      return {
-        ...state,
-        ...push(state, {
-          kind: 'notice',
-          level: e.ok ? 'info' : 'error',
-          text: `Workflow ${e.ok ? 'done' : 'failed'}: ${e.summary}`,
-        }),
-        workflow: null,
-        planApproval: null,
-      };
+    case 'workflow_done': {
+      const wf = state.workflow;
+      const added = wf
+        ? push(state, {
+            kind: 'workflow',
+            plan: wf.plan,
+            tasks: wf.tasks,
+            problem: state.status.problem,
+            ok: e.ok,
+            summary: e.summary,
+            costUsd: e.costUsd,
+            elapsedMs: Math.max(0, Date.now() - wf.startedAt),
+          })
+        : push(state, {
+            kind: 'notice',
+            level: e.ok ? 'info' : 'error',
+            text: `Workflow ${e.ok ? 'done' : 'failed'}: ${e.summary}`,
+          });
+      return { ...state, ...added, workflow: null, planApproval: null };
+    }
 
     default:
       return state;

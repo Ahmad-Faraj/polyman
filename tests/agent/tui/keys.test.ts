@@ -47,6 +47,7 @@ const noKey: Key = {
 describe('keybindings', () => {
   it('maps ctrl+c, shift+tab and esc', () => {
     expect(appKeyOf('c', { ...noKey, ctrl: true })).toBe('ctrl_c');
+    expect(appKeyOf('o', { ...noKey, ctrl: true })).toBe('toggle_details');
     expect(appKeyOf('', { ...noKey, tab: true, shift: true })).toBe(
       'toggle_mode'
     );
