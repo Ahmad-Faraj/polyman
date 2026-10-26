@@ -4,6 +4,7 @@
  * and the polyman CLI.
  */
 
+import { createHash } from 'crypto';
 import fs from 'fs/promises';
 import path from 'path';
 import type {
@@ -267,6 +268,40 @@ async function solutionSources(
   }
 }
 
+/**
+ * The validator and generator script files that Config.json uses, best
+ * effort: the files `validate` and `generate` start from.
+ */
+export async function testFiles(problemDir: string): Promise<string[]> {
+  let config: unknown;
+  try {
+    config = JSON.parse(
+      await fs.readFile(path.join(problemDir, 'Config.json'), 'utf-8')
+    );
+  } catch {
+    return [];
+  }
+  if (!isObject(config)) return [];
+  const files: string[] = [];
+  const add = (value: unknown): void => {
+    if (typeof value === 'string' && value !== '') {
+      const file = normalizePath(value);
+      if (!files.includes(file)) files.push(file);
+    }
+  };
+  const validator = config['validator'];
+  if (isObject(validator)) add(validator['source']);
+  // Not every generator entry: an unused template generator may stay in
+  // Config.json. The script names the generators that run.
+  if (Array.isArray(config['testsets'])) {
+    for (const t of config['testsets'] as unknown[]) {
+      const script = isObject(t) ? t['generatorScript'] : undefined;
+      if (isObject(script)) add(script['scriptFile']);
+    }
+  }
+  return files;
+}
+
 async function exists(file: string): Promise<boolean> {
   try {
     await fs.access(file);
@@ -291,8 +326,10 @@ export class CliCheckpoints implements Checkpoints {
     signal: AbortSignal
   ): Promise<Checkpoint> {
     switch (task.kind) {
-      case 'statement':
-        return this.filesNotEmpty(task, problemDir);
+      case 'statement': {
+        const unwritten = await this.unwrittenFiles(task.ownsFiles, problemDir);
+        return unwritten ? fail('files', unwritten) : ok('files');
+      }
       case 'statement_critic':
         return ok('critic');
       case 'main_solution':
@@ -302,6 +339,8 @@ export class CliCheckpoints implements Checkpoints {
       case 'fix':
         return this.compiles(task, problemDir, signal);
       case 'validator': {
+        const unwritten = await this.unwrittenFiles(task.ownsFiles, problemDir);
+        if (unwritten) return fail('validator files', unwritten);
         const result = await this.cli(
           ['test', 'validator', '--json'],
           problemDir,
@@ -319,6 +358,8 @@ export class CliCheckpoints implements Checkpoints {
         );
       }
       case 'generators': {
+        const unwritten = await this.unwrittenFiles(task.ownsFiles, problemDir);
+        if (unwritten) return fail('generator files', unwritten);
         const result = await this.cli(
           ['generate', '--all', '--json'],
           problemDir,
@@ -402,6 +443,17 @@ export class CliCheckpoints implements Checkpoints {
         };
       }
       case 'generate_validate': {
+        const used = await testFiles(problemDir);
+        const unwritten =
+          used.length > 0 ? await this.unwrittenFiles(used, problemDir) : null;
+        if (unwritten) {
+          return {
+            checkpoint: fail(
+              'test files',
+              `${unwritten}\nThe validator and generator tasks must write these files for this problem.`
+            ),
+          };
+        }
         const gen = await this.cli(
           ['generate', '--all', '--json'],
           problemDir,
@@ -477,26 +529,49 @@ export class CliCheckpoints implements Checkpoints {
     }
   }
 
-  private async filesNotEmpty(
-    task: PlanTask,
+  /**
+   * Why the files are not written yet: missing, empty, or still the
+   * template's copy (a worker that wrote nothing must not pass because the
+   * template file passes the check). `null` when every file is written.
+   */
+  async unwrittenFiles(
+    files: string[],
     problemDir: string
-  ): Promise<Checkpoint> {
-    if (task.ownsFiles.length === 0)
-      return fail('files', 'the task owns no files');
+  ): Promise<string | null> {
+    if (files.length === 0) return 'the task owns no files';
     const missing: string[] = [];
     const empty: string[] = [];
-    for (const file of task.ownsFiles) {
+    const template: string[] = [];
+    for (const file of files) {
+      const rel = normalizePath(file);
+      let mine: Buffer;
       try {
-        const text = await fs.readFile(path.resolve(problemDir, file), 'utf-8');
-        if (text.trim() === '') empty.push(file);
+        mine = await fs.readFile(path.resolve(problemDir, rel));
       } catch {
-        missing.push(file);
+        missing.push(rel);
+        continue;
+      }
+      if (mine.toString('utf-8').trim() === '') {
+        empty.push(rel);
+        continue;
+      }
+      if (path.isAbsolute(rel) || rel.startsWith('..')) continue;
+      try {
+        const original = await fs.readFile(path.join(this.templateDir, rel));
+        if (original.equals(mine)) template.push(rel);
+      } catch {
+        // Not a template file.
       }
     }
     const lines: string[] = [];
     if (missing.length > 0) lines.push(`missing: ${missing.join(', ')}`);
     if (empty.length > 0) lines.push(`empty: ${empty.join(', ')}`);
-    return lines.length > 0 ? fail('files', lines.join('\n')) : ok('files');
+    if (template.length > 0) {
+      lines.push(
+        `still the template file, not written for this problem: ${template.join(', ')}`
+      );
+    }
+    return lines.length > 0 ? lines.join('\n') : null;
   }
 
   private async compiles(
@@ -560,4 +635,73 @@ export class CliCheckpoints implements Checkpoints {
       await removeBinary(compiled.binary);
     }
   }
+}
+
+/**
+ * Remembers the last passed check of each task with a fingerprint of the
+ * task's files and Config.json. When `finish_task` already ran the check
+ * in the worker session and nothing changed since, the scheduler's check
+ * gives the same result at once instead of running the compiler or
+ * `polyman generate` again. Any change to those files runs it again.
+ */
+export class MemoCheckpoints implements Checkpoints {
+  private readonly passed = new Map<
+    string,
+    { fingerprint: string; checkpoint: Checkpoint }
+  >();
+
+  constructor(private readonly inner: Checkpoints) {}
+
+  async check(
+    task: PlanTask,
+    spec: Spec,
+    problemDir: string,
+    signal: AbortSignal
+  ): Promise<Checkpoint> {
+    const key = `${task.id}\n${task.kind}`;
+    const before = await fingerprint(task, spec, problemDir);
+    const memo = this.passed.get(key);
+    if (memo && memo.fingerprint === before) return { ...memo.checkpoint };
+    this.passed.delete(key);
+    const checkpoint = await this.inner.check(task, spec, problemDir, signal);
+    // The files may change while the check runs (another worker's patch):
+    // only remember a result whose input did not move.
+    if (
+      checkpoint.ok &&
+      (await fingerprint(task, spec, problemDir)) === before
+    ) {
+      this.passed.set(key, { fingerprint: before, checkpoint });
+    }
+    return checkpoint;
+  }
+
+  runNoModelTask(
+    task: PlanTask,
+    spec: Spec,
+    problemDir: string,
+    signal: AbortSignal
+  ): Promise<{ checkpoint: Checkpoint; configPatch?: ConfigPatch }> {
+    return this.inner.runNoModelTask(task, spec, problemDir, signal);
+  }
+}
+
+/** A hash of the task, the spec, its files and Config.json. */
+async function fingerprint(
+  task: PlanTask,
+  spec: Spec,
+  problemDir: string
+): Promise<string> {
+  const hash = createHash('sha256');
+  hash.update(JSON.stringify(task));
+  hash.update('\0');
+  hash.update(spec);
+  for (const file of ['Config.json', ...task.ownsFiles]) {
+    hash.update(`\0${file}\0`);
+    try {
+      hash.update(await fs.readFile(path.resolve(problemDir, file)));
+    } catch {
+      hash.update('(missing)');
+    }
+  }
+  return hash.digest('hex');
 }

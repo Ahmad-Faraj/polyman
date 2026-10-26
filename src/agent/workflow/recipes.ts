@@ -29,6 +29,19 @@ export const NO_MODEL_KINDS: readonly TaskKind[] = [
   'verify',
 ];
 
+/**
+ * Kinds whose worker must write a file: with no owned file it cannot, and
+ * its check would run the template's files.
+ */
+export const MUST_OWN_FILES: readonly TaskKind[] = [
+  'statement',
+  'main_solution',
+  'brute_force',
+  'wrong_solution',
+  'validator',
+  'generators',
+];
+
 /** True when our code runs the task, not a worker. */
 export function isNoModelKind(kind: TaskKind): boolean {
   return NO_MODEL_KINDS.includes(kind);
@@ -220,6 +233,14 @@ export function checkPlan(plan: Plan, spec: Spec): string[] {
     const mains = tasks.filter(t => t.kind === 'main_solution').length;
     if (mains !== 1) {
       errors.push(`need exactly one main_solution task, found ${mains}`);
+    }
+  }
+
+  for (const task of tasks) {
+    if (MUST_OWN_FILES.includes(task.kind) && task.ownsFiles.length === 0) {
+      errors.push(
+        `task ${task.id} (${task.kind}) writes files and must own at least one`
+      );
     }
   }
 
