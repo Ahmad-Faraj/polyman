@@ -175,6 +175,20 @@ describe('App with the fake session', () => {
     expect(send).not.toHaveBeenCalled();
   });
 
+  it('a pasted Polygon key is not sent, a notice shows instead', async () => {
+    const { stdin, lastFrame, session } = setup();
+    const send = vi.spyOn(session, 'send');
+    await tick();
+    stdin.write(`api key ${'a'.repeat(40)} secret ${'b'.repeat(40)}`);
+    await tick();
+    stdin.write('\r');
+    const frame = await waitFor(lastFrame, f =>
+      f.includes('looks like a Polygon key')
+    );
+    expect(frame).not.toContain('a'.repeat(40));
+    expect(send).not.toHaveBeenCalled();
+  });
+
   it('ctrl+c clears the input and asks for a second press', async () => {
     const { stdin, lastFrame } = setup();
     await tick();

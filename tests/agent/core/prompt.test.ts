@@ -101,5 +101,12 @@ describe('configSummary', () => {
     expect(s).toContain('- name: x');
     expect(s).toContain('- solutions: none');
     expect(s).toContain('- checker: ncmp (standard)');
+    expect(s).toContain('- polygon: not pushed yet');
+  });
+
+  it('shows the Polygon problem id', () => {
+    expect(configSummary('{"name":"x","problemId":123}')).toContain(
+      '- polygon: problem 123'
+    );
   });
 });

@@ -9,6 +9,7 @@
  */
 
 import * as readline from 'readline';
+import { looksLikePolygonKey, PASTED_KEY_NOTICE } from './core/pasted-key';
 import type { AgentSessionApi } from './core/session-types';
 import type { ApprovalDecision, EventBus, SeqEvent } from './core/events';
 import type { Plan } from './workflow/types';
@@ -108,6 +109,12 @@ export function runPlain(
     while (queue.length > 0) {
       const text = (queue.shift() ?? '').trim();
       if (text === '') continue;
+      if (looksLikePolygonKey(text)) {
+        // Not sent to the model and not echoed.
+        line(`[${PASTED_KEY_NOTICE}]`);
+        if (queue.length === 0) showPrompt();
+        continue;
+      }
       startTurn(text);
       return;
     }
