@@ -14,6 +14,7 @@ import type {
 } from '../../types';
 import type { CliRunner, RunResult } from '../runner/types';
 import { compileCpp, removeBinary, runOnInput, sameTokens } from './compile';
+import { dropTemplateExamples } from './config-patch';
 import { normalizePath } from './recipes';
 import { parseSpec } from './spec';
 import type {
@@ -55,6 +56,15 @@ const TIMEOUTS = {
 };
 
 const MAX_DIGEST_LINES = 20;
+
+/** The folder `polyman new` copies, next to `src/` and `dist/`. */
+export const TEMPLATE_DIR = path.resolve(
+  __dirname,
+  '..',
+  '..',
+  '..',
+  'template'
+);
 
 function ok(name: string, digest = ''): Checkpoint {
   return { name, ok: true, digest };
@@ -231,7 +241,11 @@ async function exists(file: string): Promise<boolean> {
 
 /** The checkpoints, built on the real CLI through a {@link CliRunner}. */
 export class CliCheckpoints implements Checkpoints {
-  constructor(private readonly runner: CliRunner) {}
+  constructor(
+    private readonly runner: CliRunner,
+    /** Where the template examples that scaffold removes come from. */
+    private readonly templateDir: string = TEMPLATE_DIR
+  ) {}
 
   async check(
     task: PlanTask,
@@ -303,18 +317,40 @@ export class CliCheckpoints implements Checkpoints {
             ),
           };
         }
+        // The template's example solutions and tests do not fit the new
+        // problem, and the plan does not replace them.
+        const dropped = await dropTemplateExamples(
+          problemDir,
+          this.templateDir
+        );
+        if ('error' in dropped) {
+          return {
+            checkpoint: fail(
+              'scaffold',
+              `cannot remove the template examples: ${dropped.error}`
+            ),
+          };
+        }
+        const removed = [
+          ...dropped.solutions.map(s => `solution ${s}`),
+          ...dropped.manualTests.map(t => `test ${t}`),
+          ...dropped.statements.map(l => `statement ${l}`),
+        ];
         const parsed = parseSpec(spec);
         const set: NonNullable<ConfigPatch['set']> = {};
         if (parsed.timeLimitMs !== undefined)
           set.timeLimit = parsed.timeLimitMs;
         if (parsed.memoryLimitMb !== undefined)
           set.memoryLimit = parsed.memoryLimitMb;
-        const checkpoint = ok(
-          'scaffold',
+        const lines = [
           Object.keys(set).length > 0
             ? `limits: ${JSON.stringify(set)}`
-            : 'no limits in the spec'
-        );
+            : 'no limits in the spec',
+        ];
+        if (removed.length > 0) {
+          lines.push(`removed template examples: ${removed.join(', ')}`);
+        }
+        const checkpoint = ok('scaffold', lines.join('\n'));
         return Object.keys(set).length > 0
           ? { checkpoint, configPatch: { set } }
           : { checkpoint };

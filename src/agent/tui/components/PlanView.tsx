@@ -4,6 +4,7 @@ import type { Plan, PlanTask } from '../../workflow/types.js';
 import {
   shownStatus,
   type Item,
+  type TaskToolView,
   type TaskView,
   type WorkflowView,
 } from '../store.js';
@@ -16,6 +17,9 @@ const MAX_TITLE = 34;
 
 /** Most digest lines per checkpoint in the task details. */
 const MAX_DIGEST_LINES = 6;
+
+/** Most tool calls in the task details. */
+const MAX_DETAIL_TOOLS = 10;
 
 /** The color of a solution tag: MA green, TO cyan, WA red, TL amber. */
 export function tagColor(tag: string): ColorName {
@@ -91,10 +95,22 @@ function firstLine(text: string): string {
   );
 }
 
+/** `run_solution(main)`, or `list_files` with no args. */
+export function toolLabel(call: Pick<TaskToolView, 'name' | 'args'>): string {
+  return call.args ? `${call.name}(${call.args})` : call.name;
+}
+
+/** The last tool call of the current attempt of a task, if any. */
+function currentTool(view: TaskView): TaskToolView | null {
+  const last = view.tools[view.tools.length - 1];
+  return last && last.attempt === Math.max(view.attempt, 1) ? last : null;
+}
+
 /**
- * The dim text after a task title: `attempt <n> · <digest>` for a running
- * or failed task, the digest for a passed one, `waits for <titles>` for a
- * pending task with deps that did not pass yet.
+ * The dim text after a task title: `attempt <n> · <last tool>` for a running
+ * task, `attempt <n> · <digest>` for a retrying or failed task, the digest
+ * for a passed one, `waits for <titles>` for a pending task with deps that
+ * did not pass yet.
  */
 export function taskDetail(
   task: PlanTask,
@@ -127,6 +143,8 @@ export function taskDetail(
       return digest;
     default: {
       const attempt = `attempt ${Math.max(view.attempt, 1)}`;
+      const tool = shownStatus(view) === 'running' ? currentTool(view) : null;
+      if (tool) return `${attempt} · ${toolLabel(tool)}`;
       return digest ? `${attempt} · ${digest}` : attempt;
     }
   }
@@ -199,6 +217,7 @@ export function PlanTree({
           checkpoint: null,
           result: null,
           attempts: [],
+          tools: [],
         };
         const stopped = !live && view.status === 'running';
         const detail = stopped
@@ -363,6 +382,58 @@ function statusWord(view: TaskView): string {
   }
 }
 
+/** The icon of a tool call: ✔, ✗, or … while it runs. */
+function ToolIcon({ call }: { call: TaskToolView }) {
+  if (call.ok === null) return <Text dimColor>…</Text>;
+  return call.ok ? (
+    <Text {...fg('ok')}>✔</Text>
+  ) : (
+    <Text {...fg('error')}>✗</Text>
+  );
+}
+
+/** The last tool calls of a task, one line each, by attempt. */
+function TaskTools({ tools }: { tools: TaskToolView[] }) {
+  if (tools.length === 0) {
+    return (
+      <Box marginTop={1}>
+        <Text dimColor>tool calls: none yet</Text>
+      </Box>
+    );
+  }
+  const shown = tools.slice(-MAX_DETAIL_TOOLS);
+  const many = new Set(tools.map(t => t.attempt)).size > 1;
+  return (
+    <Box flexDirection="column" marginTop={1}>
+      <Text>
+        tool calls
+        {tools.length > shown.length && (
+          <Text dimColor> (last {shown.length})</Text>
+        )}
+      </Text>
+      {shown.map((call, i) => {
+        const header = many && call.attempt !== shown[i - 1]?.attempt;
+        return (
+          <Box key={call.callId} flexDirection="column">
+            {header && <Text dimColor>{`  attempt ${call.attempt}`}</Text>}
+            <Text wrap="truncate-end">
+              {many ? '    ' : '  '}
+              <ToolIcon call={call} /> {toolLabel(call)}
+              <Text dimColor>
+                {call.ok === null
+                  ? ' · running'
+                  : call.summary
+                    ? ` · ${call.summary}`
+                    : ''}
+              </Text>
+            </Text>
+          </Box>
+        );
+      })}
+    </Box>
+  );
+}
+
 /**
  * The details of one task (ctrl+o, sample screen 4): its files, brief,
  * attempts with their checkpoint digests, and the result.
@@ -460,11 +531,7 @@ export function TaskDetails({
             </Text>
           </Box>
         )}
-        <Box marginTop={1}>
-          <Text dimColor>
-            tool calls: not available yet (worker tool events have no task id)
-          </Text>
-        </Box>
+        <TaskTools tools={view?.tools ?? []} />
       </Box>
       <Text dimColor>{' ↑/↓ choose a task · esc or ctrl+o to close'}</Text>
     </Box>

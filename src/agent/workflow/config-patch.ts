@@ -505,3 +505,140 @@ export function applyConfigPatch(
     error: error instanceof Error ? error.message : String(error),
   }));
 }
+
+/** What {@link dropTemplateExamples} removed from `Config.json`. */
+export interface DroppedExamples {
+  /** Solution names. */
+  solutions: string[];
+  /** Manual test inputs. */
+  manualTests: string[];
+  /** Statement languages. */
+  statements: string[];
+}
+
+/** True when `file` in the problem is the same as the template's copy. */
+async function sameAsTemplate(
+  problemDir: string,
+  templateDir: string,
+  file: unknown
+): Promise<boolean> {
+  if (!isString(file)) return false;
+  const rel = path.normalize(file);
+  if (path.isAbsolute(rel) || rel.startsWith('..')) return false;
+  try {
+    const [mine, template] = await Promise.all([
+      fs.readFile(path.join(problemDir, rel)),
+      fs.readFile(path.join(templateDir, rel)),
+    ]);
+    return mine.equals(template);
+  } catch {
+    return false;
+  }
+}
+
+async function exists(file: string): Promise<boolean> {
+  try {
+    await fs.access(file);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function dropNow(
+  problemDir: string,
+  templateDir: string
+): Promise<DroppedExamples> {
+  const dropped: DroppedExamples = {
+    solutions: [],
+    manualTests: [],
+    statements: [],
+  };
+  const file = path.join(problemDir, 'Config.json');
+  const config: unknown = JSON.parse(await fs.readFile(file, 'utf-8'));
+  if (!isObject(config)) return dropped;
+  const same = (f: unknown): Promise<boolean> =>
+    sameAsTemplate(problemDir, templateDir, f);
+
+  // The MA stays: the main_solution task replaces it.
+  if (Array.isArray(config['solutions'])) {
+    const kept: unknown[] = [];
+    for (const s of config['solutions'] as unknown[]) {
+      if (isObject(s) && s['tag'] !== 'MA' && (await same(s['source']))) {
+        dropped.solutions.push(String(s['name']));
+      } else {
+        kept.push(s);
+      }
+    }
+    config['solutions'] = kept;
+  }
+
+  if (Array.isArray(config['testsets'])) {
+    for (const t of config['testsets'] as unknown[]) {
+      if (!isObject(t) || !Array.isArray(t['manualTests'])) continue;
+      const kept: unknown[] = [];
+      for (const m of t['manualTests'] as unknown[]) {
+        if (isObject(m) && (await same(m['input']))) {
+          dropped.manualTests.push(String(m['input']));
+        } else {
+          kept.push(m);
+        }
+      }
+      t['manualTests'] = kept;
+    }
+  }
+
+  // A statement goes when every file it has is still the template's.
+  const statements = config['statements'];
+  if (isObject(statements)) {
+    for (const [lang, st] of Object.entries(statements)) {
+      if (!isObject(st)) continue;
+      const files = ['legend', 'input', 'output', 'notes']
+        .map(k => st[k])
+        .filter(isString);
+      let found = 0;
+      let changed = false;
+      for (const f of files) {
+        if (!(await exists(path.resolve(problemDir, f)))) continue;
+        found++;
+        if (!(await same(f))) changed = true;
+      }
+      if (found > 0 && !changed) {
+        dropped.statements.push(lang);
+        delete statements[lang];
+      }
+    }
+  }
+
+  const count =
+    dropped.solutions.length +
+    dropped.manualTests.length +
+    dropped.statements.length;
+  if (count > 0) {
+    const tmp = `${file}.${process.pid}.tmp`;
+    await fs.writeFile(tmp, `${JSON.stringify(config, null, 2)}\n`, 'utf-8');
+    await fs.rename(tmp, file);
+  }
+  return dropped;
+}
+
+/**
+ * Removes the examples that `polyman new` copies from the template and a
+ * workflow does not replace: solutions (not the MA), manual tests and
+ * statements whose files are still the same as in `templateDir`. Anything
+ * the user changed stays, and no file is deleted. It runs in the same
+ * queue as the patches.
+ */
+export function dropTemplateExamples(
+  problemDir: string,
+  templateDir: string
+): Promise<DroppedExamples | { error: string }> {
+  const run = queue.then(
+    () => dropNow(problemDir, templateDir),
+    () => dropNow(problemDir, templateDir)
+  );
+  queue = run.catch(() => undefined);
+  return run.catch((error: unknown) => ({
+    error: error instanceof Error ? error.message : String(error),
+  }));
+}

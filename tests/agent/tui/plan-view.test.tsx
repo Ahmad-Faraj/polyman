@@ -499,6 +499,45 @@ describe('PlanView', () => {
     expect(frame).toMatch(/waits for main solution\n/);
   });
 
+  it('shows the last tool call of a running task', () => {
+    const wf = workflowFrom([
+      ev({ type: 'task_started', taskId: 't3', attempt: 1 }),
+      ev({
+        type: 'tool_call',
+        callId: 'w1',
+        name: 'write_file',
+        args: { path: 'solutions/main.cpp', content: 'x' },
+        risk: 'write',
+        taskId: 't3',
+      }),
+      ev({
+        type: 'tool_result',
+        callId: 'w1',
+        ok: true,
+        summary: 'wrote it',
+        taskId: 't3',
+      }),
+      ev({
+        type: 'tool_call',
+        callId: 'w2',
+        name: 'run_solution',
+        args: { name: 'main' },
+        risk: 'run',
+        taskId: 't3',
+      }),
+      ev({ type: 'task_started', taskId: 't2', attempt: 2 }),
+    ]);
+    const { lastFrame } = render(
+      <PlanView workflow={wf} problem="p" costUsd={0} />
+    );
+    const frame = lastFrame() ?? '';
+    expect(frame).toMatch(
+      /main solution MA\s+attempt 1 · run_solution\(main\)/
+    );
+    // The old attempt has no call in attempt 2 yet: no tool shown.
+    expect(frame).toMatch(/validator\s+attempt 2\n/);
+  });
+
   it('marks the selected task when the details are open', () => {
     const { lastFrame } = render(
       <PlanView workflow={live()} problem="p" costUsd={0} selected={1} />
@@ -509,7 +548,7 @@ describe('PlanView', () => {
 });
 
 describe('TaskDetails', () => {
-  it('shows the attempts, the digests and the tool call note', () => {
+  it('shows the attempts, the digests and no tool calls yet', () => {
     const wf = workflowFrom([
       ev({ type: 'task_started', taskId: 't2', attempt: 1 }),
       ev({
@@ -530,8 +569,65 @@ describe('TaskDetails', () => {
     expect(frame).toContain('5 of 6 ok');
     expect(frame).toContain('test 4: accepts n = 0');
     expect(frame).toContain('working, no checkpoint yet');
-    expect(frame).toContain('tool calls: not available yet');
+    expect(frame).toContain('tool calls: none yet');
+    expect(frame).not.toContain('not available');
     expect(frame).toContain('esc or ctrl+o to close');
+  });
+
+  it('lists the tool calls of the task with their results', () => {
+    const wf = workflowFrom([
+      ev({ type: 'task_started', taskId: 't3', attempt: 1 }),
+      ev({
+        type: 'tool_call',
+        callId: 'w1',
+        name: 'run_solution',
+        args: { name: 'main' },
+        risk: 'run',
+        taskId: 't3',
+      }),
+      ev({
+        type: 'tool_result',
+        callId: 'w1',
+        ok: false,
+        summary: 'WA on sample 1',
+        taskId: 't3',
+      }),
+      ev({ type: 'task_started', taskId: 't3', attempt: 2 }),
+      ev({
+        type: 'tool_call',
+        callId: 'w2',
+        name: 'edit_file',
+        args: { path: 'solutions/main.cpp' },
+        risk: 'write',
+        taskId: 't3',
+      }),
+      ev({
+        type: 'tool_result',
+        callId: 'w2',
+        ok: true,
+        summary: 'edited 2 lines',
+        taskId: 't3',
+      }),
+      ev({
+        type: 'tool_call',
+        callId: 'w3',
+        name: 'list_files',
+        args: {},
+        risk: 'read',
+        taskId: 't3',
+      }),
+    ]);
+    const { lastFrame } = render(<TaskDetails workflow={wf} index={2} />);
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('tool calls');
+    expect(frame).toMatch(
+      /attempt 1\s*│\s*\n.*✗ run_solution\(main\) · WA on sample 1/
+    );
+    expect(frame).toMatch(
+      /attempt 2\s*│\s*\n.*✔ edit_file\(solutions\/main\.cpp\) · edited 2 lines/
+    );
+    expect(frame).toContain('… list_files · running');
+    expect(frame).not.toContain('not available');
   });
 
   it('shows the result of a finished task', () => {
@@ -629,7 +725,7 @@ describe('App with a workflow', () => {
 
     await tick();
     stdin.write('\u000F');
-    frame = await waitFor(lastFrame, f => f.includes('tool calls: not'));
+    frame = await waitFor(lastFrame, f => f.includes('esc or ctrl+o to close'));
     expect(frame).toContain('t1 scaffold');
     expect(frame).toContain('testlib.h is missing');
     expect(frame).toMatch(/❯ ↻ scaffold/);
@@ -643,7 +739,10 @@ describe('App with a workflow', () => {
 
     await tick();
     stdin.write('\u001B');
-    frame = await waitFor(lastFrame, f => !f.includes('tool calls: not'));
+    frame = await waitFor(
+      lastFrame,
+      f => !f.includes('esc or ctrl+o to close')
+    );
     expect(frame).toContain('Type a message');
 
     bus.emit({
