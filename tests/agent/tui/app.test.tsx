@@ -1,4 +1,4 @@
-import { afterEach, describe, it, expect, vi } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { render, cleanup } from 'ink-testing-library';
 import { App } from '../../../src/agent/tui/App.js';
 import {
@@ -51,17 +51,25 @@ function setup(setMode?: (m: string) => void) {
   return { bus, session, ...ui };
 }
 
+// The pills show only with colors: do not take NO_COLOR from the shell.
+beforeEach(() => {
+  vi.stubEnv('NO_COLOR', '');
+});
+
 afterEach(() => {
   cleanup();
+  vi.unstubAllEnvs();
 });
 
 describe('App with the fake session', () => {
-  it('shows the header, the input and the status line', () => {
+  it('shows the welcome box, the input and the status line', () => {
     const { lastFrame } = setup();
     const frame = lastFrame() ?? '';
-    expect(frame).toContain('polyman chat · pairs-sum · gemma-4-31b');
+    expect(frame).toContain('✦ polyman chat · powered by Gemma 4');
+    expect(frame).toMatch(/folder .*pairs-sum/);
+    expect(frame).toContain('model  gemma-4-31b (OpenRouter)');
     expect(frame).toContain('Type a message');
-    expect(frame).toContain('ask mode (shift+tab)');
+    expect(frame).toContain(' ask  shift+tab ');
   });
 
   it('typing and enter shows the user line and then the assistant text', async () => {
@@ -77,9 +85,9 @@ describe('App with the fake session', () => {
     );
     expect(send).toHaveBeenCalledWith('count pairs with sum k');
     expect(frame).toContain('> count pairs with sum k');
-    expect(frame).toContain('● Nice. Before we build anything');
+    expect(frame).toContain('✦ Nice. Before we build anything');
     expect(frame).toContain('● update_notes(Constraints)');
-    expect(frame).toContain('⎿ notes updated');
+    expect(frame).toContain('⎿ ✔ notes updated');
     expect(frame).not.toContain('esc to interrupt');
   });
 
@@ -142,12 +150,12 @@ describe('App with the fake session', () => {
     await tick();
     stdin.write('\u001B[Z');
     const frame = await waitFor(lastFrame, f =>
-      f.includes('auto-edit mode (shift+tab)')
+      f.includes(' auto-edit  shift+tab ')
     );
     expect(frame).toContain(AUTO_EDIT_NOTICE);
     expect(setMode).toHaveBeenCalledWith('auto-edit');
     stdin.write('\u001B[Z');
-    await waitFor(lastFrame, f => f.includes('· ask mode (shift+tab)'));
+    await waitFor(lastFrame, f => f.includes(' ask  shift+tab '));
     expect(setMode).toHaveBeenLastCalledWith('ask');
   });
 

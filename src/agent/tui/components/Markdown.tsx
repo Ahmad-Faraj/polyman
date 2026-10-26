@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
-import { Box, Text } from 'ink';
+import { Box, Text, useStdout } from 'ink';
 import { lexer, type Token, type Tokens } from 'marked';
-import { fg } from '../theme.js';
+import { fg, gradient } from '../theme.js';
 
 /** Draws inline tokens (bold, code, links, ...) as nested `<Text>`. */
 function inline(tokens: Token[] | undefined, keyBase: string): ReactNode[] {
@@ -59,17 +59,66 @@ function inline(tokens: Token[] | undefined, keyBase: string): ReactNode[] {
   });
 }
 
+/**
+ * A code block in a round box, the language in the top border:
+ * `╭─ cpp ───╮`. As wide as its longest line, at most `width`.
+ */
+export function CodeBlock({
+  code,
+  lang,
+  width,
+}: {
+  code: string;
+  lang: string;
+  width: number;
+}) {
+  const label = lang.trim().split(/\s+/)[0] ?? '';
+  const longest = Math.max(0, ...code.split('\n').map(l => [...l].length));
+  const w = Math.max(
+    6,
+    Math.min(width, Math.max(longest + 4, label.length + 8))
+  );
+  const top =
+    label.length > 0
+      ? `╭─ ${label} ${'─'.repeat(Math.max(0, w - 5 - label.length))}╮`
+      : `╭${'─'.repeat(w - 2)}╮`;
+  return (
+    <Box flexDirection="column" width={w}>
+      <Text dimColor>{top}</Text>
+      <Box
+        borderStyle="round"
+        borderTop={false}
+        borderDimColor
+        paddingX={1}
+        width={w}
+      >
+        <Text {...fg('code')}>{code}</Text>
+      </Box>
+    </Box>
+  );
+}
+
 /** Draws one block token (heading, paragraph, list, code, ...). */
-function block(t: Token, key: string): ReactNode {
+function block(t: Token, key: string, width: number): ReactNode {
   switch (t.type) {
     case 'space':
       return null;
-    case 'heading':
+    case 'heading': {
+      const heading = t as Tokens.Heading;
+      // The first level in the gradient, the others in one color.
+      if (heading.depth === 1) {
+        return (
+          <Text key={key}>
+            {gradient(heading.text.replace(/[*_`~]/g, ''), { bold: true })}
+          </Text>
+        );
+      }
       return (
-        <Text key={key} bold>
-          {inline((t as Tokens.Heading).tokens, key)}
+        <Text key={key} bold {...fg('heading')}>
+          {inline(heading.tokens, key)}
         </Text>
       );
+    }
     case 'paragraph':
       return (
         <Text key={key}>{inline((t as Tokens.Paragraph).tokens, key)}</Text>
@@ -82,12 +131,17 @@ function block(t: Token, key: string): ReactNode {
         </Text>
       );
     }
-    case 'code':
+    case 'code': {
+      const code = t as Tokens.Code;
       return (
-        <Box key={key} paddingLeft={2}>
-          <Text {...fg('code')}>{(t as Tokens.Code).text}</Text>
-        </Box>
+        <CodeBlock
+          key={key}
+          code={code.text}
+          lang={code.lang ?? ''}
+          width={width}
+        />
       );
+    }
     case 'list': {
       const list = t as Tokens.List;
       const start = typeof list.start === 'number' ? list.start : 1;
@@ -98,7 +152,7 @@ function block(t: Token, key: string): ReactNode {
               <Text>{list.ordered ? `${start + i}. ` : '- '}</Text>
               <Box flexDirection="column" flexGrow={1}>
                 {item.tokens.map((child, j) =>
-                  block(child, `${key}.${i}.${j}`)
+                  block(child, `${key}.${i}.${j}`, width - 3)
                 )}
               </Box>
             </Box>
@@ -124,10 +178,19 @@ function block(t: Token, key: string): ReactNode {
 }
 
 /**
- * A small terminal markdown renderer on the `marked` lexer: bold headings,
- * lists, inline code and code blocks in another color. No highlighting.
+ * A small terminal markdown renderer on the `marked` lexer: bold colored
+ * headings, lists, inline code and code blocks in a box. No highlighting.
  */
-export function Markdown({ text }: { text: string }) {
+export function Markdown({
+  text,
+  width,
+}: {
+  text: string;
+  /** Columns for the code boxes. The terminal width minus the bullet. */
+  width?: number;
+}) {
+  const { stdout } = useStdout();
+  const columns = width ?? Math.max(10, (stdout.columns || 80) - 2);
   // Ink counts a tab as one column but the terminal moves to the next tab
   // stop, so lines get longer than Ink thinks and the redraw breaks.
   const blocks = lexer(text.replace(/\t/g, '    ')).filter(
@@ -135,7 +198,7 @@ export function Markdown({ text }: { text: string }) {
   );
   return (
     <Box flexDirection="column" gap={1}>
-      {blocks.map((t, i) => block(t, String(i)))}
+      {blocks.map((t, i) => block(t, String(i), columns))}
     </Box>
   );
 }

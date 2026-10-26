@@ -93,7 +93,7 @@ export interface LiveParts {
   rows: number;
   /** Lines of the running tools (each tool with its margin). */
   toolLines: number;
-  /** The "Working…" line and its margin. */
+  /** The spinner line and its margin, there while the agent works. */
   workingLines: number;
   /** The "wait for the turn" hint. */
   hintLines: number;

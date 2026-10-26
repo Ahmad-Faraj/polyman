@@ -1,9 +1,10 @@
+import path from 'node:path';
 import { useEffect, useReducer, useRef, useState, type ReactNode } from 'react';
 import { Box, Text, useApp, useInput, useStdout } from 'ink';
 import type { ApprovalDecision, EventBus } from '../core/events.js';
 import type { AgentSessionApi } from '../core/session-types.js';
 import type { PermissionMode } from '../tools/types.js';
-import { initialState, pickTask, problemName, reduce } from './store.js';
+import { initialState, pickTask, reduce } from './store.js';
 import { EMPTY_EDITOR, History, type EditorState } from './editor.js';
 import {
   appKeyOf,
@@ -241,12 +242,7 @@ export function App({ session, bus, info }: AppProps) {
   const budget = liveBudget({
     rows,
     toolLines: running.reduce((n, t) => n + (t.lastLine === null ? 2 : 3), 0),
-    workingLines:
-      state.status.busy &&
-      running.length === 0 &&
-      state.live.streamingText.trim().length === 0
-        ? 2
-        : 0,
+    workingLines: state.status.busy ? 2 : 0,
     hintLines: hint === BUSY_HINT ? 1 : 0,
     inputLines:
       promptKind === null ? visualLines(editor.text, columns - 3) : null,
@@ -291,8 +287,9 @@ export function App({ session, bus, info }: AppProps) {
     <Box flexDirection="column">
       <Transcript
         items={state.finished}
-        problem={problemName(info.problem)}
+        folder={path.resolve(info.problem ?? process.cwd())}
         model={info.model}
+        columns={columns}
       />
       {!exiting && (
         <>
@@ -301,6 +298,10 @@ export function App({ session, bus, info }: AppProps) {
             busy={state.status.busy}
             maxLines={budget.streaming}
             width={columns}
+            context={{
+              waiting: state.approval !== null || state.planApproval !== null,
+              workflow: showPlan,
+            }}
           />
           {showPlan && state.workflow && (
             <PlanView

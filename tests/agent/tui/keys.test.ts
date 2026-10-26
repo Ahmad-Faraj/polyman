@@ -135,7 +135,7 @@ describe('theme', () => {
   it('gives colors, and none with NO_COLOR', () => {
     delete process.env['NO_COLOR'];
     expect(fg('error')).toEqual({ color: 'red' });
-    expect(fg('agent')).toEqual({ color: 'blue' });
+    expect(fg('agent')).toEqual({ color: '#636ff6' });
     process.env['NO_COLOR'] = '1';
     expect(fg('error')).toEqual({});
   });
