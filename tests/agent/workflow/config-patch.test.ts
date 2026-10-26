@@ -5,10 +5,13 @@ import path from 'path';
 import {
   applyConfigPatch,
   configErrors,
+  dropTemplateExamples,
+  fillPatchDefaults,
   sourceTypeFor,
 } from '../../../src/agent/workflow/config-patch';
 
 const TEMPLATE = path.resolve(__dirname, '../../../template/Config.json');
+const TEMPLATE_DIR = path.dirname(TEMPLATE);
 
 let dir: string;
 
@@ -217,5 +220,125 @@ describe('sourceTypeFor', () => {
     expect(sourceTypeFor('A.java')).toBe('java21');
     expect(sourceTypeFor('a.py')).toBe('python.3');
     expect(sourceTypeFor('a.rb')).toBeNull();
+  });
+});
+
+describe('dropTemplateExamples', () => {
+  beforeEach(async () => {
+    await fs.cp(TEMPLATE_DIR, dir, { recursive: true });
+  });
+
+  it('removes the template examples a workflow does not replace', async () => {
+    const dropped = await dropTemplateExamples(dir, TEMPLATE_DIR);
+    expect(dropped).toEqual({
+      solutions: ['correct2', 'tle_solution'],
+      manualTests: ['./manual/tests/m-01-sample.in'],
+      statements: ['english', 'russian'],
+    });
+    const config = await readConfig();
+    expect((config['solutions'] as Solution[]).map(s => s.name)).toEqual([
+      'main',
+    ]);
+    const [testset] = config['testsets'] as { manualTests: unknown[] }[];
+    expect(testset?.manualTests).toEqual([]);
+    expect(config['statements']).toEqual({});
+    // The files stay on disk.
+    await fs.access(path.join(dir, 'solutions', 'acc2.java'));
+
+    // A second run finds nothing and does not write.
+    const before = await fs.readFile(path.join(dir, 'Config.json'), 'utf-8');
+    expect(await dropTemplateExamples(dir, TEMPLATE_DIR)).toEqual({
+      solutions: [],
+      manualTests: [],
+      statements: [],
+    });
+    expect(await fs.readFile(path.join(dir, 'Config.json'), 'utf-8')).toBe(
+      before
+    );
+  });
+
+  it('keeps what the user changed', async () => {
+    await fs.appendFile(path.join(dir, 'solutions', 'acc2.java'), '// mine\n');
+    await fs.writeFile(
+      path.join(dir, 'manual', 'tests', 'm-01-sample.in'),
+      '1\n'
+    );
+    await fs.appendFile(
+      path.join(dir, 'statements', 'english', 'legend.tex'),
+      'More.\n'
+    );
+    const dropped = await dropTemplateExamples(dir, TEMPLATE_DIR);
+    expect(dropped).toEqual({
+      solutions: ['tle_solution'],
+      manualTests: [],
+      statements: ['russian'],
+    });
+    const config = await readConfig();
+    expect((config['solutions'] as Solution[]).map(s => s.name)).toEqual([
+      'main',
+      'correct2',
+    ]);
+    expect(Object.keys(config['statements'] as object)).toEqual(['english']);
+  });
+
+  it('fails when Config.json is missing', async () => {
+    await fs.rm(path.join(dir, 'Config.json'));
+    const dropped = await dropTemplateExamples(dir, TEMPLATE_DIR);
+    expect(dropped).toHaveProperty('error');
+  });
+});
+
+describe('patch defaults', () => {
+  it('fills a missing generatorScript testset with the first testset', async () => {
+    const result = await applyConfigPatch(dir, {
+      generatorScript: { scriptFile: './generators/gen-script.txt' },
+    });
+    expect(result).toEqual({ ok: true });
+    const testsets = (await readConfig())['testsets'] as {
+      name: string;
+      generatorScript?: { scriptFile: string };
+    }[];
+    expect(testsets).toHaveLength(1);
+    expect(testsets[0].generatorScript).toEqual({
+      scriptFile: './generators/gen-script.txt',
+    });
+  });
+
+  it('accepts a generatorScript given as a plain path', () => {
+    expect(
+      fillPatchDefaults(
+        { generatorScript: './generators/gen-script.txt' },
+        { testsets: [{ name: 'main' }] }
+      )
+    ).toEqual({
+      generatorScript: {
+        testset: 'main',
+        scriptFile: './generators/gen-script.txt',
+      },
+    });
+  });
+
+  it('fills manual test testsets and the validator name, keeps the rest', () => {
+    expect(
+      fillPatchDefaults(
+        {
+          manualTests: [{ input: './manual/a.in' }, 'odd'],
+          validator: { source: './validator/val.cpp' },
+          set: { timeLimit: 2000 },
+        },
+        {}
+      )
+    ).toEqual({
+      manualTests: [{ input: './manual/a.in', testset: 'tests' }, 'odd'],
+      validator: { source: './validator/val.cpp', name: 'validator' },
+      set: { timeLimit: 2000 },
+    });
+  });
+
+  it('still refuses what it cannot fill', async () => {
+    const result = await applyConfigPatch(dir, {
+      generatorScript: { testset: 'tests' },
+    });
+    expect(result).toMatchObject({ ok: false });
   });
 });

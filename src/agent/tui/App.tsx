@@ -1,9 +1,9 @@
 import { useEffect, useReducer, useRef, useState, type ReactNode } from 'react';
-import { Box, Text, useApp, useInput } from 'ink';
+import { Box, Text, useApp, useInput, useStdout } from 'ink';
 import type { ApprovalDecision, EventBus } from '../core/events.js';
 import type { AgentSessionApi } from '../core/session-types.js';
 import type { PermissionMode } from '../tools/types.js';
-import { initialState, pickTask, reduce } from './store.js';
+import { initialState, pickTask, problemName, reduce } from './store.js';
 import { EMPTY_EDITOR, History, type EditorState } from './editor.js';
 import {
   appKeyOf,
@@ -24,6 +24,21 @@ import { PlanView, TaskDetails } from './components/PlanView.js';
 import { StatusLine } from './components/StatusLine.js';
 import { Transcript } from './components/Transcript.js';
 import { fg } from './theme.js';
+import { liveBudget, sizeOf, visualLines } from './layout.js';
+
+/** The terminal size, updated when the window is resized. */
+function useTerminalSize(): { columns: number; rows: number } {
+  const { stdout } = useStdout();
+  const [size, setSize] = useState(() => sizeOf(stdout));
+  useEffect(() => {
+    const onResize = () => setSize(sizeOf(stdout));
+    stdout.on('resize', onResize);
+    return () => {
+      stdout.off('resize', onResize);
+    };
+  }, [stdout]);
+  return size;
+}
 
 /** What the chat shows about itself in the header and the status line. */
 export interface TuiInfo {
@@ -46,9 +61,13 @@ export interface AppProps {
 /** The chat: transcript, live area, approval, input and status line. */
 export function App({ session, bus, info }: AppProps) {
   const { exit } = useApp();
+  const { columns, rows } = useTerminalSize();
   const [state, dispatch] = useReducer(reduce, info, initialState);
   const [editor, setEditor] = useState<EditorState>(EMPTY_EDITOR);
   const [hint, setHint] = useState<string | null>(null);
+  // On exit the live part is drawn empty first, so the input box and the
+  // status line do not stay in the scrollback above "Bye.".
+  const [exiting, setExiting] = useState(false);
   // The task whose details are open (ctrl+o), an index into the plan tasks.
   const [details, setDetailsState] = useState<number | null>(null);
   const detailsRef = useRef<number | null>(null);
@@ -64,6 +83,10 @@ export function App({ session, bus, info }: AppProps) {
 
   useEffect(() => bus.on(e => dispatch(e)), [bus]);
 
+  useEffect(() => {
+    if (exiting) exit();
+  }, [exiting, exit]);
+
   // The details close with the workflow.
   const hasWorkflow = state.workflow !== null;
   useEffect(() => {
@@ -72,6 +95,12 @@ export function App({ session, bus, info }: AppProps) {
       setDetailsState(null);
     }
   }, [hasWorkflow]);
+
+  // The busy hint is gone when the turn is over.
+  const busy = state.status.busy;
+  useEffect(() => {
+    if (!busy) setHint(h => (h === BUSY_HINT ? null : h));
+  }, [busy]);
 
   // The ctrl+c hint is true for one second only.
   useEffect(() => {
@@ -161,7 +190,7 @@ export function App({ session, bus, info }: AppProps) {
     if (action === 'ctrl_c') {
       if (ctrlC.press(Date.now()) === 'exit') {
         if (stateRef.current.status.busy) session.cancel();
-        exit();
+        setExiting(true);
         return;
       }
       setEditor(EMPTY_EDITOR);
@@ -200,6 +229,32 @@ export function App({ session, bus, info }: AppProps) {
     }
   };
 
+  const showPlan = state.workflow !== null && state.planApproval === null;
+  const promptKind = state.approval
+    ? 'approval'
+    : state.planApproval
+      ? 'plan'
+      : details !== null && state.workflow
+        ? 'details'
+        : null;
+  const running = state.live.runningTools;
+  const budget = liveBudget({
+    rows,
+    toolLines: running.reduce((n, t) => n + (t.lastLine === null ? 2 : 3), 0),
+    workingLines:
+      state.status.busy &&
+      running.length === 0 &&
+      state.live.streamingText.trim().length === 0
+        ? 2
+        : 0,
+    hintLines: hint === BUSY_HINT ? 1 : 0,
+    inputLines:
+      promptKind === null ? visualLines(editor.text, columns - 3) : null,
+    prompt: promptKind,
+    treeTasks:
+      showPlan && state.workflow ? state.workflow.plan.tasks.length : 0,
+  });
+
   let prompt: ReactNode = null;
   if (state.approval) {
     prompt = (
@@ -208,6 +263,7 @@ export function App({ session, bus, info }: AppProps) {
         approval={state.approval}
         resolveApproval={answer}
         onCancel={interrupt}
+        maxPreviewLines={budget.preview}
       />
     );
   } else if (state.planApproval) {
@@ -218,44 +274,60 @@ export function App({ session, bus, info }: AppProps) {
         plan={state.planApproval.plan}
         problem={state.status.problem}
         resolveApproval={answerPlan}
+        maxRows={budget.planRows}
       />
     );
   } else if (details !== null && state.workflow) {
-    prompt = <TaskDetails workflow={state.workflow} index={details} />;
+    prompt = (
+      <TaskDetails
+        workflow={state.workflow}
+        index={details}
+        maxLines={budget.details}
+      />
+    );
   }
-
-  const showPlan = state.workflow !== null && state.planApproval === null;
 
   return (
     <Box flexDirection="column">
       <Transcript
         items={state.finished}
-        problem={info.problem}
+        problem={problemName(info.problem)}
         model={info.model}
       />
-      <LiveArea live={state.live} busy={state.status.busy} />
-      {showPlan && state.workflow && (
-        <PlanView
-          workflow={state.workflow}
-          problem={state.status.problem}
-          costUsd={state.status.costUsd}
-          selected={state.approval ? null : details}
-        />
+      {!exiting && (
+        <>
+          <LiveArea
+            live={state.live}
+            busy={state.status.busy}
+            maxLines={budget.streaming}
+            width={columns}
+          />
+          {showPlan && state.workflow && (
+            <PlanView
+              workflow={state.workflow}
+              problem={state.status.problem}
+              costUsd={state.status.costUsd}
+              selected={state.approval ? null : details}
+              maxRows={budget.tree}
+            />
+          )}
+          {prompt}
+          {prompt === null && (
+            <Composer
+              value={editor}
+              onChange={changeEditor}
+              onSubmit={submit}
+              history={history}
+              maxLines={budget.input}
+            />
+          )}
+          {hint === BUSY_HINT && <Text {...fg('warn')}> {hint}</Text>}
+          <StatusLine
+            status={state.status}
+            hint={hint === CTRL_C_HINT ? hint : null}
+          />
+        </>
       )}
-      {prompt}
-      {prompt === null && (
-        <Composer
-          value={editor}
-          onChange={changeEditor}
-          onSubmit={submit}
-          history={history}
-        />
-      )}
-      {hint === BUSY_HINT && <Text {...fg('warn')}> {hint}</Text>}
-      <StatusLine
-        status={state.status}
-        hint={hint === CTRL_C_HINT ? hint : null}
-      />
     </Box>
   );
 }

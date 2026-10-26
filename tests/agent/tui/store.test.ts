@@ -3,6 +3,8 @@ import type { AgentEvent, SeqEvent } from '../../../src/agent/core/events';
 import type { Plan } from '../../../src/agent/workflow/types';
 import {
   initialState,
+  MAX_TASK_TOOLS,
+  previewOf,
   reduce,
   shortArgs,
   type UiAction,
@@ -35,6 +37,14 @@ describe('tui store', () => {
       costUsd: 0,
       busy: false,
     });
+  });
+
+  it('shows only the folder name when the problem is a full path', () => {
+    const s = initialState({ problem: '/home/me/work/pairs-sum', model: 'm' });
+    expect(s.status.problem).toBe('pairs-sum');
+    expect(initialState({ problem: null, model: 'm' }).status.problem).toBe(
+      null
+    );
   });
 
   it('adds the user message and marks busy', () => {
@@ -199,6 +209,46 @@ describe('tui store', () => {
     expect(s.approval).toBeNull();
   });
 
+  it('a write approval without a preview shows the written content', () => {
+    const write = (args: unknown) =>
+      ev({
+        type: 'tool_call',
+        callId: 'c1',
+        name: 'write_file',
+        args,
+        risk: 'write',
+      });
+    const ask = ev({
+      type: 'approval_needed',
+      approvalId: 'a1',
+      callId: 'c1',
+      title: 'Write hello.txt',
+    });
+    let s = run(start(), [
+      write({ path: 'hello.txt', content: 'hi\nthere\n' }),
+      ask,
+    ]);
+    expect(s.approval?.preview).toBe('+ hi\n+ there');
+    s = run(start(), [
+      ev({
+        type: 'tool_call',
+        callId: 'c1',
+        name: 'edit_file',
+        args: { path: 'a.cpp', old_text: 'int x;', new_text: 'long long x;' },
+        risk: 'write',
+      }),
+      ask,
+    ]);
+    expect(s.approval?.preview).toBe('- int x;\n+ long long x;');
+    // A preview from the gate wins, and read tools keep none.
+    s = run(start(), [
+      write({ path: 'a', content: 'x' }),
+      { ...ask, preview: '+ gate' },
+    ]);
+    expect(s.approval?.preview).toBe('+ gate');
+    expect(previewOf({ path: 'a' })).toBeUndefined();
+  });
+
   it('local actions: notice, set_mode, approval_answered, turn_settled', () => {
     let s = run(start(), [
       { type: 'notice', text: 'help text' },
@@ -309,6 +359,154 @@ describe('tui store', () => {
       summary: '2 tasks',
       costUsd: 0.1,
     });
+  });
+
+  it('worker tool events go to their task, not to the transcript', () => {
+    const plan: Plan = {
+      recipe: 'build_problem',
+      tasks: [
+        {
+          id: 't4',
+          kind: 'main_solution',
+          title: 'Main solution',
+          dependsOn: [],
+          brief: 'b',
+          ownsFiles: ['solutions/main.cpp'],
+        },
+      ],
+    };
+    let s = run(start(), [
+      ev({ type: 'plan_created', plan }),
+      ev({ type: 'task_started', taskId: 't4', attempt: 1 }),
+      toolCall('c0', 'start_workflow', { recipe: 'build_problem' }),
+      ev({
+        type: 'tool_call',
+        callId: 'w1',
+        name: 'run_solution',
+        args: { name: 'main' },
+        risk: 'run',
+        taskId: 't4',
+      }),
+      ev({
+        type: 'tool_progress',
+        callId: 'w1',
+        line: 'compiling',
+        taskId: 't4',
+      }),
+    ]);
+    expect(s.finished).toEqual([]);
+    expect(s.live.runningTools.map(t => t.callId)).toEqual(['c0']);
+    expect(s.workflow?.tasks['t4']?.tools).toEqual([
+      {
+        callId: 'w1',
+        name: 'run_solution',
+        args: 'main',
+        attempt: 1,
+        ok: null,
+        summary: null,
+      },
+    ]);
+
+    s = reduce(
+      s,
+      ev({
+        type: 'tool_result',
+        callId: 'w1',
+        ok: false,
+        summary: 'WA on sample 1\nexpected 2, got 1',
+        taskId: 't4',
+      })
+    );
+    expect(s.finished).toEqual([]);
+    expect(s.workflow?.tasks['t4']?.tools[0]).toMatchObject({
+      ok: false,
+      summary: 'WA on sample 1',
+    });
+
+    // A new attempt tags its calls with the new attempt number.
+    s = run(s, [
+      ev({ type: 'task_started', taskId: 't4', attempt: 2 }),
+      ev({
+        type: 'tool_call',
+        callId: 'w2',
+        name: 'read_file',
+        args: { path: 'solutions/main.cpp' },
+        risk: 'read',
+        taskId: 't4',
+      }),
+    ]);
+    expect(s.workflow?.tasks['t4']?.tools.map(t => t.attempt)).toEqual([1, 2]);
+
+    // The chat's own tool result still goes to the transcript.
+    s = reduce(
+      s,
+      ev({ type: 'tool_result', callId: 'c0', ok: true, summary: 'done' })
+    );
+    expect(items(s)).toEqual([
+      {
+        kind: 'tool',
+        callId: 'c0',
+        name: 'start_workflow',
+        args: 'build_problem',
+        ok: true,
+        summary: 'done',
+      },
+    ]);
+  });
+
+  it('keeps the last 20 tool calls of a task', () => {
+    const plan: Plan = {
+      recipe: 'build_problem',
+      tasks: [
+        {
+          id: 't1',
+          kind: 'scaffold',
+          title: 'Scaffold',
+          dependsOn: [],
+          brief: 'b',
+          ownsFiles: [],
+        },
+      ],
+    };
+    const calls = Array.from({ length: 25 }, (_, i) =>
+      ev({
+        type: 'tool_call',
+        callId: `w${i}`,
+        name: 'read_file',
+        args: { path: `f${i}` },
+        risk: 'read',
+        taskId: 't1',
+      })
+    );
+    const s = run(start(), [ev({ type: 'plan_created', plan }), ...calls]);
+    const tools = s.workflow?.tasks['t1']?.tools ?? [];
+    expect(tools).toHaveLength(MAX_TASK_TOOLS);
+    expect(MAX_TASK_TOOLS).toBe(20);
+    expect(tools[0]?.callId).toBe('w5');
+    expect(tools.at(-1)?.callId).toBe('w24');
+  });
+
+  it('drops worker tool events when no workflow runs', () => {
+    const s = run(start(), [
+      ev({
+        type: 'tool_call',
+        callId: 'w1',
+        name: 'read_file',
+        args: {},
+        risk: 'read',
+        taskId: 't1',
+      }),
+      ev({
+        type: 'tool_result',
+        callId: 'w1',
+        ok: true,
+        summary: 'x',
+        taskId: 't1',
+      }),
+    ]);
+    expect(s.finished).toEqual([]);
+    expect(s.live.runningTools).toEqual([]);
+    expect(s.workflow).toBeNull();
   });
 
   it('a full scripted turn ends in the right finished list', () => {

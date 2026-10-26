@@ -58,8 +58,12 @@ export function formatTokens(tokens: number): string {
   return `${(tokens / 1000).toFixed(1)}k`;
 }
 
-/** 0.0123 becomes `$0.01`. Small costs keep 3 digits: `$0.004`. */
+/**
+ * 0.0123 becomes `$0.01`. Small costs keep 3 digits: `$0.004`. A cost under
+ * $0.001 is `<$0.001`, so a paid call never looks free (`$0.000`).
+ */
 export function formatCost(costUsd: number): string {
+  if (costUsd > 0 && costUsd < 0.001) return '<$0.001';
   const digits = costUsd > 0 && costUsd < 0.01 ? 3 : 2;
   return `$${costUsd.toFixed(digits)}`;
 }

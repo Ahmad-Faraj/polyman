@@ -150,6 +150,31 @@ export function dependentsOf(tasks: PlanTask[], id: string): Set<string> {
 }
 
 /**
+ * Adds the order dependencies the recipe asks for when the manager left them
+ * out (like verify not depending on every task). These are fixed rules, so
+ * there is nothing for the model to decide; the other plan checks still run.
+ * Returns a new plan.
+ */
+export function addRecipeDependencies(plan: Plan): Plan {
+  const recipe = (RECIPES as Partial<Record<string, Recipe>>)[plan.recipe];
+  if (!recipe) return plan;
+  const tasks = plan.tasks.map(t => ({ ...t, dependsOn: [...t.dependsOn] }));
+  for (const task of tasks) {
+    const rule = recipe.after[task.kind];
+    if (!rule) continue;
+    for (const other of tasks) {
+      if (other.id === task.id) continue;
+      const needed =
+        rule === '*' ? other.kind !== task.kind : rule.includes(other.kind);
+      if (needed && !task.dependsOn.includes(other.id)) {
+        task.dependsOn.push(other.id);
+      }
+    }
+  }
+  return { ...plan, tasks };
+}
+
+/**
  * Checks a plan against its recipe and the spec. Returns the errors, an
  * empty list means the plan is ok. The errors are short and exact, the
  * manager reads them on its second try.

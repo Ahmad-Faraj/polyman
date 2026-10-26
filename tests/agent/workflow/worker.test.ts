@@ -3,8 +3,13 @@ import { randomUUID } from 'crypto';
 import { MockProvider, type MockStep } from '../../../src/agent/providers/mock';
 import {
   GemmaWorker,
+  MAX_PRECHECKS,
   STEP_LIMIT_SUMMARY,
+  checkpointPrecheck,
+  configPatchSchema,
   workerToolNames,
+  type GemmaWorkerOptions,
+  type WorkerPrecheck,
 } from '../../../src/agent/workflow/worker';
 import { workerPrompt } from '../../../src/agent/workflow/prompts';
 import type {
@@ -28,7 +33,12 @@ import type {
   ToolRegistry,
 } from '../../../src/agent/tools/types';
 import type { CliRunner } from '../../../src/agent/runner/types';
-import type { PlanTask, TaskKind } from '../../../src/agent/workflow/types';
+import type {
+  Checkpoint,
+  Checkpoints,
+  PlanTask,
+  TaskKind,
+} from '../../../src/agent/workflow/types';
 
 // ---- fakes through the contracts -------------------------------------------
 
@@ -233,7 +243,7 @@ function recordingBus(): EventBus & { events: AgentEvent[] } {
   };
 }
 
-function setup(script: MockStep[]) {
+function setup(script: MockStep[], extra: Partial<GemmaWorkerOptions> = {}) {
   const provider = new MockProvider(script);
   const bus = recordingBus();
   const sessions: FakeSession[] = [];
@@ -266,6 +276,7 @@ function setup(script: MockStep[]) {
       gates.push(g);
       return g;
     },
+    ...extra,
   });
   return { provider, bus, sessions, registries, sandboxes, gates, worker };
 }
@@ -305,15 +316,22 @@ describe('workerToolNames', () => {
       'load_skill',
       'write_file',
       'edit_file',
-      'run_solution',
       'finish_task',
     ]);
-    expect(workerToolNames('validator')).toContain('test_target');
-    expect(workerToolNames('generators')).toContain('generate');
+    // These read Config.json, which has the worker's entries only after
+    // finish_task: finish_task runs the real check instead.
+    for (const k of [
+      'main_solution',
+      'brute_force',
+      'wrong_solution',
+      'validator',
+      'generators',
+    ] as const) {
+      expect(workerToolNames(k)).not.toContain('run_solution');
+      expect(workerToolNames(k)).not.toContain('test_target');
+      expect(workerToolNames(k)).not.toContain('generate');
+    }
     expect(workerToolNames('fix')).toContain('verify');
-    expect(workerToolNames('brute_force')).toContain('run_solution');
-    expect(workerToolNames('wrong_solution')).toContain('run_solution');
-    expect(workerToolNames('statement')).not.toContain('run_solution');
     const critic = workerToolNames('statement_critic');
     expect(critic).toContain('review');
     expect(critic).not.toContain('write_file');
@@ -493,7 +511,7 @@ describe('GemmaWorker', () => {
     expect(t.provider.remaining).toBe(0);
   });
 
-  it('forwards usage to the bus but not text or tool events', async () => {
+  it('forwards usage and the tool events with the task id, not text', async () => {
     const t = setup([
       {
         text: 'I will write it',
@@ -513,8 +531,64 @@ describe('GemmaWorker', () => {
     );
     expect(t.bus.events).toEqual([
       { type: 'usage', inputTokens: 10, outputTokens: 5, costUsd: 0.0002 },
+      {
+        type: 'tool_call',
+        callId: 'mock_call_1_1',
+        name: 'read_file',
+        args: { path: 'Config.json' },
+        risk: 'read',
+        taskId: 't2',
+      },
+      {
+        type: 'tool_result',
+        callId: 'mock_call_1_1',
+        ok: true,
+        summary: 'read_file ok',
+        taskId: 't2',
+      },
       { type: 'usage', inputTokens: 20, outputTokens: 7 },
+      {
+        type: 'tool_call',
+        callId: 'mock_call_2_1',
+        name: 'finish_task',
+        args: { summary: 'done' },
+        risk: 'read',
+        taskId: 't2',
+      },
+      {
+        type: 'tool_result',
+        callId: 'mock_call_2_1',
+        ok: true,
+        summary: 'Task finished. Stop now.',
+        taskId: 't2',
+      },
     ]);
+    expect(t.bus.events.some(e => e.type === 'text_delta')).toBe(false);
+    expect(t.bus.events.some(e => 'seq' in e)).toBe(false);
+  });
+
+  it('forwards tool_progress with the task id', async () => {
+    const t = setup([finish('done')]);
+    await t.worker.run(
+      {
+        task: task('fix', [], { id: 't7' }),
+        spec: SPEC,
+        attempt: 1,
+        fresh: true,
+      },
+      signal()
+    );
+    t.sessions[0]?.deps.bus.emit({
+      type: 'tool_progress',
+      callId: 'c9',
+      line: 'compiling main.cpp',
+    });
+    expect(t.bus.events.at(-1)).toEqual({
+      type: 'tool_progress',
+      callId: 'c9',
+      line: 'compiling main.cpp',
+      taskId: 't7',
+    });
   });
 
   it('reports a model that stops with text and no finish_task', async () => {
@@ -546,5 +620,197 @@ describe('GemmaWorker', () => {
         ac.signal
       )
     ).rejects.toThrow();
+  });
+});
+
+describe('finish_task precheck', () => {
+  const patch = {
+    addSolutions: [{ name: 'main', source: './solutions/main.cpp', tag: 'MA' }],
+  };
+
+  function checks(...results: Checkpoint[]) {
+    const seen: Parameters<WorkerPrecheck>[0][] = [];
+    const precheck: WorkerPrecheck = input => {
+      seen.push(input);
+      return Promise.resolve(
+        results.shift() ?? { name: 'samples', ok: true, digest: '' }
+      );
+    };
+    return { seen, precheck };
+  }
+
+  it('sends a failed check back to the worker and goes on until it passes', async () => {
+    const { seen, precheck } = checks({
+      name: 'samples',
+      ok: false,
+      digest: 'sample 1: expected 2 got 3',
+    });
+    const t = setup(
+      [
+        finish('first try', patch),
+        {
+          toolCall: { name: 'edit_file', args: { path: 'solutions/main.cpp' } },
+        },
+        finish('fixed', patch),
+      ],
+      { precheck }
+    );
+    const out = await t.worker.run(
+      {
+        task: task('main_solution', ['solutions/main.cpp']),
+        spec: SPEC,
+        attempt: 1,
+        fresh: true,
+      },
+      signal()
+    );
+    expect(out.summary).toBe('fixed');
+    expect(out.configPatch).toEqual(patch);
+    expect(seen).toHaveLength(2);
+    expect(seen[0]).toMatchObject({ spec: SPEC, configPatch: patch });
+    expect(seen[0].task.kind).toBe('main_solution');
+    // The model saw the digest as an error result.
+    const results = t.sessions[0].messages
+      .flatMap(m => m.parts)
+      .filter(p => p.type === 'tool_result');
+    expect(results[0]).toMatchObject({ isError: true });
+    expect(JSON.stringify(results[0])).toContain('expected 2 got 3');
+  });
+
+  it(`ends the task after ${MAX_PRECHECKS} failed checks`, async () => {
+    const bad = { name: 'compile', ok: false, digest: 'compile error' };
+    const { seen, precheck } = checks(bad, bad, bad, bad);
+    const script = Array.from({ length: MAX_PRECHECKS + 1 }, () =>
+      finish('try', patch)
+    );
+    const t = setup(script, { precheck });
+    const out = await t.worker.run(
+      {
+        task: task('wrong_solution', ['solutions/wa-1.cpp']),
+        spec: SPEC,
+        attempt: 1,
+        fresh: true,
+      },
+      signal()
+    );
+    expect(seen).toHaveLength(MAX_PRECHECKS);
+    expect(out.summary).toBe('try');
+    expect(out.configPatch).toEqual(patch);
+  });
+
+  it('keeps the patch of a failed check when the worker runs out of steps', async () => {
+    const { precheck } = checks({ name: 'generate', ok: false, digest: 'x' });
+    const script: MockStep[] = [finish('try', patch)];
+    for (let i = 0; i < 20; i++) {
+      script.push({ toolCall: { name: 'read_file', args: { path: 'a' } } });
+    }
+    const t = setup(script, { precheck });
+    const out = await t.worker.run(
+      {
+        task: task('generators', ['generators/gen.cpp']),
+        spec: SPEC,
+        attempt: 1,
+        fresh: true,
+      },
+      signal()
+    );
+    expect(out.summary).toBe(STEP_LIMIT_SUMMARY);
+    expect(out.configPatch).toEqual(patch);
+  });
+});
+
+describe('checkpointPrecheck', () => {
+  it('applies the patch, then runs the checkpoint of the task', async () => {
+    const fs = await import('fs/promises');
+    const os = await import('os');
+    const path = await import('path');
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'precheck-'));
+    await fs.copyFile(
+      path.join(__dirname, '..', '..', '..', 'template', 'Config.json'),
+      path.join(dir, 'Config.json')
+    );
+    const checked: string[] = [];
+    const checkpoints: Checkpoints = {
+      async check(t, _spec, problemDir) {
+        const config = JSON.parse(
+          await fs.readFile(path.join(problemDir, 'Config.json'), 'utf-8')
+        ) as { generators: { name: string }[] };
+        checked.push(config.generators.map(g => g.name).join(','));
+        return { name: t.kind, ok: true, digest: '' };
+      },
+      runNoModelTask: () => Promise.reject(new Error('unused')),
+    };
+    const precheck = checkpointPrecheck(checkpoints, dir);
+    const ok = await precheck(
+      {
+        task: task('generators', ['generators/gen-edge.cpp']),
+        spec: SPEC,
+        configPatch: {
+          generators: [
+            { name: 'gen-edge', source: './generators/gen-edge.cpp' },
+          ],
+        },
+      },
+      signal()
+    );
+    expect(ok.ok).toBe(true);
+    expect(checked[0]).toContain('gen-edge');
+
+    const refused = await precheck(
+      {
+        task: task('generators'),
+        spec: SPEC,
+        configPatch: { nope: 1 } as never,
+      },
+      signal()
+    );
+    expect(refused).toMatchObject({ name: 'config patch', ok: false });
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+});
+
+describe('configPatchSchema', () => {
+  it('shows the exact patch shape of each kind', () => {
+    const gen = configPatchSchema('generators') as {
+      properties: Record<string, { required?: string[] }>;
+      required: string[];
+    };
+    expect(gen.required).toEqual(['generators', 'generatorScript']);
+    // polyman fills the testset when it is missing.
+    expect(gen.properties['generatorScript'].required).toEqual(['scriptFile']);
+    const sol = JSON.stringify(configPatchSchema('wrong_solution'));
+    expect(sol).toContain('addSolutions');
+    expect(sol).toContain('"WA"');
+    expect(JSON.stringify(configPatchSchema('validator'))).toContain(
+      'testsFilePath'
+    );
+    expect(configPatchSchema('fix')).toEqual({
+      type: 'object',
+      description: expect.any(String) as string,
+    });
+  });
+
+  it('makes configPatch required in finish_task for kinds with a patch', async () => {
+    const t = setup([finish('done')]);
+    await t.worker.run(
+      {
+        task: task('generators', ['generators/gen.cpp']),
+        spec: SPEC,
+        attempt: 1,
+        fresh: true,
+      },
+      signal()
+    );
+    const spec = t.provider.requests[0].tools.find(
+      x => x.name === 'finish_task'
+    )!;
+    const params = spec.parameters as {
+      required: string[];
+      properties: Record<string, unknown>;
+    };
+    expect(params.required).toEqual(['summary', 'configPatch']);
+    expect(params.properties['configPatch']).toEqual(
+      configPatchSchema('generators')
+    );
   });
 });

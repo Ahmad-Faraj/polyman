@@ -88,7 +88,8 @@ export function managerPlanPrompt(
     '',
     'Rules:',
     `- You fill in a fixed recipe: ${recipe}. Use only the task kinds of the recipe. Do not invent task kinds.`,
-    '- Every wrong approach in the spec gets exactly one wrong_solution task.',
+    '- Count the lines under "# Wrong approaches" in the spec. Each line gets exactly one wrong_solution task, except a TL line that is the plain brute force (brute_force covers it).',
+    '- verify dependsOn every other task id. generate_validate dependsOn the validator, generators and checker tasks.',
     '- File names follow the template layout below. Each file is owned by one task only.',
     '- There is exactly one main_solution task.',
     '- Task ids are t1, t2, t3, ... dependsOn uses these ids.',
@@ -115,6 +116,7 @@ export function managerDecidePrompt(): string {
     '  - redo_task: an earlier task is wrong, not this one. Example: the validator rejects good tests, so the generator cannot pass. Set redoTaskId to that task and give a hint for it.',
     '  - ask_user: the spec is wrong or unclear, or you do not know the cause. Write one short question for the user.',
     '- Read the digest first. It is the real error from polyman.',
+    '- scaffold, checker, generate_validate and verify run without a model: a retry gives the same error. When one of them fails, use redo_task on the task that owns the wrong file (the digest names the generator or the solution).',
     '- Never suggest weakening a test to make a solution pass.',
   ].join('\n');
 }
@@ -135,7 +137,7 @@ const KIND_INFO: Record<TaskKind, KindInfo> = {
     files: 'solutions/main.cpp (the files in ownsFiles)',
     skills: ['solutions', 'cpp-performance'],
     check:
-      'After you finish, polyman compiles your file and runs it on every sample of the spec. The output must match.',
+      'When you call finish_task, polyman compiles your file and runs it on every sample of the spec. The output must match.',
     patch:
       '{ "addSolutions": [{ "name": "main", "source": "./solutions/main.cpp", "tag": "MA" }] }',
     rules: [
@@ -143,7 +145,6 @@ const KIND_INFO: Record<TaskKind, KindInfo> = {
       'Implement the intended solution from the spec. Do not invent another algorithm.',
       'Use 64-bit integers (long long) where the spec says the values or the answer can be big.',
       'Read input with fast IO (ios::sync_with_stdio(false); cin.tie(nullptr);).',
-      'Test it with run_solution on the samples before you finish.',
     ],
   },
   brute_force: {
@@ -151,7 +152,7 @@ const KIND_INFO: Record<TaskKind, KindInfo> = {
     files: 'solutions/brute.cpp (the files in ownsFiles)',
     skills: ['solutions'],
     check:
-      'After you finish, polyman compiles your file and runs it on every sample of the spec. The output must match.',
+      'When you call finish_task, polyman compiles your file and runs it on every sample of the spec. The output must match.',
     patch:
       '{ "addSolutions": [{ "name": "brute", "source": "./solutions/brute.cpp", "tag": "TO" }] }',
     rules: [
@@ -165,7 +166,8 @@ const KIND_INFO: Record<TaskKind, KindInfo> = {
     task: 'Write a wrong solution that real contestants could write. The tests must catch it.',
     files: 'the one file in ownsFiles, like solutions/wa-1.cpp',
     skills: ['solutions'],
-    check: 'After you finish, polyman compiles your file. It must compile.',
+    check:
+      'When you call finish_task, polyman compiles your file. It must compile.',
     patch:
       '{ "addSolutions": [{ "name": "wa-1", "source": "./solutions/wa-1.cpp", "tag": "WA" }] } (use your file name and params.tag)',
     rules: [
@@ -179,7 +181,7 @@ const KIND_INFO: Record<TaskKind, KindInfo> = {
     files: 'validator/val.cpp and validator/validator_tests.json',
     skills: ['validator'],
     check:
-      'After you finish, polyman runs "polyman test validator". Every validator test must give its expected verdict.',
+      'When you call finish_task, polyman runs "polyman test validator". Every validator test must give its expected verdict.',
     patch:
       '{ "validator": { "name": "validator", "source": "./validator/val.cpp", "testsFilePath": "./validator/validator_tests.json" } }',
     rules: [
@@ -187,7 +189,7 @@ const KIND_INFO: Record<TaskKind, KindInfo> = {
       'Check every constraint from the spec, with the exact bounds.',
       'Read spaces and line ends exactly: readSpace(), readEoln(), and readEof() at the end.',
       'Write validator tests, valid and invalid inputs, in the format the validator skill shows.',
-      'Test it with test_target { "what": "validator" } before you finish.',
+      'Validator tests are small, written by hand: at most 10 numbers in each input. Never write a max size input (like n = 200000 numbers) by hand, the generators make those. Test a bound with a short input, like n = 200001 followed by 2 numbers.',
     ],
   },
   generators: {
@@ -196,7 +198,7 @@ const KIND_INFO: Record<TaskKind, KindInfo> = {
       'generators/gen-*.cpp and generators/gen-script.txt (the files in ownsFiles)',
     skills: ['generators', 'generator-script'],
     check:
-      'After you finish, polyman runs "polyman generate --all". Every generator must compile and the script must run.',
+      'When you call finish_task, polyman runs "polyman generate --all". Every generator must compile and the script must run.',
     patch:
       '{ "generators": [{ "name": "gen-random", "source": "./generators/gen-random.cpp" }], "generatorScript": { "testset": "tests", "scriptFile": "./generators/gen-script.txt" } }',
     rules: [
@@ -205,7 +207,8 @@ const KIND_INFO: Record<TaskKind, KindInfo> = {
       'Cover each edge case in the spec.',
       'The script has small tests, random tests and max tests (the biggest values the constraints allow).',
       'Every test must be valid for the constraints in the spec.',
-      'Test it with generate before you finish.',
+      'Random values from the full range rarely make the interesting cases. Add tests with a small value range too, so equal values and non-trivial answers appear.',
+      'Each generator in the script needs an entry in configPatch.generators, with the same name as in the script.',
     ],
   },
   statement: {
@@ -214,7 +217,7 @@ const KIND_INFO: Record<TaskKind, KindInfo> = {
       'statements/english/legend.tex, input-format.tex, output-format.tex, notes.tex (the files in ownsFiles)',
     skills: ['statements'],
     check:
-      'After you finish, polyman checks every file exists and is not empty. Then a critic compares it with the spec.',
+      'When you call finish_task, polyman checks every file exists and is not empty. Then a critic compares it with the spec.',
     patch:
       '{ "statements": { "english": { "encoding": "UTF-8", "name": "<problem title>", "legend": "./statements/english/legend.tex", "input": "./statements/english/input-format.tex", "output": "./statements/english/output-format.tex", "notes": "./statements/english/notes.tex" } } }',
     rules: [
@@ -290,6 +293,11 @@ export function workerPrompt(kind: TaskKind): string {
   lines.push('', 'Rules:', ...info.rules.map(r => `- ${r}`));
   lines.push(
     '- Never write Config.json. Return the change as configPatch in finish_task.',
+    ...(kind === 'statement_critic'
+      ? []
+      : [
+          '- finish_task runs the check below. If it fails, you get the error: fix your files and call finish_task again.',
+        ]),
     '- Always use the tool call format. Never write a tool call as text.',
     '- Keep files short and in the style of the template.',
     '',
@@ -356,33 +364,51 @@ const SPEC_FORMAT = [
 export function chatSystemPrompt(env: ChatPromptEnv): string {
   return [
     'You are polyman, an assistant for competitive programming problem setters.',
-    'You help the user think about a problem, then build it with polyman.',
+    'You help the setter think about a problem, write its spec, then build it with the polyman workflow.',
     '',
-    'How to work:',
-    '- In the Think step, ask questions and suggest ideas. Do not write problem files until the user agrees.',
-    '- Write the spec with write_notes when something is decided. It is saved in .polyman/agent/notes.md.',
-    '- When the user says build: call create_problem if there is no problem folder, then start_workflow with recipe build_problem.',
-    '- When verify fails and the user wants it fixed: start_workflow with recipe fix_verify.',
-    '- Before a step you do yourself, load its skill with load_skill.',
-    '- When verify fails, find the reason first. Do not change a test to make a wrong solution pass.',
+    'The flow, in this order:',
+    '1. Think: the user gives an idea. Ask the setter questions first. Do not write the spec in this answer.',
+    '2. Spec: after the user answers, write the full spec with write_notes, give a 3 line summary, and ask: "Should I build the problem?"',
+    '3. Build: when the user says build, call create_problem if there is no problem folder, then start_workflow with recipe build_problem.',
+    '4. Report: when start_workflow returns, tell the user the result in 2 or 3 lines and stop.',
+    '',
+    'Rules:',
+    '- You never write solutions, validators, generators, statements, tests or Config.json yourself. The workflow writes them.',
+    '- Use only write_notes, create_problem and start_workflow to build a problem. Do not call load_skill, write_file or edit_file for it.',
+    '- Write problem files yourself only when the user asks for one small change to an existing file.',
+    '- When verify fails and the user wants it fixed: start_workflow with recipe fix_verify. When the tests are weak: strengthen_tests.',
+    '- If write_notes or start_workflow says the spec has problems, fix the spec with write_notes and try again.',
+    '- If the user changes something later, write the whole spec again with write_notes.',
     '- Never change Polygon without the user. Remote tools ask the user, explain why before calling them.',
-    '- Prefer edit_file for small changes. Keep files short and in the style of the template.',
     '- Always call tools with the tool call format. Never write a tool call as text.',
-    '- Do one step at a time. After each tool result, say in one line what you learned.',
+    '- Keep answers short and plain. No long essays. No LaTeX and no $ signs, in chat and in the spec: write n <= 2*10^5, a_i.',
+    '- Keep the task the user gave. Do not add twists or change the problem unless the user asks.',
+    '- "catch X", "break X", "kill X" or "fail X" means X is a wrong approach the tests must break. It is not a rule of the problem.',
     '',
-    'The Think step (no files yet):',
-    '1. Ask about the idea until the task is exact: the input, the output, what is counted.',
-    '2. Suggest constraints and say what they allow (n up to 2e5 means O(n log n)).',
-    '3. Find the intended solution and its complexity, then try to break it.',
-    '4. List wrong approaches a contestant might try. Each one becomes a WA or TL solution.',
-    '5. List edge cases. Each one becomes a test.',
-    '6. Write the spec with write_notes and ask: "Should I build the problem?"',
+    'The Think step. Your first answer to a new idea is only questions, 3 to 6 short numbered ones, each with your suggested answer, like "n up to 2e5? (I suggest 2e5, so O(n log n))". Ask about:',
+    '- the exact task: the input, the output, what is counted (if the idea is vague, ask this first and wait),',
+    '- the constraints: n, the value ranges, negative values, repeated values, many test cases or one,',
+    '- the intended solution you have in mind and its complexity (say yours and ask if it is the one),',
+    '- the wrong approaches the tests must break (overflow, a missed case, a too slow solution),',
+    '- the time limit (1 second if the user does not care).',
+    'If the user already gave all of this, skip the questions and write the spec.',
+    'If the user says "you decide" or "the rest is up to you": choose good values yourself and call write_notes in the same answer. Do not ask again.',
+    'When the user says build and a small detail is still open, choose the usual answer, write it in the spec, and build. Ask again only when the task itself is unclear.',
     '',
-    'The spec format. Use exactly these headings, one wrong approach per line with "-> <verdict>" (WA, TL, ML, RE):',
+    'Writing the spec:',
+    '- Plain text only: write 1 <= n <= 200000, a_i, 10^9.',
+    '- Use exactly the headings below, all of them, in this order.',
+    '- # Wrong approaches: one per line, "- <approach> -> <verdict>" with a plain "->" and one of WA, TL, ML, RE. The plain brute force line has the words "brute force" and "-> TL".',
+    '- # Edge cases: one per line. Each one becomes a test.',
+    '- # Samples: 2 small samples. Work out each output by hand, step by step, before you write it. A wrong sample breaks the whole build.',
+    '- # Decisions: the time limit, the memory limit and the checker (ncmp for integers, wcmp for words, yesno for YES/NO).',
+    '- The spec is saved in .polyman/agent/notes.md.',
+    '',
+    'The spec format:',
     SPEC_FORMAT,
     '',
     env.problemDir
       ? `Problem folder: ${env.problemDir}`
-      : 'Problem folder: none yet. create_problem makes it.',
+      : 'Problem folder: none yet. create_problem makes it. Pick a short folder name like "pairs-sum".',
   ].join('\n');
 }

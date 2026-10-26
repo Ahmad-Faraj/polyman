@@ -57,12 +57,15 @@ export function ApprovalPrompt({
   resolveApproval,
   onCancel,
   isActive = true,
+  maxPreviewLines = MAX_PREVIEW_LINES,
 }: {
   approval: ApprovalView;
   resolveApproval: (approvalId: string, decision: ApprovalDecision) => void;
   /** esc on the options: interrupt the turn. */
   onCancel?: () => void;
   isActive?: boolean;
+  /** Most preview lines, less than 12 when the terminal is short. */
+  maxPreviewLines?: number;
 }) {
   const options = optionsOf(approval.toolName);
   const [selected, setSelected] = useState(0);
@@ -74,9 +77,13 @@ export function ApprovalPrompt({
     setReasonState(next);
   };
   const [answered, setAnswered] = useState(false);
+  // A ref, not only the state: keys can come before React draws again, and
+  // the approval must be answered only once.
+  const answeredRef = useRef(false);
 
   const answer = (decision: ApprovalDecision) => {
-    if (answered) return;
+    if (answeredRef.current) return;
+    answeredRef.current = true;
     setAnswered(true);
     resolveApproval(approval.approvalId, decision);
   };
@@ -94,7 +101,7 @@ export function ApprovalPrompt({
 
   useInput(
     (input, key) => {
-      if (key.ctrl) return;
+      if (key.ctrl || answeredRef.current) return;
       const reason = reasonRef.current;
       if (reason !== null) {
         if (key.escape) {
@@ -128,7 +135,10 @@ export function ApprovalPrompt({
 
   const body = approval.command ?? approval.preview;
   const lines = body === undefined ? [] : body.replace(/\n+$/, '').split('\n');
-  const shown = lines.slice(0, MAX_PREVIEW_LINES);
+  const max = Math.max(1, Math.min(MAX_PREVIEW_LINES, maxPreviewLines));
+  // The "more lines" line takes one of the lines.
+  const shown =
+    lines.length > max ? lines.slice(0, Math.max(1, max - 1)) : lines;
 
   return (
     <Box

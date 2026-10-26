@@ -14,6 +14,7 @@ import type {
 } from '../../types';
 import type { CliRunner, RunResult } from '../runner/types';
 import { compileCpp, removeBinary, runOnInput, sameTokens } from './compile';
+import { dropTemplateExamples } from './config-patch';
 import { normalizePath } from './recipes';
 import { parseSpec } from './spec';
 import type {
@@ -55,6 +56,15 @@ const TIMEOUTS = {
 };
 
 const MAX_DIGEST_LINES = 20;
+
+/** The folder `polyman new` copies, next to `src/` and `dist/`. */
+export const TEMPLATE_DIR = path.resolve(
+  __dirname,
+  '..',
+  '..',
+  '..',
+  'template'
+);
 
 function ok(name: string, digest = ''): Checkpoint {
   return { name, ok: true, digest };
@@ -105,14 +115,51 @@ export function generateDigest(report: unknown): string[] {
   return lines;
 }
 
-/** A short digest of `validate --json`. */
-export function validateDigest(report: unknown): string[] {
+/**
+ * Where each test came from, from a `generate --json` report: like
+ * `tests#3` -> `generator gen-edge max_ans` or `a manual test`.
+ */
+export function testOrigins(report: unknown): Map<string, string> {
+  const origins = new Map<string, string>();
+  if (!isObject(report)) return origins;
+  const r = report as Partial<GenerateReport>;
+  for (const t of r.tests ?? []) {
+    origins.set(
+      `${t.testset}#${t.index}`,
+      t.source === 'manual'
+        ? 'a manual test'
+        : `generator ${[t.generator ?? '?', ...(t.args ?? [])].join(' ')}`
+    );
+  }
+  return origins;
+}
+
+/**
+ * A short digest of `validate --json`. With `origins` (see
+ * {@link testOrigins}) each invalid test says which generator line or
+ * manual test made it, so the manager knows which task to redo.
+ */
+export function validateDigest(
+  report: unknown,
+  origins: Map<string, string> = new Map()
+): string[] {
   if (!isObject(report)) return [];
   const r = report as Partial<ValidateReport>;
-  const lines = [...(r.errors ?? [])];
+  const lines: string[] = [];
+  let invalid = 0;
   for (const t of r.tests ?? []) {
-    if (!t.valid)
-      lines.push(`test ${t.testset}#${t.index} invalid: ${oneLine(t.message)}`);
+    if (t.valid) continue;
+    invalid++;
+    const origin = origins.get(`${t.testset}#${t.index}`);
+    lines.push(
+      `test ${t.testset}#${t.index}${origin ? ` (from ${origin})` : ''} invalid: ${oneLine(t.message)}`
+    );
+  }
+  if (invalid === 0) return [...(r.errors ?? [])];
+  if (origins.size > 0) {
+    lines.push(
+      'If the test breaks the constraints of the spec, the generator (or manual test) is wrong. If the test is valid, the validator is wrong.'
+    );
   }
   return lines;
 }
@@ -231,7 +278,11 @@ async function exists(file: string): Promise<boolean> {
 
 /** The checkpoints, built on the real CLI through a {@link CliRunner}. */
 export class CliCheckpoints implements Checkpoints {
-  constructor(private readonly runner: CliRunner) {}
+  constructor(
+    private readonly runner: CliRunner,
+    /** Where the template examples that scaffold removes come from. */
+    private readonly templateDir: string = TEMPLATE_DIR
+  ) {}
 
   async check(
     task: PlanTask,
@@ -303,18 +354,40 @@ export class CliCheckpoints implements Checkpoints {
             ),
           };
         }
+        // The template's example solutions and tests do not fit the new
+        // problem, and the plan does not replace them.
+        const dropped = await dropTemplateExamples(
+          problemDir,
+          this.templateDir
+        );
+        if ('error' in dropped) {
+          return {
+            checkpoint: fail(
+              'scaffold',
+              `cannot remove the template examples: ${dropped.error}`
+            ),
+          };
+        }
+        const removed = [
+          ...dropped.solutions.map(s => `solution ${s}`),
+          ...dropped.manualTests.map(t => `test ${t}`),
+          ...dropped.statements.map(l => `statement ${l}`),
+        ];
         const parsed = parseSpec(spec);
         const set: NonNullable<ConfigPatch['set']> = {};
         if (parsed.timeLimitMs !== undefined)
           set.timeLimit = parsed.timeLimitMs;
         if (parsed.memoryLimitMb !== undefined)
           set.memoryLimit = parsed.memoryLimitMb;
-        const checkpoint = ok(
-          'scaffold',
+        const lines = [
           Object.keys(set).length > 0
             ? `limits: ${JSON.stringify(set)}`
-            : 'no limits in the spec'
-        );
+            : 'no limits in the spec',
+        ];
+        if (removed.length > 0) {
+          lines.push(`removed template examples: ${removed.join(', ')}`);
+        }
+        const checkpoint = ok('scaffold', lines.join('\n'));
         return Object.keys(set).length > 0
           ? { checkpoint, configPatch: { set } }
           : { checkpoint };
@@ -355,7 +428,7 @@ export class CliCheckpoints implements Checkpoints {
         if (typeof val === 'string')
           return { checkpoint: fail('validate', val) };
         if (val.exitCode !== 0) {
-          const lines = validateDigest(val.json);
+          const lines = validateDigest(val.json, testOrigins(gen.json));
           return {
             checkpoint: fail(
               'validate',

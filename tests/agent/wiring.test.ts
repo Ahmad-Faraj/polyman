@@ -19,7 +19,8 @@ import {
 } from '../../src/agent/tools/workflow-tool';
 import type { Plan } from '../../src/agent/workflow/types';
 
-const SPEC = [
+/** Only the sections every recipe needs. */
+const MINIMAL_SPEC = [
   '# Idea',
   'Count pairs i < j with a_i + a_j = k.',
   '',
@@ -36,6 +37,27 @@ const SPEC = [
   '```',
   '2',
   '```',
+].join('\n');
+
+/** A whole spec, ready for build_problem. */
+const SPEC = [
+  MINIMAL_SPEC,
+  '',
+  '# Input',
+  'n and k, then n integers.',
+  '',
+  '# Output',
+  'The number of pairs.',
+  '',
+  '# Intended solution',
+  'Hash map, O(n), 64-bit answer.',
+  '',
+  '# Wrong approaches',
+  '- answer in int -> WA',
+  '- brute force O(n^2) -> TL',
+  '',
+  '# Edge cases',
+  '- n = 1',
 ].join('\n');
 
 const PLAN: Plan = {
@@ -263,6 +285,116 @@ describe('createChatRuntime', () => {
     });
   });
 
+  it('start_workflow asks only for the plan and puts the mode back after', async () => {
+    fs.mkdirSync(path.join(problem, '.polyman', 'agent'), { recursive: true });
+    fs.writeFileSync(path.join(problem, '.polyman', 'agent', 'notes.md'), SPEC);
+    const modes: string[] = [];
+    const { rt, events } = build(
+      [
+        {
+          toolCall: {
+            name: 'start_workflow',
+            args: { recipe: 'build_problem' },
+          },
+        },
+        { text: 'Done.' },
+      ],
+      {
+        createScheduler: (): WorkflowRunner => ({
+          run: async (_spec, _recipe, signal) => {
+            await rt.gate.askPlan(PLAN, signal);
+            modes.push(rt.gate.mode);
+            return { ok: true, results: [], summary: 'all passed' };
+          },
+        }),
+      }
+    );
+    allowAll(rt);
+    expect(rt.gate.mode).toBe('ask');
+    await rt.session.send('build it');
+
+    expect(events.filter(e => e.type === 'approval_needed')).toHaveLength(0);
+    expect(events.filter(e => e.type === 'plan_approval_needed')).toHaveLength(
+      1
+    );
+    expect(modes).toEqual(['plan-approved']);
+    expect(rt.gate.mode).toBe('ask');
+    const tool = rt.session.messages.find(m => m.role === 'tool');
+    expect(JSON.stringify(tool?.parts)).toContain('The workflow is over.');
+  });
+
+  it('puts the mode back when the workflow throws', async () => {
+    fs.mkdirSync(path.join(problem, '.polyman', 'agent'), { recursive: true });
+    fs.writeFileSync(path.join(problem, '.polyman', 'agent', 'notes.md'), SPEC);
+    const { rt, events } = build(
+      [
+        {
+          toolCall: {
+            name: 'start_workflow',
+            args: { recipe: 'build_problem' },
+          },
+        },
+        { text: 'It broke.' },
+      ],
+      {
+        createScheduler: (): WorkflowRunner => ({
+          run: async (_spec, _recipe, signal) => {
+            await rt.gate.askPlan(PLAN, signal);
+            throw new Error('boom');
+          },
+        }),
+      }
+    );
+    allowAll(rt);
+    rt.gate.setMode('auto-edit');
+    await rt.session.send('build it');
+
+    expect(toolResults(events)[0]?.ok).toBe(false);
+    expect(rt.gate.mode).toBe('auto-edit');
+  });
+
+  it('build_problem needs the whole spec, fix_verify only the core', async () => {
+    fs.mkdirSync(path.join(problem, '.polyman', 'agent'), { recursive: true });
+    fs.writeFileSync(
+      path.join(problem, '.polyman', 'agent', 'notes.md'),
+      MINIMAL_SPEC
+    );
+    const recipes: string[] = [];
+    const { rt, events } = build(
+      [
+        {
+          toolCall: {
+            name: 'start_workflow',
+            args: { recipe: 'build_problem' },
+          },
+        },
+        {
+          toolCall: { name: 'start_workflow', args: { recipe: 'fix_verify' } },
+        },
+        { text: 'ok' },
+      ],
+      {
+        createScheduler: (): WorkflowRunner => ({
+          run: (_spec, recipe) => {
+            recipes.push(recipe);
+            return Promise.resolve({ ok: true, results: [], summary: 'ok' });
+          },
+        }),
+      }
+    );
+    allowAll(rt);
+    await rt.session.send('build it');
+
+    const [built, fixed] = toolResults(events);
+    expect(built).toMatchObject({ ok: false, summary: NO_SPEC_ERROR });
+    const first = rt.session.messages.find(m => m.role === 'tool');
+    expect(JSON.stringify(first?.parts)).toContain(
+      'missing or empty section \\"# Intended solution\\"'
+    );
+    expect(fixed?.ok).toBe(true);
+    expect(recipes).toEqual(['fix_verify']);
+  });
+
   it('keeps notes in memory and writes them when create_problem makes the folder', async () => {
     const runner = new FakeRunner();
     const { rt, provider, events } = build(
@@ -300,11 +432,50 @@ describe('createChatRuntime', () => {
 
 describe('specIsReady', () => {
   it('needs Idea, Constraints and Samples', () => {
-    expect(specIsReady(SPEC)).toBe(true);
+    expect(specIsReady(MINIMAL_SPEC)).toBe(true);
     expect(specIsReady('')).toBe(false);
     expect(specIsReady('# Idea\nx\n# Constraints\n- n\n# Samples\n')).toBe(
       false
     );
+  });
+});
+
+describe('chat tool progress', () => {
+  it('keeps the chat call id when a worker tool call comes between', async () => {
+    let bus: { emit: ReturnType<typeof createChatRuntime>['bus']['emit'] } = {
+      emit: () => {},
+    };
+    const runner: CliRunner = {
+      run(_args, opts) {
+        bus.emit({
+          type: 'tool_call',
+          callId: 'w1',
+          name: 'read_file',
+          args: {},
+          risk: 'read',
+          taskId: 't4',
+        });
+        opts.onLine?.('generating tests');
+        return Promise.resolve(result({ json: {} }));
+      },
+    };
+    const { rt, events } = build(
+      [{ toolCall: { name: 'verify', args: {} } }, { text: 'Done.' }],
+      { runner }
+    );
+    bus = rt.bus;
+    allowAll(rt);
+    await rt.session.send('verify it');
+    const chatCall = events.find(
+      e => e.type === 'tool_call' && e.name === 'verify'
+    );
+    const progress = events.find(e => e.type === 'tool_progress');
+    expect(chatCall).toBeDefined();
+    expect(progress).toMatchObject({
+      type: 'tool_progress',
+      callId: chatCall?.type === 'tool_call' ? chatCall.callId : '',
+      line: 'generating tests',
+    });
   });
 });
 
@@ -347,7 +518,7 @@ describe('runPlain', () => {
       'Allow Write the notes (.polyman/agent/notes.md)? [y/N/a(lways)]'
     );
     expect(lines).toContain(
-      '  = Saved the notes (16 lines) to .polyman/agent/notes.md.'
+      '  = Saved the notes (32 lines) to .polyman/agent/notes.md.'
     );
     expect(lines).toContain('Saved the spec.');
     expect(lines).toContain('[10 in / 3 out tokens]');
@@ -401,7 +572,8 @@ describe('runPlain', () => {
         }),
       }
     );
-    const out = await plain(rt, ['build it', 'y', 'y']);
+    // start_workflow itself is not asked, only the plan.
+    const out = await plain(rt, ['build it', 'y']);
     const lines = out.split('\n');
 
     expect(decision).toBe('allow_once');
@@ -413,6 +585,71 @@ describe('runPlain', () => {
       '[task t2] attempt 2: checkpoint failed: sample 1: expected 2, got 1'
     );
     expect(lines).toContain('  = all passed');
+  });
+
+  it('prints the tool calls of workflow workers with their task id', async () => {
+    fs.mkdirSync(path.join(problem, '.polyman', 'agent'), { recursive: true });
+    fs.writeFileSync(path.join(problem, '.polyman', 'agent', 'notes.md'), SPEC);
+    const { rt } = build(
+      [
+        {
+          toolCall: {
+            name: 'start_workflow',
+            args: { recipe: 'build_problem' },
+          },
+        },
+        { text: 'Built.' },
+      ],
+      {
+        createScheduler: (): WorkflowRunner => ({
+          run: async (_spec, _recipe, signal) => {
+            rt.bus.emit({ type: 'plan_created', plan: PLAN });
+            await rt.gate.askPlan(PLAN, signal);
+            rt.bus.emit({
+              type: 'tool_call',
+              callId: 'w1',
+              name: 'run_solution',
+              args: { name: 'main' },
+              risk: 'run',
+              taskId: 't4',
+            });
+            rt.bus.emit({
+              type: 'tool_progress',
+              callId: 'w1',
+              line: 'compiling',
+              taskId: 't4',
+            });
+            rt.bus.emit({
+              type: 'tool_result',
+              callId: 'w1',
+              ok: false,
+              summary: `WA on sample 1 ${'x'.repeat(200)}\nsecond line`,
+              taskId: 't4',
+            });
+            rt.bus.emit({
+              type: 'tool_result',
+              callId: 'w2',
+              ok: true,
+              summary: '3 of 3 samples ok',
+              taskId: 't4',
+            });
+            return { ok: true, results: [], summary: 'all passed' };
+          },
+        }),
+      }
+    );
+    const out = await plain(rt, ['build it', 'y']);
+    const lines = out.split('\n');
+
+    expect(lines).toContain('  [t4] > run_solution({"name":"main"})');
+    expect(lines).toContain('  [t4]   = 3 of 3 samples ok');
+    const failed = lines.find(l => l.startsWith('  [t4]   = error: WA'));
+    expect(failed).toBeDefined();
+    expect(failed?.endsWith('...')).toBe(true);
+    expect(out).not.toContain('second line');
+    expect(out).not.toContain('compiling');
+    // The chat's own call stays a normal line.
+    expect(lines.some(l => l.startsWith('> start_workflow('))).toBe(true);
   });
 
   it('denies a waiting approval when the input ends', async () => {
