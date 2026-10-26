@@ -307,6 +307,26 @@ describe('CliCheckpoints with a fake runner', () => {
     });
   });
 
+  it('scaffold removes the template examples', async () => {
+    const template = path.resolve(__dirname, '../../../template');
+    await fs.cp(template, dir, { recursive: true });
+    const checkpoints = new CliCheckpoints(new FakeRunner({}), template);
+    const out = await checkpoints.runNoModelTask(
+      task('scaffold'),
+      SPEC,
+      dir,
+      signal
+    );
+    expect(out.checkpoint.ok).toBe(true);
+    expect(out.checkpoint.digest).toContain(
+      'removed template examples: solution correct2, solution tle_solution, test ./manual/tests/m-01-sample.in'
+    );
+    const config = JSON.parse(
+      await fs.readFile(path.join(dir, 'Config.json'), 'utf-8')
+    ) as { solutions: { name: string }[] };
+    expect(config.solutions.map(s => s.name)).toEqual(['main']);
+  });
+
   it('checker returns a config patch', async () => {
     const checkpoints = new CliCheckpoints(new FakeRunner({}));
     const out = await checkpoints.runNoModelTask(
