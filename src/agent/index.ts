@@ -134,7 +134,7 @@ export function createChatRuntime(opts: ChatRuntimeOptions): ChatRuntime {
     ),
     ...skillTools(),
     ...notesTools(notes),
-    workflowTool({ readSpec: () => notes.read(), createScheduler }),
+    workflowTool({ readSpec: () => notes.read(), createScheduler, gate }),
   ];
   for (const tool of all) tools.register(tool);
 
