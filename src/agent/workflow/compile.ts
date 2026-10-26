@@ -15,10 +15,13 @@ export type CompileResult =
 
 /** The result of {@link runOnInput}. */
 export type RunOutput =
-  { ok: true; stdout: string } | { ok: false; error: string };
+  | { ok: true; stdout: string; ms: number }
+  | { ok: false; error: string; timedOut?: true };
 
 const COMPILE_TIMEOUT_MS = 60_000;
 const MAX_OUTPUT = 1024 * 1024;
+/** Stdout of a run: big enough for a max test (a generator prints one). */
+const MAX_STDOUT = 64 * 1024 * 1024;
 
 let queue: Promise<unknown> = Promise.resolve();
 
@@ -88,14 +91,16 @@ export async function removeBinary(binary: string): Promise<void> {
 }
 
 /**
- * Runs a binary with `input` on stdin. Returns its stdout, or an error for
- * a timeout, a crash or a non-zero exit code.
+ * Runs a binary with `input` on stdin and `args` on the command line.
+ * Returns its stdout and the time it took, or an error for a timeout, a
+ * crash or a non-zero exit code.
  */
 export function runOnInput(
   binary: string,
   input: string,
   timeoutMs = 5000,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  args: string[] = []
 ): Promise<RunOutput> {
   return enqueue(
     () =>
@@ -104,7 +109,8 @@ export function runOnInput(
           resolve({ ok: false, error: 'cancelled' });
           return;
         }
-        const child = spawn(binary, [], {
+        const start = Date.now();
+        const child = spawn(binary, args, {
           stdio: ['pipe', 'pipe', 'pipe'],
           windowsHide: true,
         });
@@ -120,7 +126,7 @@ export function runOnInput(
         signal?.addEventListener('abort', onAbort, { once: true });
 
         child.stdout.on('data', (chunk: Buffer) => {
-          if (stdout.length < MAX_OUTPUT) stdout += chunk.toString();
+          if (stdout.length < MAX_STDOUT) stdout += chunk.toString();
         });
         child.stderr.on('data', (chunk: Buffer) => {
           if (stderr.length < MAX_OUTPUT) stderr += chunk.toString();
@@ -135,7 +141,11 @@ export function runOnInput(
           clearTimeout(timer);
           signal?.removeEventListener('abort', onAbort);
           if (reason === 'timeout') {
-            resolve({ ok: false, error: `timed out after ${timeoutMs} ms` });
+            resolve({
+              ok: false,
+              error: `timed out after ${timeoutMs} ms`,
+              timedOut: true,
+            });
           } else if (reason === 'cancelled') {
             resolve({ ok: false, error: 'cancelled' });
           } else if (sig) {
@@ -147,7 +157,7 @@ export function runOnInput(
               error: `exit code ${code}${tail ? `: ${tail}` : ''}`,
             });
           } else {
-            resolve({ ok: true, stdout });
+            resolve({ ok: true, stdout, ms: Date.now() - start });
           }
         });
         child.stdin.end(input);

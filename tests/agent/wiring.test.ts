@@ -14,6 +14,7 @@ import { MockProvider, type MockStep } from '../../src/agent/providers/mock';
 import type { CliRunner, RunResult } from '../../src/agent/runner/types';
 import {
   NO_SPEC_ERROR,
+  proofReport,
   specIsReady,
   type WorkflowRunner,
 } from '../../src/agent/tools/workflow-tool';
@@ -467,6 +468,51 @@ describe('specIsReady', () => {
     expect(specIsReady('')).toBe(false);
     expect(specIsReady('# Idea\nx\n# Constraints\n- n\n# Samples\n')).toBe(
       false
+    );
+  });
+});
+
+describe('proofReport', () => {
+  it('lists each task with its icon and digest, for the model', () => {
+    const report = proofReport([
+      {
+        taskId: 'stress',
+        status: 'failed',
+        attempts: 1,
+        summary: 'failed after 1 attempt: small test 4',
+        checkpoint: {
+          name: 'stress',
+          ok: false,
+          digest: 'small test 4: brute says 2, main says 1\ninput:\n  2 3',
+        },
+      },
+      {
+        taskId: 'samples',
+        status: 'passed',
+        attempts: 1,
+        summary: 'ok',
+        checkpoint: {
+          name: 'samples',
+          ok: true,
+          digest: '2 samples: spec = brute = main',
+        },
+      },
+      {
+        taskId: 'kill-1',
+        status: 'skipped',
+        attempts: 0,
+        summary: 'blocked by stress',
+        checkpoint: { name: 'skipped', ok: false, digest: 'blocked by stress' },
+      },
+    ]);
+    expect(report).toBe(
+      [
+        '✗ stress: small test 4: brute says 2, main says 1',
+        '    input:',
+        '      2 3',
+        '✔ samples: 2 samples: spec = brute = main',
+        '- kill-1: blocked by stress',
+      ].join('\n')
     );
   });
 });

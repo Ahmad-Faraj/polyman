@@ -102,8 +102,9 @@ function currentTool(view: TaskView): TaskToolView | null {
 /**
  * The dim text after a task title: `attempt <n> · <last tool>` for a running
  * task, `attempt <n> · <digest>` for a retrying or failed task, the digest
- * for a passed one, `waits for <titles>` for a pending task with deps that
- * did not pass yet.
+ * for a passed one or one that failed on its only try (a prove check, its
+ * digest is the counterexample), `waits for <titles>` for a pending task
+ * with deps that did not pass yet.
  */
 export function taskDetail(
   task: PlanTask,
@@ -135,6 +136,9 @@ export function taskDetail(
       }
       return digest;
     default: {
+      if (view.status === 'failed' && view.attempt <= 1 && digest) {
+        return digest;
+      }
       const attempt = `attempt ${Math.max(view.attempt, 1)}`;
       const tool = shownStatus(view) === 'running' ? currentTool(view) : null;
       if (tool) return `${attempt} · ${toolLabel(tool)}`;

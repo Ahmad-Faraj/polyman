@@ -37,6 +37,8 @@ export interface ActivityContext {
   waiting?: boolean;
   /** The workflow tree runs. */
   workflow?: boolean;
+  /** The recipe of that workflow. */
+  recipe?: string;
 }
 
 /** `Compiling…`, `Running tests…`, `Thinking…`, ... */
@@ -45,7 +47,11 @@ export function activityWord(
   ctx: ActivityContext = {}
 ): string {
   if (ctx.waiting) return 'Waiting for you…';
-  if (ctx.workflow) return 'Running the workflow…';
+  if (ctx.workflow) {
+    return ctx.recipe === 'prove_idea'
+      ? 'Proving the idea…'
+      : 'Running the workflow…';
+  }
   const tool = live.runningTools[live.runningTools.length - 1];
   if (tool) {
     const line = tool.lastLine ?? '';

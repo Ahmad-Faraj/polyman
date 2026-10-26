@@ -137,6 +137,10 @@ const WRITING_KINDS: ReadonlySet<TaskKind> = new Set<TaskKind>([
   'validator',
   'generators',
   'fix',
+  'proto_brute',
+  'proto_main',
+  'proto_gen',
+  'proto_wrong',
 ]);
 
 /** Kinds that get the bigger step budget. */
@@ -144,6 +148,7 @@ const HARD_KINDS: ReadonlySet<TaskKind> = new Set<TaskKind>([
   'main_solution',
   'validator',
   'fix',
+  'proto_main',
 ]);
 
 /** The tool names a worker of this kind gets, in order. */

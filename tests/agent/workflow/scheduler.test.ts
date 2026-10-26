@@ -539,6 +539,43 @@ describe('WorkflowScheduler', () => {
     expect(worker.calls).toHaveLength(0);
   });
 
+  it('prove_idea uses its plan from the spec, with no manager call', async () => {
+    const manager = new FakeManager([{ recipe: 'prove_idea', tasks: [] }]);
+    const { worker, gate, scheduler } = setup({ manager });
+    const out = await run(scheduler, 'prove_idea');
+    expect(manager.planCalls).toHaveLength(0);
+    expect(gate.plans[0]?.recipe).toBe('prove_idea');
+    expect(worker.calls.map(c => c.kind).sort()).toEqual([
+      'proto_brute',
+      'proto_gen',
+      'proto_main',
+      'proto_wrong',
+      'proto_wrong',
+      'proto_wrong',
+    ]);
+    expect(out.ok).toBe(true);
+    expect(out.summary).toContain('prove_idea: 13 of 13 tasks passed');
+  });
+
+  it('a failed prove check ends at once and blocks the kills', async () => {
+    const manager = new FakeManager([]);
+    const checkpoints = new FakeCheckpoints(undefined, task =>
+      task.kind === 'stress'
+        ? fail('small test 4: brute says 2, main says 1')
+        : OK
+    );
+    const { scheduler } = setup({ manager, checkpoints });
+    const out = await run(scheduler, 'prove_idea');
+    expect(out.ok).toBe(false);
+    expect(manager.decideCalls).toHaveLength(0);
+    expect(checkpoints.noModelCount.get('stress')).toBe(1);
+    const status = new Map(out.results.map(r => [r.taskId, r.status]));
+    expect(status.get('stress')).toBe('failed');
+    expect(status.get('samples')).toBe('passed');
+    expect(status.get('kill-1')).toBe('skipped');
+    expect(status.get('kill-brute')).toBe('skipped');
+  });
+
   it('strengthen_tests falls back to its skeleton after two bad plans', async () => {
     const manager = new FakeManager([
       { recipe: 'strengthen_tests', tasks: [] },

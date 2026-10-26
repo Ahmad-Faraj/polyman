@@ -3,7 +3,9 @@
  * replays a scripted demo with small delays: the Think step, notes, a write
  * approval with a diff, and a verify that fails and then passes. A message
  * with the word "workflow" runs a scripted workflow: the plan approval, the
- * live task tree with a retried validator, and the final summary.
+ * live task tree with a retried validator, and the final summary. A
+ * message with the word "prove" runs a scripted prove_idea workflow that
+ * finds a wrong sample.
  */
 
 import type {
@@ -342,11 +344,207 @@ const DEMO_RUN: [number, AgentEvent[]][] = [
   ],
 ];
 
+const proveFile = (name: string): string[] => [`.polyman/agent/prove/${name}`];
+
+/** The plan of the scripted proof, like `proveIdeaPlan` makes it. */
+export const PROVE_PLAN: Plan = {
+  recipe: 'prove_idea',
+  tasks: [
+    task('brute', 'proto_brute', 'Brute force', [], proveFile('brute.cpp')),
+    task('main', 'proto_main', 'Intended solution', [], proveFile('main.cpp')),
+    task('gen', 'proto_gen', 'Random tests', [], proveFile('gen.cpp')),
+    task(
+      'wrong-1',
+      'proto_wrong',
+      'Wrong: int overflow',
+      [],
+      proveFile('wrong-1.cpp'),
+      'WA'
+    ),
+    task(
+      'wrong-2',
+      'proto_wrong',
+      'Wrong: counts (i, i) as a pair',
+      [],
+      proveFile('wrong-2.cpp'),
+      'WA'
+    ),
+    task(
+      'stress',
+      'stress',
+      'Stress: brute = main',
+      ['brute', 'main', 'gen'],
+      []
+    ),
+    task('samples', 'sample_check', 'Samples', ['brute', 'main'], []),
+    task(
+      'max-test',
+      'max_test',
+      'Max test in the time limit',
+      ['main', 'gen'],
+      []
+    ),
+    task(
+      'kill-brute',
+      'kill_wrong',
+      'Kill: O(n^2) brute force',
+      ['brute', 'main', 'gen', 'stress'],
+      [],
+      'TL'
+    ),
+    task(
+      'kill-1',
+      'kill_wrong',
+      'Kill: int overflow',
+      ['wrong-1', 'main', 'gen', 'stress'],
+      [],
+      'WA'
+    ),
+    task(
+      'kill-2',
+      'kill_wrong',
+      'Kill: counts (i, i) as a pair',
+      ['wrong-2', 'main', 'gen', 'stress'],
+      [],
+      'WA'
+    ),
+  ],
+};
+
+/** A check that failed, and the task done with it. */
+const failedCheck = (
+  taskId: string,
+  name: string,
+  digest: string
+): AgentEvent[] => [
+  checkpoint(taskId, name, false, digest),
+  {
+    type: 'task_done',
+    taskId,
+    result: {
+      taskId,
+      status: 'failed',
+      attempts: 1,
+      summary: `failed after 1 attempt: ${digest.split('\n')[0] ?? ''}`,
+      checkpoint: { name, ok: false, digest },
+    },
+  },
+];
+
+/** The scripted proof: every check passes but sample 2 is wrong. */
+const PROVE_RUN: [number, AgentEvent[]][] = [
+  [
+    300,
+    [started('brute'), started('main'), started('gen'), started('wrong-1')],
+  ],
+  [900, [workerUsage(0.003)]],
+  [
+    800,
+    [
+      ...passed('brute', 'samples', 'compiles, runs on 2 samples', 'two loops'),
+      started('wrong-2'),
+    ],
+  ],
+  [
+    900,
+    [
+      workerUsage(0.004),
+      ...passed('gen', 'generator', 'small and max tests, one per seed', 'gen'),
+    ],
+  ],
+  [
+    700,
+    passed(
+      'wrong-1',
+      'compile',
+      'compiles',
+      'sums in int instead of long long'
+    ),
+  ],
+  [
+    900,
+    [
+      workerUsage(0.005),
+      ...passed(
+        'main',
+        'samples',
+        'compiles, runs on 2 samples',
+        'sort + two pointers'
+      ),
+      started('stress'),
+      started('samples'),
+      started('max-test'),
+    ],
+  ],
+  [
+    700,
+    failedCheck(
+      'samples',
+      'samples',
+      'sample 2 looks wrong: the spec says 3, brute and main say 2'
+    ),
+  ],
+  [600, passed('wrong-2', 'compile', 'compiles', 'j starts at i')],
+  [
+    900,
+    passed(
+      'max-test',
+      'max test',
+      'slowest max test 0.09 s of 1.00 s',
+      'fast enough'
+    ),
+  ],
+  [
+    1500,
+    [
+      ...passed(
+        'stress',
+        'stress',
+        '300 random small tests: brute = main',
+        'brute = main'
+      ),
+      started('kill-brute'),
+      started('kill-1'),
+      started('kill-2'),
+    ],
+  ],
+  [
+    800,
+    passed(
+      'kill-2',
+      'kill',
+      'killed by small test 1: main says 1, it says 3',
+      'killed'
+    ),
+  ],
+  [
+    700,
+    passed(
+      'kill-1',
+      'kill',
+      'killed by max test 1: main says 19999999900000, it says -1474836480',
+      'killed'
+    ),
+  ],
+  [
+    1200,
+    passed(
+      'kill-brute',
+      'kill',
+      'killed: max test 1 ran over 3.00 s, the limit is 1.00 s',
+      'killed'
+    ),
+  ],
+];
+
 /** The cost of the scripted workflow: the sum of its usage events. */
-const DEMO_COST = DEMO_RUN.flatMap(([, events]) => events).reduce(
-  (sum, e) => sum + (e.type === 'usage' ? (e.costUsd ?? 0) : 0),
-  0
-);
+const DEMO_COST = runCost(DEMO_RUN);
+
+function runCost(run: [number, AgentEvent[]][]): number {
+  return run
+    .flatMap(([, events]) => events)
+    .reduce((sum, e) => sum + (e.type === 'usage' ? (e.costUsd ?? 0) : 0), 0);
+}
 
 /** Options of the fake session. */
 export interface FakeSessionOptions {
@@ -502,6 +700,7 @@ export class FakeSession implements AgentSessionApi {
     signal: AbortSignal
   ): Promise<string> {
     if (/workflow/i.test(text)) return this.workflowStep(signal);
+    if (/prove/i.test(text)) return this.proveStep(signal);
     if (/markdown/i.test(text)) return this.markdownStep(signal);
     if (turn === 1) return this.thinkStep(signal);
     if (turn === 2) return this.buildStep(signal);
@@ -689,6 +888,65 @@ export class FakeSession implements AgentSessionApi {
       'The problem is built and `verify` passes. Say **push** to send it to Polygon.';
     await this.stream(answer, signal);
     this.usage(5200, 60, 0.0021);
+    return answer;
+  }
+
+  /** The scripted prove_idea run: it finds a wrong sample. */
+  private async proveStep(signal: AbortSignal): Promise<string> {
+    await this.stream('I will prove the idea before the build.', signal);
+    this.usage(3000, 200, 0.0015);
+    this.bus.emit({
+      type: 'tool_call',
+      callId: 'p1',
+      name: 'start_workflow',
+      args: { recipe: 'prove_idea' },
+      risk: 'run',
+    });
+    await this.sleep(300, signal);
+    this.bus.emit({ type: 'plan_created', plan: PROVE_PLAN });
+    const decision = await this.ask(
+      {
+        type: 'plan_approval_needed',
+        approvalId: `plan-${this.turn}`,
+        plan: PROVE_PLAN,
+      },
+      signal
+    );
+    if (decision.kind === 'deny') {
+      this.bus.emit({
+        type: 'tool_result',
+        callId: 'p1',
+        ok: false,
+        summary: 'the user did not run the plan',
+      });
+      const answer = 'Ok, I did not prove the idea.';
+      await this.stream(answer, signal);
+      return answer;
+    }
+    for (const [ms, events] of PROVE_RUN) {
+      await this.sleep(ms, signal);
+      for (const e of events) this.bus.emit(e);
+    }
+    await this.sleep(300, signal);
+    this.bus.emit({
+      type: 'workflow_done',
+      ok: false,
+      summary: 'prove_idea: 10 of 11 tasks passed\nfailed: samples',
+      costUsd: runCost(PROVE_RUN),
+    });
+    this.bus.emit({
+      type: 'tool_result',
+      callId: 'p1',
+      ok: false,
+      summary: 'prove_idea: 10 of 11 tasks passed, failed: samples',
+    });
+    const answer = [
+      'The idea holds: brute and main agree on 300 random tests, main is fast, and every wrong approach fails.',
+      'One problem: **sample 2** is wrong. The spec says 3, but brute and main both say 2. I fixed it in the notes.',
+      'Should I build the problem?',
+    ].join('\n');
+    await this.stream(answer, signal);
+    this.usage(4800, 90, 0.0024);
     return answer;
   }
 

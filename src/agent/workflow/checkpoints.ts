@@ -16,6 +16,7 @@ import type {
 import type { CliRunner, RunResult } from '../runner/types';
 import { compileCpp, removeBinary, runOnInput, sameTokens } from './compile';
 import { dropTemplateExamples } from './config-patch';
+import { protoCheck, proveCheck } from './prove';
 import { normalizePath } from './recipes';
 import { parseSpec } from './spec';
 import type {
@@ -338,6 +339,11 @@ export class CliCheckpoints implements Checkpoints {
       case 'wrong_solution':
       case 'fix':
         return this.compiles(task, problemDir, signal);
+      case 'proto_brute':
+      case 'proto_main':
+      case 'proto_gen':
+      case 'proto_wrong':
+        return protoCheck(task, spec, problemDir, signal);
       case 'validator': {
         const unwritten = await this.unwrittenFiles(task.ownsFiles, problemDir);
         if (unwritten) return fail('validator files', unwritten);
@@ -508,6 +514,13 @@ export class CliCheckpoints implements Checkpoints {
           checkpoint: fail('verify', verifyDigest(result.json, sources)),
         };
       }
+      case 'stress':
+      case 'sample_check':
+      case 'max_test':
+      case 'kill_wrong':
+        return {
+          checkpoint: await proveCheck(task, spec, problemDir, signal),
+        };
       default:
         return {
           checkpoint: fail(task.kind, `kind ${task.kind} needs a worker`),

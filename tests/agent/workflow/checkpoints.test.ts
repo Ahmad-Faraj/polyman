@@ -187,7 +187,11 @@ describe.skipIf(!hasGpp())('compile and samples (needs g++)', () => {
     expect(compiled.ok).toBe(true);
     if (!compiled.ok) return;
     const run = await runOnInput(compiled.binary, '', 200, signal);
-    expect(run).toEqual({ ok: false, error: 'timed out after 200 ms' });
+    expect(run).toEqual({
+      ok: false,
+      error: 'timed out after 200 ms',
+      timedOut: true,
+    });
     await removeBinary(compiled.binary);
   });
 });

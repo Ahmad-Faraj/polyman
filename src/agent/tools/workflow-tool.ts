@@ -17,7 +17,7 @@ import {
   type WorkflowRunResult,
 } from '../workflow/scheduler';
 import { parseSpec } from '../workflow/spec';
-import type { Plan, Spec } from '../workflow/types';
+import type { Plan, Spec, TaskResult } from '../workflow/types';
 import { checkpointPrecheck, GemmaWorker } from '../workflow/worker';
 import { cliTools } from './cli-tools';
 import { fsTools } from './fs-tools';
@@ -40,6 +40,34 @@ const REQUIRED_SECTIONS = ['Idea', 'Constraints', 'Samples'] as const;
 /** What the model is told after a workflow ends. */
 export const AFTER_WORKFLOW =
   'The workflow is over. Tell the user the result in 2 or 3 lines. Do not write or fix problem files yourself: if something failed, ask the user if you should run start_workflow with recipe fix_verify.';
+
+/** What the model is told after `prove_idea` passed. */
+export const AFTER_PROOF_OK =
+  'Every check passed: the idea is proven. If the user asked to build, call start_workflow with recipe build_problem now. Otherwise ask: "Should I build the problem?"';
+
+/** What the model is told after `prove_idea` failed. */
+export const AFTER_PROOF_FAILED =
+  'Some checks failed: do not build. Tell the user what failed in 2 or 3 lines, with the counterexample. If a sample looks wrong and brute and main agree, fix the sample with write_notes. Then ask the user what to change.';
+
+/** Most digest lines per task in the proof report. */
+const REPORT_LINES = 8;
+
+/** Each task of a proof, its status and its digest, for the model. */
+export function proofReport(results: TaskResult[]): string {
+  const icon = { passed: '✔', failed: '✗', skipped: '-' } as const;
+  return results
+    .map(r => {
+      const digest = (r.checkpoint.digest.trim() || r.summary)
+        .split('\n')
+        .slice(0, REPORT_LINES);
+      const [first = '', ...rest] = digest;
+      return [
+        `${icon[r.status]} ${r.taskId}: ${first}`,
+        ...rest.map(l => `    ${l}`),
+      ].join('\n');
+    })
+    .join('\n');
+}
 
 /** What the tool runs. `WorkflowScheduler` in the real chat. */
 export interface WorkflowRunner {
@@ -71,14 +99,14 @@ export function specIsReady(spec: string): boolean {
 
 /**
  * Why the spec cannot start `recipe`, as lines for the model. build_problem
- * needs the whole spec; the other recipes work on an existing problem and
- * need only the Idea, the Constraints and the Samples.
+ * and prove_idea need the whole spec; the other recipes work on an existing
+ * problem and need only the Idea, the Constraints and the Samples.
  */
 export function workflowSpecProblems(
   spec: string,
   recipe: Plan['recipe']
 ): string[] {
-  return recipe === 'build_problem'
+  return recipe === 'build_problem' || recipe === 'prove_idea'
     ? specProblems(spec)
     : specProblems(spec, REQUIRED_SECTIONS).filter(p =>
         p.startsWith('missing')
@@ -109,13 +137,18 @@ export function workflowTool(
   return {
     name: 'start_workflow',
     description:
-      'Build or fix the whole problem with a team of workers, from the spec in the notes. build_problem builds every file (statement, solutions, validator, generators, checker, tests); fix_verify fixes a failing verify; strengthen_tests adds tests. Write the spec with write_notes and call create_problem first. The user approves the plan before any file is written.',
+      'Prove, build or fix the problem with a team of workers, from the spec in the notes. prove_idea checks the idea with quick programs (brute force against the intended solution on random tests, the samples, the time limit, the wrong approaches); build_problem builds every file (statement, solutions, validator, generators, checker, tests); fix_verify fixes a failing verify; strengthen_tests adds tests. Write the spec with write_notes and call create_problem first. The user approves the plan before any file is written.',
     parameters: {
       type: 'object',
       properties: {
         recipe: {
           type: 'string',
-          enum: ['build_problem', 'fix_verify', 'strengthen_tests'],
+          enum: [
+            'prove_idea',
+            'build_problem',
+            'fix_verify',
+            'strengthen_tests',
+          ],
           description: 'Which workflow to run.',
         },
       },
@@ -147,6 +180,17 @@ export function workflowTool(
           .createScheduler(problemDir, ctx.runner)
           .run(spec, args.recipe, ctx.signal)
       );
+      if (args.recipe === 'prove_idea') {
+        return {
+          content: [
+            result.summary,
+            proofReport(result.results),
+            result.ok ? AFTER_PROOF_OK : AFTER_PROOF_FAILED,
+          ].join('\n'),
+          ...(result.ok ? {} : { isError: true }),
+          data: result.results,
+        };
+      }
       return {
         content: `${result.summary}\n${AFTER_WORKFLOW}`,
         ...(result.ok ? {} : { isError: true }),

@@ -19,7 +19,15 @@ export type TaskKind =
   | 'checker'
   | 'generate_validate'
   | 'verify'
-  | 'fix';
+  | 'fix'
+  | 'proto_brute'
+  | 'proto_main'
+  | 'proto_gen'
+  | 'proto_wrong'
+  | 'stress'
+  | 'sample_check'
+  | 'max_test'
+  | 'kill_wrong';
 
 /** One task of a plan. */
 export interface PlanTask {
@@ -40,7 +48,7 @@ export interface PlanTask {
 
 /** A recipe filled in by the manager. */
 export interface Plan {
-  recipe: 'build_problem' | 'fix_verify' | 'strengthen_tests';
+  recipe: 'build_problem' | 'fix_verify' | 'strengthen_tests' | 'prove_idea';
   tasks: PlanTask[];
 }
 

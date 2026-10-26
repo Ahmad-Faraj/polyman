@@ -27,7 +27,30 @@ export const NO_MODEL_KINDS: readonly TaskKind[] = [
   'checker',
   'generate_validate',
   'verify',
+  'stress',
+  'sample_check',
+  'max_test',
+  'kill_wrong',
 ];
+
+/**
+ * The checks of `prove_idea`. Their result is the answer, not an error to
+ * fix: a failed one ends at once, with no retry and no manager.
+ */
+export const PROVE_CHECK_KINDS: readonly TaskKind[] = [
+  'stress',
+  'sample_check',
+  'max_test',
+  'kill_wrong',
+];
+
+/** True for a check of `prove_idea`. */
+export function isProveCheck(kind: TaskKind): boolean {
+  return PROVE_CHECK_KINDS.includes(kind);
+}
+
+/** Where `prove_idea` writes its quick programs, inside the problem. */
+export const PROVE_DIR = '.polyman/agent/prove';
 
 /**
  * Kinds whose worker must write a file: with no owned file it cannot, and
@@ -40,6 +63,10 @@ export const MUST_OWN_FILES: readonly TaskKind[] = [
   'wrong_solution',
   'validator',
   'generators',
+  'proto_brute',
+  'proto_main',
+  'proto_gen',
+  'proto_wrong',
 ];
 
 /** True when our code runs the task, not a worker. */
@@ -98,6 +125,25 @@ export const RECIPES: Record<Plan['recipe'], Recipe> = {
     after: {
       generate_validate: ['generators'],
       verify: '*',
+    },
+  },
+  prove_idea: {
+    kinds: [
+      'proto_brute',
+      'proto_main',
+      'proto_gen',
+      'proto_wrong',
+      'stress',
+      'sample_check',
+      'max_test',
+      'kill_wrong',
+    ],
+    required: ['proto_brute', 'proto_main', 'proto_gen', 'stress'],
+    after: {
+      stress: ['proto_brute', 'proto_main', 'proto_gen'],
+      sample_check: ['proto_brute', 'proto_main'],
+      max_test: ['proto_main', 'proto_gen'],
+      kill_wrong: ['stress'],
     },
   },
 };
@@ -470,4 +516,112 @@ export function strengthenTestsSkeleton(scriptFile: string): Plan {
       },
     ],
   };
+}
+
+/**
+ * The plan of `prove_idea`, made from the spec with no model call. Quick
+ * programs (a brute force, the intended solution, a random generator, one
+ * per wrong approach), then the checks our code runs on them:
+ * - stress: brute and main agree on many small random tests;
+ * - sample_check: the samples of the spec match both;
+ * - max_test: main runs a max test in the time limit;
+ * - kill_wrong: each wrong approach really fails, after the stress test,
+ *   so main can be trusted as the answer.
+ * An ML approach gets no task: memory is not measured here.
+ */
+export function proveIdeaPlan(spec: Spec): Plan {
+  const file = (name: string): string => `${PROVE_DIR}/${name}`;
+  const tasks: PlanTask[] = [
+    {
+      id: 'brute',
+      kind: 'proto_brute',
+      title: 'Brute force',
+      dependsOn: [],
+      brief:
+        'Write the simplest correct solution, it may be very slow. It is the judge of the intended solution.',
+      ownsFiles: [file('brute.cpp')],
+    },
+    {
+      id: 'main',
+      kind: 'proto_main',
+      title: 'Intended solution',
+      dependsOn: [],
+      brief: 'Write the intended solution of the spec, nothing else.',
+      ownsFiles: [file('main.cpp')],
+    },
+    {
+      id: 'gen',
+      kind: 'proto_gen',
+      title: 'Random tests',
+      dependsOn: [],
+      brief:
+        'Write a random generator: "gen <seed> small" for tiny tests, "gen <seed> max" for the biggest ones.',
+      ownsFiles: [file('gen.cpp')],
+    },
+  ];
+  const kills: PlanTask[] = [];
+  let n = 0;
+  for (const approach of parseSpec(spec).wrongApproaches) {
+    if (approach.verdict === 'ML') continue;
+    const params = { approach: approach.text, tag: approach.verdict };
+    if (approach.isBruteForce) {
+      kills.push({
+        id: 'kill-brute',
+        kind: 'kill_wrong',
+        title: `Kill: ${approach.text} (TL)`,
+        dependsOn: ['brute', 'main', 'gen', 'stress'],
+        brief: 'The brute force must be too slow on a max test.',
+        ownsFiles: [],
+        params: { ...params, file: file('brute.cpp') },
+      });
+      continue;
+    }
+    n++;
+    tasks.push({
+      id: `wrong-${n}`,
+      kind: 'proto_wrong',
+      title: `Wrong: ${approach.text} (${approach.verdict})`,
+      dependsOn: [],
+      brief: `Write a solution with only this mistake: ${approach.text}.`,
+      ownsFiles: [file(`wrong-${n}.cpp`)],
+      params,
+    });
+    kills.push({
+      id: `kill-${n}`,
+      kind: 'kill_wrong',
+      title: `Kill: ${approach.text} (${approach.verdict})`,
+      dependsOn: [`wrong-${n}`, 'main', 'gen', 'stress'],
+      brief: `The tests must catch it with ${approach.verdict}.`,
+      ownsFiles: [],
+      params: { ...params, file: file(`wrong-${n}.cpp`) },
+    });
+  }
+  tasks.push(
+    {
+      id: 'stress',
+      kind: 'stress',
+      title: 'Stress: brute = main',
+      dependsOn: ['brute', 'main', 'gen'],
+      brief: 'Brute and main must agree on every small random test.',
+      ownsFiles: [],
+    },
+    {
+      id: 'samples',
+      kind: 'sample_check',
+      title: 'Samples',
+      dependsOn: ['brute', 'main'],
+      brief: 'The samples of the spec must match brute and main.',
+      ownsFiles: [],
+    },
+    {
+      id: 'max-test',
+      kind: 'max_test',
+      title: 'Max test in the time limit',
+      dependsOn: ['main', 'gen'],
+      brief: 'Main must run the max tests in the time limit.',
+      ownsFiles: [],
+    },
+    ...kills
+  );
+  return { recipe: 'prove_idea', tasks };
 }
