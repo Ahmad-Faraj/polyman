@@ -10,12 +10,12 @@ import { AgentSession } from '../../../src/agent/core/session';
 import { SimpleEventBus } from '../../../src/agent/core/event-bus';
 import type { SeqEvent } from '../../../src/agent/core/events';
 import { MockProvider } from '../../../src/agent/providers/mock';
-import { redact } from '../../../src/agent/providers/retry';
+import { redact, redactKnown } from '../../../src/agent/providers/retry';
 import {
   ProviderError,
   type ChatRequest,
 } from '../../../src/agent/providers/types';
-import { NodeCliRunner } from '../../../src/agent/runner/cli-runner';
+import { NodeCliRunner, childEnv } from '../../../src/agent/runner/cli-runner';
 import { fsTools } from '../../../src/agent/tools/fs-tools';
 import { DefaultPermissionGate } from '../../../src/agent/tools/permissions';
 import { DefaultToolRegistry } from '../../../src/agent/tools/registry';
@@ -126,10 +126,9 @@ describe('safety: secrets', () => {
     expect(JSON.stringify(events)).not.toContain(KEY);
   });
 
-  // BUG: the session redacts only the `turn_end` error. A tool error with
-  // the key (a CLI error, a program that prints its env) goes to the model,
-  // the history and the `tool_result` summary as it is.
-  it.skip('BUG: a tool error with the key reaches neither the model nor the UI', async () => {
+  // A tool error with the key (a CLI error, a program that prints its env)
+  // must not reach the model, the history or the `tool_result` summary.
+  it('a tool error with the key reaches neither the model nor the UI', async () => {
     const leaky = spyTool('leaky', {
       risk: 'read',
       run: () => Promise.reject(new Error(`401 from server, key=${KEY}`)),
@@ -143,6 +142,28 @@ describe('safety: secrets', () => {
     expect(JSON.stringify(events)).not.toContain(KEY);
     expect(sentToModel(provider.requests)).not.toContain(KEY);
     expect(JSON.stringify(session.messages)).not.toContain(KEY);
+  });
+
+  it('tool output keeps code that only looks like a key', () => {
+    const code = 'int key_count = 0; // sk-test ' + 'x'.repeat(50);
+    expect(redactKnown(`${code} ${KEY}`, [KEY])).toBe(`${code} ***`);
+  });
+
+  it('the CLI child env has no *_API_KEY or preset key vars', () => {
+    const env = childEnv({
+      PATH: '/usr/bin',
+      HOME: '/home/u',
+      OPENROUTER_API_KEY: KEY,
+      ANTHROPIC_API_KEY: KEY,
+      polygon_api_key: KEY,
+      SOME_TOOL_API_KEY: KEY,
+      POLYMAN_CXX: 'g++',
+    });
+    expect(env).toEqual({
+      PATH: '/usr/bin',
+      HOME: '/home/u',
+      POLYMAN_CXX: 'g++',
+    });
   });
 
   it('a file outside the folder with a key cannot be read by the model', async () => {
@@ -159,10 +180,10 @@ describe('safety: secrets', () => {
     expect(JSON.stringify(events)).not.toContain(KEY);
   });
 
-  // BUG: the runner passes the whole process.env to the CLI child, so a
-  // generator or solution the model wrote can read OPENROUTER_API_KEY (and
-  // other *_API_KEY vars) and print it into the result and the log file.
-  it.skip('BUG: the CLI child does not get the provider API key env vars', async () => {
+  // A generator or solution the model wrote runs under the CLI child, so the
+  // child must not get OPENROUTER_API_KEY (or other *_API_KEY vars), or it
+  // could print the key into the result and the log file.
+  it('the CLI child does not get the provider API key env vars', async () => {
     const script = path.join(f.base, 'env-cli.js');
     fs.writeFileSync(
       script,
