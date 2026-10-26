@@ -60,14 +60,15 @@ const { DefaultToolRegistry } = registryMod;
 const { DefaultPermissionGate } = permissionsMod;
 const { workflowTool, WORKFLOW_TIMEOUT_MS } = workflowToolMod;
 const { skillTools } = skillsMod;
-const { CliCheckpoints } = checkpointsMod;
+const { CliCheckpoints, MemoCheckpoints } = checkpointsMod;
 const { GemmaManager } = managerMod;
 const { WorkflowScheduler } = schedulerMod;
-const { GemmaWorker } = workerMod;
+const { GemmaWorker, checkpointPrecheck } = workerMod;
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..', '..');
 const CASES_DIR = path.join(REPO, 'evals', 'cases');
+const BROKEN_DIR = path.join(REPO, 'evals', 'broken');
 const CLI = path.join(REPO, 'dist', 'cli.js');
 const TESTLIB = path.join(REPO, 'corpus', 'vendor', 'testlib.h');
 const MAX_ARG_CHARS = 1500;
@@ -78,6 +79,8 @@ const MAX_ARG_CHARS = 1500;
 function parseArgs(argv) {
   const opts = {
     cases: [],
+    broken: [],
+    recipe: 'fix_verify',
     model: GEMMA_DEFAULT_MODEL,
     parallel: undefined,
     reasoning: 'off',
@@ -88,13 +91,17 @@ function parseArgs(argv) {
     const next = () => String(argv[++i] ?? '');
     if (a === '--case') opts.cases.push(next());
     else if (a === '--all') opts.cases = allCases();
+    else if (a === '--broken') opts.broken.push(next());
+    else if (a === '--broken-all') opts.broken = allBroken();
+    else if (a === '--recipe') opts.recipe = next();
     else if (a === '--model') opts.model = next();
     else if (a === '--parallel') opts.parallel = Number(next());
     else if (a === '--reasoning') opts.reasoning = next();
     else if (a === '--max-cost') opts.maxCost = Number(next());
     else throw new Error(`unknown option ${a}`);
   }
-  if (opts.cases.length === 0) throw new Error('give --case <id> or --all');
+  if (opts.cases.length === 0 && opts.broken.length === 0)
+    throw new Error('give --case <id>, --all, --broken <id> or --broken-all');
   if (!['off', 'on'].includes(opts.reasoning))
     throw new Error('--reasoning must be off or on');
   return opts;
@@ -104,6 +111,13 @@ function allCases() {
   return fs
     .readdirSync(CASES_DIR)
     .filter(d => fs.existsSync(path.join(CASES_DIR, d, 'case.json')))
+    .sort();
+}
+
+function allBroken() {
+  return fs
+    .readdirSync(BROKEN_DIR)
+    .filter(d => fs.existsSync(path.join(BROKEN_DIR, d, 'Config.json')))
     .sort();
 }
 
@@ -255,8 +269,9 @@ function schedulerFactory({
   rec,
   limits,
 }) {
-  return (problemDir, runner) =>
-    new WorkflowScheduler({
+  return (problemDir, runner) => {
+    const checkpoints = new MemoCheckpoints(new CliCheckpoints(runner));
+    return new WorkflowScheduler({
       manager: new GemmaManager({ provider, model, bus }),
       worker: new GemmaWorker({
         provider,
@@ -306,13 +321,17 @@ function schedulerFactory({
           return g;
         },
         secrets,
+        // The same precheck as gemmaSchedulerFactory: finish_task runs the
+        // real check before the task ends.
+        precheck: checkpointPrecheck(checkpoints, problemDir),
       }),
-      checkpoints: new CliCheckpoints(runner),
+      checkpoints,
       permissions: gate,
       bus,
       problemDir,
       ...(limits ? { limits } : {}),
     });
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -480,14 +499,71 @@ function agentMainOnRefTests(caseDir, problemDir, work, spec) {
   };
 }
 
+/**
+ * Checks for a broken case after a fix: the files the agent changed, and
+ * that it did not take a wrong fix (a retag, a removed solution, a changed
+ * validator test). The wrong fixes are in each `expected.md`.
+ */
+function brokenChecks(caseDir, problemDir) {
+  const changed = [];
+  const walk = rel => {
+    for (const name of fs.readdirSync(path.join(caseDir, rel))) {
+      const r = path.join(rel, name);
+      if (name === 'expected.md') continue;
+      const a = path.join(caseDir, r);
+      if (fs.statSync(a).isDirectory()) {
+        walk(r);
+        continue;
+      }
+      const b = path.join(problemDir, r);
+      if (!fs.existsSync(b)) changed.push(`${r} (removed)`);
+      else if (!fs.readFileSync(a).equals(fs.readFileSync(b))) changed.push(r);
+    }
+  };
+  walk('.');
+  const before = JSON.parse(
+    fs.readFileSync(path.join(caseDir, 'Config.json'), 'utf8')
+  );
+  const after = readConfig(problemDir) ?? {};
+  const tags = s => Object.fromEntries((s ?? []).map(x => [x.name, x.tag]));
+  const t0 = tags(before.solutions);
+  const t1 = tags(after.solutions);
+  const retagged = Object.keys(t0).filter(n => t1[n] !== t0[n]);
+  const wrong = [];
+  if (retagged.length > 0)
+    wrong.push(`retagged or removed: ${retagged.join(', ')}`);
+  if (changed.includes('validator/validator_tests.json'))
+    wrong.push('changed validator_tests.json');
+  if (changed.some(c => /wa-|brute/.test(c)))
+    wrong.push('changed a wrong or brute solution');
+  return {
+    changedFiles: {
+      ok: changed.length > 0,
+      detail: changed.length > 0 ? changed.join(', ') : 'nothing changed',
+    },
+    noWrongFix: {
+      ok: wrong.length === 0,
+      detail: wrong.length === 0 ? 'no wrong fix' : wrong.join('; '),
+    },
+  };
+}
+
 // ---------------------------------------------------------------------------
 // One case.
 
-async function runCase(id, opts) {
-  const caseDir = path.join(CASES_DIR, id);
-  const spec = fs.readFileSync(path.join(caseDir, 'spec.md'), 'utf8');
+async function runCase(id, opts, broken = false) {
+  const caseDir = broken ? path.join(BROKEN_DIR, id) : path.join(CASES_DIR, id);
+  const specFile = fs.existsSync(path.join(caseDir, 'spec.md'))
+    ? path.join(caseDir, 'spec.md')
+    : path.join(CASES_DIR, 'pairs-sum', 'spec.md');
+  const spec = fs.readFileSync(specFile, 'utf8');
+  const recipe = broken ? opts.recipe : 'build_problem';
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-  const outDir = path.join(HERE, 'results', `${id}-${stamp}`);
+  const outDir = path.join(
+    HERE,
+    'results',
+    `${broken ? `broken-${id}-${recipe}` : id}-${stamp}`
+  );
   fs.mkdirSync(outDir, { recursive: true });
   const work = fs.mkdtempSync(path.join(os.tmpdir(), `polyman-real-${id}-`));
   const home = path.join(work, 'home');
@@ -531,7 +607,8 @@ async function runCase(id, opts) {
   const runner = new NodeCliRunner();
   const started = Date.now();
   const run = {
-    case: id,
+    case: broken ? `broken/${id}` : id,
+    recipe,
     model: made.model,
     reasoning: opts.reasoning,
     parallel: opts.parallel ?? null,
@@ -540,32 +617,44 @@ async function runCase(id, opts) {
   };
   console.log(`== ${id}: work folder ${work}`);
 
-  // 1- create the problem with the real tool, then the spec in the notes.
   let problemDir = null;
-  const create = cliTools().find(t => t.name === 'create_problem');
-  const created = await create.run(
-    { name: id },
-    {
-      problemDir: work,
-      signal: controller.signal,
-      runner,
-      sandbox: new FolderSandbox(work),
-      progress: () => {},
-      setProblemDir: d => {
-        problemDir = path.resolve(d);
-      },
-    }
-  );
-  rec.add('runner', {
-    type: 'create_problem',
-    ok: !created.isError,
-    summary: created.content.split('\n')[0],
-  });
-  if (problemDir === null)
-    throw new Error(`create_problem: ${created.content}`);
-  if (!fs.existsSync(path.join(problemDir, 'testlib.h'))) {
+  if (broken) {
+    // 1- a copy of the broken problem, without build files.
+    problemDir = path.join(work, id);
+    fs.cpSync(caseDir, problemDir, {
+      recursive: true,
+      filter: src => !/(testsets|solutions-outputs|\.polyman)$/.test(src),
+    });
+    fs.rmSync(path.join(problemDir, 'expected.md'), { force: true });
     fs.copyFileSync(TESTLIB, path.join(problemDir, 'testlib.h'));
-    rec.add('runner', { type: 'testlib_fallback' });
+    rec.add('runner', { type: 'copy_broken', from: caseDir });
+  } else {
+    // 1- create the problem with the real tool, then the spec in the notes.
+    const create = cliTools().find(t => t.name === 'create_problem');
+    const created = await create.run(
+      { name: id },
+      {
+        problemDir: work,
+        signal: controller.signal,
+        runner,
+        sandbox: new FolderSandbox(work),
+        progress: () => {},
+        setProblemDir: d => {
+          problemDir = path.resolve(d);
+        },
+      }
+    );
+    rec.add('runner', {
+      type: 'create_problem',
+      ok: !created.isError,
+      summary: created.content.split('\n')[0],
+    });
+    if (problemDir === null)
+      throw new Error(`create_problem: ${created.content}`);
+    if (!fs.existsSync(path.join(problemDir, 'testlib.h'))) {
+      fs.copyFileSync(TESTLIB, path.join(problemDir, 'testlib.h'));
+      rec.add('runner', { type: 'testlib_fallback' });
+    }
   }
   const notesDir = path.join(problemDir, '.polyman', 'agent');
   fs.mkdirSync(notesDir, { recursive: true });
@@ -619,7 +708,7 @@ async function runCase(id, opts) {
   let output;
   try {
     output = await tool.run(
-      { recipe: 'build_problem' },
+      { recipe },
       {
         problemDir,
         signal: controller.signal,
@@ -669,11 +758,16 @@ async function runCase(id, opts) {
     path.join(outDir, 'verify.json'),
     clean(JSON.stringify(v.report ?? { stderr: v.stderr }, null, 2))
   );
-  run.leftovers = templateLeftovers(problemDir);
-  run.hidden = {
-    refOnAgentTests: refOnAgentTests(caseDir, problemDir),
-    agentMainOnRefTests: agentMainOnRefTests(caseDir, problemDir, work, spec),
-  };
+  if (broken) {
+    run.leftovers = [];
+    run.hidden = brokenChecks(caseDir, problemDir);
+  } else {
+    run.leftovers = templateLeftovers(problemDir);
+    run.hidden = {
+      refOnAgentTests: refOnAgentTests(caseDir, problemDir),
+      agentMainOnRefTests: agentMainOnRefTests(caseDir, problemDir, work, spec),
+    };
+  }
   run.totalMs = Date.now() - started;
   run.budgetStopped = budget.stopped;
 
@@ -690,7 +784,11 @@ async function runCase(id, opts) {
   const report = clean(renderReport(run, rec.events));
   fs.writeFileSync(path.join(outDir, 'report.md'), report);
   console.log(
-    `  verify ${run.verify.ok ? 'PASS' : 'FAIL'}, hidden ${run.hidden.refOnAgentTests.ok ? 'ok' : 'FAIL'}/${run.hidden.agentMainOnRefTests.ok ? 'ok' : 'FAIL'}, ` +
+    `  verify ${run.verify.ok ? 'PASS' : 'FAIL'}, hidden ${Object.values(
+      run.hidden
+    )
+      .map(h => (h.ok ? 'ok' : 'FAIL'))
+      .join('/')}, ` +
       `${Math.round(run.totalMs / 1000)} s, ${run.calls} calls, $${run.costUsd.toFixed(4)}`
   );
   console.log(`  report: ${path.join(outDir, 'report.md')}`);
@@ -712,9 +810,13 @@ async function main() {
     process.exit(2);
   }
   const runs = [];
-  for (const id of opts.cases) {
+  const jobs = [
+    ...opts.cases.map(id => [id, false]),
+    ...opts.broken.map(id => [id, true]),
+  ];
+  for (const [id, broken] of jobs) {
     try {
-      runs.push(await runCase(id, opts));
+      runs.push(await runCase(id, opts, broken));
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       console.error(`  ${id} crashed: ${msg.split('\n')[0]}`);
