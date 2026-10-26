@@ -13,7 +13,7 @@ import { trimContext } from './context';
 import { findTextToolCall } from './text-tool-call';
 import { redact, redactKnown } from '../providers/retry';
 import type { ChatRequest, StreamEvent } from '../providers/types';
-import type { ToolCall, ToolOutput } from '../tools/types';
+import type { Risk, ToolCall, ToolOutput } from '../tools/types';
 
 /** How a turn ended. */
 export type TurnEndReason = 'done' | 'cancelled' | 'max_steps' | 'error';
@@ -32,7 +32,10 @@ interface StepReply {
 }
 
 /** Calls seen in this turn, for the repeat guard. */
-type RepeatMap = Map<string, { count: number; lastContent: string }>;
+type RepeatMap = Map<
+  string,
+  { count: number; lastContent: string; risk: Risk }
+>;
 
 /** Runs the agent loop over one conversation. */
 export class AgentSession implements AgentSessionApi {
@@ -232,12 +235,13 @@ export class AgentSession implements AgentSessionApi {
       };
     }
 
+    const risk = deps.tools.riskOf(call.name) ?? 'read';
     deps.bus.emit({
       type: 'tool_call',
       callId: call.id,
       name: call.name,
       args: call.args,
-      risk: deps.tools.riskOf(call.name) ?? 'read',
+      risk,
     });
     const raw = await deps.tools.run(call, deps.makeToolContext(signal));
     // Tool output goes to the model, the history and the UI: no keys in it.
@@ -245,9 +249,15 @@ export class AgentSession implements AgentSessionApi {
       ...raw,
       content: redactKnown(raw.content, deps.secrets()),
     };
+    if (risk === 'write' && !output.isError) {
+      // Files changed, so the same read or run can now give a new result
+      // (verify after a fix). Repeated writes stay counted.
+      for (const [k, v] of seen) if (v.risk !== 'write') seen.delete(k);
+    }
     seen.set(key, {
-      count: (before?.count ?? 0) + 1,
+      count: (seen.get(key)?.count ?? 0) + 1,
       lastContent: output.content,
+      risk,
     });
     deps.bus.emit({
       type: 'tool_result',

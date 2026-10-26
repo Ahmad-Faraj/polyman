@@ -242,6 +242,44 @@ describe('AgentSession', () => {
     expect(deps.events.filter(e => e.type === 'tool_call')).toHaveLength(2);
   });
 
+  it('lets the same run again after a write changed the files', async () => {
+    let runs = 0;
+    let writes = 0;
+    const verify = { toolCall: { name: 'verify', args: {} } };
+    const write = {
+      toolCall: { name: 'write_file', args: { path: 'a', content: 'x' } },
+    };
+    const provider = new MockProvider([
+      verify,
+      verify,
+      write,
+      verify,
+      write,
+      write,
+      { text: 'done' },
+    ]);
+    const tools = new FakeTools(
+      {
+        verify: () => {
+          runs += 1;
+          return Promise.resolve({ content: `run ${runs}` });
+        },
+        write_file: () => {
+          writes += 1;
+          return Promise.resolve({ content: 'wrote a' });
+        },
+      },
+      { verify: 'run', write_file: 'write' }
+    );
+    const session = new AgentSession(makeDeps(provider, tools));
+
+    expect(await session.send('fix it')).toBe('done');
+    // The 3rd verify runs because a write came before it.
+    expect(runs).toBe(3);
+    // Identical writes are still counted: the 3rd one is blocked.
+    expect(writes).toBe(2);
+  });
+
   it('asks again when the model writes a tool call as text', async () => {
     const provider = new MockProvider([
       { text: 'I will run it: {"name": "verify", "arguments": {}}' },
