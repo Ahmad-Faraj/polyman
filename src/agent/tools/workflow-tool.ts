@@ -18,7 +18,7 @@ import {
 } from '../workflow/scheduler';
 import { parseSpec } from '../workflow/spec';
 import type { Plan, Spec } from '../workflow/types';
-import { GemmaWorker } from '../workflow/worker';
+import { checkpointPrecheck, GemmaWorker } from '../workflow/worker';
 import { cliTools } from './cli-tools';
 import { fsTools } from './fs-tools';
 import { specProblems } from './notes-tools';
@@ -175,8 +175,9 @@ export interface GemmaSchedulerOptions {
 export function gemmaSchedulerFactory(
   o: GemmaSchedulerOptions
 ): WorkflowToolOptions['createScheduler'] {
-  return (problemDir, runner) =>
-    new WorkflowScheduler({
+  return (problemDir, runner) => {
+    const checkpoints = new CliCheckpoints(runner);
+    return new WorkflowScheduler({
       manager: new GemmaManager({
         provider: o.provider,
         model: o.model,
@@ -195,10 +196,12 @@ export function gemmaSchedulerFactory(
           new FolderSandbox(root, { allowWrite }),
         createGate: (bus, mode) => new DefaultPermissionGate(bus, mode),
         secrets: () => o.secrets(),
+        precheck: checkpointPrecheck(checkpoints, problemDir),
       }),
-      checkpoints: new CliCheckpoints(runner),
+      checkpoints,
       permissions: o.gate,
       bus: o.bus,
       problemDir,
     });
+  };
 }

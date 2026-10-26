@@ -449,13 +449,48 @@ export function configErrors(config: unknown): string[] {
   return errors;
 }
 
+/**
+ * Fills the parts of a patch a small model often leaves out, when there is
+ * only one sensible value: the testset of `generatorScript` and of manual
+ * tests (the first testset of the config, else `tests`), a `generatorScript`
+ * given as a plain file path, and the validator name. Returns a new patch;
+ * anything it does not know stays as it is for {@link checkPatchShape}.
+ */
+export function fillPatchDefaults(patch: unknown, config: unknown): unknown {
+  if (!isObject(patch)) return patch;
+  const testsets =
+    isObject(config) && Array.isArray(config['testsets'])
+      ? config['testsets']
+      : [];
+  const first: unknown = testsets.find(isObject)?.['name'];
+  const testset = isString(first) ? first : 'tests';
+  const out: Json = { ...patch };
+
+  const script = out['generatorScript'];
+  if (isString(script)) {
+    out['generatorScript'] = { testset, scriptFile: script };
+  } else if (isObject(script) && script['testset'] === undefined) {
+    out['generatorScript'] = { ...script, testset };
+  }
+
+  const manual = out['manualTests'];
+  if (Array.isArray(manual)) {
+    out['manualTests'] = manual.map((t: unknown) =>
+      isObject(t) && t['testset'] === undefined ? { ...t, testset } : t
+    );
+  }
+
+  const validator = out['validator'];
+  if (isObject(validator) && validator['name'] === undefined) {
+    out['validator'] = { ...validator, name: 'validator' };
+  }
+  return out;
+}
+
 async function applyNow(
   problemDir: string,
-  patch: unknown
+  rawPatch: unknown
 ): Promise<PatchResult> {
-  const shapeError = checkPatchShape(patch);
-  if (shapeError) return { ok: false, error: shapeError };
-
   const file = path.join(problemDir, 'Config.json');
   let config: unknown;
   try {
@@ -468,6 +503,10 @@ async function applyNow(
   }
   if (!isObject(config))
     return { ok: false, error: 'Config.json is not an object' };
+
+  const patch = fillPatchDefaults(rawPatch, config);
+  const shapeError = checkPatchShape(patch);
+  if (shapeError) return { ok: false, error: shapeError };
 
   // Refuse only what the patch broke: a problem that was already invalid
   // in some other field can still get patches.

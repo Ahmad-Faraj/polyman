@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   RECIPES,
+  addRecipeDependencies,
   buildProblemSkeleton,
   checkPlan,
   dependentsOf,
@@ -296,5 +297,39 @@ describe('dependentsOf', () => {
   it('finds the dependents through other tasks', () => {
     const deps = dependentsOf(goodPlan().tasks, 'val');
     expect([...deps].sort()).toEqual(['gv', 'ver']);
+  });
+});
+
+describe('addRecipeDependencies', () => {
+  it('adds the order dependencies the manager left out', () => {
+    const full = buildProblemSkeleton(SPEC);
+    expect(checkPlan(full, SPEC)).toEqual([]);
+    const verify = full.tasks.find(t => t.kind === 'verify')!;
+    const critic = full.tasks.find(t => t.kind === 'statement_critic')!;
+    const broken: Plan = {
+      ...full,
+      tasks: full.tasks.map(t =>
+        t.id === verify.id
+          ? { ...t, dependsOn: [t.dependsOn[0]] }
+          : t.id === critic.id
+            ? { ...t, dependsOn: [] }
+            : t
+      ),
+    };
+    expect(checkPlan(broken, SPEC).length).toBeGreaterThan(0);
+    const fixed = addRecipeDependencies(broken);
+    expect(checkPlan(fixed, SPEC)).toEqual([]);
+    expect(
+      new Set(fixed.tasks.find(t => t.id === verify.id)!.dependsOn)
+    ).toEqual(
+      new Set(full.tasks.filter(t => t.id !== verify.id).map(t => t.id))
+    );
+    // The input plan is not changed.
+    expect(broken.tasks.find(t => t.id === critic.id)!.dependsOn).toEqual([]);
+  });
+
+  it('leaves a plan of an unknown recipe as it is', () => {
+    const plan = { recipe: 'nope', tasks: [] } as unknown as Plan;
+    expect(addRecipeDependencies(plan)).toBe(plan);
   });
 });
