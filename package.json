@@ -35,7 +35,7 @@
     "LICENCE"
   ],
   "scripts": {
-    "build": "tsc && node -e \"require('fs').copyFileSync('src/agent/tui/package.json','dist/agent/tui/package.json')\"",
+    "build": "tsc && node -e \"const fs=require('fs');fs.mkdirSync('dist/agent/tui',{recursive:true});fs.copyFileSync('src/agent/tui/package.json','dist/agent/tui/package.json')\"",
     "start": "node dist/cli.js",
     "dev": "ts-node src/cli.ts",
     "watch": "tsc --watch",
