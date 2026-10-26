@@ -11,7 +11,7 @@ import type { ContentPart, Message } from './messages';
 import type { AgentSessionApi, AgentSessionDeps } from './session-types';
 import { trimContext } from './context';
 import { findTextToolCall } from './text-tool-call';
-import { redact } from '../providers/retry';
+import { redact, redactKnown } from '../providers/retry';
 import type { ChatRequest, StreamEvent } from '../providers/types';
 import type { ToolCall, ToolOutput } from '../tools/types';
 
@@ -239,7 +239,12 @@ export class AgentSession implements AgentSessionApi {
       args: call.args,
       risk: deps.tools.riskOf(call.name) ?? 'read',
     });
-    const output = await deps.tools.run(call, deps.makeToolContext(signal));
+    const raw = await deps.tools.run(call, deps.makeToolContext(signal));
+    // Tool output goes to the model, the history and the UI: no keys in it.
+    const output: ToolOutput = {
+      ...raw,
+      content: redactKnown(raw.content, deps.secrets()),
+    };
     seen.set(key, {
       count: (before?.count ?? 0) + 1,
       lastContent: output.content,

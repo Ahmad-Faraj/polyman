@@ -109,7 +109,8 @@ export function createChatRuntime(opts: ChatRuntimeOptions): ChatRuntime {
   let sandbox: Sandbox = new FolderSandbox(problemDir ?? start.startDir);
   let lastCallId = '';
   bus.on(e => {
-    if (e.type === 'tool_call') lastCallId = e.callId;
+    // Worker calls (with a task id) are not the chat's running tool.
+    if (e.type === 'tool_call' && e.taskId === undefined) lastCallId = e.callId;
   });
 
   const notes = new NotesStore(bus, () => problemDir);

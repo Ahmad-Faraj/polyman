@@ -440,6 +440,45 @@ describe('specIsReady', () => {
   });
 });
 
+describe('chat tool progress', () => {
+  it('keeps the chat call id when a worker tool call comes between', async () => {
+    let bus: { emit: ReturnType<typeof createChatRuntime>['bus']['emit'] } = {
+      emit: () => {},
+    };
+    const runner: CliRunner = {
+      run(_args, opts) {
+        bus.emit({
+          type: 'tool_call',
+          callId: 'w1',
+          name: 'read_file',
+          args: {},
+          risk: 'read',
+          taskId: 't4',
+        });
+        opts.onLine?.('generating tests');
+        return Promise.resolve(result({ json: {} }));
+      },
+    };
+    const { rt, events } = build(
+      [{ toolCall: { name: 'verify', args: {} } }, { text: 'Done.' }],
+      { runner }
+    );
+    bus = rt.bus;
+    allowAll(rt);
+    await rt.session.send('verify it');
+    const chatCall = events.find(
+      e => e.type === 'tool_call' && e.name === 'verify'
+    );
+    const progress = events.find(e => e.type === 'tool_progress');
+    expect(chatCall).toBeDefined();
+    expect(progress).toMatchObject({
+      type: 'tool_progress',
+      callId: chatCall?.type === 'tool_call' ? chatCall.callId : '',
+      line: 'generating tests',
+    });
+  });
+});
+
 /** Runs the plain chat over fake stdin and stdout. */
 async function plain(
   rt: ReturnType<typeof createChatRuntime>,
@@ -546,6 +585,71 @@ describe('runPlain', () => {
       '[task t2] attempt 2: checkpoint failed: sample 1: expected 2, got 1'
     );
     expect(lines).toContain('  = all passed');
+  });
+
+  it('prints the tool calls of workflow workers with their task id', async () => {
+    fs.mkdirSync(path.join(problem, '.polyman', 'agent'), { recursive: true });
+    fs.writeFileSync(path.join(problem, '.polyman', 'agent', 'notes.md'), SPEC);
+    const { rt } = build(
+      [
+        {
+          toolCall: {
+            name: 'start_workflow',
+            args: { recipe: 'build_problem' },
+          },
+        },
+        { text: 'Built.' },
+      ],
+      {
+        createScheduler: (): WorkflowRunner => ({
+          run: async (_spec, _recipe, signal) => {
+            rt.bus.emit({ type: 'plan_created', plan: PLAN });
+            await rt.gate.askPlan(PLAN, signal);
+            rt.bus.emit({
+              type: 'tool_call',
+              callId: 'w1',
+              name: 'run_solution',
+              args: { name: 'main' },
+              risk: 'run',
+              taskId: 't4',
+            });
+            rt.bus.emit({
+              type: 'tool_progress',
+              callId: 'w1',
+              line: 'compiling',
+              taskId: 't4',
+            });
+            rt.bus.emit({
+              type: 'tool_result',
+              callId: 'w1',
+              ok: false,
+              summary: `WA on sample 1 ${'x'.repeat(200)}\nsecond line`,
+              taskId: 't4',
+            });
+            rt.bus.emit({
+              type: 'tool_result',
+              callId: 'w2',
+              ok: true,
+              summary: '3 of 3 samples ok',
+              taskId: 't4',
+            });
+            return { ok: true, results: [], summary: 'all passed' };
+          },
+        }),
+      }
+    );
+    const out = await plain(rt, ['build it', 'y']);
+    const lines = out.split('\n');
+
+    expect(lines).toContain('  [t4] > run_solution({"name":"main"})');
+    expect(lines).toContain('  [t4]   = 3 of 3 samples ok');
+    const failed = lines.find(l => l.startsWith('  [t4]   = error: WA'));
+    expect(failed).toBeDefined();
+    expect(failed?.endsWith('...')).toBe(true);
+    expect(out).not.toContain('second line');
+    expect(out).not.toContain('compiling');
+    // The chat's own call stays a normal line.
+    expect(lines.some(l => l.startsWith('> start_workflow('))).toBe(true);
   });
 
   it('denies a waiting approval when the input ends', async () => {

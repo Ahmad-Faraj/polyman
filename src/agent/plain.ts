@@ -30,6 +30,9 @@ const ARGS_MAX = 100;
 /** Longest summary shown in one event line. */
 const LINE_MAX = 160;
 
+/** Longest summary shown for a tool call of a workflow worker. */
+const TASK_LINE_MAX = 100;
+
 /** How long to wait for a cancelled turn to end before we leave. */
 const CANCEL_WAIT_MS = 5000;
 
@@ -153,10 +156,20 @@ export function runPlain(
         atLineStart = e.text.endsWith('\n');
         break;
       case 'tool_call':
-        line(`> ${e.name}(${shortArgs(e.args)})`);
+        if (e.taskId !== undefined) {
+          line(`  [${e.taskId}] > ${e.name}(${shortArgs(e.args)})`);
+        } else {
+          line(`> ${e.name}(${shortArgs(e.args)})`);
+        }
         break;
       case 'tool_result':
-        line(`  = ${e.ok ? '' : 'error: '}${short(e.summary)}`);
+        if (e.taskId !== undefined) {
+          line(
+            `  [${e.taskId}]   = ${e.ok ? '' : 'error: '}${short(firstLine(e.summary), TASK_LINE_MAX)}`
+          );
+        } else {
+          line(`  = ${e.ok ? '' : 'error: '}${short(e.summary)}`);
+        }
         break;
       case 'approval_needed': {
         if (e.command !== undefined) line(`  $ ${short(e.command)}`);
@@ -308,8 +321,8 @@ function shortArgs(args: unknown): string {
   return json.length > ARGS_MAX ? `${json.slice(0, ARGS_MAX - 3)}...` : json;
 }
 
-function short(text: string): string {
-  return text.length > LINE_MAX ? `${text.slice(0, LINE_MAX - 3)}...` : text;
+function short(text: string, max = LINE_MAX): string {
+  return text.length > max ? `${text.slice(0, max - 3)}...` : text;
 }
 
 function firstLine(text: string): string {
