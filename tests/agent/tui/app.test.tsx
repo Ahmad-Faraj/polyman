@@ -128,6 +128,12 @@ describe('App with the fake session', () => {
     );
     expect(cancel).toHaveBeenCalled();
     expect(frame).not.toContain('esc to interrupt');
+    // The wait hint goes with the turn, the typed text stays.
+    const after = await waitFor(
+      lastFrame,
+      f => !f.includes('wait for the turn to end')
+    );
+    expect(inputOf(after)).toBe('> again');
   });
 
   it('shift+tab switches the mode and adds the auto-edit notice', async () => {
@@ -168,6 +174,16 @@ describe('App with the fake session', () => {
       f.includes('press ctrl+c again to exit')
     );
     expect(frame).not.toContain('some text');
+  });
+
+  it('ctrl+c twice exits and draws no input box or status line last', async () => {
+    const { stdin, lastFrame } = setup();
+    await tick();
+    stdin.write('\u0003');
+    await tick();
+    stdin.write('\u0003');
+    await waitFor(lastFrame, f => !f.includes('Type a message'));
+    expect(lastFrame()).not.toContain('ask mode (shift+tab)');
   });
 
   it('\\ + enter and ctrl+j add new lines, up brings back the last message', async () => {
