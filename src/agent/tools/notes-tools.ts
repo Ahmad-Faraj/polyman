@@ -11,7 +11,75 @@ import { mkdir, readFile, writeFile } from 'fs/promises';
 import { dirname, join } from 'path';
 import type { EventBus } from '../core/events';
 import { NOTES_PATH } from '../core/prompt';
+import { parseSpec } from '../workflow/spec';
 import type { Tool, ToolOutput } from './types';
+
+/** Sections the build_problem workflow needs, in the spec order. */
+export const SPEC_SECTIONS = [
+  'Idea',
+  'Constraints',
+  'Input',
+  'Output',
+  'Intended solution',
+  'Wrong approaches',
+  'Edge cases',
+  'Samples',
+] as const;
+
+/** Verdicts a wrong approach line may end with. */
+const WRONG_VERDICTS = ['WA', 'TL', 'ML', 'RE'];
+
+/** Longest piece of a bad line quoted back to the model. */
+const QUOTE_MAX = 60;
+
+/**
+ * What is wrong with a spec, as short lines the model can act on. An empty
+ * list means the spec is ready for `build_problem`.
+ *
+ * @param sections The sections that must be there and not empty.
+ */
+export function specProblems(
+  text: string,
+  sections: readonly string[] = SPEC_SECTIONS
+): string[] {
+  const parsed = parseSpec(text);
+  const problems: string[] = [];
+  for (const name of sections) {
+    if ((parsed.sections[name] ?? '').trim() === '') {
+      problems.push(`missing or empty section "# ${name}"`);
+    }
+  }
+
+  if (
+    (parsed.sections['Samples'] ?? '').trim() !== '' &&
+    parsed.samples.length === 0
+  ) {
+    problems.push(
+      'no sample found: write "## Input 1" and "## Output 1", each followed by a ``` code block'
+    );
+  }
+
+  for (const raw of (parsed.sections['Wrong approaches'] ?? '').split('\n')) {
+    const line = raw.trim();
+    if (!line.startsWith('- ')) continue;
+    const arrow = line.lastIndexOf('->');
+    const verdict =
+      arrow < 0
+        ? ''
+        : line
+            .slice(arrow + 2)
+            .trim()
+            .split(/\s+/)[0];
+    if (!WRONG_VERDICTS.includes(verdict ?? '')) {
+      const quoted =
+        line.length > QUOTE_MAX ? `${line.slice(0, QUOTE_MAX)}...` : line;
+      problems.push(
+        `wrong approach "${quoted}" must end with "-> WA", "-> TL", "-> ML" or "-> RE" (plain ascii "->")`
+      );
+    }
+  }
+  return problems;
+}
 
 /** Reads and writes the spec, in memory or in the problem folder. */
 export class NotesStore {
@@ -129,11 +197,19 @@ export function notesTools(store: NotesStore): Tool[] {
     async run(args): Promise<ToolOutput> {
       const where = await store.write(args.content);
       const lines = args.content.split('\n').length;
+      const saved =
+        where === 'memory'
+          ? `Saved the notes (${lines} lines) in memory. They are written to the problem folder when create_problem makes it.`
+          : `Saved the notes (${lines} lines) to ${NOTES_PATH}.`;
+      const problems = specProblems(args.content);
+      if (problems.length === 0) return { content: saved };
       return {
-        content:
-          where === 'memory'
-            ? `Saved the notes (${lines} lines) in memory. They are written to the problem folder when create_problem makes it.`
-            : `Saved the notes (${lines} lines) to ${NOTES_PATH}.`,
+        content: [
+          `${saved} But the spec is not ready for the workflow:`,
+          ...problems.map(p => `- ${p}`),
+          'Fix these and call write_notes again with the full spec.',
+        ].join('\n'),
+        isError: true,
       };
     },
   };

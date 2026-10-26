@@ -21,10 +21,11 @@ import type { Plan, Spec } from '../workflow/types';
 import { checkpointPrecheck, GemmaWorker } from '../workflow/worker';
 import { cliTools } from './cli-tools';
 import { fsTools } from './fs-tools';
+import { specProblems } from './notes-tools';
 import { DefaultPermissionGate } from './permissions';
 import { DefaultToolRegistry } from './registry';
 import { FolderSandbox } from './sandbox';
-import type { PermissionGate, Tool, ToolOutput } from './types';
+import type { PermissionGate, PermissionMode, Tool, ToolOutput } from './types';
 
 /** Time limit of one whole workflow. */
 export const WORKFLOW_TIMEOUT_MS = 30 * 60 * 1000;
@@ -33,8 +34,12 @@ export const WORKFLOW_TIMEOUT_MS = 30 * 60 * 1000;
 export const NO_SPEC_ERROR =
   'Write the spec first with write_notes (see the format in your instructions).';
 
-/** Sections a spec must have before a workflow can start. */
+/** Sections a spec must have before any workflow can start. */
 const REQUIRED_SECTIONS = ['Idea', 'Constraints', 'Samples'] as const;
+
+/** What the model is told after a workflow ends. */
+export const AFTER_WORKFLOW =
+  'The workflow is over. Tell the user the result in 2 or 3 lines. Do not write or fix problem files yourself: if something failed, ask the user if you should run start_workflow with recipe fix_verify.';
 
 /** What the tool runs. `WorkflowScheduler` in the real chat. */
 export interface WorkflowRunner {
@@ -51,6 +56,11 @@ export interface WorkflowToolOptions {
   readSpec(): Promise<string>;
   /** Builds the scheduler for one run in `problemDir`. */
   createScheduler(problemDir: string, runner: CliRunner): WorkflowRunner;
+  /**
+   * The chat gate. Approving the plan puts it in `plan-approved` mode; the
+   * tool puts the old mode back when the workflow ends.
+   */
+  gate?: Pick<PermissionGate, 'mode' | 'setMode'>;
 }
 
 /** True when the spec has a non-empty Idea, Constraints and Samples. */
@@ -59,14 +69,47 @@ export function specIsReady(spec: string): boolean {
   return REQUIRED_SECTIONS.every(name => (sections[name] ?? '').trim() !== '');
 }
 
-/** The `start_workflow` tool. */
+/**
+ * Why the spec cannot start `recipe`, as lines for the model. build_problem
+ * needs the whole spec; the other recipes work on an existing problem and
+ * need only the Idea, the Constraints and the Samples.
+ */
+export function workflowSpecProblems(
+  spec: string,
+  recipe: Plan['recipe']
+): string[] {
+  return recipe === 'build_problem'
+    ? specProblems(spec)
+    : specProblems(spec, REQUIRED_SECTIONS).filter(p =>
+        p.startsWith('missing')
+      );
+}
+
+/** Runs `fn` and puts the gate's mode back after it, even on an error. */
+async function keepingMode<T>(
+  gate: WorkflowToolOptions['gate'],
+  fn: () => Promise<T>
+): Promise<T> {
+  if (gate === undefined) return fn();
+  const before: PermissionMode = gate.mode;
+  try {
+    return await fn();
+  } finally {
+    gate.setMode(before);
+  }
+}
+
+/**
+ * The `start_workflow` tool. Its risk is `run`: the user approves the plan
+ * the manager makes, so asking for the tool call too would ask twice.
+ */
 export function workflowTool(
   opts: WorkflowToolOptions
 ): Tool<{ recipe: Plan['recipe'] }> {
   return {
     name: 'start_workflow',
     description:
-      'Build or fix the whole problem with a team of workers, from the spec in the notes. build_problem builds everything, fix_verify fixes a failing verify, strengthen_tests adds tests. The user approves the plan first.',
+      'Build or fix the whole problem with a team of workers, from the spec in the notes. build_problem builds every file (statement, solutions, validator, generators, checker, tests); fix_verify fixes a failing verify; strengthen_tests adds tests. Write the spec with write_notes and call create_problem first. The user approves the plan before any file is written.',
     parameters: {
       type: 'object',
       properties: {
@@ -79,23 +122,33 @@ export function workflowTool(
       required: ['recipe'],
       additionalProperties: false,
     },
-    risk: 'write',
+    risk: 'run',
     needsProblem: true,
     timeoutMs: WORKFLOW_TIMEOUT_MS,
     describe: args => ({ title: `Start the ${args.recipe} workflow` }),
     async run(args, ctx): Promise<ToolOutput> {
       const spec = await opts.readSpec();
-      if (!specIsReady(spec)) return { content: NO_SPEC_ERROR, isError: true };
-      if (ctx.problemDir === null) {
+      const problems = workflowSpecProblems(spec, args.recipe);
+      if (problems.length > 0) {
+        return {
+          content: [NO_SPEC_ERROR, ...problems.map(p => `- ${p}`)].join('\n'),
+          isError: true,
+        };
+      }
+      const problemDir = ctx.problemDir;
+      if (problemDir === null) {
         return {
           content: 'There is no problem folder yet. Call create_problem first.',
           isError: true,
         };
       }
-      const scheduler = opts.createScheduler(ctx.problemDir, ctx.runner);
-      const result = await scheduler.run(spec, args.recipe, ctx.signal);
+      const result = await keepingMode(opts.gate, () =>
+        opts
+          .createScheduler(problemDir, ctx.runner)
+          .run(spec, args.recipe, ctx.signal)
+      );
       return {
-        content: result.summary,
+        content: `${result.summary}\n${AFTER_WORKFLOW}`,
         ...(result.ok ? {} : { isError: true }),
         data: result.results,
       };
