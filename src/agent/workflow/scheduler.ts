@@ -16,8 +16,10 @@ import {
   buildProblemSkeleton,
   checkPlan,
   dependentsOf,
+  fixVerifyPlan,
   isNoModelKind,
   normalizePath,
+  strengthenTestsSkeleton,
 } from './recipes';
 import {
   WORKFLOW_LIMITS,
@@ -203,6 +205,10 @@ export class WorkflowScheduler {
     return run.outcome();
   }
 
+  private scriptFile(): Promise<string> {
+    return readScriptFile(this.opts.problemDir);
+  }
+
   /**
    * Gets a plan from the manager and checks it. One more try with the
    * errors, then the default skeleton (only for `build_problem`).
@@ -212,6 +218,9 @@ export class WorkflowScheduler {
     recipe: Plan['recipe'],
     signal: AbortSignal
   ): Promise<{ plan: Plan; notice?: string } | { error: string }> {
+    // A fixed shape with nothing to fill in: no model call.
+    if (recipe === 'fix_verify') return { plan: fixVerifyPlan() };
+
     const attempt = async (
       text: Spec
     ): Promise<{ plan?: Plan; errors: string[] }> => {
@@ -242,9 +251,15 @@ export class WorkflowScheduler {
     if (second.plan && second.errors.length === 0) return { plan: second.plan };
     if (signal.aborted) return { error: 'workflow cancelled' };
 
-    if (recipe === 'build_problem') {
+    const fallback =
+      recipe === 'build_problem'
+        ? buildProblemSkeleton(spec)
+        : recipe === 'strengthen_tests'
+          ? strengthenTestsSkeleton(await this.scriptFile())
+          : null;
+    if (fallback) {
       return {
-        plan: buildProblemSkeleton(spec),
+        plan: fallback,
         notice: `notice: the manager plan was invalid twice (${firstLine(second.errors[0] ?? '', 80)}), used the default plan`,
       };
     }
@@ -252,6 +267,104 @@ export class WorkflowScheduler {
       error: `no valid plan for ${recipe}: ${second.errors.join('; ')}`,
     };
   }
+}
+
+/** The generator script file of the first testset, from Config.json. */
+async function readScriptFile(problemDir: string): Promise<string> {
+  try {
+    const config = JSON.parse(
+      await fs.readFile(path.join(problemDir, 'Config.json'), 'utf-8')
+    ) as { testsets?: { generatorScript?: { scriptFile?: unknown } }[] };
+    const file = config.testsets?.[0]?.generatorScript?.scriptFile;
+    if (typeof file === 'string' && file !== '') return file;
+  } catch {
+    // Use the template name.
+  }
+  return 'generators/gen-script.txt';
+}
+
+/** The Config.json files the fix loop needs, best effort. */
+export interface ConfigFiles {
+  solutions: { name: string; source: string; tag: string }[];
+  generators: string[];
+  scriptFiles: string[];
+}
+
+async function readConfigFiles(problemDir: string): Promise<ConfigFiles> {
+  const out: ConfigFiles = { solutions: [], generators: [], scriptFiles: [] };
+  try {
+    const config = JSON.parse(
+      await fs.readFile(path.join(problemDir, 'Config.json'), 'utf-8')
+    ) as {
+      solutions?: { name?: unknown; source?: unknown; tag?: unknown }[];
+      generators?: { source?: unknown }[];
+      testsets?: { generatorScript?: { scriptFile?: unknown } }[];
+    };
+    for (const s of Array.isArray(config.solutions) ? config.solutions : []) {
+      if (
+        typeof s?.name === 'string' &&
+        typeof s.source === 'string' &&
+        typeof s.tag === 'string'
+      ) {
+        out.solutions.push({
+          name: s.name,
+          source: normalizePath(s.source),
+          tag: s.tag,
+        });
+      }
+    }
+    for (const g of Array.isArray(config.generators) ? config.generators : []) {
+      if (typeof g?.source === 'string') {
+        out.generators.push(normalizePath(g.source));
+      }
+    }
+    for (const t of Array.isArray(config.testsets) ? config.testsets : []) {
+      const file = t?.generatorScript?.scriptFile;
+      if (typeof file === 'string') out.scriptFiles.push(normalizePath(file));
+    }
+  } catch {
+    // No extra files.
+  }
+  return out;
+}
+
+/** Tags of solutions that must pass every test. */
+const CORRECT_TAGS = ['MA', 'OK', 'TO'];
+
+/**
+ * The files of a fix round. The files the digest names, plus what the
+ * verdicts point to:
+ * - a correct solution (OK, TO) with a wrong answer: the main solution may
+ *   be the wrong one (main-overflow), so the MA source too;
+ * - a wrong solution that got no failing verdict: the tests are weak
+ *   (weak-tests), so the generators and the generator script too.
+ * When the digest names no file, every candidate.
+ */
+export function fixFilesFor(
+  digest: string,
+  candidates: string[],
+  config: ConfigFiles
+): string[] {
+  const named = candidates.filter(file => digest.includes(file));
+  if (named.length === 0) return candidates;
+  const out = new Set(named);
+  const line = /^solution (\S+)(?: \(([^)]+)\))? tag ([A-Z]+): (.*)$/;
+  for (const text of digest.split('\n')) {
+    const m = line.exec(text.trim());
+    if (!m) continue;
+    const [, , , tag, rest] = m;
+    if (CORRECT_TAGS.includes(tag ?? '')) {
+      if (/wrong answer|; test \d+: (WA|PE)\b/i.test(rest ?? '')) {
+        for (const s of config.solutions) {
+          if (s.tag === 'MA') out.add(s.source);
+        }
+      }
+    } else if (/did not get/i.test(rest ?? '')) {
+      for (const g of config.generators) out.add(g);
+      for (const f of config.scriptFiles) out.add(f);
+    }
+  }
+  return [...out];
 }
 
 /** The state of one approved plan while it runs. */
@@ -729,6 +842,7 @@ class PlanRun {
   /**
    * The files the fixer may change: the ones the verify digest names, or
    * every solution, generator and validator file when it names none.
+   * See {@link fixFilesFor} for the extra files a verdict points to.
    */
   private async fixFiles(digest: string): Promise<string[]> {
     const candidates = new Set<string>();
@@ -737,11 +851,9 @@ class PlanRun {
         for (const file of task.ownsFiles) candidates.add(normalizePath(file));
       }
     }
+    const config = await readConfigFiles(this.opts.problemDir);
     for (const file of await this.configSources()) candidates.add(file);
-
-    const all = [...candidates];
-    const named = all.filter(file => digest.includes(file));
-    return named.length > 0 ? named : all;
+    return fixFilesFor(digest, [...candidates], config);
   }
 
   /** Solution, generator and validator sources from Config.json. */

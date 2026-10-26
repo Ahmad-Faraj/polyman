@@ -413,3 +413,61 @@ export function buildProblemSkeleton(spec: Spec): Plan {
 
   return { recipe: 'build_problem', tasks };
 }
+
+/**
+ * The plan of `fix_verify`: one verify task, the scheduler adds the fix
+ * rounds. There is nothing for the manager to fill in (Gemma gave a whole
+ * build_problem plan for it, twice, and the recipe failed).
+ */
+export function fixVerifyPlan(): Plan {
+  return {
+    recipe: 'fix_verify',
+    tasks: [
+      {
+        id: 't1',
+        kind: 'verify',
+        title: 'Verify',
+        dependsOn: [],
+        brief: 'Run polyman verify. polyman fixes it when it fails.',
+        ownsFiles: [],
+      },
+    ],
+  };
+}
+
+/**
+ * A valid `strengthen_tests` plan, used when the manager fails twice: one
+ * generator task that may add a generator and change the script.
+ */
+export function strengthenTestsSkeleton(scriptFile: string): Plan {
+  return {
+    recipe: 'strengthen_tests',
+    tasks: [
+      {
+        id: 't1',
+        kind: 'generators',
+        title: 'Stronger tests',
+        dependsOn: [],
+        brief:
+          'verify shows wrong solutions that pass every test. Add a generator or script lines whose tests break them. Keep the old tests.',
+        ownsFiles: ['generators/gen-strong.cpp', normalizePath(scriptFile)],
+      },
+      {
+        id: 't2',
+        kind: 'generate_validate',
+        title: 'Generate and validate tests',
+        dependsOn: ['t1'],
+        brief: 'Generate all tests and validate them.',
+        ownsFiles: [],
+      },
+      {
+        id: 't3',
+        kind: 'verify',
+        title: 'Verify',
+        dependsOn: ['t1', 't2'],
+        brief: 'Run polyman verify.',
+        ownsFiles: [],
+      },
+    ],
+  };
+}
