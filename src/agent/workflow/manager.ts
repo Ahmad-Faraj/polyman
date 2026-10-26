@@ -15,6 +15,7 @@ import {
   managerPlanPrompt,
   recipeDescription,
   TASK_KINDS,
+  wrongSolutionList,
 } from './prompts';
 import type {
   Manager,
@@ -149,6 +150,7 @@ export class GemmaManager implements Manager {
       spec.trim(),
       '',
       description,
+      ...(recipe === 'build_problem' ? ['', wrongSolutionList(spec)] : []),
       '',
       'Call submit_plan now with the whole plan.',
     ].join('\n');
