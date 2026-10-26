@@ -29,6 +29,8 @@ export type AgentEvent =
       name: string;
       args: unknown;
       risk: Risk;
+      /** The workflow task. Set only for events from a workflow worker. */
+      taskId?: string;
     }
   /** A tool call waits for the user. Answer with `resolveApproval()`. */
   | {
@@ -46,7 +48,13 @@ export type AgentEvent =
       decision: ApprovalDecision;
     }
   /** A line of progress from a running tool (stderr of the CLI). */
-  | { type: 'tool_progress'; callId: string; line: string }
+  | {
+      type: 'tool_progress';
+      callId: string;
+      line: string;
+      /** The workflow task. Set only for events from a workflow worker. */
+      taskId?: string;
+    }
   /** A tool finished. `data` is the full data for the UI. */
   | {
       type: 'tool_result';
@@ -54,6 +62,8 @@ export type AgentEvent =
       ok: boolean;
       summary: string;
       data?: unknown;
+      /** The workflow task. Set only for events from a workflow worker. */
+      taskId?: string;
     }
   /** Token counts of one model call, and its cost when known. */
   | {
