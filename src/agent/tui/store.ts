@@ -66,6 +66,23 @@ export interface AttemptView {
   checkpoints: Checkpoint[];
 }
 
+/** One tool call of a workflow worker. */
+export interface TaskToolView {
+  callId: string;
+  name: string;
+  /** Short form of the arguments, like `main`. */
+  args: string;
+  /** The attempt of the task that made the call. */
+  attempt: number;
+  /** null while the tool runs. */
+  ok: boolean | null;
+  /** The first line of the result, or null while the tool runs. */
+  summary: string | null;
+}
+
+/** Most tool calls kept per task. */
+export const MAX_TASK_TOOLS = 20;
+
 /** The state of one workflow task. */
 export interface TaskView {
   taskId: string;
@@ -77,6 +94,8 @@ export interface TaskView {
   result: TaskResult | null;
   /** Every attempt so far, oldest first, for the task details (ctrl+o). */
   attempts: AttemptView[];
+  /** The last tool calls of the worker, oldest first, at most 20. */
+  tools: TaskToolView[];
 }
 
 /** The workflow that runs now. */
@@ -278,6 +297,7 @@ function pendingTask(taskId: string, title: string): TaskView {
     checkpoint: null,
     result: null,
     attempts: [],
+    tools: [],
   };
 }
 
@@ -353,8 +373,71 @@ export function shownStatus(t: TaskView): TaskView['status'] | 'retrying' {
   return cp && !cp.ok ? 'retrying' : 'running';
 }
 
+/** The first line of a text, cut to `max` columns. */
+function oneLine(text: string, max = 200): string {
+  const line = text.trim().split('\n')[0] ?? '';
+  return line.length > max ? `${line.slice(0, max - 1)}…` : line;
+}
+
+/** Changes one tool call of a task. */
+function updateTaskTool(
+  state: UiState,
+  taskId: string,
+  callId: string,
+  change: (c: TaskToolView) => TaskToolView
+): UiState {
+  return updateTask(state, taskId, t => ({
+    ...t,
+    tools: t.tools.map(c => (c.callId === callId ? change(c) : c)),
+  }));
+}
+
+/**
+ * A tool event of a workflow worker: it goes to its task, never to the
+ * transcript or the running tools of the chat.
+ */
+function reduceTaskTool(
+  state: UiState,
+  e: Extract<UiAction, { type: 'tool_call' | 'tool_progress' | 'tool_result' }>,
+  taskId: string
+): UiState {
+  switch (e.type) {
+    case 'tool_call':
+      return updateTask(state, taskId, t => ({
+        ...t,
+        tools: [
+          ...t.tools,
+          {
+            callId: e.callId,
+            name: e.name,
+            args: shortArgs(e.args, 40),
+            attempt: Math.max(t.attempt, 1),
+            ok: null,
+            summary: null,
+          },
+        ].slice(-MAX_TASK_TOOLS),
+      }));
+    case 'tool_result':
+      return updateTaskTool(state, taskId, e.callId, c => ({
+        ...c,
+        ok: e.ok,
+        summary: oneLine(e.summary),
+      }));
+    default:
+      return state;
+  }
+}
+
 /** Turns one event (or local action) into the next state. */
 export function reduce(state: UiState, e: UiAction): UiState {
+  if (
+    (e.type === 'tool_call' ||
+      e.type === 'tool_progress' ||
+      e.type === 'tool_result') &&
+    e.taskId !== undefined
+  ) {
+    return reduceTaskTool(state, e, e.taskId);
+  }
   switch (e.type) {
     case 'user_message':
       return {
