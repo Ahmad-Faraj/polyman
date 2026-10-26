@@ -2,6 +2,7 @@ import { Box, Text } from 'ink';
 import type { Item } from '../store.js';
 import { fg } from '../theme.js';
 import { Markdown } from './Markdown.js';
+import { WorkflowSummary } from './PlanView.js';
 import { ToolBlock } from './ToolBlock.js';
 
 /** An assistant message: a blue `●` and the markdown text. */
@@ -42,6 +43,8 @@ export function MessageView({ item }: { item: Item }) {
           summary={item.summary}
         />
       );
+    case 'workflow':
+      return <WorkflowSummary item={item} />;
     case 'notice': {
       const color =
         item.level === 'error'

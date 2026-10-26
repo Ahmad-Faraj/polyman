@@ -1,7 +1,9 @@
 /**
  * A fake session for building the UI without the real agent. On `send` it
  * replays a scripted demo with small delays: the Think step, notes, a write
- * approval with a diff, and a verify that fails and then passes.
+ * approval with a diff, and a verify that fails and then passes. A message
+ * with the word "workflow" runs a scripted workflow: the plan approval, the
+ * live task tree with a retried validator, and the final summary.
  */
 
 import type {
@@ -13,6 +15,7 @@ import type {
 import type { Message } from '../../core/messages.js';
 import type { AgentSessionApi } from '../../core/session-types.js';
 import type { PermissionMode } from '../../tools/types.js';
+import type { Plan, PlanTask, TaskResult } from '../../workflow/types.js';
 
 type TurnEnd = 'done' | 'cancelled' | 'max_steps' | 'error';
 
@@ -53,6 +56,297 @@ const VALIDATOR_PREVIEW = [
   '+     inf.readEof();',
   '+ }',
 ].join('\n');
+
+/** A task of the demo plan. */
+function task(
+  id: string,
+  kind: PlanTask['kind'],
+  title: string,
+  dependsOn: string[],
+  ownsFiles: string[],
+  tag?: string
+): PlanTask {
+  return {
+    id,
+    kind,
+    title,
+    dependsOn,
+    brief: `Do the ${title} of pairs-sum, as the notes say.`,
+    ownsFiles,
+    ...(tag ? { params: { tag } } : {}),
+  };
+}
+
+/** The plan of the scripted workflow: build pairs-sum in 12 tasks. */
+export const DEMO_PLAN: Plan = {
+  recipe: 'build_problem',
+  tasks: [
+    task('t1', 'scaffold', 'scaffold', [], ['Config.json', 'testlib.h']),
+    task(
+      't2',
+      'statement',
+      'statement',
+      ['t1'],
+      [
+        'statements/english/legend.tex',
+        'statements/english/input.tex',
+        'statements/english/output.tex',
+      ]
+    ),
+    task('t3', 'statement_critic', 'statement critic', ['t2'], []),
+    task(
+      't4',
+      'main_solution',
+      'main solution',
+      ['t1'],
+      ['solutions/main.cpp'],
+      'MA'
+    ),
+    task(
+      't5',
+      'brute_force',
+      'brute force',
+      ['t1'],
+      ['solutions/brute.cpp'],
+      'TO'
+    ),
+    task(
+      't6',
+      'wrong_solution',
+      'wrong solution: int overflow',
+      ['t4'],
+      ['solutions/wa-overflow.cpp'],
+      'WA'
+    ),
+    task(
+      't7',
+      'wrong_solution',
+      'wrong solution: O(n^2)',
+      ['t4'],
+      ['solutions/tl-n2.cpp'],
+      'TL'
+    ),
+    task(
+      't8',
+      'validator',
+      'validator',
+      ['t1'],
+      ['validator/val.cpp', 'validator/val_tests.json']
+    ),
+    task(
+      't9',
+      'generators',
+      'generators',
+      ['t1'],
+      [
+        'generators/gen-random.cpp',
+        'generators/gen-big.cpp',
+        'generators/script.txt',
+      ]
+    ),
+    task('t10', 'checker', 'checker: standard ncmp', ['t1'], []),
+    task('t11', 'generate_validate', 'generate + validate', ['t8', 't9'], []),
+    task(
+      't12',
+      'verify',
+      'verify',
+      ['t3', 't4', 't5', 't6', 't7', 't10', 't11'],
+      []
+    ),
+  ],
+};
+
+const started = (taskId: string, attempt = 1): AgentEvent => ({
+  type: 'task_started',
+  taskId,
+  attempt,
+});
+
+const checkpoint = (
+  taskId: string,
+  name: string,
+  ok: boolean,
+  digest: string
+): AgentEvent => ({ type: 'task_checkpoint', taskId, name, ok, digest });
+
+const done = (
+  taskId: string,
+  attempts: number,
+  summary: string,
+  check: TaskResult['checkpoint']
+): AgentEvent => ({
+  type: 'task_done',
+  taskId,
+  result: { taskId, status: 'passed', attempts, summary, checkpoint: check },
+});
+
+/** A checkpoint that passed, and the task done with it. */
+const passed = (
+  taskId: string,
+  name: string,
+  digest: string,
+  summary: string,
+  attempts = 1
+): AgentEvent[] => [
+  checkpoint(taskId, name, true, digest),
+  done(taskId, attempts, summary, { name, ok: true, digest }),
+];
+
+const workerUsage = (costUsd: number): AgentEvent => ({
+  type: 'usage',
+  inputTokens: 3000,
+  outputTokens: 400,
+  costUsd,
+});
+
+/**
+ * The scripted workflow run: [delay in ms, events]. The validator fails
+ * twice and passes on attempt 3, the other tasks pass.
+ */
+const DEMO_RUN: [number, AgentEvent[]][] = [
+  [300, [started('t1')]],
+  [
+    700,
+    passed(
+      't1',
+      'scaffold',
+      'Config.json and testlib.h are ready',
+      'scaffold done'
+    ),
+  ],
+  [300, [started('t2'), started('t4'), started('t8'), started('t9')]],
+  [800, [workerUsage(0.004)]],
+  [
+    900,
+    [
+      ...passed(
+        't2',
+        'statement checks',
+        'legend, input, output and 2 samples',
+        'statement written'
+      ),
+      started('t3'),
+    ],
+  ],
+  [
+    1000,
+    [
+      workerUsage(0.005),
+      checkpoint(
+        't8',
+        'test validator',
+        false,
+        '5 of 6 ok\ntest 4: n = 0 was accepted, expected FAIL\nthe notes say 1 <= n'
+      ),
+    ],
+  ],
+  [800, [started('t8', 2)]],
+  [
+    600,
+    [
+      ...passed('t3', 'critic', 'critic ok', 'the statement matches the notes'),
+      started('t5'),
+    ],
+  ],
+  [
+    1000,
+    [
+      workerUsage(0.006),
+      ...passed(
+        't4',
+        'run_solution on samples',
+        '2 of 2 samples ok',
+        'main.cpp: sort + two pointers, O(n log n)'
+      ),
+      started('t6'),
+    ],
+  ],
+  [
+    900,
+    [
+      ...passed(
+        't9',
+        'generators',
+        'gen-random and gen-big compile, the script makes 24 tests',
+        'two generators and the script'
+      ),
+      started('t7'),
+    ],
+  ],
+  [
+    1200,
+    [
+      workerUsage(0.004),
+      checkpoint(
+        't8',
+        'test validator',
+        false,
+        '5 of 6 ok\ntest 6: a value of 1000000001 was accepted, expected FAIL'
+      ),
+    ],
+  ],
+  [1500, [workerUsage(0.002), started('t8', 3)]],
+  [
+    900,
+    [
+      ...passed(
+        't5',
+        'run_solution on samples',
+        '2 of 2 samples ok',
+        'brute.cpp: two loops, O(n^2)'
+      ),
+      started('t10'),
+    ],
+  ],
+  [
+    1000,
+    [
+      workerUsage(0.005),
+      ...passed(
+        't8',
+        'test validator',
+        '6 of 6 ok',
+        'val.cpp checks n, k and every a[i]',
+        3
+      ),
+      started('t11'),
+    ],
+  ],
+  [800, passed('t6', 'compile', 'wa-overflow.cpp compiles', 'sums in int')],
+  [600, passed('t10', 'checker', 'standard checker ncmp', 'uses ncmp')],
+  [
+    1000,
+    passed(
+      't11',
+      'generate + validate',
+      '24 tests generated, 24 of 24 valid',
+      '24 tests'
+    ),
+  ],
+  [
+    800,
+    [
+      workerUsage(0.003),
+      ...passed('t7', 'compile', 'tl-n2.cpp compiles', 'two loops'),
+    ],
+  ],
+  [300, [started('t12')]],
+  [
+    2000,
+    passed(
+      't12',
+      'verify',
+      'verify passed: 4 solutions, 25 tests, every verdict matches its tag',
+      'verify passed'
+    ),
+  ],
+];
+
+/** The cost of the scripted workflow: the sum of its usage events. */
+const DEMO_COST = DEMO_RUN.flatMap(([, events]) => events).reduce(
+  (sum, e) => sum + (e.type === 'usage' ? (e.costUsd ?? 0) : 0),
+  0
+);
 
 /** Options of the fake session. */
 export interface FakeSessionOptions {
@@ -172,9 +466,11 @@ export class FakeSession implements AgentSessionApi {
     }
   }
 
-  /** Emits `approval_needed` and waits for the answer. */
+  /** Emits `approval_needed` (or the plan approval) and waits for the answer. */
   private ask(
-    approval: Omit<Extract<AgentEvent, { type: 'approval_needed' }>, 'type'>,
+    approval:
+      | Extract<AgentEvent, { type: 'approval_needed' }>
+      | Extract<AgentEvent, { type: 'plan_approval_needed' }>,
     signal: AbortSignal
   ): Promise<ApprovalDecision> {
     return new Promise((resolve, reject) => {
@@ -186,7 +482,7 @@ export class FakeSession implements AgentSessionApi {
         once: true,
       });
       this.waiting.set(approval.approvalId, resolve);
-      this.bus.emit({ type: 'approval_needed', ...approval });
+      this.bus.emit(approval);
     });
   }
 
@@ -205,6 +501,7 @@ export class FakeSession implements AgentSessionApi {
     text: string,
     signal: AbortSignal
   ): Promise<string> {
+    if (/workflow/i.test(text)) return this.workflowStep(signal);
     if (turn === 1) return this.thinkStep(signal);
     if (turn === 2) return this.buildStep(signal);
     const answer = `(fake session) You said: "${text}". The scripted demo is over, this turn only echoes.`;
@@ -301,6 +598,69 @@ export class FakeSession implements AgentSessionApi {
     );
   }
 
+  private async workflowStep(signal: AbortSignal): Promise<string> {
+    await this.stream(
+      'The notes are ready. I will build the problem as a workflow.',
+      signal
+    );
+    this.usage(3200, 300, 0.0019);
+    this.bus.emit({
+      type: 'tool_call',
+      callId: 'w1',
+      name: 'start_workflow',
+      args: { recipe: 'build_problem' },
+      risk: 'write',
+    });
+    await this.sleep(400, signal);
+    this.usage(4100, 900, 0.0031);
+    this.bus.emit({ type: 'plan_created', plan: DEMO_PLAN });
+    const decision = await this.ask(
+      {
+        type: 'plan_approval_needed',
+        approvalId: `plan-${this.turn}`,
+        plan: DEMO_PLAN,
+      },
+      signal
+    );
+    if (decision.kind === 'deny') {
+      this.bus.emit({
+        type: 'tool_result',
+        callId: 'w1',
+        ok: false,
+        summary: 'the user did not run the plan',
+      });
+      const answer = decision.reason
+        ? 'Ok, what should I change in the plan?'
+        : 'Ok, I did not run the plan.';
+      await this.stream(answer, signal);
+      return answer;
+    }
+    for (const [ms, events] of DEMO_RUN) {
+      await this.sleep(ms, signal);
+      for (const e of events) this.bus.emit(e);
+    }
+    await this.sleep(300, signal);
+    const summary =
+      '12 of 12 tasks passed, the validator needed 3 attempts\nverify passes: 4 solutions, 25 tests, every verdict matches its tag';
+    this.bus.emit({
+      type: 'workflow_done',
+      ok: true,
+      summary,
+      costUsd: DEMO_COST,
+    });
+    this.bus.emit({
+      type: 'tool_result',
+      callId: 'w1',
+      ok: true,
+      summary: 'workflow done: 12 of 12 tasks passed',
+    });
+    const answer =
+      'The problem is built and `verify` passes. Say **push** to send it to Polygon.';
+    await this.stream(answer, signal);
+    this.usage(5200, 60, 0.0021);
+    return answer;
+  }
+
   private async buildStep(signal: AbortSignal): Promise<string> {
     await this.stream('Good. I will start with the validator.', signal);
     this.usage(3000, 420, 0.0021);
@@ -314,6 +674,7 @@ export class FakeSession implements AgentSessionApi {
     if (this.mode === 'ask') {
       const decision = await this.ask(
         {
+          type: 'approval_needed',
           approvalId: 'a1',
           callId: 'c2',
           title: 'Write validator/val.cpp?',
