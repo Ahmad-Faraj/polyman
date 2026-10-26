@@ -28,6 +28,10 @@ module.exports = defineConfig([
     },
   },
   {
+    // The Ink UI is .tsx, with the same rules as the .ts files.
+    files: ['src/**/*.tsx', 'tests/**/*.tsx'],
+  },
+  {
     files: ['eslint.config.cjs'],
     ...tseslint.configs.disableTypeChecked,
     languageOptions: {

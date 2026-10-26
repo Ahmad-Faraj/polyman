@@ -809,6 +809,35 @@ ai.command('use <provider/model>')
     await aiUseAction(spec);
   });
 
+// ============================================================================
+// CHAT COMMAND
+// ============================================================================
+
+/**
+ * Loads the agent only when `chat` runs, so other commands do not load it
+ * and do not get slower to start.
+ */
+const loadChat = () => import('./agent/index.js');
+
+/**
+ * Command: chat [dir]
+ * Starts the AI agent in the terminal, in a problem folder.
+ * @example
+ * polyman chat
+ * polyman chat my-problem --model google/gemma-4-31b-it
+ */
+program
+  .command('chat [dir]')
+  .description('Chat with the AI agent to build and fix a problem')
+  .option('--model <id>', 'Model to use, like google/gemma-4-31b-it')
+  .action(async (dir: string | undefined, options: { model?: string }) => {
+    const { startChat } = await loadChat();
+    await startChat({
+      ...(dir !== undefined ? { dir } : {}),
+      ...(options.model !== undefined ? { model: options.model } : {}),
+    });
+  });
+
 /**
  * The one place that turns a failed action into a message and an exit code.
  * A {@link PolymanError} exits with its own code, anything else with 1.
