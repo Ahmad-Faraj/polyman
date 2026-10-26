@@ -46,7 +46,7 @@ module.exports = defineConfig([
     },
   },
   {
-    files: ['corpus/**/*.mjs', 'infra/**/*.mjs'],
+    files: ['corpus/**/*.mjs', 'infra/**/*.mjs', 'evals/**/*.mjs'],
     ...tseslint.configs.disableTypeChecked,
     languageOptions: {
       parserOptions: {
