@@ -71,7 +71,8 @@ describe('worker prompts', () => {
 
   it('has the hard rules of each kind', () => {
     expect(workerPrompt('main_solution')).toMatch(/C\+\+17/);
-    expect(workerPrompt('main_solution')).toMatch(/run_solution/);
+    expect(workerPrompt('main_solution')).not.toMatch(/run_solution/);
+    expect(workerPrompt('main_solution')).toMatch(/call finish_task again/);
     expect(workerPrompt('main_solution')).toMatch(/64-bit/);
     expect(workerPrompt('brute_force')).toMatch(/simplest correct/);
     expect(workerPrompt('brute_force')).toMatch(/do not see the main/);
@@ -101,9 +102,8 @@ describe('manager prompts', () => {
     );
     expect(p).toContain('submit_plan');
     expect(p).toMatch(/Do not invent task kinds/);
-    expect(p).toMatch(
-      /Every wrong approach in the spec gets exactly one wrong_solution/
-    );
+    expect(p).toMatch(/Each line gets exactly one wrong_solution task/);
+    expect(p).toMatch(/verify dependsOn every other task id/);
     expect(p).toContain('solutions/main.cpp');
     expect(p).toContain('validator/val.cpp');
     expect(p).toContain('build_problem');

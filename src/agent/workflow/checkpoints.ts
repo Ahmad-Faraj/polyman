@@ -115,14 +115,51 @@ export function generateDigest(report: unknown): string[] {
   return lines;
 }
 
-/** A short digest of `validate --json`. */
-export function validateDigest(report: unknown): string[] {
+/**
+ * Where each test came from, from a `generate --json` report: like
+ * `tests#3` -> `generator gen-edge max_ans` or `a manual test`.
+ */
+export function testOrigins(report: unknown): Map<string, string> {
+  const origins = new Map<string, string>();
+  if (!isObject(report)) return origins;
+  const r = report as Partial<GenerateReport>;
+  for (const t of r.tests ?? []) {
+    origins.set(
+      `${t.testset}#${t.index}`,
+      t.source === 'manual'
+        ? 'a manual test'
+        : `generator ${[t.generator ?? '?', ...(t.args ?? [])].join(' ')}`
+    );
+  }
+  return origins;
+}
+
+/**
+ * A short digest of `validate --json`. With `origins` (see
+ * {@link testOrigins}) each invalid test says which generator line or
+ * manual test made it, so the manager knows which task to redo.
+ */
+export function validateDigest(
+  report: unknown,
+  origins: Map<string, string> = new Map()
+): string[] {
   if (!isObject(report)) return [];
   const r = report as Partial<ValidateReport>;
-  const lines = [...(r.errors ?? [])];
+  const lines: string[] = [];
+  let invalid = 0;
   for (const t of r.tests ?? []) {
-    if (!t.valid)
-      lines.push(`test ${t.testset}#${t.index} invalid: ${oneLine(t.message)}`);
+    if (t.valid) continue;
+    invalid++;
+    const origin = origins.get(`${t.testset}#${t.index}`);
+    lines.push(
+      `test ${t.testset}#${t.index}${origin ? ` (from ${origin})` : ''} invalid: ${oneLine(t.message)}`
+    );
+  }
+  if (invalid === 0) return [...(r.errors ?? [])];
+  if (origins.size > 0) {
+    lines.push(
+      'If the test breaks the constraints of the spec, the generator (or manual test) is wrong. If the test is valid, the validator is wrong.'
+    );
   }
   return lines;
 }
@@ -391,7 +428,7 @@ export class CliCheckpoints implements Checkpoints {
         if (typeof val === 'string')
           return { checkpoint: fail('validate', val) };
         if (val.exitCode !== 0) {
-          const lines = validateDigest(val.json);
+          const lines = validateDigest(val.json, testOrigins(gen.json));
           return {
             checkpoint: fail(
               'validate',

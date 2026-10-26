@@ -12,6 +12,7 @@ import type { ApprovalDecision, EventBus } from '../core/events';
 import type { PermissionGate } from '../tools/types';
 import { applyConfigPatch } from './config-patch';
 import {
+  addRecipeDependencies,
   buildProblemSkeleton,
   checkPlan,
   dependentsOf,
@@ -222,6 +223,7 @@ export class WorkflowScheduler {
       }
       const shape = planShapeErrors(plan);
       if (shape.length > 0) return { errors: shape };
+      plan = addRecipeDependencies(plan);
       const errors = checkPlan(plan, spec);
       if (plan.recipe !== recipe) {
         errors.unshift(`the plan is for ${plan.recipe}, expected ${recipe}`);

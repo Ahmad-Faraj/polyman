@@ -425,14 +425,16 @@ describe('PlanApproval', () => {
       />
     );
     await tick();
+    // Wait for each redraw before the next key: on a busy machine a fixed
+    // tick is not enough, and the second arrow would land on the old state.
     stdin.write('\u001B[C');
-    await tick();
+    await vi.waitFor(() => expect(lastFrame()).toContain('❯ 2.'));
     stdin.write('\u001B[C');
-    await tick();
-    expect(lastFrame()).toContain('❯ 3. Cancel');
+    await vi.waitFor(() => expect(lastFrame()).toContain('❯ 3. Cancel'));
     stdin.write('\r');
-    await tick();
-    expect(resolve).toHaveBeenCalledWith('p1', { kind: 'deny' });
+    await vi.waitFor(() =>
+      expect(resolve).toHaveBeenCalledWith('p1', { kind: 'deny' })
+    );
   });
 });
 

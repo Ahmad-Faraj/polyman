@@ -380,6 +380,54 @@ describe('CliCheckpoints with a fake runner', () => {
     });
   });
 
+  it('generate_validate names the generator line or manual test of an invalid test', async () => {
+    const runner = new FakeRunner({
+      'generate --all --json': {
+        exitCode: 0,
+        json: {
+          ok: true,
+          errors: [],
+          tests: [
+            { testset: 'tests', index: 1, source: 'manual', ok: true },
+            {
+              testset: 'tests',
+              index: 2,
+              source: 'generator',
+              generator: 'gen-edge',
+              args: ['max_ans'],
+              ok: true,
+            },
+          ],
+        },
+      },
+      'validate --all --json': {
+        exitCode: 1,
+        json: {
+          ok: false,
+          errors: ['Some tests failed validation'],
+          tests: [
+            { testset: 'tests', index: 1, valid: false, message: 'bad eoln' },
+            { testset: 'tests', index: 2, valid: false, message: 'n too big' },
+          ],
+        },
+      },
+    });
+    const out = await new CliCheckpoints(runner).runNoModelTask(
+      task('generate_validate'),
+      SPEC,
+      dir,
+      signal
+    );
+    const lines = out.checkpoint.digest.split('\n');
+    expect(lines[0]).toBe(
+      'test tests#1 (from a manual test) invalid: bad eoln'
+    );
+    expect(lines[1]).toBe(
+      'test tests#2 (from generator gen-edge max_ans) invalid: n too big'
+    );
+    expect(lines[2]).toMatch(/generator \(or manual test\) is wrong/);
+  });
+
   it('verify digests the report and names the solution files', async () => {
     await fs.writeFile(
       path.join(dir, 'Config.json'),

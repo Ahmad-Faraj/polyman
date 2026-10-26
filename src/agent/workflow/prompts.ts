@@ -88,7 +88,8 @@ export function managerPlanPrompt(
     '',
     'Rules:',
     `- You fill in a fixed recipe: ${recipe}. Use only the task kinds of the recipe. Do not invent task kinds.`,
-    '- Every wrong approach in the spec gets exactly one wrong_solution task.',
+    '- Count the lines under "# Wrong approaches" in the spec. Each line gets exactly one wrong_solution task, except a TL line that is the plain brute force (brute_force covers it).',
+    '- verify dependsOn every other task id. generate_validate dependsOn the validator, generators and checker tasks.',
     '- File names follow the template layout below. Each file is owned by one task only.',
     '- There is exactly one main_solution task.',
     '- Task ids are t1, t2, t3, ... dependsOn uses these ids.',
@@ -115,6 +116,7 @@ export function managerDecidePrompt(): string {
     '  - redo_task: an earlier task is wrong, not this one. Example: the validator rejects good tests, so the generator cannot pass. Set redoTaskId to that task and give a hint for it.',
     '  - ask_user: the spec is wrong or unclear, or you do not know the cause. Write one short question for the user.',
     '- Read the digest first. It is the real error from polyman.',
+    '- scaffold, checker, generate_validate and verify run without a model: a retry gives the same error. When one of them fails, use redo_task on the task that owns the wrong file (the digest names the generator or the solution).',
     '- Never suggest weakening a test to make a solution pass.',
   ].join('\n');
 }
@@ -135,7 +137,7 @@ const KIND_INFO: Record<TaskKind, KindInfo> = {
     files: 'solutions/main.cpp (the files in ownsFiles)',
     skills: ['solutions', 'cpp-performance'],
     check:
-      'After you finish, polyman compiles your file and runs it on every sample of the spec. The output must match.',
+      'When you call finish_task, polyman compiles your file and runs it on every sample of the spec. The output must match.',
     patch:
       '{ "addSolutions": [{ "name": "main", "source": "./solutions/main.cpp", "tag": "MA" }] }',
     rules: [
@@ -143,7 +145,6 @@ const KIND_INFO: Record<TaskKind, KindInfo> = {
       'Implement the intended solution from the spec. Do not invent another algorithm.',
       'Use 64-bit integers (long long) where the spec says the values or the answer can be big.',
       'Read input with fast IO (ios::sync_with_stdio(false); cin.tie(nullptr);).',
-      'Test it with run_solution on the samples before you finish.',
     ],
   },
   brute_force: {
@@ -151,7 +152,7 @@ const KIND_INFO: Record<TaskKind, KindInfo> = {
     files: 'solutions/brute.cpp (the files in ownsFiles)',
     skills: ['solutions'],
     check:
-      'After you finish, polyman compiles your file and runs it on every sample of the spec. The output must match.',
+      'When you call finish_task, polyman compiles your file and runs it on every sample of the spec. The output must match.',
     patch:
       '{ "addSolutions": [{ "name": "brute", "source": "./solutions/brute.cpp", "tag": "TO" }] }',
     rules: [
@@ -165,7 +166,8 @@ const KIND_INFO: Record<TaskKind, KindInfo> = {
     task: 'Write a wrong solution that real contestants could write. The tests must catch it.',
     files: 'the one file in ownsFiles, like solutions/wa-1.cpp',
     skills: ['solutions'],
-    check: 'After you finish, polyman compiles your file. It must compile.',
+    check:
+      'When you call finish_task, polyman compiles your file. It must compile.',
     patch:
       '{ "addSolutions": [{ "name": "wa-1", "source": "./solutions/wa-1.cpp", "tag": "WA" }] } (use your file name and params.tag)',
     rules: [
@@ -179,7 +181,7 @@ const KIND_INFO: Record<TaskKind, KindInfo> = {
     files: 'validator/val.cpp and validator/validator_tests.json',
     skills: ['validator'],
     check:
-      'After you finish, polyman runs "polyman test validator". Every validator test must give its expected verdict.',
+      'When you call finish_task, polyman runs "polyman test validator". Every validator test must give its expected verdict.',
     patch:
       '{ "validator": { "name": "validator", "source": "./validator/val.cpp", "testsFilePath": "./validator/validator_tests.json" } }',
     rules: [
@@ -187,7 +189,7 @@ const KIND_INFO: Record<TaskKind, KindInfo> = {
       'Check every constraint from the spec, with the exact bounds.',
       'Read spaces and line ends exactly: readSpace(), readEoln(), and readEof() at the end.',
       'Write validator tests, valid and invalid inputs, in the format the validator skill shows.',
-      'Test it with test_target { "what": "validator" } before you finish.',
+      'Validator tests are small, written by hand: at most 10 numbers in each input. Never write a max size input (like n = 200000 numbers) by hand, the generators make those. Test a bound with a short input, like n = 200001 followed by 2 numbers.',
     ],
   },
   generators: {
@@ -196,7 +198,7 @@ const KIND_INFO: Record<TaskKind, KindInfo> = {
       'generators/gen-*.cpp and generators/gen-script.txt (the files in ownsFiles)',
     skills: ['generators', 'generator-script'],
     check:
-      'After you finish, polyman runs "polyman generate --all". Every generator must compile and the script must run.',
+      'When you call finish_task, polyman runs "polyman generate --all". Every generator must compile and the script must run.',
     patch:
       '{ "generators": [{ "name": "gen-random", "source": "./generators/gen-random.cpp" }], "generatorScript": { "testset": "tests", "scriptFile": "./generators/gen-script.txt" } }',
     rules: [
@@ -205,7 +207,8 @@ const KIND_INFO: Record<TaskKind, KindInfo> = {
       'Cover each edge case in the spec.',
       'The script has small tests, random tests and max tests (the biggest values the constraints allow).',
       'Every test must be valid for the constraints in the spec.',
-      'Test it with generate before you finish.',
+      'Random values from the full range rarely make the interesting cases. Add tests with a small value range too, so equal values and non-trivial answers appear.',
+      'Each generator in the script needs an entry in configPatch.generators, with the same name as in the script.',
     ],
   },
   statement: {
@@ -214,7 +217,7 @@ const KIND_INFO: Record<TaskKind, KindInfo> = {
       'statements/english/legend.tex, input-format.tex, output-format.tex, notes.tex (the files in ownsFiles)',
     skills: ['statements'],
     check:
-      'After you finish, polyman checks every file exists and is not empty. Then a critic compares it with the spec.',
+      'When you call finish_task, polyman checks every file exists and is not empty. Then a critic compares it with the spec.',
     patch:
       '{ "statements": { "english": { "encoding": "UTF-8", "name": "<problem title>", "legend": "./statements/english/legend.tex", "input": "./statements/english/input-format.tex", "output": "./statements/english/output-format.tex", "notes": "./statements/english/notes.tex" } } }',
     rules: [
@@ -290,6 +293,11 @@ export function workerPrompt(kind: TaskKind): string {
   lines.push('', 'Rules:', ...info.rules.map(r => `- ${r}`));
   lines.push(
     '- Never write Config.json. Return the change as configPatch in finish_task.',
+    ...(kind === 'statement_critic'
+      ? []
+      : [
+          '- finish_task runs the check below. If it fails, you get the error: fix your files and call finish_task again.',
+        ]),
     '- Always use the tool call format. Never write a tool call as text.',
     '- Keep files short and in the style of the template.',
     '',
