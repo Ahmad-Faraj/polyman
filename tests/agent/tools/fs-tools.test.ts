@@ -303,6 +303,34 @@ describe('edit_file', () => {
     expect(out.content).toContain('not found');
   });
 
+  it('matches with other spaces at the line starts and keeps the file indent', async () => {
+    write('sol.cpp', 'int main() {\n  int ans = 0;\n  return ans;\n}\n');
+    // One space too many, copied from the "2| " of read_file.
+    const out = await tool('edit_file').run(
+      {
+        path: 'sol.cpp',
+        old_text: '   int ans = 0;',
+        new_text: '   long long ans = 0;\n   ans += 1;',
+      },
+      ctx
+    );
+    expect(out.isError).toBeUndefined();
+    expect(out.content).toContain('edited sol.cpp');
+    expect(fs.readFileSync(path.join(root, 'sol.cpp'), 'utf8')).toBe(
+      'int main() {\n  long long ans = 0;\n  ans += 1;\n  return ans;\n}\n'
+    );
+  });
+
+  it('refuses a loose match that is not unique', async () => {
+    write('sol.cpp', '  x = 1;\n    x = 1;\n');
+    const out = await tool('edit_file').run(
+      { path: 'sol.cpp', old_text: ' x = 1; ', new_text: 'x = 2;' },
+      ctx
+    );
+    expect(out.isError).toBe(true);
+    expect(out.content).toContain('found 2 times (ignoring spaces');
+  });
+
   it('says when the text is found more than once', async () => {
     write('sol.cpp', 'x = 1;\nx = 1;\n');
     const out = await tool('edit_file').run(
