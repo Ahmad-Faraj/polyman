@@ -511,7 +511,7 @@ describe('GemmaWorker', () => {
     expect(t.provider.remaining).toBe(0);
   });
 
-  it('forwards usage to the bus but not text or tool events', async () => {
+  it('forwards usage and the tool events with the task id, not text', async () => {
     const t = setup([
       {
         text: 'I will write it',
@@ -531,8 +531,64 @@ describe('GemmaWorker', () => {
     );
     expect(t.bus.events).toEqual([
       { type: 'usage', inputTokens: 10, outputTokens: 5, costUsd: 0.0002 },
+      {
+        type: 'tool_call',
+        callId: 'mock_call_1_1',
+        name: 'read_file',
+        args: { path: 'Config.json' },
+        risk: 'read',
+        taskId: 't2',
+      },
+      {
+        type: 'tool_result',
+        callId: 'mock_call_1_1',
+        ok: true,
+        summary: 'read_file ok',
+        taskId: 't2',
+      },
       { type: 'usage', inputTokens: 20, outputTokens: 7 },
+      {
+        type: 'tool_call',
+        callId: 'mock_call_2_1',
+        name: 'finish_task',
+        args: { summary: 'done' },
+        risk: 'read',
+        taskId: 't2',
+      },
+      {
+        type: 'tool_result',
+        callId: 'mock_call_2_1',
+        ok: true,
+        summary: 'Task finished. Stop now.',
+        taskId: 't2',
+      },
     ]);
+    expect(t.bus.events.some(e => e.type === 'text_delta')).toBe(false);
+    expect(t.bus.events.some(e => 'seq' in e)).toBe(false);
+  });
+
+  it('forwards tool_progress with the task id', async () => {
+    const t = setup([finish('done')]);
+    await t.worker.run(
+      {
+        task: task('fix', [], { id: 't7' }),
+        spec: SPEC,
+        attempt: 1,
+        fresh: true,
+      },
+      signal()
+    );
+    t.sessions[0]?.deps.bus.emit({
+      type: 'tool_progress',
+      callId: 'c9',
+      line: 'compiling main.cpp',
+    });
+    expect(t.bus.events.at(-1)).toEqual({
+      type: 'tool_progress',
+      callId: 'c9',
+      line: 'compiling main.cpp',
+      taskId: 't7',
+    });
   });
 
   it('reports a model that stops with text and no finish_task', async () => {

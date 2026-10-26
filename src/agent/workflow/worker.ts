@@ -95,7 +95,10 @@ export interface GemmaWorkerOptions {
   /** The problem folder. Every worker works inside it. */
   problemDir: string;
   runner: CliRunner;
-  /** The workflow bus. Gets the workers' `usage` events only. */
+  /**
+   * The workflow bus. Gets the workers' `usage` events, and their tool events
+   * (`tool_call`, `tool_progress`, `tool_result`) tagged with the task id.
+   */
   bus: EventBus;
   /**
    * The tools a worker may get, usually `[...fsTools(), ...cliTools()]`.
@@ -441,7 +444,7 @@ export class GemmaWorker implements Worker {
     };
     for (const tool of this.toolsFor(task.kind, entry)) registry.register(tool);
 
-    localBus.on(e => this.onSessionEvent(e, entry));
+    localBus.on(e => this.onSessionEvent(e, entry, task.id));
 
     const deps: AgentSessionDeps = {
       provider: o.provider,
@@ -483,9 +486,25 @@ export class GemmaWorker implements Worker {
     return out;
   }
 
-  /** Reads the session's events: usage, written files, the end of a task. */
-  private onSessionEvent(e: SeqEvent, entry: TaskSession): void {
+  /**
+   * Reads the session's events: usage, tool events (sent on with the task
+   * id), written files, the end of a task.
+   */
+  private onSessionEvent(
+    e: SeqEvent,
+    entry: TaskSession,
+    taskId: string
+  ): void {
     const st = entry.state;
+    if (
+      e.type === 'tool_call' ||
+      e.type === 'tool_progress' ||
+      e.type === 'tool_result'
+    ) {
+      const event: AgentEvent & { seq?: number } = { ...e, taskId };
+      delete event.seq;
+      this.opts.bus.emit(event);
+    }
     switch (e.type) {
       case 'usage': {
         const usage: Extract<AgentEvent, { type: 'usage' }> = {
@@ -522,7 +541,7 @@ export class GemmaWorker implements Worker {
         return;
       default:
         // Text, reasoning and the other events stay inside the worker: the
-        // UI shows tasks, not worker text, and tool events have no task id.
+        // UI shows tasks and their tool calls, not worker text.
         return;
     }
   }
