@@ -328,6 +328,9 @@ describe('spinner line', () => {
     expect(activityWord(live(), { workflow: true })).toBe(
       'Running the workflow…'
     );
+    expect(activityWord(live(), { workflow: true, recipe: 'prove_idea' })).toBe(
+      'Proving the idea…'
+    );
     expect(formatSeconds(12_900)).toBe('12s');
   });
 

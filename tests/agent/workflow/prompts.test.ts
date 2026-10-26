@@ -27,6 +27,14 @@ const ALL_KINDS: Record<TaskKind, true> = {
   generate_validate: true,
   verify: true,
   fix: true,
+  proto_brute: true,
+  proto_main: true,
+  proto_gen: true,
+  proto_wrong: true,
+  stress: true,
+  sample_check: true,
+  max_test: true,
+  kill_wrong: true,
 };
 
 describe('worker prompts', () => {
@@ -89,6 +97,11 @@ describe('worker prompts', () => {
       /review\(\{ ok, issues \}\)/
     );
     expect(workerPrompt('fix')).toMatch(/Never weaken a test/);
+    expect(workerPrompt('proto_brute')).toMatch(/Never use the idea/);
+    expect(workerPrompt('proto_main')).toMatch(/exactly the intended solution/);
+    expect(workerPrompt('proto_gen')).toMatch(/argv\[1\] is the seed/);
+    expect(workerPrompt('proto_gen')).toMatch(/Do not use testlib/);
+    expect(workerPrompt('proto_wrong')).toMatch(/params\.approach/);
     for (const kind of NO_MODEL_KINDS) {
       expect(workerPrompt(kind)).toMatch(/polyman does this task itself/);
     }
@@ -115,6 +128,7 @@ describe('manager prompts', () => {
       'build_problem',
       'fix_verify',
       'strengthen_tests',
+      'prove_idea',
     ] as const) {
       expect(recipeDescription(r)).toContain(`Recipe ${r}`);
     }
@@ -150,9 +164,11 @@ describe('chat prompt', () => {
       expect(p).toContain(h);
     }
     expect(p).toContain('.polyman/agent/notes.md');
+    expect(p).toMatch(/create_problem.*start_workflow with recipe prove_idea/);
     expect(p).toMatch(
-      /create_problem.*start_workflow with recipe build_problem/
+      /every check of it passed, call start_workflow with recipe build_problem/
     );
+    expect(p).toMatch(/When prove_idea fails, do not build/);
     expect(p).toContain('none yet');
     expect(chatSystemPrompt({ problemDir: '/x/pairs' })).toContain(
       'Problem folder: /x/pairs'

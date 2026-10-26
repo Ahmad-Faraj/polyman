@@ -349,6 +349,7 @@ export function App({ session, bus, info, onForceExit }: AppProps) {
             context={{
               waiting: state.approval !== null || state.planApproval !== null,
               workflow: showPlan,
+              ...(state.workflow ? { recipe: state.workflow.plan.recipe } : {}),
             }}
           />
           {showPlan && state.workflow && (

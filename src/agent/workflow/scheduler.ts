@@ -18,7 +18,9 @@ import {
   dependentsOf,
   fixVerifyPlan,
   isNoModelKind,
+  isProveCheck,
   normalizePath,
+  proveIdeaPlan,
   strengthenTestsSkeleton,
 } from './recipes';
 import {
@@ -220,6 +222,7 @@ export class WorkflowScheduler {
   ): Promise<{ plan: Plan; notice?: string } | { error: string }> {
     // A fixed shape with nothing to fill in: no model call.
     if (recipe === 'fix_verify') return { plan: fixVerifyPlan() };
+    if (recipe === 'prove_idea') return { plan: proveIdeaPlan(spec) };
 
     const attempt = async (
       text: Spec
@@ -753,10 +756,14 @@ class PlanRun {
     );
   }
 
-  /** A deterministic task: no retry ladder, the manager decides at once. */
+  /**
+   * A deterministic task: no retry ladder, the manager decides at once. A
+   * failed prove check is the answer of the proof, so it just ends.
+   */
   private async runNoModel(task: PlanTask): Promise<TaskOutcome> {
     const a1 = await this.noModelAttempt(task, 1);
-    if (a1.checkpoint.ok || this.signal.aborted) return this.done(task, 1, a1);
+    if (a1.checkpoint.ok || this.signal.aborted || isProveCheck(task.kind))
+      return this.done(task, 1, a1);
     return this.escalate(task, 1, a1, n => this.noModelAttempt(task, n));
   }
 

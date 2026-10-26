@@ -23,6 +23,14 @@ export const TASK_KINDS: readonly TaskKind[] = [
   'generate_validate',
   'verify',
   'fix',
+  'proto_brute',
+  'proto_main',
+  'proto_gen',
+  'proto_wrong',
+  'stress',
+  'sample_check',
+  'max_test',
+  'kill_wrong',
 ];
 
 /** Kinds that polyman runs without a model. */
@@ -31,6 +39,10 @@ export const NO_MODEL_KINDS: readonly TaskKind[] = [
   'checker',
   'generate_validate',
   'verify',
+  'stress',
+  'sample_check',
+  'max_test',
+  'kill_wrong',
 ];
 
 /** The file layout of a problem folder, for the manager and the workers. */
@@ -75,6 +87,12 @@ export function recipeDescription(recipe: Plan['recipe']): string {
         '- generators: one task that writes a generator (or a manual test) that breaks the wrong solutions that passed. Put the approach in params.approach.',
         '- generate_validate (no model): ownsFiles []. dependsOn [generators].',
         '- verify (no model): ownsFiles []. dependsOn [generate_validate].',
+      ].join('\n');
+    case 'prove_idea':
+      return [
+        'Recipe prove_idea. polyman makes this plan from the spec by itself:',
+        '- quick programs: a brute force, the intended solution, a random generator, one per wrong approach.',
+        '- checks (no model): stress, sample_check, max_test, kill_wrong.',
       ].join('\n');
   }
 }
@@ -278,6 +296,64 @@ const KIND_INFO: Record<TaskKind, KindInfo> = {
       'Run verify yourself after the fix.',
     ],
   },
+  proto_brute: {
+    task: 'Write a quick brute force of the idea. It judges the intended solution.',
+    files: '.polyman/agent/prove/brute.cpp',
+    skills: [],
+    check:
+      'When you call finish_task, polyman compiles your file and runs it on every sample input. It must not crash. The outputs are compared later.',
+    rules: [
+      'Use the simplest correct algorithm, like trying every option. It may be very slow, it only gets tiny tests.',
+      'Never use the idea of the intended solution. A brute force that copies it proves nothing.',
+      'Read the input and print the output exactly in the format of the spec.',
+      'Use C++17 and 64-bit integers (long long).',
+    ],
+  },
+  proto_main: {
+    task: 'Write the intended solution of the spec, to check the idea.',
+    files: '.polyman/agent/prove/main.cpp',
+    skills: [],
+    check:
+      'When you call finish_task, polyman compiles your file and runs it on every sample input. It must not crash. The outputs are compared later.',
+    rules: [
+      'Implement exactly the intended solution from the spec. Do not invent another algorithm.',
+      'Read the input and print the output exactly in the format of the spec.',
+      'Use 64-bit integers (long long) where the values or the answer can be big.',
+      'Use C++17 and fast IO (ios::sync_with_stdio(false); cin.tie(nullptr);).',
+    ],
+  },
+  proto_gen: {
+    task: 'Write a random test generator: "gen <seed> small" and "gen <seed> max".',
+    files: '.polyman/agent/prove/gen.cpp',
+    skills: [],
+    check:
+      'When you call finish_task, polyman runs "gen 1 small" to "gen 5 small" and "gen 1 max". Each prints a test, the same seed gives the same test, different seeds give different tests.',
+    rules: [
+      'argv[1] is the seed, argv[2] is "small" or "max". Print one test to stdout, in the exact input format of the spec.',
+      'Do not use testlib. Use std::mt19937_64 rng(seed).',
+      'small: tiny tests, so a slow brute force runs them: n from 1 to 8 and values in a small range (like 1 to 10, negative ones too when allowed), so equal values and edge cases appear often.',
+      'max: the biggest n and values the constraints allow, random.',
+      'Every test must follow the constraints of the spec exactly.',
+      'Use C++17.',
+    ],
+  },
+  proto_wrong: {
+    task: 'Write a wrong solution with one mistake that real contestants make.',
+    files: 'the one file in ownsFiles, like .polyman/agent/prove/wrong-1.cpp',
+    skills: [],
+    check:
+      'When you call finish_task, polyman compiles your file. Later it checks the tests catch it.',
+    rules: [
+      'Implement exactly the wrong approach in params.approach. Nothing else may be wrong.',
+      'Start from a correct idea and add only that one mistake.',
+      'Read the input and print the output exactly in the format of the spec.',
+      'Use C++17.',
+    ],
+  },
+  stress: noModelInfo('compare the brute force and main on small tests'),
+  sample_check: noModelInfo('check the samples against brute and main'),
+  max_test: noModelInfo('time main on max tests'),
+  kill_wrong: noModelInfo('check that the wrong approach fails'),
   scaffold: noModelInfo('create the problem folder'),
   checker: noModelInfo('pick a standard checker'),
   generate_validate: noModelInfo('generate and validate the tests'),
@@ -392,8 +468,13 @@ export function chatSystemPrompt(env: ChatPromptEnv): string {
     'The flow, in this order:',
     '1. Think: the user gives an idea. Ask the setter questions first. Do not write the spec in this answer.',
     '2. Spec: after the user answers, write the full spec with write_notes, give a 3 line summary, and ask: "Should I build the problem?"',
-    '3. Build: when the user says build, call create_problem if there is no problem folder, then start_workflow with recipe build_problem.',
+    '3. Build: when the user says build, call create_problem if there is no problem folder, then start_workflow with recipe prove_idea. When every check of it passed, call start_workflow with recipe build_problem right away.',
     '4. Report: when start_workflow returns, tell the user the result in 2 or 3 lines and stop.',
+    '',
+    'prove_idea checks the idea with quick programs before anything is built: a brute force against the intended solution on random tests, the samples, the time limit, and that each wrong approach really fails.',
+    '- When prove_idea fails, do not build. Tell the user what failed in 2 or 3 lines, with the counterexample.',
+    '- If it says a sample looks wrong (brute and main agree on another output), fix that sample with write_notes and say so.',
+    '- "prove it" or "check the idea" means start_workflow with recipe prove_idea only, no build.',
     '',
     'Rules:',
     '- You never write solutions, validators, generators, statements, tests or Config.json yourself. The workflow writes them.',

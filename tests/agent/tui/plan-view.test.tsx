@@ -22,6 +22,7 @@ import {
   TaskDetails,
   formatElapsed,
   splitTag,
+  taskDetail,
 } from '../../../src/agent/tui/components/PlanView.js';
 import { MessageView } from '../../../src/agent/tui/components/MessageView.js';
 import { App } from '../../../src/agent/tui/App.js';
@@ -123,6 +124,35 @@ function workflowFrom(actions: UiAction[]): WorkflowView {
 
 afterEach(() => {
   cleanup();
+});
+
+describe('task detail', () => {
+  it('shows only the digest for a task that failed on its only try', () => {
+    const wf = workflowFrom([
+      ev({ type: 'task_started', taskId: 't4', attempt: 1 }),
+      ev({
+        type: 'task_done',
+        taskId: 't4',
+        result: result('t4', 'failed', 1, 'small test 4: brute says 2'),
+      }),
+      ev({ type: 'task_started', taskId: 't3', attempt: 1 }),
+      ev({ type: 'task_started', taskId: 't3', attempt: 2 }),
+      ev({
+        type: 'task_done',
+        taskId: 't3',
+        result: result('t3', 'failed', 2, 'WA on sample 1'),
+      }),
+    ]);
+    const detail = (id: string) =>
+      taskDetail(
+        PLAN.tasks.find(t => t.id === id)!,
+        wf.tasks[id],
+        PLAN,
+        wf.tasks
+      );
+    expect(detail('t4')).toBe('small test 4: brute says 2');
+    expect(detail('t3')).toBe('attempt 2 · WA on sample 1');
+  });
 });
 
 describe('plan store rules', () => {
