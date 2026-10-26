@@ -164,6 +164,10 @@ function toolResults(
   );
 }
 
+function escapeRe(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 describe('resolveChatStart', () => {
   it('uses a folder with Config.json as the problem', () => {
     expect(resolveChatStart(problem)).toEqual({
@@ -241,7 +245,10 @@ describe('createChatRuntime', () => {
     expect(await rt.session.send('build it')).toBe('done');
 
     const [res] = toolResults(events);
-    expect(res).toMatchObject({ ok: false, summary: NO_SPEC_ERROR });
+    expect(res).toMatchObject({ ok: false });
+    expect(res?.summary).toMatch(
+      new RegExp(`^${escapeRe(NO_SPEC_ERROR)} \\(\\+\\d+ lines\\)$`)
+    );
     expect(built).toBe(0);
   });
 
@@ -280,7 +287,7 @@ describe('createChatRuntime', () => {
     ]);
     expect(toolResults(events)[0]).toMatchObject({
       ok: true,
-      summary: 'all 2 tasks passed',
+      summary: 'all 2 tasks passed (+2 lines)',
       data: [],
     });
   });
@@ -386,7 +393,8 @@ describe('createChatRuntime', () => {
     await rt.session.send('build it');
 
     const [built, fixed] = toolResults(events);
-    expect(built).toMatchObject({ ok: false, summary: NO_SPEC_ERROR });
+    expect(built).toMatchObject({ ok: false });
+    expect(built?.summary.startsWith(`${NO_SPEC_ERROR} (+`)).toBe(true);
     const first = rt.session.messages.find(m => m.role === 'tool');
     expect(JSON.stringify(first?.parts)).toContain(
       'missing or empty section \\"# Intended solution\\"'
@@ -584,7 +592,7 @@ describe('runPlain', () => {
     expect(lines).toContain(
       '[task t2] attempt 2: checkpoint failed: sample 1: expected 2, got 1'
     );
-    expect(lines).toContain('  = all passed');
+    expect(lines.some(l => l.startsWith('  = all passed'))).toBe(true);
   });
 
   it('prints the tool calls of workflow workers with their task id', async () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { AgentSession } from '../../../src/agent/core/session';
+import { AgentSession, summaryOf } from '../../../src/agent/core/session';
 import type { Message } from '../../../src/agent/core/messages';
 import { MockProvider } from '../../../src/agent/providers/mock';
 import {
@@ -105,7 +105,7 @@ describe('AgentSession', () => {
       type: 'tool_result',
       callId: 'c1',
       ok: true,
-      summary: 'hi',
+      summary: 'hi (+1 line)',
     });
     expect(session.messages.map(m => m.role)).toEqual([
       'user',
@@ -397,5 +397,25 @@ describe('AgentSession', () => {
     );
     session.resolveApproval('a1', { kind: 'deny', reason: 'no' });
     expect(permissions.resolved).toEqual([{ id: 'a1', kind: 'deny' }]);
+  });
+});
+
+describe('summaryOf', () => {
+  it('keeps a one-line result as it is', () => {
+    expect(summaryOf('wrote solutions/main.cpp\n')).toBe(
+      'wrote solutions/main.cpp'
+    );
+  });
+
+  it('says how many lines are left after the first one', () => {
+    expect(summaryOf('Config.json\nsolutions/\nvalidator/\n')).toBe(
+      'Config.json (+2 lines)'
+    );
+    expect(summaryOf('a\nb')).toBe('a (+1 line)');
+  });
+
+  it('cuts a long first line', () => {
+    const out = summaryOf(`${'x'.repeat(300)}\nmore`);
+    expect(out).toBe(`${'x'.repeat(120)} (+1 line)`);
   });
 });
