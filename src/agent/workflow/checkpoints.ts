@@ -1,0 +1,490 @@
+/**
+ * The real checks of each task kind (doc 10, "Checkpoint (our code)"). The
+ * model never decides if a task passed: these checks do, with the compiler
+ * and the polyman CLI.
+ */
+
+import fs from 'fs/promises';
+import path from 'path';
+import type {
+  GenerateReport,
+  SelfTestReport,
+  ValidateReport,
+  VerifyReport,
+} from '../../types';
+import type { CliRunner, RunResult } from '../runner/types';
+import { compileCpp, removeBinary, runOnInput, sameTokens } from './compile';
+import { normalizePath } from './recipes';
+import { parseSpec } from './spec';
+import type {
+  Checkpoint,
+  Checkpoints,
+  ConfigPatch,
+  PlanTask,
+  Spec,
+} from './types';
+
+/** Standard checkers the checker task may pick (from `assets/checkers`). */
+export const STANDARD_CHECKERS = [
+  'acmp',
+  'caseicmp',
+  'casencmp',
+  'casewcmp',
+  'dcmp',
+  'fcmp',
+  'hcmp',
+  'icmp',
+  'lcmp',
+  'ncmp',
+  'nyesno',
+  'rcmp',
+  'rcmp4',
+  'rcmp6',
+  'rcmp9',
+  'rncmp',
+  'uncmp',
+  'wcmp',
+  'yesno',
+];
+
+const TIMEOUTS = {
+  testValidator: 120_000,
+  generate: 300_000,
+  validate: 300_000,
+  verify: 600_000,
+};
+
+const MAX_DIGEST_LINES = 20;
+
+function ok(name: string, digest = ''): Checkpoint {
+  return { name, ok: true, digest };
+}
+
+function fail(name: string, digest: string): Checkpoint {
+  return { name, ok: false, digest: clip(digest) };
+}
+
+/** Keeps a digest short: at most {@link MAX_DIGEST_LINES} lines. */
+function clip(text: string, lines = MAX_DIGEST_LINES): string {
+  const all = text.trim().split('\n');
+  if (all.length <= lines) return all.join('\n');
+  return [...all.slice(0, lines), `... ${all.length - lines} more lines`].join(
+    '\n'
+  );
+}
+
+function oneLine(text: string, max = 120): string {
+  const flat = text.trim().replace(/\s+/g, ' ');
+  return flat.length > max ? `${flat.slice(0, max)}...` : flat;
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+/** Why a CLI run that did not exit 0 failed, from its stderr. */
+function runFailure(result: RunResult, what: string): string {
+  if (result.reason === 'timeout') return `${what}: timed out`;
+  if (result.reason === 'cancelled') return `${what}: cancelled`;
+  const tail = result.stderrTail.trim().split('\n').slice(-10).join('\n');
+  return `${what}: exit code ${String(result.exitCode)}${tail ? `\n${tail}` : ''}`;
+}
+
+/** A short digest of `generate --json`. */
+export function generateDigest(report: unknown): string[] {
+  if (!isObject(report)) return [];
+  const r = report as Partial<GenerateReport>;
+  const lines = [...(r.errors ?? [])];
+  for (const t of r.tests ?? []) {
+    if (!t.ok) {
+      lines.push(
+        `test ${t.testset}#${t.index}${t.generator ? ` (${t.generator})` : ''}: ${t.error ?? 'failed'}`
+      );
+    }
+  }
+  return lines;
+}
+
+/** A short digest of `validate --json`. */
+export function validateDigest(report: unknown): string[] {
+  if (!isObject(report)) return [];
+  const r = report as Partial<ValidateReport>;
+  const lines = [...(r.errors ?? [])];
+  for (const t of r.tests ?? []) {
+    if (!t.valid)
+      lines.push(`test ${t.testset}#${t.index} invalid: ${oneLine(t.message)}`);
+  }
+  return lines;
+}
+
+/** A short digest of `test validator --json`. */
+export function selfTestDigest(report: unknown): string[] {
+  if (!isObject(report)) return [];
+  const r = report as Partial<SelfTestReport>;
+  const lines = [...(r.errors ?? [])];
+  for (const c of r.cases ?? []) {
+    if (!c.ok) {
+      lines.push(
+        `case ${c.index}: expected ${c.expected} got ${String(c.actual)}${c.message ? ` (${oneLine(c.message, 80)})` : ''}`
+      );
+    }
+  }
+  return lines;
+}
+
+/**
+ * A short digest of `verify --json`: the failed step and its errors, then
+ * each solution that does not match its tag, with its source file so the
+ * fix loop knows which files to give the fixer.
+ */
+export function verifyDigest(
+  report: unknown,
+  sources: Record<string, string> = {}
+): string {
+  if (!isObject(report)) return 'verify printed no JSON report';
+  const r = report as Partial<VerifyReport>;
+  if (r.ok) return 'verify passed';
+  const lines: string[] = [];
+  if (r.failedStep) lines.push(`failed step: ${r.failedStep}`);
+  for (const step of r.steps ?? []) {
+    if (step.ok) continue;
+    for (const error of step.errors.slice(0, 5)) {
+      lines.push(`${step.name}: ${oneLine(error, 160)}`);
+    }
+  }
+  for (const s of r.solutions ?? []) {
+    if (s.matchesTag) continue;
+    const source = sources[s.name];
+    const bad = s.tests.find(t => t.verdict !== 'OK');
+    lines.push(
+      `solution ${s.name}${source ? ` (${source})` : ''} tag ${s.tag}: ${oneLine(s.reason, 120)}` +
+        (bad
+          ? `; test ${bad.index}: ${bad.verdict}${bad.message ? ` ${oneLine(bad.message, 80)}` : ''}`
+          : '')
+    );
+  }
+  if (lines.length === 0) lines.push('verify failed');
+  return clip(lines.join('\n'));
+}
+
+/** The checker a spec asks for, or an error when it needs a custom one. */
+export function chooseChecker(
+  spec: Spec
+): { name: string } | { error: string } {
+  const parsed = parseSpec(spec);
+  if (parsed.checker) {
+    const name = parsed.checker.toLowerCase();
+    if (!STANDARD_CHECKERS.includes(name)) {
+      return {
+        error: `unknown standard checker ${parsed.checker}, use one of ${STANDARD_CHECKERS.join(', ')}`,
+      };
+    }
+    return { name };
+  }
+  const output = parsed.sections['Output'] ?? '';
+  if (/any (valid|correct) answer|any of them/i.test(`${output}\n${spec}`)) {
+    return { error: 'custom checker needed, not supported yet' };
+  }
+  if (/\byes\b/i.test(output) && /\bno\b/i.test(output))
+    return { name: 'yesno' };
+  if (/\b(real|float|floating|decimal|precision)\b/i.test(output)) {
+    return { name: 'wcmp' };
+  }
+  if (/\bintegers?\b|\bnumbers?\b/i.test(output)) return { name: 'ncmp' };
+  return { name: 'wcmp' };
+}
+
+/** Reads solution name to source path from Config.json, best effort. */
+async function solutionSources(
+  problemDir: string
+): Promise<Record<string, string>> {
+  try {
+    const config: unknown = JSON.parse(
+      await fs.readFile(path.join(problemDir, 'Config.json'), 'utf-8')
+    );
+    const sources: Record<string, string> = {};
+    if (isObject(config) && Array.isArray(config['solutions'])) {
+      for (const s of config['solutions'] as unknown[]) {
+        if (
+          isObject(s) &&
+          typeof s['name'] === 'string' &&
+          typeof s['source'] === 'string'
+        ) {
+          sources[s['name']] = normalizePath(s['source']);
+        }
+      }
+    }
+    return sources;
+  } catch {
+    return {};
+  }
+}
+
+async function exists(file: string): Promise<boolean> {
+  try {
+    await fs.access(file);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The checkpoints, built on the real CLI through a {@link CliRunner}. */
+export class CliCheckpoints implements Checkpoints {
+  constructor(private readonly runner: CliRunner) {}
+
+  async check(
+    task: PlanTask,
+    spec: Spec,
+    problemDir: string,
+    signal: AbortSignal
+  ): Promise<Checkpoint> {
+    switch (task.kind) {
+      case 'statement':
+        return this.filesNotEmpty(task, problemDir);
+      case 'statement_critic':
+        return ok('critic');
+      case 'main_solution':
+      case 'brute_force':
+        return this.samples(task, spec, problemDir, signal);
+      case 'wrong_solution':
+      case 'fix':
+        return this.compiles(task, problemDir, signal);
+      case 'validator': {
+        const result = await this.cli(
+          ['test', 'validator', '--json'],
+          problemDir,
+          TIMEOUTS.testValidator,
+          signal
+        );
+        if (typeof result === 'string') return fail('test validator', result);
+        if (result.exitCode === 0) return ok('test validator');
+        const lines = selfTestDigest(result.json);
+        return fail(
+          'test validator',
+          lines.length > 0
+            ? lines.join('\n')
+            : runFailure(result, 'test validator')
+        );
+      }
+      case 'generators': {
+        const result = await this.cli(
+          ['generate', '--all', '--json'],
+          problemDir,
+          TIMEOUTS.generate,
+          signal
+        );
+        if (typeof result === 'string') return fail('generate', result);
+        if (result.exitCode === 0) return ok('generate');
+        const lines = generateDigest(result.json);
+        return fail(
+          'generate',
+          lines.length > 0 ? lines.join('\n') : runFailure(result, 'generate')
+        );
+      }
+      default:
+        return fail('checkpoint', `kind ${task.kind} has no worker checkpoint`);
+    }
+  }
+
+  async runNoModelTask(
+    task: PlanTask,
+    spec: Spec,
+    problemDir: string,
+    signal: AbortSignal
+  ): Promise<{ checkpoint: Checkpoint; configPatch?: ConfigPatch }> {
+    switch (task.kind) {
+      case 'scaffold': {
+        if (!(await exists(path.join(problemDir, 'Config.json')))) {
+          return {
+            checkpoint: fail(
+              'scaffold',
+              `Config.json not found in ${problemDir}, create the problem first`
+            ),
+          };
+        }
+        const parsed = parseSpec(spec);
+        const set: NonNullable<ConfigPatch['set']> = {};
+        if (parsed.timeLimitMs !== undefined)
+          set.timeLimit = parsed.timeLimitMs;
+        if (parsed.memoryLimitMb !== undefined)
+          set.memoryLimit = parsed.memoryLimitMb;
+        const checkpoint = ok(
+          'scaffold',
+          Object.keys(set).length > 0
+            ? `limits: ${JSON.stringify(set)}`
+            : 'no limits in the spec'
+        );
+        return Object.keys(set).length > 0
+          ? { checkpoint, configPatch: { set } }
+          : { checkpoint };
+      }
+      case 'checker': {
+        const choice = chooseChecker(spec);
+        if ('error' in choice)
+          return { checkpoint: fail('checker', choice.error) };
+        return {
+          checkpoint: ok('checker', `checker: ${choice.name}`),
+          configPatch: { checker: { name: choice.name, isStandard: true } },
+        };
+      }
+      case 'generate_validate': {
+        const gen = await this.cli(
+          ['generate', '--all', '--json'],
+          problemDir,
+          TIMEOUTS.generate,
+          signal
+        );
+        if (typeof gen === 'string')
+          return { checkpoint: fail('generate', gen) };
+        if (gen.exitCode !== 0) {
+          const lines = generateDigest(gen.json);
+          return {
+            checkpoint: fail(
+              'generate',
+              lines.length > 0 ? lines.join('\n') : runFailure(gen, 'generate')
+            ),
+          };
+        }
+        const val = await this.cli(
+          ['validate', '--all', '--json'],
+          problemDir,
+          TIMEOUTS.validate,
+          signal
+        );
+        if (typeof val === 'string')
+          return { checkpoint: fail('validate', val) };
+        if (val.exitCode !== 0) {
+          const lines = validateDigest(val.json);
+          return {
+            checkpoint: fail(
+              'validate',
+              lines.length > 0 ? lines.join('\n') : runFailure(val, 'validate')
+            ),
+          };
+        }
+        return { checkpoint: ok('generate + validate') };
+      }
+      case 'verify': {
+        const result = await this.cli(
+          ['verify', '--json'],
+          problemDir,
+          TIMEOUTS.verify,
+          signal
+        );
+        if (typeof result === 'string')
+          return { checkpoint: fail('verify', result) };
+        if (result.exitCode === 0)
+          return { checkpoint: ok('verify', 'verify passed') };
+        if (result.json === undefined)
+          return { checkpoint: fail('verify', runFailure(result, 'verify')) };
+        const sources = await solutionSources(problemDir);
+        return {
+          checkpoint: fail('verify', verifyDigest(result.json, sources)),
+        };
+      }
+      default:
+        return {
+          checkpoint: fail(task.kind, `kind ${task.kind} needs a worker`),
+        };
+    }
+  }
+
+  /** Runs the CLI. Returns the result, or an error text when it threw. */
+  private async cli(
+    args: string[],
+    cwd: string,
+    timeoutMs: number,
+    signal: AbortSignal
+  ): Promise<RunResult | string> {
+    try {
+      return await this.runner.run(args, { cwd, timeoutMs, signal });
+    } catch (error) {
+      return `polyman ${args[0]} failed to start: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  }
+
+  private async filesNotEmpty(
+    task: PlanTask,
+    problemDir: string
+  ): Promise<Checkpoint> {
+    if (task.ownsFiles.length === 0)
+      return fail('files', 'the task owns no files');
+    const missing: string[] = [];
+    const empty: string[] = [];
+    for (const file of task.ownsFiles) {
+      try {
+        const text = await fs.readFile(path.resolve(problemDir, file), 'utf-8');
+        if (text.trim() === '') empty.push(file);
+      } catch {
+        missing.push(file);
+      }
+    }
+    const lines: string[] = [];
+    if (missing.length > 0) lines.push(`missing: ${missing.join(', ')}`);
+    if (empty.length > 0) lines.push(`empty: ${empty.join(', ')}`);
+    return lines.length > 0 ? fail('files', lines.join('\n')) : ok('files');
+  }
+
+  private async compiles(
+    task: PlanTask,
+    problemDir: string,
+    signal: AbortSignal
+  ): Promise<Checkpoint> {
+    const files = task.ownsFiles.filter(f => /\.(cpp|cc|cxx)$/i.test(f));
+    if (files.length === 0) {
+      return task.kind === 'fix'
+        ? ok('compile', 'no C++ files to compile')
+        : fail('compile', 'the task owns no .cpp file');
+    }
+    for (const file of files) {
+      const result = await compileCpp(file, problemDir, signal);
+      if (!result.ok)
+        return fail(
+          'compile',
+          `${file}: compile error\n${clip(result.error, 15)}`
+        );
+      await removeBinary(result.binary);
+    }
+    return ok('compile');
+  }
+
+  private async samples(
+    task: PlanTask,
+    spec: Spec,
+    problemDir: string,
+    signal: AbortSignal
+  ): Promise<Checkpoint> {
+    const file = task.ownsFiles.find(f => /\.(cpp|cc|cxx)$/i.test(f));
+    if (!file)
+      return fail(
+        'samples',
+        'only C++ solutions are checked, the task owns no .cpp file'
+      );
+    const compiled = await compileCpp(file, problemDir, signal);
+    if (!compiled.ok)
+      return fail('samples', `compile error\n${clip(compiled.error, 15)}`);
+    try {
+      const samples = parseSpec(spec).samples;
+      if (samples.length === 0)
+        return ok('samples', 'no samples in the spec, only compiled');
+      for (const sample of samples) {
+        const input = sample.input.endsWith('\n')
+          ? sample.input
+          : `${sample.input}\n`;
+        const run = await runOnInput(compiled.binary, input, 5000, signal);
+        if (!run.ok)
+          return fail('samples', `sample ${sample.index}: ${run.error}`);
+        if (!sameTokens(run.stdout, sample.output)) {
+          return fail(
+            'samples',
+            `sample ${sample.index}: expected ${oneLine(sample.output, 200)} got ${oneLine(run.stdout, 200) || '(nothing)'}`
+          );
+        }
+      }
+      return ok('samples', `${samples.length} samples ok`);
+    } finally {
+      await removeBinary(compiled.binary);
+    }
+  }
+}

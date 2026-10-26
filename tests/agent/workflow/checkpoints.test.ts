@@ -1,0 +1,476 @@
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { execFileSync } from 'child_process';
+import fs from 'fs/promises';
+import os from 'os';
+import path from 'path';
+import {
+  CliCheckpoints,
+  chooseChecker,
+  verifyDigest,
+} from '../../../src/agent/workflow/checkpoints';
+import {
+  compileCpp,
+  removeBinary,
+  runOnInput,
+  sameTokens,
+} from '../../../src/agent/workflow/compile';
+import type {
+  CliRunner,
+  RunOptions,
+  RunResult,
+} from '../../../src/agent/runner/types';
+import type { PlanTask } from '../../../src/agent/workflow/types';
+
+const FENCE = '```';
+
+const SPEC = `# Input
+The first line has n and k. The second line has n integers.
+
+# Output
+One integer: the number of pairs.
+
+# Samples
+## Input 1
+${FENCE}
+4 6
+1 5 3 3
+${FENCE}
+## Output 1
+${FENCE}
+2
+${FENCE}
+
+# Decisions
+- Time limit 2 seconds, memory limit 512 MB.
+`;
+
+const CORRECT = `#include <iostream>
+#include <map>
+int main() {
+  long long n, k; std::cin >> n >> k;
+  std::map<long long, long long> cnt; long long ans = 0;
+  for (int i = 0; i < n; i++) { long long a; std::cin >> a; ans += cnt[k - a]; cnt[a]++; }
+  std::cout << ans << "\\n";
+}
+`;
+
+const WRONG = `#include <iostream>
+int main() { std::cout << 7 << "\\n"; }
+`;
+
+const BROKEN = `int main() { this is not c++ }
+`;
+
+function hasGpp(): boolean {
+  try {
+    execFileSync('g++', ['--version'], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function task(kind: PlanTask['kind'], ownsFiles: string[] = []): PlanTask {
+  return { id: 't1', kind, title: kind, dependsOn: [], brief: '', ownsFiles };
+}
+
+/** A fake runner that answers each command from a table. */
+class FakeRunner implements CliRunner {
+  calls: string[][] = [];
+  constructor(private readonly answers: Record<string, Partial<RunResult>>) {}
+
+  run(args: string[], _opts: RunOptions): Promise<RunResult> {
+    this.calls.push(args);
+    const answer = this.answers[args.join(' ')] ?? {};
+    return Promise.resolve({
+      exitCode: 0,
+      reason: 'exited',
+      stdoutTail: '',
+      stderrTail: '',
+      logPath: '/tmp/log',
+      durationMs: 1,
+      ...answer,
+    });
+  }
+}
+
+const signal = new AbortController().signal;
+let dir: string;
+
+beforeEach(async () => {
+  dir = await fs.mkdtemp(path.join(os.tmpdir(), 'polyman-cp-'));
+});
+
+afterEach(async () => {
+  await fs.rm(dir, { recursive: true, force: true });
+});
+
+describe('sameTokens', () => {
+  it('compares whitespace-separated tokens', () => {
+    expect(sameTokens('1 2\n3\n', ' 1\t2 3')).toBe(true);
+    expect(sameTokens('1 2', '1 2 3')).toBe(false);
+    expect(sameTokens('', '\n')).toBe(true);
+  });
+});
+
+describe.skipIf(!hasGpp())('compile and samples (needs g++)', () => {
+  const checkpoints = new CliCheckpoints(new FakeRunner({}));
+
+  it('a correct solution passes the sample', async () => {
+    await fs.mkdir(path.join(dir, 'solutions'));
+    await fs.writeFile(path.join(dir, 'solutions/main.cpp'), CORRECT);
+    const cp = await checkpoints.check(
+      task('main_solution', ['solutions/main.cpp']),
+      SPEC,
+      dir,
+      signal
+    );
+    expect(cp).toEqual({ name: 'samples', ok: true, digest: '1 samples ok' });
+  });
+
+  it('a wrong solution gives the expected/got digest', async () => {
+    await fs.writeFile(path.join(dir, 'brute.cpp'), WRONG);
+    const cp = await checkpoints.check(
+      task('brute_force', ['brute.cpp']),
+      SPEC,
+      dir,
+      signal
+    );
+    expect(cp.ok).toBe(false);
+    expect(cp.digest).toBe('sample 1: expected 2 got 7');
+  });
+
+  it('a syntax error gives the compiler error', async () => {
+    await fs.writeFile(path.join(dir, 'main.cpp'), BROKEN);
+    const cp = await checkpoints.check(
+      task('main_solution', ['main.cpp']),
+      SPEC,
+      dir,
+      signal
+    );
+    expect(cp.ok).toBe(false);
+    expect(cp.digest).toMatch(/^compile error\n/);
+    expect(cp.digest).toContain('main.cpp');
+    expect(cp.digest.split('\n').length).toBeLessThanOrEqual(17);
+  });
+
+  it('wrong_solution only needs to compile', async () => {
+    await fs.writeFile(path.join(dir, 'wa.cpp'), WRONG);
+    const cp = await checkpoints.check(
+      task('wrong_solution', ['wa.cpp']),
+      SPEC,
+      dir,
+      signal
+    );
+    expect(cp.ok).toBe(true);
+  });
+
+  it('runOnInput reports a timeout', async () => {
+    await fs.writeFile(
+      path.join(dir, 'loop.cpp'),
+      'int main() { volatile int x = 0; for (;;) x++; }\n'
+    );
+    const compiled = await compileCpp('loop.cpp', dir, signal);
+    expect(compiled.ok).toBe(true);
+    if (!compiled.ok) return;
+    const run = await runOnInput(compiled.binary, '', 200, signal);
+    expect(run).toEqual({ ok: false, error: 'timed out after 200 ms' });
+    await removeBinary(compiled.binary);
+  });
+});
+
+describe('CliCheckpoints with a fake runner', () => {
+  it('statement: files must exist and not be empty', async () => {
+    const checkpoints = new CliCheckpoints(new FakeRunner({}));
+    await fs.writeFile(path.join(dir, 'legend.tex'), 'A legend');
+    await fs.writeFile(path.join(dir, 'input.tex'), '  \n');
+    const cp = await checkpoints.check(
+      task('statement', ['legend.tex', 'input.tex', 'output.tex']),
+      SPEC,
+      dir,
+      signal
+    );
+    expect(cp.ok).toBe(false);
+    expect(cp.digest).toBe('missing: output.tex\nempty: input.tex');
+
+    await fs.writeFile(path.join(dir, 'input.tex'), 'x');
+    await fs.writeFile(path.join(dir, 'output.tex'), 'y');
+    const good = await checkpoints.check(
+      task('statement', ['legend.tex', 'input.tex', 'output.tex']),
+      SPEC,
+      dir,
+      signal
+    );
+    expect(good.ok).toBe(true);
+  });
+
+  it('statement_critic is always ok', async () => {
+    const checkpoints = new CliCheckpoints(new FakeRunner({}));
+    const cp = await checkpoints.check(
+      task('statement_critic'),
+      SPEC,
+      dir,
+      signal
+    );
+    expect(cp.ok).toBe(true);
+  });
+
+  it('validator runs test validator and digests failed cases', async () => {
+    const runner = new FakeRunner({
+      'test validator --json': {
+        exitCode: 1,
+        json: {
+          ok: false,
+          errors: [],
+          cases: [
+            {
+              index: 1,
+              expected: 'VALID',
+              actual: 'VALID',
+              ok: true,
+              message: '',
+            },
+            {
+              index: 2,
+              expected: 'INVALID',
+              actual: 'VALID',
+              ok: false,
+              message: 'accepted n = 0',
+            },
+          ],
+        },
+      },
+    });
+    const cp = await new CliCheckpoints(runner).check(
+      task('validator', ['validator/val.cpp']),
+      SPEC,
+      dir,
+      signal
+    );
+    expect(runner.calls).toEqual([['test', 'validator', '--json']]);
+    expect(cp.ok).toBe(false);
+    expect(cp.digest).toBe(
+      'case 2: expected INVALID got VALID (accepted n = 0)'
+    );
+  });
+
+  it('generators runs generate --all', async () => {
+    const runner = new FakeRunner({});
+    const cp = await new CliCheckpoints(runner).check(
+      task('generators', ['generators/gen.cpp']),
+      SPEC,
+      dir,
+      signal
+    );
+    expect(runner.calls).toEqual([['generate', '--all', '--json']]);
+    expect(cp.ok).toBe(true);
+  });
+
+  it('a timeout of the CLI is a failed checkpoint', async () => {
+    const runner = new FakeRunner({
+      'generate --all --json': { exitCode: null, reason: 'timeout' },
+    });
+    const cp = await new CliCheckpoints(runner).check(
+      task('generators', ['g.cpp']),
+      SPEC,
+      dir,
+      signal
+    );
+    expect(cp).toEqual({
+      name: 'generate',
+      ok: false,
+      digest: 'generate: timed out',
+    });
+  });
+
+  it('scaffold needs Config.json and sets the limits from the spec', async () => {
+    const checkpoints = new CliCheckpoints(new FakeRunner({}));
+    const missing = await checkpoints.runNoModelTask(
+      task('scaffold'),
+      SPEC,
+      dir,
+      signal
+    );
+    expect(missing.checkpoint.ok).toBe(false);
+    expect(missing.checkpoint.digest).toContain('Config.json not found');
+
+    await fs.writeFile(path.join(dir, 'Config.json'), '{}');
+    const out = await checkpoints.runNoModelTask(
+      task('scaffold'),
+      SPEC,
+      dir,
+      signal
+    );
+    expect(out.checkpoint.ok).toBe(true);
+    expect(out.configPatch).toEqual({
+      set: { timeLimit: 2000, memoryLimit: 512 },
+    });
+  });
+
+  it('checker returns a config patch', async () => {
+    const checkpoints = new CliCheckpoints(new FakeRunner({}));
+    const out = await checkpoints.runNoModelTask(
+      task('checker'),
+      SPEC,
+      dir,
+      signal
+    );
+    expect(out.checkpoint).toEqual({
+      name: 'checker',
+      ok: true,
+      digest: 'checker: ncmp',
+    });
+    expect(out.configPatch).toEqual({
+      checker: { name: 'ncmp', isStandard: true },
+    });
+  });
+
+  it('generate_validate runs generate then validate', async () => {
+    const runner = new FakeRunner({
+      'validate --all --json': {
+        exitCode: 1,
+        json: {
+          ok: false,
+          errors: [],
+          tests: [
+            {
+              testset: 'tests',
+              index: 3,
+              valid: false,
+              message: 'n is out of range',
+            },
+          ],
+        },
+      },
+    });
+    const out = await new CliCheckpoints(runner).runNoModelTask(
+      task('generate_validate'),
+      SPEC,
+      dir,
+      signal
+    );
+    expect(runner.calls).toEqual([
+      ['generate', '--all', '--json'],
+      ['validate', '--all', '--json'],
+    ]);
+    expect(out.checkpoint).toEqual({
+      name: 'validate',
+      ok: false,
+      digest: 'test tests#3 invalid: n is out of range',
+    });
+  });
+
+  it('verify digests the report and names the solution files', async () => {
+    await fs.writeFile(
+      path.join(dir, 'Config.json'),
+      JSON.stringify({
+        solutions: [
+          { name: 'wa-1', source: './solutions/wa-1.cpp', tag: 'WA' },
+        ],
+      })
+    );
+    const runner = new FakeRunner({
+      'verify --json': {
+        exitCode: 1,
+        json: {
+          ok: false,
+          failedStep: 'solutions',
+          steps: [
+            {
+              name: 'solutions',
+              ok: false,
+              errors: ['wa-1 does not match its tag'],
+            },
+          ],
+          warnings: [],
+          solutions: [
+            {
+              name: 'wa-1',
+              tag: 'WA',
+              matchesTag: false,
+              reason: 'passed every test',
+              tests: [
+                {
+                  testset: 'tests',
+                  index: 1,
+                  verdict: 'OK',
+                  timeMs: 3,
+                  message: '',
+                },
+              ],
+            },
+          ],
+        },
+      },
+    });
+    const out = await new CliCheckpoints(runner).runNoModelTask(
+      task('verify'),
+      SPEC,
+      dir,
+      signal
+    );
+    expect(out.checkpoint.ok).toBe(false);
+    expect(out.checkpoint.digest).toBe(
+      [
+        'failed step: solutions',
+        'solutions: wa-1 does not match its tag',
+        'solution wa-1 (solutions/wa-1.cpp) tag WA: passed every test',
+      ].join('\n')
+    );
+  });
+
+  it('verify passes on exit 0', async () => {
+    const out = await new CliCheckpoints(new FakeRunner({})).runNoModelTask(
+      task('verify'),
+      SPEC,
+      dir,
+      signal
+    );
+    expect(out.checkpoint).toEqual({
+      name: 'verify',
+      ok: true,
+      digest: 'verify passed',
+    });
+  });
+});
+
+describe('chooseChecker', () => {
+  it('uses the Checker decision first', () => {
+    expect(
+      chooseChecker('# Output\nYES or NO\n# Decisions\n- Checker: wcmp.')
+    ).toEqual({
+      name: 'wcmp',
+    });
+    expect(chooseChecker('# Decisions\n- Checker: magic')).toHaveProperty(
+      'error'
+    );
+  });
+
+  it('picks from the output section', () => {
+    expect(chooseChecker('# Output\nOne integer: the answer.')).toEqual({
+      name: 'ncmp',
+    });
+    expect(
+      chooseChecker('# Output\nPrint YES if it is possible, else NO.')
+    ).toEqual({
+      name: 'yesno',
+    });
+    expect(chooseChecker('# Output\nThe resulting string.')).toEqual({
+      name: 'wcmp',
+    });
+  });
+
+  it('refuses "any valid answer"', () => {
+    expect(
+      chooseChecker(
+        '# Output\nAny permutation. If there are many, print any valid answer.'
+      )
+    ).toEqual({ error: 'custom checker needed, not supported yet' });
+  });
+});
+
+describe('verifyDigest', () => {
+  it('handles a missing report', () => {
+    expect(verifyDigest(undefined)).toBe('verify printed no JSON report');
+  });
+});
